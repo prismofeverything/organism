@@ -110,20 +110,64 @@
     (into adjacent others)))
 
 (defrecord Player [name starting-spaces captures elements])
-(defrecord Element [player type food space])
+(defrecord Element [player type space food])
 (defrecord Space [name element])
 (defrecord State [adjacencies players spaces turn round history])
 
 (defn initial-state
-  [player-info adjacencies]
+  [adjacencies player-info]
   (let [spaces
         (map
          (fn [space]
-           (Space. space nil))
+           [space (Space. space nil)])
          (keys adjacencies))
         players
         (map
          (fn [[player-name starting-spaces]]
-           (Player. player-name starting-spaces 0 {:eat [] :move [] :grow []}))
+           [player-name
+            (Player.
+             player-name starting-spaces 0
+             {:eat []
+              :move []
+              :grow []})])
          player-info)]
-    (State. adjacencies players spaces 0 [])))
+    (State.
+     adjacencies
+     (into {} players)
+     (into {} spaces)
+     0 0 [])))
+
+(defn create-game
+  [symmetry colors player-info]
+  (let [rings (build-rings symmetry colors)
+        adjacencies (find-adjacencies rings)]
+    (initial-state adjacencies player-info)))
+
+(defn add-element
+  [state player type space food]
+  (let [element (Element. player type space food)]
+    (-> state
+        (assoc-in [:spaces space] element)
+        (update-in [:players player :elements type] conj element))))
+
+(defn remove-space
+  [elements space]
+  (remove
+   (fn [element]
+     (= space (:space element)))
+   elements))
+
+(defn remove-element
+  [state space]
+  (let [{:keys [player type]} (get-in state [:spaces space])]
+    (-> state
+        (assoc-in [:spaces space] nil)
+        (update-in [:players player :elements type] remove-space space))))
+
+(defn introduce
+  [state player {:keys [eat grow move]}]
+  (-> state
+      (add-element player :eat eat 1)
+      (add-element player :grow grow 1)
+      (add-element player :move move 1)))
+

@@ -43,5 +43,26 @@
           adjacencies (find-adjacencies rings)
           player-info [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
                        ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
-          initial (initial-state player-info adjacencies)]
-      (print initial))))
+          initial (initial-state adjacencies player-info)]
+      (println initial))))
+
+(def two-player-close
+  (create-game
+   6
+   [:yellow :red :blue :orange]
+   [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
+    ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]))
+
+(deftest introduce-test
+  (testing "how introducing a new organism works"
+    (let [state two-player-close
+          state (introduce
+                 state "orb"
+                 {:eat [:orange 0]
+                  :grow [:orange 2]
+                  :move [:orange 1]})]
+      (println (get-in state [:players "orb"]))
+      (is (= :move (get-in state [:spaces [:orange 1] :type])))
+      (is (= 1 (get-in state [:spaces [:orange 0] :food])))
+      (is (= [:orange 2] (get-in state [:players "orb" :elements :grow 0 :space]))))))
+
