@@ -13,17 +13,25 @@
 (deftest space-adjacencies-test
   (testing "finding the adjacencies for a single space"
     (let [five-rings (build-rings 5 [:yellow :red :blue :orange :green])
-          five-adjacent (space-adjacencies five-rings [:orange 10])
+          five-space [:red 3]
+          five-adjacent (space-adjacencies five-rings five-space)
           six-rings (build-rings 6 [:yellow :red :blue :orange :green])
-          six-adjacent (space-adjacencies six-rings [:orange 15])]
-      (println "five adjacent" five-adjacent)
-      (println "six adjacent" six-adjacent)
-      (is (= 6 (count (last five-adjacent)))))))
+          six-sxace [:green 15]
+          six-adjacent (space-adjacencies six-rings six-sxace)]
+      (println "five adjacent" five-space five-adjacent)
+      (println "six adjacent" six-sxace six-adjacent)
+      (is (= 6 (count five-adjacent))))))
 
-;; (deftest adjacencies-test
-;;   (testing "finding adjacencies"
-;;     (let [rings (build-rings 5 [:yellow :red :blue :orange])
-;;           adjacencies (find-adjacencies rings)]
-;;       (println adjacencies)
-;;       (is (= 4 (count rings)))
-;;       (is (= 31 (count (rings->spaces rings)))))))
+(deftest ring-adjacencies-test
+  (testing "finding all adjacencies for a given ring"
+    (let [five-rings (build-rings 5 [:yellow :red :blue :orange :green])
+          blue-adjacent (ring-adjacencies five-rings :blue)]
+      (println "blue adjacencies" blue-adjacent)
+      (is (= 10 (count blue-adjacent))))))
+
+(deftest adjacencies-test
+  (testing "finding adjacencies"
+    (let [five-rings (build-rings 5 [:yellow :red :blue :orange :green])
+          adjacencies (find-adjacencies five-rings)]
+      (println adjacencies)
+      (is (= 51 (count adjacencies))))))
