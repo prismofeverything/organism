@@ -108,3 +108,22 @@
                 (partial ring-adjacencies rings)
                 (rest colors))]
     (into adjacent others)))
+
+(defrecord Player [name starting-spaces captures elements])
+(defrecord Element [player type food space])
+(defrecord Space [name element])
+(defrecord State [adjacencies players spaces turn round history])
+
+(defn initial-state
+  [player-info adjacencies]
+  (let [spaces
+        (map
+         (fn [space]
+           (Space. space nil))
+         (keys adjacencies))
+        players
+        (map
+         (fn [[player-name starting-spaces]]
+           (Player. player-name starting-spaces 0 {:eat [] :move [] :grow []}))
+         player-info)]
+    (State. adjacencies players spaces 0 [])))
