@@ -122,7 +122,7 @@
     (into adjacent others)))
 
 (defrecord Player [name starting-spaces captures])
-(defrecord Element [player type space food])
+(defrecord Element [player type space food captured?])
 (defrecord Space [name element])
 (defrecord State [adjacencies players spaces turn round history])
 
@@ -156,7 +156,7 @@
 
 (defn add-element
   [state player type space food]
-  (let [element (Element. player type space food)]
+  (let [element (Element. player type space food false)]
     (assoc-in state [:spaces space :element] element)))
 
 (defn remove-element
@@ -259,6 +259,13 @@
        *food-limit*
        food))))
 
+(defn mark-capture
+  [state space]
+  (assoc-in
+   state
+   [:spaces space :element :captured?]
+   true))
+
 (defn resolve-conflict
   [state rise fall]
   (println "resolve conflict" rise fall)
@@ -266,6 +273,7 @@
       (adjust-food (:space rise) (:food fall))
       (cap-food (:space rise))
       (remove-element (:space fall))
+      (mark-capture (:space rise))
       (update-in [:players (:player rise) :captures] conj fall)))
 
 (defn set-add
@@ -287,12 +295,12 @@
                    {} conflicting-elements)
         up (reduce
             (fn [up [from to]]
-              (assoc up to from))
+              (assoc up (:space to) from))
             {} conflicting-elements)
         order (graph/kahn-sort conflicts)]
     (reduce
      (fn [state fall]
-       (let [rise (get up fall)]
+       (let [rise (get up (:space fall))]
          (if rise
            (resolve-conflict
             state
@@ -300,3 +308,4 @@
             (get-element state (:space fall)))
            state)))
      state (reverse order))))
+

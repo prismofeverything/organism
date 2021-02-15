@@ -119,6 +119,9 @@
                     (resolve-conflicts "orb"))
           elements (player-elements state)
           orb-elements (get elements "orb")]
+      (println "post conflict" elements)
       (is (= 1 (count orb-elements)))
       (is (= :eat (:type (first orb-elements))))
-      (is (= 3 (:food (first orb-elements)))))))
+      (is (= 3 (:food (first orb-elements))))
+      (is (= 1 (count (get-in state [:players "orb" :captures]))))
+      (is (= 1 (count (get-in state [:players "mass" :captures])))))))
