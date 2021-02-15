@@ -109,7 +109,7 @@
                 (rest colors))]
     (into adjacent others)))
 
-(defrecord Player [name starting-spaces captures elements])
+(defrecord Player [name starting-spaces captures])
 (defrecord Element [player type space food])
 (defrecord Space [name element])
 (defrecord State [adjacencies players spaces turn round history])
@@ -125,11 +125,7 @@
         (map
          (fn [[player-name starting-spaces]]
            [player-name
-            (Player.
-             player-name starting-spaces 0
-             {:eat []
-              :move []
-              :grow []})])
+            (Player. player-name starting-spaces 0)])
          player-info)]
     (State.
      adjacencies
@@ -146,23 +142,11 @@
 (defn add-element
   [state player type space food]
   (let [element (Element. player type space food)]
-    (-> state
-        (assoc-in [:spaces space] element)
-        (update-in [:players player :elements type] conj element))))
-
-(defn remove-space
-  [elements space]
-  (remove
-   (fn [element]
-     (= space (:space element)))
-   elements))
+    (assoc-in state [:spaces space :element] element)))
 
 (defn remove-element
   [state space]
-  (let [{:keys [player type]} (get-in state [:spaces space])]
-    (-> state
-        (assoc-in [:spaces space] nil)
-        (update-in [:players player :elements type] remove-space space))))
+  (assoc-in state [:spaces space :element] nil))
 
 (defn introduce
   [state player {:keys [eat grow move]}]
@@ -171,3 +155,48 @@
       (add-element player :grow grow 1)
       (add-element player :move move 1)))
 
+(defn adjust-food
+  [state space amount]
+  (update-in
+   state
+   [:spaces space :element :food]
+   (partial + amount)))
+
+(defn eat
+  [state player space]
+  (adjust-food state space 1))
+
+(defn grow
+  [state player source target type]
+  (let [state
+        (reduce
+         (fn [state [space food]]
+           (adjust-food state space (* food -1)))
+         state
+         source)]
+    (add-element state player type target 0)))
+
+(defn move
+  [state player from to]
+  (let [element (get-in state [:spaces from :element])]
+    (-> state
+        (remove-element from)
+        (assoc-in
+         [:spaces to :element]
+         (assoc element :space to)))))
+
+(defn circulate
+  [state player from to]
+  (-> state
+      (adjust-food from -1)
+      (adjust-food to 1)))
+
+(defn player-elements
+  [state]
+  (reduce
+   (fn [elements [space {:keys [element]}]]
+     (if element
+       (update elements (:player element) conj element)
+       elements))
+   {}
+   (:spaces state)))

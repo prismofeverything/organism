@@ -62,7 +62,50 @@
                   :grow [:orange 2]
                   :move [:orange 1]})]
       (println (get-in state [:players "orb"]))
-      (is (= :move (get-in state [:spaces [:orange 1] :type])))
-      (is (= 1 (get-in state [:spaces [:orange 0] :food])))
-      (is (= [:orange 2] (get-in state [:players "orb" :elements :grow 0 :space]))))))
+      (is (= :move (get-in state [:spaces [:orange 1] :element :type])))
+      (is (= 1 (get-in state [:spaces [:orange 0] :element :food]))))))
 
+(deftest action-test
+  (testing "applying the various actions to the state"
+    (let [state two-player-close
+          state (introduce
+                 state "orb"
+                 {:eat [:orange 0]
+                  :grow [:orange 2]
+                  :move [:orange 1]})
+          state (move
+                 state "orb"
+                 [:orange 2]
+                 [:blue 1])
+          state (introduce
+                 state "mass"
+                 {:eat [:orange 9]
+                  :grow [:orange 10]
+                  :move [:orange 11]})
+          state (grow
+                 state "mass"
+                 {[:orange 10] 1}
+                 [:blue 6]
+                 :move)
+          state (grow
+                 state "orb"
+                 {[:blue 1] 1}
+                 [:red 1]
+                 :grow)
+          state (move
+                 state "mass"
+                 [:orange 10]
+                 [:blue 7])
+          state (circulate
+                 state "orb"
+                 [:orange 0]
+                 [:blue 1])
+          state (circulate
+                 state "orb"
+                 [:orange 1]
+                 [:red 1])
+          state (eat
+                 state "mass"
+                 [:orange 9])]
+      ;; (println state)
+      (println (player-elements state)))))
