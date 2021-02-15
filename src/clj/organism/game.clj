@@ -1,10 +1,16 @@
-(ns organism.game)
+(ns organism.game
+  (:require
+   [organism.graph :as graph]))
+
+(def ^:dynamic *food-limit* 3)
 
 (defn map-cat
+  "non-lazy mapcat"
   [f s]
   (reduce into [] (mapv f s)))
 
 (defn build-ring
+  "build the spaces in a ring"
   [symmetry color level]
   (mapv
    (fn [step]
@@ -12,6 +18,7 @@
    (range (* level symmetry))))
 
 (defn build-rings
+  "build rings of all the colors with the given symmetry"
   [symmetry colors]
   (let [core-color (first colors)
         core (list [core-color 0])]
@@ -28,16 +35,19 @@
       (map inc (range))))))
 
 (defn rings->spaces
+  "get just the list of spaces from the nested rings strcture"
   [rings]
   (apply
    concat
    (mapv second rings)))
 
 (defn mod-space
+  "contain the step within the given ring of spaces"
   [color spaces step]
   [color (mod step spaces)])
 
 (defn space-adjacencies
+  "find all adjacencies in these rings for the given space"
   [rings space]
   (let [[color step] space
         level (.indexOf (map first rings) color)
@@ -88,6 +98,7 @@
     adjacent-spaces))
 
 (defn ring-adjacencies
+  "find all adjacencies for all spaces in the ring of the given color"
   [rings color]
   (let [spaces (get (into {} rings) color)]
     (mapv
@@ -99,6 +110,7 @@
      spaces)))
 
 (defn find-adjacencies
+  "find all adjacencies for all rings"
   [rings]
   (let [colors (map first rings)
         [core-color core-spaces] (first rings)
@@ -115,6 +127,7 @@
 (defrecord State [adjacencies players spaces turn round history])
 
 (defn initial-state
+  "create the initial state for the game from the given adjacencies and player info"
   [adjacencies player-info]
   (let [spaces
         (map
@@ -125,7 +138,7 @@
         (map
          (fn [[player-name starting-spaces]]
            [player-name
-            (Player. player-name starting-spaces 0)])
+            (Player. player-name starting-spaces [])])
          player-info)]
     (State.
      adjacencies
@@ -134,6 +147,8 @@
      0 0 [])))
 
 (defn create-game
+  "generate adjacencies for a given symmetry with a ring for each color,
+   and the given players"
   [symmetry colors player-info]
   (let [rings (build-rings symmetry colors)
         adjacencies (find-adjacencies rings)]
@@ -178,12 +193,13 @@
 
 (defn move
   [state player from to]
-  (let [element (get-in state [:spaces from :element])]
+  (let [element (get-in state [:spaces from :element])
+        element (assoc element :space to)]
     (-> state
         (remove-element from)
         (assoc-in
          [:spaces to :element]
-         (assoc element :space to)))))
+         element))))
 
 (defn circulate
   [state player from to]
@@ -200,3 +216,87 @@
        elements))
    {}
    (:spaces state)))
+
+(def heterarchy
+  {:eat :grow
+   :grow :move
+   :move :eat})
+
+(defn heterarchy-sort
+  [a b]
+  (if (= (get heterarchy (:type a))
+         (:type b))
+    [a b]
+    [b a]))
+
+(defn element-conflicts
+  [state {:keys [space player] :as element}]
+  (let [adjacents (get-in state [:adjacencies space])]
+    (map-cat
+     (fn [adjacent]
+       (let [adjacent-element (get-in state [:spaces adjacent :element])]
+         (if (and
+              adjacent-element
+              (not= (:player adjacent-element) player))
+           [(heterarchy-sort element adjacent-element)])))
+     adjacents)))
+
+(defn player-conflicts
+  [state player]
+  (let [all-elements (player-elements state)
+        elements (get all-elements player)]
+    (map-cat
+     (partial element-conflicts state)
+     elements)))
+
+(defn cap-food
+  [state space]
+  (update-in
+   state
+   [:spaces space :element :food]
+   (fn [food]
+     (if (> food *food-limit*)
+       *food-limit*
+       food))))
+
+(defn resolve-conflict
+  [state rise fall]
+  (println "resolve conflict" rise fall)
+  (-> state
+      (adjust-food (:space rise) (:food fall))
+      (cap-food (:space rise))
+      (remove-element (:space fall))
+      (update-in [:players (:player rise) :captures] conj fall)))
+
+(defn set-add
+  [s el]
+  (if (not s)
+    #{el}
+    (conj s el)))
+
+(defn get-element
+  [state space]
+  (get-in state [:spaces space :element]))
+
+(defn resolve-conflicts
+  [state player]
+  (let [conflicting-elements (player-conflicts state player)
+        conflicts (reduce
+                   (fn [conflicts [from to]]
+                     (update conflicts from set-add to))
+                   {} conflicting-elements)
+        up (reduce
+            (fn [up [from to]]
+              (assoc up to from))
+            {} conflicting-elements)
+        order (graph/kahn-sort conflicts)]
+    (reduce
+     (fn [state fall]
+       (let [rise (get up fall)]
+         (if rise
+           (resolve-conflict
+            state
+            (get-element state (:space rise))
+            (get-element state (:space fall)))
+           state)))
+     state (reverse order))))

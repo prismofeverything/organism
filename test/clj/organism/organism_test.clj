@@ -109,3 +109,16 @@
                  [:orange 9])]
       ;; (println state)
       (println (player-elements state)))))
+
+(deftest conflict-test
+  (testing "resolving complex chains of conflict"
+    (let [state (-> two-player-close
+                    (add-element "orb" :eat [:orange 5] 0)
+                    (add-element "orb" :move [:blue 4] 2)
+                    (add-element "mass" :grow [:blue 3] 2)
+                    (resolve-conflicts "orb"))
+          elements (player-elements state)
+          orb-elements (get elements "orb")]
+      (is (= 1 (count orb-elements)))
+      (is (= :eat (:type (first orb-elements))))
+      (is (= 3 (:food (first orb-elements)))))))
