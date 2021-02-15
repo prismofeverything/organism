@@ -156,7 +156,7 @@
 
 (defn add-element
   [state player type space food]
-  (let [element (Element. player type space food false)]
+  (let [element (Element. player type space food [])]
     (assoc-in state [:spaces space :element] element)))
 
 (defn remove-element
@@ -260,20 +260,19 @@
        food))))
 
 (defn mark-capture
-  [state space]
-  (assoc-in
+  [state space capture]
+  (update-in
    state
-   [:spaces space :element :captured?]
-   true))
+   [:spaces space :element :captures]
+   conj capture))
 
 (defn resolve-conflict
   [state rise fall]
-  (println "resolve conflict" rise fall)
   (-> state
       (adjust-food (:space rise) (:food fall))
       (cap-food (:space rise))
       (remove-element (:space fall))
-      (mark-capture (:space rise))
+      (mark-capture (:space rise) fall)
       (update-in [:players (:player rise) :captures] conj fall)))
 
 (defn set-add
