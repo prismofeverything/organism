@@ -10,15 +10,6 @@
   [f s]
   (reduce into [] (mapv f s)))
 
-(def organism-colors
-  {:yellow "fff88c"
-   :red "da6558"
-   :blue "849cd5"
-   :orange "febe48"
-   :green "a6cd7a"
-   :purple "9c6d8e"
-   :grey "3b545c"})
-
 ;; BOARD ----------------------
 
 (defn build-ring

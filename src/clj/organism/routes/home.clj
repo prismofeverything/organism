@@ -1,8 +1,10 @@
 (ns organism.routes.home
   (:require
+   [organism.board :as board]
    [organism.layout :as layout]
    [clojure.java.io :as io]
    [organism.middleware :as middleware]
+   [ring.util.http-response :refer [content-type ok] :as response]
    [ring.util.response]
    [ring.util.http-response :as response]))
 
@@ -12,10 +14,17 @@
 (defn about-page [request]
   (layout/render request "about.html"))
 
+(defn game-page [request]
+  (content-type
+   (ok
+    (board/render 6 35 2.2 (map last board/organism-colors)))
+   "text/html; charset=utf-8"))
+
 (defn home-routes []
   [""
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["/" {:get home-page}]
-   ["/about" {:get about-page}]])
+   ["/about" {:get about-page}]
+   ["/game" {:get game-page}]])
 
