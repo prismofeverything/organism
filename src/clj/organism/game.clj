@@ -9,6 +9,17 @@
   [f s]
   (reduce into [] (mapv f s)))
 
+(def organism-colors
+  {:yellow "fff88c"
+   :red "da6558"
+   :blue "849cd5"
+   :orange "febe48"
+   :green "a6cd7a"
+   :purple "9c6d8e"
+   :grey "3b545c"})
+
+;; BOARD ----------------------
+
 (defn build-ring
   "build the spaces in a ring"
   [symmetry color level]
@@ -121,9 +132,11 @@
                 (rest colors))]
     (into adjacent others)))
 
+;; STATE ---------------------------------
+
 (defrecord Player [name starting-spaces captures])
-(defrecord Element [player type space food captured?])
-(defrecord Space [name element])
+(defrecord Element [player organism type space food captured?])
+(defrecord Space [space element])
 (defrecord State [adjacencies players spaces turn round history])
 
 (defn initial-state
@@ -154,21 +167,22 @@
         adjacencies (find-adjacencies rings)]
     (initial-state adjacencies player-info)))
 
+(defn adjacent-to
+  [state space]
+  (get-in state [:adjacencies space]))
+
+(defn get-element
+  [state space]
+  (get-in state [:spaces space :element]))
+
 (defn add-element
-  [state player type space food]
-  (let [element (Element. player type space food [])]
+  [state player organism type space food]
+  (let [element (Element. player organism type space food [])]
     (assoc-in state [:spaces space :element] element)))
 
 (defn remove-element
   [state space]
   (assoc-in state [:spaces space :element] nil))
-
-(defn introduce
-  [state player {:keys [eat grow move]}]
-  (-> state
-      (add-element player :eat eat 1)
-      (add-element player :grow grow 1)
-      (add-element player :move move 1)))
 
 (defn adjust-food
   [state space amount]
@@ -177,19 +191,31 @@
    [:spaces space :element :food]
    (partial + amount)))
 
+;; ACTIONS -----------------------
+
+(defn introduce
+  [state player {:keys [eat grow move]}]
+  (-> state
+      (add-element player 0 :eat eat 1)
+      (add-element player 0 :grow grow 1)
+      (add-element player 0 :move move 1)))
+
 (defn eat
   [state player space]
   (adjust-food state space 1))
 
 (defn grow
   [state player source target type]
-  (let [state
+  (let [space (-> source first first)
+        element (get-element state space)
+        organism (:organism element)
+        state
         (reduce
          (fn [state [space food]]
            (adjust-food state space (* food -1)))
          state
          source)]
-    (add-element state player type target 0)))
+    (add-element state player organism type target 0)))
 
 (defn move
   [state player from to]
@@ -210,12 +236,14 @@
 (defn player-elements
   [state]
   (reduce
-   (fn [elements [space {:keys [element]}]]
+   (fn [elements {:keys [space element]}]
      (if element
        (update elements (:player element) conj element)
        elements))
    {}
-   (:spaces state)))
+   (-> state :spaces vals)))
+
+;; CONFLICTS ------------------
 
 (def heterarchy
   {:eat :grow
@@ -231,7 +259,7 @@
 
 (defn element-conflicts
   [state {:keys [space player] :as element}]
-  (let [adjacents (get-in state [:adjacencies space])]
+  (let [adjacents (adjacent-to state space)]
     (map-cat
      (fn [adjacent]
        (let [adjacent-element (get-in state [:spaces adjacent :element])]
@@ -281,10 +309,6 @@
     #{el}
     (conj s el)))
 
-(defn get-element
-  [state space]
-  (get-in state [:spaces space :element]))
-
 (defn resolve-conflicts
   [state player]
   (let [conflicting-elements (player-conflicts state player)
@@ -307,4 +331,88 @@
             (get-element state (:space fall)))
            state)))
      state (reverse order))))
+
+;; INTEGRITY -----------------------
+
+(defn clear-organisms
+  [state]
+  (reduce
+   (fn [state {:keys [space element]}]
+     (if element
+       (assoc-in state [:spaces space :element :organism] nil)
+       state))
+   state
+   (-> state :spaces vals)))
+
+(defn set-organism
+  [state space organism]
+  (assoc-in
+   state
+   [:spaces space :element :organism]
+   organism))
+
+(defn player-organisms
+  [state]
+  (reduce
+   (fn [elements {:keys [space element]}]
+     (if element
+       (do
+         (update
+          elements
+          [(:player element) (:organism element)]
+          conj element))
+       elements))
+   {}
+   (-> state :spaces vals)))
+
+(defn adjacent-elements
+  [state space]
+  (filter
+   (fn [adjacent]
+     (get-element state adjacent))
+   (adjacent-to state space)))
+
+(defn trace-organism
+  [state space organism]
+  (loop [state state
+         spaces [space]
+         visited #{}]
+    (if (empty? spaces)
+      state
+      (let [space (first spaces)
+            state (set-organism state space organism)
+            adjacent (adjacent-elements state space)
+            unseen (remove visited adjacent)]
+        (recur state (concat (rest spaces) unseen) (conj visited space))))))
+
+(defn find-organism
+  [state space element organism]
+  (if element
+    (if (:organism element)
+      [state organism]
+      [(trace-organism state space organism) (inc organism)])
+    [state organism]))
+
+(defn find-organisms
+  [state]
+  (let [state (clear-organisms state)]
+    (reduce
+     (fn [[state organism] {:keys [space element]}]
+       (find-organism state space element organism))
+     [state 0]
+     (-> state :spaces vals))))
+
+(defn alive?
+  [elements]
+  (let [by-type (group-by :type elements)]
+     (>= (count by-type) 3)))
+
+(defn evaluate-survival
+  [organisms]
+  (into
+   {}
+   (map
+    (fn [[key elements]]
+      [key (alive? elements)])
+    organisms)))
 

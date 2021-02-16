@@ -113,9 +113,9 @@
 (deftest conflict-test
   (testing "resolving complex chains of conflict"
     (let [state (-> two-player-close
-                    (add-element "orb" :eat [:orange 5] 0)
-                    (add-element "orb" :move [:blue 4] 2)
-                    (add-element "mass" :grow [:blue 3] 2)
+                    (add-element "orb" 0 :eat [:orange 5] 0)
+                    (add-element "orb" 0 :move [:blue 4] 2)
+                    (add-element "mass" 1 :grow [:blue 3] 2)
                     (resolve-conflicts "orb"))
           elements (player-elements state)
           orb-elements (get elements "orb")]
@@ -125,3 +125,48 @@
       (is (= 3 (:food (first orb-elements))))
       (is (= 1 (count (get-in state [:players "orb" :captures]))))
       (is (= 1 (count (get-in state [:players "mass" :captures])))))))
+
+(def integrity-position
+  (-> two-player-close
+      (add-element "orb" 8 :eat [:orange 5] 0)
+      (add-element "orb" 11 :move [:blue 4] 2)
+      (add-element "orb" 44 :grow [:red 2] 1)
+      (add-element "mass" 8 :eat [:orange 16] 1)
+      (add-element "mass" 5 :grow [:orange 15] 1)
+      (add-element "mass" 13 :grow [:blue 8] 0)
+      (add-element "mass" 5 :move [:blue 7] 1)))
+
+(deftest trace-organism-test
+  (testing "trace from the current space along all adjacent elements"
+    (let [state
+          (-> integrity-position
+              (clear-organisms)
+              (trace-organism [:orange 5] 111))
+          organisms (player-organisms state)]
+      (println "traced" organisms)
+      (is (= 2 (count organisms)))
+      (is (= 3 (count (get organisms ["orb" 111])))))))
+
+(deftest clear-organisms-test
+  (testing "clearing the organism state"
+    (let [state
+          (-> integrity-position
+              (clear-organisms))
+          organisms (player-organisms state)]
+      (println "cleared" organisms)
+      (is (= 2 (count organisms)))
+      (is (= 3 (count (get organisms ["orb" nil])))))))
+
+(deftest organisms-test
+  (testing "identifying contiguous groups of elements as distinct organisms"
+    (let [[state organism]
+          (-> integrity-position
+              (find-organisms))
+          organisms (player-organisms state)
+          survival (evaluate-survival organisms)]
+      (println "organisms" organisms)
+      (println "survival" survival)
+      (is (= 3 (count organisms)))
+      (is (= 2 (count (filter #(= false %) (vals survival))))))))
+
+
