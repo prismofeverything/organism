@@ -1,7 +1,9 @@
 (ns organism.organism-test
   (:require
    [clojure.test :refer :all]
-   [organism.game :refer :all]))
+   [organism.game :refer :all])
+  (:import
+   [organism.game Action Turn]))
 
 (deftest build-rings-test
   (testing "building the rings"
@@ -136,6 +138,17 @@
       (add-element "mass" 13 :grow [:blue 8] 0)
       (add-element "mass" 5 :move [:blue 7] 1)))
 
+(def conflict-position
+  (-> two-player-close
+      (add-element "orb" 0 :grow [:orange 4] 1)
+      (add-element "orb" 0 :eat [:orange 5] 0)
+      (add-element "orb" 0 :move [:blue 4] 2)
+      (add-element "orb" 0 :grow [:red 2] 1)
+      (add-element "mass" 1 :eat [:blue 9] 1)
+      (add-element "mass" 1 :move [:red 5] 1)
+      (add-element "mass" 1 :grow [:blue 11] 1)
+      (add-element "mass" 1 :grow [:orange 17] 0)))
+
 (deftest trace-organism-test
   (testing "trace from the current space along all adjacent elements"
     (let [state
@@ -159,9 +172,7 @@
 
 (deftest organisms-test
   (testing "identifying contiguous groups of elements as distinct organisms"
-    (let [[state organism]
-          (-> integrity-position
-              (find-organisms))
+    (let [state (-> integrity-position (find-organisms))
           organisms (player-organisms state)
           survival (evaluate-survival organisms)]
       (println "organisms" organisms)
@@ -169,4 +180,34 @@
       (is (= 3 (count organisms)))
       (is (= 2 (count (filter #(= false %) (vals survival))))))))
 
+(deftest integrity-test
+  (testing "resolution of integrity with respect to captures and removal of non-alive organisms"
+    (let [state
+          (-> conflict-position
+              (move "orb" [:red 2] [:yellow 0])
+              (resolve-conflicts "orb")
+              (check-integrity "orb"))
+          organisms (player-organisms state)]
+      (println "sacrifice" (:players state) organisms)
+      (is (= 1 (count organisms)))
+      (is (= 3 (count (get-in state [:players "orb" :captures])))))))
 
+(deftest turn-test
+  (testing "taking a turn"
+    (let [orb-turn (Turn.
+                    "orb"
+                    {:eat [:orange 0]
+                     :grow [:orange 1]
+                     :move [:orange 2]}
+                    :grow
+                    [(Action.
+                      0
+                      :grow
+                      {:from {[:orange 1] 1}
+                       :to [:blue 0]
+                       :element :eat})])
+          state (-> two-player-close
+                    (take-turn orb-turn))
+          organisms (player-organisms state)]
+      (println organisms)
+      (is (= 4 (count (last (first organisms))))))))

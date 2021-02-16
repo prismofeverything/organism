@@ -1,5 +1,6 @@
 (ns organism.game
   (:require
+   [clojure.set :as set]
    [organism.graph :as graph]))
 
 (def ^:dynamic *food-limit* 3)
@@ -135,7 +136,7 @@
 ;; STATE ---------------------------------
 
 (defrecord Player [name starting-spaces captures])
-(defrecord Element [player organism type space food captured?])
+(defrecord Element [player organism type space food captures])
 (defrecord Space [space element])
 (defrecord State [adjacencies players spaces turn round history])
 
@@ -294,6 +295,10 @@
    [:spaces space :element :captures]
    conj capture))
 
+(defn award-capture
+  [state player element]
+  (update-in state [:players player :captures] conj element))
+
 (defn resolve-conflict
   [state rise fall]
   (-> state
@@ -301,7 +306,7 @@
       (cap-food (:space rise))
       (remove-element (:space fall))
       (mark-capture (:space rise) fall)
-      (update-in [:players (:player rise) :captures] conj fall)))
+      (award-capture (:player rise) fall)))
 
 (defn set-add
   [s el]
@@ -395,12 +400,14 @@
 
 (defn find-organisms
   [state]
-  (let [state (clear-organisms state)]
-    (reduce
-     (fn [[state organism] {:keys [space element]}]
-       (find-organism state space element organism))
-     [state 0]
-     (-> state :spaces vals))))
+  (let [state (clear-organisms state)
+        [state _]
+        (reduce
+         (fn [[state organism] {:keys [space element]}]
+           (find-organism state space element organism))
+         [state 0]
+         (-> state :spaces vals))]
+    state))
 
 (defn alive?
   [elements]
@@ -415,4 +422,69 @@
     (fn [[key elements]]
       [key (alive? elements)])
     organisms)))
+
+(defn players-captured
+  [elements]
+  (reduce
+   (fn [players element]
+     (set/union
+      players
+      (set
+       (map
+        :player
+        (:captures element)))))
+   #{}
+   elements))
+
+(defn check-integrity
+  [state active-player]
+  (let [state (find-organisms state)
+        organisms (player-organisms state)]
+    (reduce
+     (fn [state [[player organism] elements]]
+       (if (alive? elements)
+         state
+         (let [spaces (map :space elements)
+               state
+               (if (= active-player player)
+                 (let [captures (players-captured elements)
+                       sacrifice (assoc (first elements) :type :sacrifice)]
+                   (reduce
+                    (fn [state player]
+                      (award-capture state player sacrifice))
+                    state captures))
+                 (let [capture (assoc (first elements) :type :integrity)]
+                   (award-capture state active-player capture)))]
+           (reduce remove-element state spaces))))
+     state organisms)))
+
+(defrecord Action [organism type action])
+(defrecord Turn [player introduction choice actions])
+
+(defn perform-action
+  [state player {:keys [organism type action]}]
+  (condp = type
+    :eat (eat state player (:to action))
+    :grow (grow state player (:from action) (:to action) (:element action))
+    :move (move state player (:from action) (:to action))
+    :circulate (circulate state player (:from action) (:to action))
+    (str "unknown action type " type)))
+
+(defn perform-actions
+  [state player actions]
+  (reduce
+   (fn [state action]
+     (perform-action state player action))
+   state actions))
+
+(defn take-turn
+  [state {:keys [player introduction actions] :as turn}]
+  (let [state (if introduction
+                (introduce state player introduction)
+                state)
+        state (perform-actions state player actions)]
+    (-> state
+        (perform-actions player actions)
+        (resolve-conflicts player)
+        (check-integrity player))))
 
