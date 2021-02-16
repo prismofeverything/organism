@@ -3,7 +3,10 @@
    [clojure.test :refer :all]
    [organism.game :refer :all])
   (:import
-   [organism.game Action Turn]))
+   [organism.game
+    Action
+    OrganismTurn
+    PlayerTurn]))
 
 (deftest build-rings-test
   (testing "building the rings"
@@ -194,20 +197,23 @@
 
 (deftest turn-test
   (testing "taking a turn"
-    (let [orb-turn (Turn.
+    (let [orb-turn (PlayerTurn.
                     "orb"
-                    {:eat [:orange 0]
+                    {:organism 0
+                     :eat [:orange 0]
                      :grow [:orange 1]
                      :move [:orange 2]}
-                    :grow
-                    [(Action.
+                    [(OrganismTurn.
                       0
                       :grow
-                      {:from {[:orange 1] 1}
-                       :to [:blue 0]
-                       :element :eat})])
+                      [(Action.
+                        :grow
+                        {:from {[:orange 1] 1}
+                         :to [:blue 0]
+                         :element :eat})])])
           state (-> two-player-close
                     (take-turn orb-turn))
           organisms (player-organisms state)]
+      (println "turn" orb-turn)
       (println organisms)
       (is (= 4 (count (last (first organisms))))))))

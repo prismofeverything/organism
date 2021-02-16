@@ -195,11 +195,11 @@
 ;; ACTIONS -----------------------
 
 (defn introduce
-  [state player {:keys [eat grow move]}]
+  [state player {:keys [organism eat grow move]}]
   (-> state
-      (add-element player 0 :eat eat 1)
-      (add-element player 0 :grow grow 1)
-      (add-element player 0 :move move 1)))
+      (add-element player organism :eat eat 1)
+      (add-element player organism :grow grow 1)
+      (add-element player organism :move move 1)))
 
 (defn eat
   [state player space]
@@ -458,11 +458,12 @@
            (reduce remove-element state spaces))))
      state organisms)))
 
-(defrecord Action [organism type action])
-(defrecord Turn [player introduction choice actions])
+(defrecord Action [type action])
+(defrecord OrganismTurn [organism choice actions])
+(defrecord PlayerTurn [player introduction organism-turns])
 
 (defn perform-action
-  [state player {:keys [organism type action]}]
+  [state player {:keys [type action]}]
   (condp = type
     :eat (eat state player (:to action))
     :grow (grow state player (:from action) (:to action) (:element action))
@@ -478,13 +479,15 @@
    state actions))
 
 (defn take-turn
-  [state {:keys [player introduction actions] :as turn}]
+  [state {:keys [player introduction organism-turns] :as turn}]
   (let [state (if introduction
                 (introduce state player introduction)
                 state)
-        state (perform-actions state player actions)]
+        state (reduce
+               (fn [state actions]
+                 (perform-actions state player actions))
+               state (map :actions organism-turns))]
     (-> state
-        (perform-actions player actions)
         (resolve-conflicts player)
         (check-integrity player))))
 
