@@ -48,15 +48,26 @@
           adjacencies (find-adjacencies rings)
           player-info [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
                        ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
-          initial (initial-state adjacencies player-info)]
+          initial (initial-state adjacencies [:yellow 0] player-info)]
       (println initial))))
+
+(deftest corner-notches-test
+  (testing "if the corners are removed"
+    (let [game (create-game
+                5
+                [:yellow :red :blue]
+                [["alone" [[:red 1] [:red 2] [:red 3]]]]
+                true)]
+      (is (not (some #{[:blue 0]} (-> game :adjacencies keys))))
+      (is (= 11 (count (get game :adjacencies)))))))
 
 (def two-player-close
   (create-game
    6
    [:yellow :red :blue :orange]
    [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
-    ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]))
+    ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
+   false))
 
 (deftest introduce-test
   (testing "how introducing a new organism works"
@@ -141,6 +152,12 @@
       (add-element "mass" 13 :grow [:blue 8] 0)
       (add-element "mass" 5 :move [:blue 7] 1)))
 
+(def center-position
+  (-> two-player-close
+      (add-element "orb" 8 :eat [:blue 5] 0)
+      (add-element "orb" 11 :move [:red 2] 2)
+      (add-element "orb" 44 :grow [:yellow 0] 1)))
+
 (def conflict-position
   (-> two-player-close
       (add-element "orb" 0 :grow [:orange 4] 1)
@@ -183,6 +200,13 @@
       (is (= 3 (count organisms)))
       (is (= 2 (count (filter #(= false %) (vals survival))))))))
 
+(deftest award-center-test
+  (testing "awarding a point for occupying the center"
+    (let [state
+          (-> center-position
+              (award-center "orb"))]
+      (is (= 1 (count (get-in state [:players "orb" :captures])))))))
+
 (deftest integrity-test
   (testing "resolution of integrity with respect to captures and removal of non-alive organisms"
     (let [state
@@ -217,3 +241,4 @@
       (println "turn" orb-turn)
       (println organisms)
       (is (= 4 (count (last (first organisms))))))))
+

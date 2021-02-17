@@ -124,16 +124,46 @@
                 (rest colors))]
     (into adjacent others)))
 
+(defn find-corners
+  [adjacencies outer-ring symmetry]
+  (let [outer (filter
+               (comp
+                (partial = outer-ring)
+                first)
+               (keys adjacencies))
+        total (count outer)
+        jump (quot total symmetry)
+        corners (map
+                 (comp
+                  (partial conj [outer-ring])
+                  (partial * jump))
+                 (range symmetry))]
+    corners))
+
+(defn remove-space
+  [adjacencies space]
+  (let [adjacent (get adjacencies space)]
+    (reduce
+     (fn [adjacencies neighbor]
+       (update adjacencies neighbor remove #{space}))
+     (dissoc adjacencies space)
+     adjacent)))
+
+(defn corner-notches
+  [adjacencies outer-ring symmetry]
+  (let [corners (find-corners adjacencies outer-ring symmetry)]
+    (reduce remove-space adjacencies corners)))
+
 ;; STATE ---------------------------------
 
 (defrecord Player [name starting-spaces captures])
 (defrecord Element [player organism type space food captures])
 (defrecord Space [space element])
-(defrecord State [adjacencies players spaces turn round history])
+(defrecord State [adjacencies center players spaces turn round history])
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
-  [adjacencies player-info]
+  [adjacencies center player-info]
   (let [spaces
         (map
          (fn [space]
@@ -147,6 +177,7 @@
          player-info)]
     (State.
      adjacencies
+     center
      (into {} players)
      (into {} spaces)
      0 0 [])))
@@ -154,10 +185,16 @@
 (defn create-game
   "generate adjacencies for a given symmetry with a ring for each color,
    and the given players"
-  [symmetry colors player-info]
+  [symmetry colors player-info remove-notches?]
   (let [rings (build-rings symmetry colors)
-        adjacencies (find-adjacencies rings)]
-    (initial-state adjacencies player-info)))
+        adjacencies (find-adjacencies rings)
+        adjacencies (if remove-notches?
+                      (corner-notches
+                       adjacencies
+                       (last colors)
+                       symmetry)
+                      adjacencies)]
+    (initial-state adjacencies (-> rings first last last) player-info)))
 
 (defn adjacent-to
   [state space]
@@ -469,9 +506,23 @@
      (perform-action state player action))
    state actions))
 
+(defn award-center
+  [state player]
+  (let [center (:center state)
+        center-element (get-element state center)]
+    (if (and
+         center-element
+         (= player (:player center-element)))
+      (update-in
+       state
+       [:players player :captures]
+       conj (Element. player -1 :center center 0 []))
+      state)))
+
 (defn take-turn
   [state {:keys [player introduction organism-turns] :as turn}]
-  (let [state (if introduction
+  (let [state (award-center state player)
+        state (if introduction
                 (introduce state player introduction)
                 state)
         state (reduce

@@ -17,7 +17,9 @@
 (defn game-page [request]
   (content-type
    (ok
-    (board/render 6 35 2.2 (map last board/organism-colors)))
+    (let [locations (board/board-locations 6 35 2.15 board/organism-colors)]
+      (println "locations" locations)
+      (board/render 6 35 2.15 (map last board/organism-colors))))
    "text/html; charset=utf-8"))
 
 (defn home-routes []

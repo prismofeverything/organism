@@ -58,7 +58,7 @@
 (defn linear-ring
   [[start-x start-y radius color] [end-x end-y] between]
   (let [total (inc between)
-        spaces (drop 1 (range total))]
+        spaces (reverse (drop 1 (range total)))]
     (map
      (fn [space]
        (let [ratio (/ space total)
@@ -81,18 +81,51 @@
   (let [beams (find-beams symmetry radius buffer colors)
         next-beams (drop 1 (cycle beams))
         rings (mapcat linear-rings beams next-beams)]
-    (map circle rings)))
+    rings))
+
+(defn ring-map
+  [symmetry radius buffer colors]
+  (let [spaces (find-rings symmetry radius buffer (map last colors))
+        inverse-colors (into {} (map (fn [[a b]] [b a]) colors))]
+    (reduce
+     (fn [rings space]
+       (let [hex (last space)
+             color (get inverse-colors hex)]
+         (if (get rings color)
+           (update rings color conj space)
+           (assoc rings color [space]))))
+     {} spaces)))
+
+(defn rings->locations
+  [rings]
+  (reduce
+   (fn [locations [color spaces]]
+     (reduce
+      (fn [locations [space n]]
+        (assoc locations [color n] space))
+      locations (map vector spaces (range))))
+   {} rings))
+
+(defn board-locations
+  [symmetry radius buffer colors]
+  (let [rings (ring-map symmetry radius buffer colors)]
+    (rings->locations rings)))
 
 (defn layout
   [symmetry radius buffer colors]
   (let [field (* 2 radius buffer (count colors))]
     [:svg {:width field :height field}
-     [:g (find-rings symmetry radius buffer colors)]]))
+     [:g (map circle (find-rings symmetry radius buffer colors))]]))
 
 (defn render
   [symmetry radius buffer colors]
   (let [radiate (layout symmetry radius buffer colors)]
     (up/html radiate)))
+
+;; (defn render-locations
+;;   [locations]
+;;   (let [radiate (layout symmetry radius buffer colors)]
+;;     (up/html radiate)))
 
 (defn export
   [symmetry radius buffer colors path]
