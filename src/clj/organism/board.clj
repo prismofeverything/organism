@@ -149,25 +149,66 @@
   [a b]
   (mapv + a b))
 
+(defn curve?
+  [point]
+  (= 3 (count point)))
+
+(defn make-path
+  [color points]
+  (let [first-point (first points)
+        rest-points (concat (rest points) [first-point])
+        starting-point (if (curve? first-point)
+                         (last first-point)
+                         first-point)
+        first-step (concat ["M"] starting-point)
+        steps (base/map-cat
+               (fn [point]
+                 (if (curve? point)
+                   (let [[[sx sy] [ex ey] [px py]] point]
+                     ["C" sx (str sy ",") ex (str ey ",") px py])
+                   (let [[x y] point]
+                     ["L" x y])))
+               rest-points)
+        all-steps (concat first-step steps ["Z"])]
+    [:path
+     {:d (string/join " " all-steps)}]))
+
 (defn render-eat
   [color [x y] radius food]
-  (let [outer (map (partial radial-axis 5 radius 0) (range 5))
+  (let [oc-start (map (partial radial-axis 5 (* radius 1.1) (* tau 0.1)) (range 5))
+        oc-end (map (partial radial-axis 5 (* radius 0.51) (* tau 0)) (range 5))
+        outer (map (partial radial-axis 5 radius 0) (range 5))
+        ic-start (map (partial radial-axis 5 (* radius 0.51) 0) (range 5))
+        ic-end (map (partial radial-axis 5 (* radius 0.51) (* tau 0.2)) (range 5))
         inner (map (partial radial-axis 5 (* 0.5 radius) (* tau 0.1)) (range 5))
-        points (mapv (partial add-vector [x y]) (interleave outer inner))
-        head (first points)
-        steps ["M " (first head) " " (last head)]
-        steps (concat
-               steps
-               (map
-                (fn [[ox oy]]
-                  (str "L " ox " " oy))
-                (rest points)))
-        path (string/join " " steps)]
-    [:path
-     {:d (str path " Z")
-      :fill color
+        points (partition
+                3
+                (mapv
+                 (partial add-vector [x y])
+                 (interleave
+                  oc-start oc-end outer ic-start ic-end inner)))
+        path (make-path color points)
+        ;; head (first points)
+        ;; steps ["M " (first head) " " (last head)]
+        ;; steps (concat
+        ;;        steps
+        ;;        (map
+        ;;         (fn [[ox oy]]
+        ;;           (str "L " ox " " oy))
+        ;;         (rest points)))
+        ;; path (string/join " " steps)
+        ]
+    ;; [:path
+    ;;  {:d (str path " Z")
+    ;;   :fill color
+    ;;   :stroke "white"
+    ;;   :stroke-width (* radius 0.07)}]
+
+    (update
+     path 1 merge
+     {:fill color
       :stroke "white"
-      :stroke-width (* radius 0.07)}]))
+      :stroke-width (* radius 0.07)})))
 
 (defn render-grow
   [color [x y] radius food]
