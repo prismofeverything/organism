@@ -1,14 +1,10 @@
 (ns organism.game
   (:require
    [clojure.set :as set]
+   [organism.base :as base]
    [organism.graph :as graph]))
 
 (def ^:dynamic *food-limit* 3)
-
-(defn map-cat
-  "non-lazy mapcat"
-  [f s]
-  (reduce into [] (mapv f s)))
 
 ;; BOARD ----------------------
 
@@ -91,7 +87,7 @@
                     (conj neighbors outer)
                     neighbors)
 
-        adjacent-spaces (map-cat
+        adjacent-spaces (base/map-cat
                          (fn [[[color spaces] adjacent]]
                            (map
                             (partial mod-space color spaces)
@@ -119,7 +115,7 @@
         [core-color core-spaces] (first rings)
         core (first core-spaces)
         adjacent {core (second (second rings))}
-        others (map-cat
+        others (base/map-cat
                 (partial ring-adjacencies rings)
                 (rest colors))]
     (into adjacent others)))
@@ -289,7 +285,7 @@
 (defn element-conflicts
   [state {:keys [space player] :as element}]
   (let [adjacents (adjacent-to state space)]
-    (map-cat
+    (base/map-cat
      (fn [adjacent]
        (let [adjacent-element (get-in state [:spaces adjacent :element])]
          (if (and
@@ -302,7 +298,7 @@
   [state player]
   (let [all-elements (player-elements state)
         elements (get all-elements player)]
-    (map-cat
+    (base/map-cat
      (partial element-conflicts state)
      elements)))
 

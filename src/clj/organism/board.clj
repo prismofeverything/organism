@@ -1,5 +1,8 @@
 (ns organism.board
-  (:require [hiccup.core :as up]))
+  (:require
+   [clojure.string :as string]
+   [hiccup.core :as up]
+   [organism.base :as base]))
 
 (def tau (* 2 Math/PI))
 
@@ -21,7 +24,13 @@
 
 (defn circle
   [[x y radius color]]
-  [:circle {:cx x :cy y :r radius :fill color}])
+  [:circle
+   {:cx x
+    :cy y
+    :r radius
+    ;; :stroke "#888"
+    ;; :stroke-width (* radius 0.07)
+    :fill color}])
 
 (defn circle-index
   [[x-axis y-axis] [x-offset y-offset] radius buffer color index]
@@ -30,11 +39,11 @@
     [x y radius color]))
 
 (defn radial-axis
-  [symmetry index]
+  [symmetry radius phase index]
   (let [ratio (/ index symmetry)
-        unit (* ratio tau)
-        x-axis (Math/cos unit)
-        y-axis (Math/sin unit)]
+        unit (+ (* ratio tau) phase)
+        x-axis (* radius (Math/cos unit))
+        y-axis (* radius (Math/sin unit))]
     [x-axis y-axis]))
 
 (defn beam
@@ -49,7 +58,7 @@
 (defn find-beams
   [symmetry radius buffer colors]
   (let [axes (map
-              (partial radial-axis symmetry)
+              (partial radial-axis symmetry 1 0)
               (range symmetry))]
     (map
      (partial beam radius buffer colors)
@@ -111,25 +120,141 @@
   (let [rings (ring-map symmetry radius buffer colors)]
     (rings->locations rings)))
 
-(defn layout
+(defn board-layout
   [symmetry radius buffer colors]
+  (println "layout colors" colors)
   (let [field (* 2 radius buffer (count colors))]
     [:svg {:width field :height field}
      [:g (map circle (find-rings symmetry radius buffer colors))]]))
 
 (defn render
   [symmetry radius buffer colors]
-  (let [radiate (layout symmetry radius buffer colors)]
+  (let [radiate (board-layout symmetry radius buffer colors)]
     (up/html radiate)))
 
-;; (defn render-locations
-;;   [locations]
-;;   (let [radiate (layout symmetry radius buffer colors)]
-;;     (up/html radiate)))
+(defrecord Board [symmetry radius buffer colors layout locations player-colors])
+
+(defn build-board
+  [symmetry radius buffer colors players]
+  (Board.
+   symmetry
+   radius
+   buffer
+   colors
+   (board-layout symmetry radius buffer (map last colors))
+   (board-locations symmetry radius buffer colors)
+   (into {} (map vector players (rest (reverse (map last colors)))))))
+
+(defn add-vector
+  [a b]
+  (mapv + a b))
+
+(defn render-eat
+  [color [x y] radius food]
+  (let [outer (map (partial radial-axis 5 radius 0) (range 5))
+        inner (map (partial radial-axis 5 (* 0.5 radius) (* tau 0.1)) (range 5))
+        points (mapv (partial add-vector [x y]) (interleave outer inner))
+        head (first points)
+        steps ["M " (first head) " " (last head)]
+        steps (concat
+               steps
+               (map
+                (fn [[ox oy]]
+                  (str "L " ox " " oy))
+                (rest points)))
+        path (string/join " " steps)]
+    [:path
+     {:d (str path " Z")
+      :fill color
+      :stroke "white"
+      :stroke-width (* radius 0.07)}]))
+
+(defn render-grow
+  [color [x y] radius food]
+  (let [outer (map (partial radial-axis 4 radius 0) (range 4))
+        inner (map (partial radial-axis 4 (* 0.5 radius) (* tau 0.1)) (range 4))
+        points (mapv (partial add-vector [x y]) (interleave outer inner))
+        head (first points)
+        steps ["M " (first head) " " (last head)]
+        steps (concat
+               steps
+               (map
+                (fn [[ox oy]]
+                  (str "L " ox " " oy))
+                (rest points)))
+        path (string/join " " steps)]
+    [:path
+     {:d (str path " Z")
+      :fill color
+      :stroke "white"
+      :stroke-width (* radius 0.07)}]))
+
+(defn render-move
+  [color [x y] radius food]
+  (let [outer (map (partial radial-axis 3 radius 0) (range 3))
+        inner (map (partial radial-axis 3 (* 0.3 radius) (* tau 0.1)) (range 3))
+        points (mapv (partial add-vector [x y]) (interleave outer inner))
+        head (first points)
+        steps ["M " (first head) " " (last head)]
+        steps (concat
+               steps
+               (map
+                (fn [[ox oy]]
+                  (str "L " ox " " oy))
+                (rest points)))
+        path (string/join " " steps)]
+    [:path
+     {:d (str path " Z")
+      :fill color
+      :stroke "white"
+      :stroke-width (* radius 0.07)}]))
+
+(defn render-element
+  [color [x y] radius element]
+  (condp = (:type element)
+    :eat (render-eat color [x y] radius (:food element))
+    :grow (render-grow color [x y] radius (:food element))
+    :move (render-move color [x y] radius (:food element))
+    [:circle
+     {:cx x
+      :cy y
+      :r (* radius 0.8)
+      :fill color
+      :stroke "white"
+      :stroke-width (* radius 0.07)}]))
+
+(defn render-organism
+  [locations color radius spaces]
+  (map
+   (fn [{:keys [space element]}]
+     (let [location (get locations space)]
+       (render-element color location radius element)))
+   spaces))
+
+(defn render-game
+  [{:keys [colors radius layout locations player-colors] :as board} game]
+  (let [element-spaces (filter :element (vals (:spaces game)))
+        _ (println "element spaces" element-spaces)
+        organisms (group-by
+                   (juxt
+                    (comp :player :element)
+                    (comp :organism :element))
+                   element-spaces)
+        _ (println "organisms" organisms)
+        elements (mapv
+                  (fn [[[player organism] spaces]]
+                    [:g
+                     (let [color (get player-colors player)]
+                       (render-organism locations color radius spaces))])
+                  organisms)
+        _ (println "elements" elements)
+        svg (apply conj layout elements)]
+    _ (println "svg" svg)
+    (up/html svg)))
 
 (defn export
   [symmetry radius buffer colors path]
-  (let [radiate (layout symmetry radius buffer colors)
+  (let [radiate (board-layout symmetry radius buffer colors)
         out (up/html radiate)]
     (spit path out)))
 
