@@ -22,16 +22,6 @@
       0
       lower)))
 
-(defn circle
-  [[x y radius color]]
-  [:circle
-   {:cx x
-    :cy y
-    :r radius
-    ;; :stroke "#888"
-    ;; :stroke-width (* radius 0.07)
-    :fill color}])
-
 (defn circle-index
   [[x-axis y-axis] [x-offset y-offset] radius buffer color index]
   (let [x (+ x-offset (* x-axis index radius buffer))
@@ -120,6 +110,16 @@
   (let [rings (ring-map symmetry radius buffer colors)]
     (rings->locations rings)))
 
+(defn circle
+  [[x y radius color]]
+  [:circle
+   {:cx x
+    :cy y
+    :r radius
+    ;; :stroke "#888"
+    ;; :stroke-width (* radius 0.07)
+    :fill color}])
+
 (defn board-layout
   [symmetry radius buffer colors]
   (println "layout colors" colors)
@@ -165,50 +165,78 @@
                (fn [point]
                  (if (curve? point)
                    (let [[[sx sy] [ex ey] [px py]] point]
-                     ["C" sx (str sy ",") ex (str ey ",") px py])
+                     ["C" (str sx "," sy) (str ex "," ey) (str px "," py)])
                    (let [[x y] point]
-                     ["L" x y])))
+                     ["L" (str x "," y)])))
                rest-points)
         all-steps (concat first-step steps ["Z"])]
     [:path
      {:d (string/join " " all-steps)}]))
 
+(defn line
+  [[x1 y1] [x2 y2] color]
+  [:line
+   {:x1 x1
+    :y1 y1
+    :x2 x2
+    :y2 y2
+    :stroke color}])
+
+(defn make-circle
+  [radius color [cx cy]]
+  (circle [cx cy radius color]))
+
+(defn make-control
+  [radius point-color line-color previous control]
+  (let [[_ _ previous-point] previous
+        [start end point] control
+        points (map
+                (partial make-circle radius)
+                [line-color line-color point-color]
+                control)
+        lines (list
+               (line start previous-point line-color)
+               (line end point line-color))]
+    [lines points]))
+
+(defn make-controls
+  [radius point-color line-color controls]
+  (let [control-points
+        (map
+         (partial make-control radius point-color line-color)
+         controls
+         (drop 1 (cycle controls)))
+
+        [lines points]
+        (reduce
+         (fn [[lines points] [new-lines new-points]]
+           [(concat lines new-lines)
+            (concat points new-points)])
+         [[] []] control-points)]
+    [:g lines points]))
+
 (defn render-eat
   [color [x y] radius food]
-  (let [oc-start (map (partial radial-axis 5 (* radius 1.1) (* tau 0.1)) (range 5))
-        oc-end (map (partial radial-axis 5 (* radius 0.51) (* tau 0)) (range 5))
+  (let [oc-start (map (partial radial-axis 5 (* radius 0.6) (* tau 0)) (range 5))
+        oc-end (map (partial radial-axis 5 (* radius 1.05) (* tau -0.05)) (range 5))
         outer (map (partial radial-axis 5 radius 0) (range 5))
-        ic-start (map (partial radial-axis 5 (* radius 0.51) 0) (range 5))
-        ic-end (map (partial radial-axis 5 (* radius 0.51) (* tau 0.2)) (range 5))
+        ic-start (map (partial radial-axis 5 (* radius 1.05) (* tau 0.05)) (range 5))
+        ic-end (map (partial radial-axis 5 (* radius 0.6) (* tau 0.0)) (range 5))
         inner (map (partial radial-axis 5 (* 0.5 radius) (* tau 0.1)) (range 5))
-        points (partition
-                3
-                (mapv
-                 (partial add-vector [x y])
-                 (interleave
-                  oc-start oc-end outer ic-start ic-end inner)))
-        path (make-path color points)
-        ;; head (first points)
-        ;; steps ["M " (first head) " " (last head)]
-        ;; steps (concat
-        ;;        steps
-        ;;        (map
-        ;;         (fn [[ox oy]]
-        ;;           (str "L " ox " " oy))
-        ;;         (rest points)))
-        ;; path (string/join " " steps)
-        ]
-    ;; [:path
-    ;;  {:d (str path " Z")
-    ;;   :fill color
-    ;;   :stroke "white"
-    ;;   :stroke-width (* radius 0.07)}]
-
-    (update
-     path 1 merge
-     {:fill color
-      :stroke "white"
-      :stroke-width (* radius 0.07)})))
+        points (mapv
+                (partial add-vector [x y])
+                (interleave
+                 oc-start oc-end outer ic-start ic-end inner))
+        path (make-path color (partition 3 points))
+        controls (make-controls 5 "black" "grey" (partition 3 points))]
+    [:g
+     (update
+      path 1 merge
+      {:fill color
+       :stroke "white"
+       :stroke-width (* radius 0.07)})
+     controls
+     ]))
 
 (defn render-grow
   [color [x y] radius food]
