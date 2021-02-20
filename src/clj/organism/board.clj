@@ -325,32 +325,62 @@
      ;; controls
      ]))
 
+(defn render-single-food
+  [color radius [x y]]
+  [:circle
+   {:cx x
+    :cy y
+    :r radius
+    :fill color
+    :stroke "#777"
+    :stroke-width (* radius 0.15)}])
+
+(defn render-food
+  [position beam radius color food]
+  (let [symmetry 3
+        points
+        (map
+         (comp
+          (partial add-vector position)
+          (partial radial-axis symmetry beam (* tau -0.25)))
+         (range food))]
+    [:g (map
+         (partial render-single-food color radius)
+         points)]))
+
 (defn render-element
-  [color [x y] radius element]
-  (let [subradius (* 0.87 radius)]
-    (condp = (:type element)
-      :eat (render-eat color [x y] subradius (:food element))
-      :grow (render-grow color [x y] subradius (:food element))
-      :move (render-move color [x y] subradius (:food element))
-      [:circle
-       {:cx x
-        :cy y
-        :r (* radius 0.8)
-        :fill color
-        :stroke "white"
-        :stroke-width (* radius 0.07)}])))
+  [color food-color [x y] radius element]
+  (println "element" element)
+  (let [subradius (* 0.87 radius)
+        icon
+        (condp = (:type element)
+          :eat (render-eat color [x y] subradius (:food element))
+          :grow (render-grow color [x y] subradius (:food element))
+          :move (render-move color [x y] subradius (:food element))
+          [:circle
+           {:cx x
+            :cy y
+            :r (* radius 0.8)
+            :fill color
+            :stroke "white"
+            :stroke-width (* radius 0.07)}])
+        food (render-food [x y] (* radius 0.3) (* radius 0.2) food-color (:food element))]
+    [:g
+     icon
+     food]))
 
 (defn render-organism
-  [locations color radius spaces]
+  [locations color food-color radius spaces]
   (map
    (fn [{:keys [space element]}]
      (let [location (get locations space)]
-       (render-element color location radius element)))
+       (render-element color food-color location radius element)))
    spaces))
 
 (defn render-game
   [{:keys [colors radius layout locations player-colors] :as board} game]
   (let [element-spaces (filter :element (vals (:spaces game)))
+        food-color (-> colors first last)
         _ (println "element spaces" element-spaces)
         organisms (group-by
                    (juxt
@@ -362,7 +392,7 @@
                   (fn [[[player organism] spaces]]
                     [:g
                      (let [color (get player-colors player)]
-                       (render-organism locations color radius spaces))])
+                       (render-organism locations color food-color radius spaces))])
                   organisms)
         _ (println "elements" elements)
         svg (apply conj layout elements)]
