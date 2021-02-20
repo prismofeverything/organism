@@ -290,7 +290,7 @@
         inner-radius 0.3
         inner-arc 0.3
 
-        oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius 0.3)) (* tau -1 (- inner-arc half))) (range symmetry))
+        oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius 0.4)) (* tau -1 1.1 (- inner-arc half))) (range symmetry))
         oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
         outer (map (partial radial-axis symmetry radius 0) (range symmetry))
 
@@ -298,13 +298,13 @@
         mc-end (map (partial radial-axis symmetry (* radius mid-radius) (* tau (- mid-arc 0.05))) (range symmetry))
         mid (map (partial radial-axis symmetry radius (* tau mid-arc)) (range symmetry))
 
-        uc-start (map (partial radial-axis symmetry (* radius outer-radius) (* tau mid-arc 1.2)) (range symmetry))
-        uc-end (map (partial radial-axis symmetry (* radius 1.1 under-radius) (* tau (- mid-arc 0.05))) (range symmetry))
+        uc-start (map (partial radial-axis symmetry (* radius outer-radius 0.9) (* tau mid-arc 1.2)) (range symmetry))
+        uc-end (map (partial radial-axis symmetry (* radius 1.1 under-radius) (* tau (- mid-arc 0.03))) (range symmetry))
         under (map (partial radial-axis symmetry (* radius under-radius) (* tau under-arc)) (range symmetry))
 
-        ic-start (map (partial radial-axis symmetry (* radius under-radius 1.05) (* tau (- under-arc 0.07))) (range symmetry))
-        ic-end (map (partial radial-axis symmetry (* radius (+ inner-radius 0.65)) (* tau (- (* 0.3 inner-arc) half))) (range symmetry))
-        inner (map (partial radial-axis symmetry (* inner-radius radius) (* tau (- half 0.08))) (range symmetry))
+        ic-start (map (partial radial-axis symmetry (* radius under-radius 1.2) (* tau (- under-arc 0.11))) (range symmetry))
+        ic-end (map (partial radial-axis symmetry (* radius (+ inner-radius 0.5)) (* tau (- (* 0.3 inner-arc) half))) (range symmetry))
+        inner (map (partial radial-axis symmetry (* inner-radius radius) (* tau (- half 0.09))) (range symmetry))
 
         points (mapv
                 (partial add-vector [x y])
@@ -322,7 +322,7 @@
       {:fill color
        :stroke "white"
        :stroke-width (* radius 0.07)})
-     controls
+     ;; controls
      ]))
 
 (defn render-element
