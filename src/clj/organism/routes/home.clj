@@ -75,7 +75,7 @@
 (defn game-page [request]
   (content-type
    (ok
-    (let [colors (board/generate-colors [:A :B :C :D]) ;; board/organism-colors 
+    (let [colors (board/generate-colors [:A :B :C :D :E :F :G]) ;; board/organism-colors 
           _ (println "colors" colors)
           board (board/build-board 6 50 2.1 colors ["orb" "mass"])]
       (println "board" board)

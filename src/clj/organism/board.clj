@@ -146,11 +146,40 @@
     ;; :stroke-width (* radius 0.07)
     :fill color}])
 
+(defn build-background
+  [radius buffer colors]
+  (let [num-rings (count colors)
+        field (* radius buffer num-rings)
+        center [field field]]
+    [(concat
+      [:defs]
+      (mapv
+       (fn [[color-key color] index]
+         [:radialGradient {:id color-key}
+          [:stop {:offset "0%" :stop-color "black"}]
+          [:stop {:offset "100%" :stop-color color}]])
+       (rest colors)
+       (map (comp inc inc) (range))))
+     [:g
+      (concat
+       [(make-circle field "black" center)]
+       (map
+        (fn [[color-key color] index]
+          (circle
+           [field field
+            (* 1.85 (- (+ num-rings 1) index) (+ radius buffer))
+            (str "url(#" (name color-key) ")")]))
+        (reverse (rest colors))
+        (map (partial + 1.9) (range))))]]))
+
 (defn board-layout
   [symmetry radius buffer colors]
   (let [field (* 2 radius buffer (count colors))]
     [:svg {:width field :height field}
-     [:g (map circle (find-rings symmetry radius buffer colors))]]))
+     (concat
+      [:g]
+      (build-background radius buffer colors)
+      [(map circle (find-rings symmetry radius buffer (map last colors)))])]))
 
 (defn render
   [symmetry radius buffer colors]
@@ -166,7 +195,7 @@
    radius
    buffer
    colors
-   (board-layout symmetry radius buffer (map last colors))
+   (board-layout symmetry radius buffer colors)
    (board-locations symmetry radius buffer colors)
    (into
     {}
@@ -248,7 +277,7 @@
     [:g lines points]))
 
 (defn render-eat
-  [color [x y] radius food]
+  [color stroke-ratio [x y] radius food]
   (let [symmetry 5
         half (/ 0.5 symmetry)
         outer-radius 1.00
@@ -272,13 +301,13 @@
      (update
       path 1 merge
       {:fill color
-       :stroke "white"
-       :stroke-width (* radius 0.07)})
+       :stroke "#333"
+       :stroke-width (* radius stroke-ratio)})
      ;; controls
      ]))
 
 (defn render-grow
-  [color [x y] radius food]
+  [color stroke-ratio [x y] radius food]
   (let [symmetry 4
         half (/ 0.5 symmetry)
         outer-radius 1.1
@@ -304,13 +333,13 @@
      (update
       path 1 merge
       {:fill color
-       :stroke "white"
-       :stroke-width (* radius 0.07)})
+       :stroke "#333"
+       :stroke-width (* radius stroke-ratio)})
      ;; controls
      ]))
 
 (defn render-move
-  [color [x y] radius food]
+  [color stroke-ratio [x y] radius food]
   (let [symmetry 3
         half (/ 0.5 symmetry)
         outer-radius 1.1
@@ -352,8 +381,8 @@
      (update
       path 1 merge
       {:fill color
-       :stroke "white"
-       :stroke-width (* radius 0.07)})
+       :stroke "#333"
+       :stroke-width (* radius stroke-ratio)})
      ;; controls
      ]))
 
@@ -384,18 +413,19 @@
   [color food-color [x y] radius element]
   (println "element" [x y] color food-color)
   (let [subradius (* 0.87 radius)
+        stroke-ratio 0.04
         icon
         (condp = (:type element)
-          :eat (render-eat color [x y] subradius (:food element))
-          :grow (render-grow color [x y] subradius (:food element))
-          :move (render-move color [x y] subradius (:food element))
+          :eat (render-eat color stroke-ratio [x y] subradius (:food element))
+          :grow (render-grow color stroke-ratio [x y] subradius (:food element))
+          :move (render-move color stroke-ratio [x y] subradius (:food element))
           [:circle
            {:cx x
             :cy y
             :r (* radius 0.8)
             :fill color
-            :stroke "white"
-            :stroke-width (* radius 0.07)}])
+            :stroke "#333"
+            :stroke-width (* radius stroke-ratio)}])
         food (render-food [x y] (* radius 0.3) (* radius 0.2) food-color (:food element))]
     [:g
      icon
@@ -412,7 +442,7 @@
    spaces))
 
 (defn render-game
-  [{:keys [colors radius layout locations player-colors] :as board} game]
+  [{:keys [colors radius layout background locations player-colors] :as board} game]
   (let [element-spaces (filter :element (vals (:spaces game)))
         food-color (-> colors first last)
         organisms (group-by
