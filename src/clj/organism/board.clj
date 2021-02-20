@@ -279,23 +279,51 @@
 
 (defn render-move
   [color [x y] radius food]
-  (let [outer (map (partial radial-axis 3 radius 0) (range 3))
-        inner (map (partial radial-axis 3 (* 0.3 radius) (* tau 0.1)) (range 3))
-        points (mapv (partial add-vector [x y]) (interleave outer inner))
-        head (first points)
-        steps ["M " (first head) " " (last head)]
-        steps (concat
-               steps
-               (map
-                (fn [[ox oy]]
-                  (str "L " ox " " oy))
-                (rest points)))
-        path (string/join " " steps)]
-    [:path
-     {:d (str path " Z")
-      :fill color
-      :stroke "white"
-      :stroke-width (* radius 0.07)}]))
+  (let [symmetry 3
+        half (/ 0.5 symmetry)
+        outer-radius 1.1
+        outer-arc 0.07
+        mid-radius 1.1
+        mid-arc 0.22
+        under-radius 0.75
+        under-arc 0.13
+        inner-radius 0.3
+        inner-arc 0.3
+
+        oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius 0.3)) (* tau -1 (- inner-arc half))) (range symmetry))
+        oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
+        outer (map (partial radial-axis symmetry radius 0) (range symmetry))
+
+        mc-start (map (partial radial-axis symmetry (* radius outer-radius) (* tau outer-arc)) (range symmetry))
+        mc-end (map (partial radial-axis symmetry (* radius mid-radius) (* tau (- mid-arc 0.05))) (range symmetry))
+        mid (map (partial radial-axis symmetry radius (* tau mid-arc)) (range symmetry))
+
+        uc-start (map (partial radial-axis symmetry (* radius outer-radius) (* tau mid-arc 1.2)) (range symmetry))
+        uc-end (map (partial radial-axis symmetry (* radius 1.1 under-radius) (* tau (- mid-arc 0.05))) (range symmetry))
+        under (map (partial radial-axis symmetry (* radius under-radius) (* tau under-arc)) (range symmetry))
+
+        ic-start (map (partial radial-axis symmetry (* radius under-radius 1.05) (* tau (- under-arc 0.07))) (range symmetry))
+        ic-end (map (partial radial-axis symmetry (* radius (+ inner-radius 0.65)) (* tau (- (* 0.3 inner-arc) half))) (range symmetry))
+        inner (map (partial radial-axis symmetry (* inner-radius radius) (* tau (- half 0.08))) (range symmetry))
+
+        points (mapv
+                (partial add-vector [x y])
+                (interleave
+                 oc-start oc-end outer
+                 mc-start mc-end mid
+                 uc-start uc-end under
+                 ic-start ic-end inner))
+
+        path (make-path color (partition 3 points))
+        controls (make-controls 5 "black" "grey" (partition 3 points))]
+    [:g
+     (update
+      path 1 merge
+      {:fill color
+       :stroke "white"
+       :stroke-width (* radius 0.07)})
+     controls
+     ]))
 
 (defn render-element
   [color [x y] radius element]
