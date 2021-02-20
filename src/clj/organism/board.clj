@@ -217,12 +217,16 @@
 
 (defn render-eat
   [color [x y] radius food]
-  (let [oc-start (map (partial radial-axis 5 (* radius 0.6) (* tau 0)) (range 5))
-        oc-end (map (partial radial-axis 5 (* radius 1.05) (* tau -0.05)) (range 5))
+  (let [outer-radius 1.00
+        outer-arc 0.03
+        inner-radius 0.5
+        inner-arc 0.12
+        oc-start (map (partial radial-axis 5 (* radius (+ inner-radius 0.1)) (* tau (- 0.1 inner-arc))) (range 5))
+        oc-end (map (partial radial-axis 5 (* radius outer-radius) (* tau -1 outer-arc)) (range 5))
         outer (map (partial radial-axis 5 radius 0) (range 5))
-        ic-start (map (partial radial-axis 5 (* radius 1.05) (* tau 0.05)) (range 5))
-        ic-end (map (partial radial-axis 5 (* radius 0.6) (* tau 0.0)) (range 5))
-        inner (map (partial radial-axis 5 (* 0.5 radius) (* tau 0.1)) (range 5))
+        ic-start (map (partial radial-axis 5 (* radius outer-radius) (* tau outer-arc)) (range 5))
+        ic-end (map (partial radial-axis 5 (* radius (+ inner-radius 0.1)) (* tau (+ -0.1 inner-arc))) (range 5))
+        inner (map (partial radial-axis 5 (* inner-radius radius) (* tau 0.1)) (range 5))
         points (mapv
                 (partial add-vector [x y])
                 (interleave
@@ -235,7 +239,7 @@
       {:fill color
        :stroke "white"
        :stroke-width (* radius 0.07)})
-     controls
+     ;; controls
      ]))
 
 (defn render-grow
