@@ -1,10 +1,36 @@
 (ns organism.board
   (:require
    [clojure.string :as string]
+   [thi.ng.color.core :as color]
    [hiccup.core :as up]
    [organism.base :as base]))
 
 (def tau (* 2 Math/PI))
+
+(defn generate-colors
+  [rings]
+  (let [num-rings (count rings)
+        base 0.3
+        max 0.9
+        factor (/ (- max base) num-rings)
+        jump-base 0.2
+        jump-factor 0.6]
+    (first
+     (reduce
+      (fn [[colors hue] [ring index]]
+        [(conj
+          colors
+          [ring
+           (-> (color/hsva
+                hue
+                (+ base (rand (- max base)))
+                (- max (* index factor))
+                1.0)
+               color/as-css
+               :col)])
+         (mod (+ hue (+ jump-base (- (rand (* 2 jump-factor)) jump-factor))) 1.0)])
+      [[] (rand)]
+      (map vector rings (range))))))
 
 (def organism-colors
   [[:yellow "#fff88c"]
@@ -122,7 +148,6 @@
 
 (defn board-layout
   [symmetry radius buffer colors]
-  (println "layout colors" colors)
   (let [field (* 2 radius buffer (count colors))]
     [:svg {:width field :height field}
      [:g (map circle (find-rings symmetry radius buffer colors))]]))
@@ -143,7 +168,14 @@
    colors
    (board-layout symmetry radius buffer (map last colors))
    (board-locations symmetry radius buffer colors)
-   (into {} (map vector players (rest (reverse (map last colors)))))))
+   (into
+    {}
+    (map
+     vector
+     players
+     (rest
+      (reverse
+       (map last colors)))))))
 
 (defn add-vector
   [a b]
@@ -350,7 +382,7 @@
 
 (defn render-element
   [color food-color [x y] radius element]
-  (println "element" element)
+  (println "element" [x y] color food-color)
   (let [subradius (* 0.87 radius)
         icon
         (condp = (:type element)
@@ -373,6 +405,8 @@
   [locations color food-color radius spaces]
   (map
    (fn [{:keys [space element]}]
+     (println "locations" (keys locations))
+     (println "space" space)
      (let [location (get locations space)]
        (render-element color food-color location radius element)))
    spaces))
@@ -381,7 +415,6 @@
   [{:keys [colors radius layout locations player-colors] :as board} game]
   (let [element-spaces (filter :element (vals (:spaces game)))
         food-color (-> colors first last)
-        _ (println "element spaces" element-spaces)
         organisms (group-by
                    (juxt
                     (comp :player :element)
@@ -396,7 +429,6 @@
                   organisms)
         _ (println "elements" elements)
         svg (apply conj layout elements)]
-    _ (println "svg" svg)
     (up/html svg)))
 
 (defn export
