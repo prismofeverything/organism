@@ -217,16 +217,19 @@
 
 (defn render-eat
   [color [x y] radius food]
-  (let [outer-radius 1.00
+  (let [symmetry 5
+        half (/ 0.5 symmetry)
+        outer-radius 1.00
         outer-arc 0.03
         inner-radius 0.5
         inner-arc 0.12
-        oc-start (map (partial radial-axis 5 (* radius (+ inner-radius 0.1)) (* tau (- 0.1 inner-arc))) (range 5))
-        oc-end (map (partial radial-axis 5 (* radius outer-radius) (* tau -1 outer-arc)) (range 5))
-        outer (map (partial radial-axis 5 radius 0) (range 5))
-        ic-start (map (partial radial-axis 5 (* radius outer-radius) (* tau outer-arc)) (range 5))
-        ic-end (map (partial radial-axis 5 (* radius (+ inner-radius 0.1)) (* tau (+ -0.1 inner-arc))) (range 5))
-        inner (map (partial radial-axis 5 (* inner-radius radius) (* tau 0.1)) (range 5))
+
+        oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius half)) (* tau -1 (- inner-arc half))) (range symmetry))
+        oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
+        outer (map (partial radial-axis symmetry radius 0) (range symmetry))
+        ic-start (map (partial radial-axis symmetry (* radius outer-radius) (* tau outer-arc)) (range symmetry))
+        ic-end (map (partial radial-axis symmetry (* radius (+ inner-radius half)) (* tau (- inner-arc half))) (range symmetry))
+        inner (map (partial radial-axis symmetry (* inner-radius radius) (* tau half)) (range symmetry))
         points (mapv
                 (partial add-vector [x y])
                 (interleave
@@ -244,23 +247,35 @@
 
 (defn render-grow
   [color [x y] radius food]
-  (let [outer (map (partial radial-axis 4 radius 0) (range 4))
-        inner (map (partial radial-axis 4 (* 0.5 radius) (* tau 0.1)) (range 4))
-        points (mapv (partial add-vector [x y]) (interleave outer inner))
-        head (first points)
-        steps ["M " (first head) " " (last head)]
-        steps (concat
-               steps
-               (map
-                (fn [[ox oy]]
-                  (str "L " ox " " oy))
-                (rest points)))
-        path (string/join " " steps)]
-    [:path
-     {:d (str path " Z")
-      :fill color
-      :stroke "white"
-      :stroke-width (* radius 0.07)}]))
+  (let [symmetry 4
+        half (/ 0.5 symmetry)
+        outer-radius 1.1
+        outer-arc 0.07
+        inner-radius 0.5
+        inner-arc 0.23
+
+        oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius 0.3)) (* tau -1 (- inner-arc half))) (range symmetry))
+        oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
+        outer (map (partial radial-axis symmetry radius 0) (range symmetry))
+        ic-start (map (partial radial-axis symmetry (* radius outer-radius) (* tau outer-arc)) (range symmetry))
+        ic-end (map (partial radial-axis symmetry (* radius (+ inner-radius 0.3)) (* tau (- inner-arc half))) (range symmetry))
+        inner (map (partial radial-axis symmetry (* inner-radius radius) (* tau half)) (range symmetry))
+
+        points (mapv
+                (partial add-vector [x y])
+                (interleave
+                 oc-start oc-end outer ic-start ic-end inner))
+
+        path (make-path color (partition 3 points))
+        controls (make-controls 5 "black" "grey" (partition 3 points))]
+    [:g
+     (update
+      path 1 merge
+      {:fill color
+       :stroke "white"
+       :stroke-width (* radius 0.07)})
+     ;; controls
+     ]))
 
 (defn render-move
   [color [x y] radius food]
@@ -284,17 +299,18 @@
 
 (defn render-element
   [color [x y] radius element]
-  (condp = (:type element)
-    :eat (render-eat color [x y] radius (:food element))
-    :grow (render-grow color [x y] radius (:food element))
-    :move (render-move color [x y] radius (:food element))
-    [:circle
-     {:cx x
-      :cy y
-      :r (* radius 0.8)
-      :fill color
-      :stroke "white"
-      :stroke-width (* radius 0.07)}]))
+  (let [subradius (* 0.87 radius)]
+    (condp = (:type element)
+      :eat (render-eat color [x y] subradius (:food element))
+      :grow (render-grow color [x y] subradius (:food element))
+      :move (render-move color [x y] subradius (:food element))
+      [:circle
+       {:cx x
+        :cy y
+        :r (* radius 0.8)
+        :fill color
+        :stroke "white"
+        :stroke-width (* radius 0.07)}])))
 
 (defn render-organism
   [locations color radius spaces]
