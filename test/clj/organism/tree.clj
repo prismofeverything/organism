@@ -57,10 +57,6 @@
       game turn organism elements organisms organism-turn (dec num-actions))
      fed-elements)))
 
-(defn walk-eat-action
-  [game turn organism elements organisms organism-turn num-actions open-eater]
-  (let [action (game/->Action :eat {:to (:space open-eater)})]))
-
 (defn walk-eat-actions
   [game turn organism elements organisms organism-turn num-actions]
   (if (zero? num-actions)
@@ -93,6 +89,23 @@
        (walk-circulate-actions
         game turn organism elements organisms organism-turn actions-left)))))
 
+(defn walk-move-targets
+  [game turn organism elements organisms organism-turn num-actions moving]
+  (let [open (game/available-spaces game (:space moving))
+        move-actions
+        (map
+         (fn [open-space]
+           (game/->Action
+            :move
+            {:from (:space moving)
+             :to open-space}))
+         open)]
+    (base/map-cat
+     (partial
+      walk-next-action
+      game turn organism elements organisms organism-turn actions-left)
+     move-actions)))
+
 (defn walk-move-actions
   [game turn organism elements organisms organism-turn num-actions]
   (if (zero? num-actions)
@@ -103,25 +116,18 @@
 
     (let [mobile-elements
           (filter
-           (fn [element]
-             (and
-              (= :eat (:type element))
-              (game/open? element)))
+           (comp
+            (partial game/can-move? game)
+            :space)
            elements)
-
-          eat-actions
-          (map
-           (fn [open-eater]
-             (game/->Action :eat {:to (:space open-eater)}))
-           mobile-elements)
           actions-left (dec num-actions)]
 
       (concat
        (base/map-cat
         (partial
-         walk-next-action
+         walk-move-targets
          game turn organism elements organisms organism-turn actions-left)
-        eat-actions)
+        mobile-elements)
        (walk-circulate-actions
         game turn organism elements organisms organism-turn actions-left)))))
 

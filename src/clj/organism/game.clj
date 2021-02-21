@@ -222,10 +222,6 @@
    [:spaces space :element :food]
    (partial + amount)))
 
-(defn open?
-  [element]
-  (> *food-limit* (:food element)))
-
 (defn adjacent-elements
   [state space]
   (remove
@@ -233,6 +229,34 @@
    (map
     (partial get-element state)
     (adjacent-to state space))))
+
+(defn open?
+  [element]
+  (> *food-limit* (:food element)))
+
+(defn open-spaces
+  [state space]
+  (filter
+   empty?
+   (map
+    (partial get-element state)
+    (adjacent-to state space))))
+
+(defn available-spaces
+  [state space]
+  (let [element (get-element state space)
+        open (open-spaces state space)]
+    (remove
+     (fn [open-space]
+       (let [adjacent (adjacent-elements state open-space)
+             elements (map (partial get-element state) adjacent)]
+         (some
+          (fn [adjacent-element]
+            (and
+             (= (:type adjacent-element) (:type element))
+             (not= (:player adjacent-element) (:player element))))
+          elements)))
+     open)))
 
 (defn adjacent-element-spaces
   [state space]
