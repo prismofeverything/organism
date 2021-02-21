@@ -4,6 +4,7 @@
   :url "http://example.com/FIXME"
 
   :dependencies [[ch.qos.logback/logback-classic "1.2.3"]
+                 [org.clojure/math.combinatorics "0.1.6"]
                  [clojure.java-time "0.3.2"]
                  [cprop "0.1.17"]
                  [expound "0.8.7"]

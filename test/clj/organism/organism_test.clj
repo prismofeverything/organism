@@ -175,7 +175,7 @@
           (-> integrity-position
               (clear-organisms)
               (trace-organism [:orange 5] 111))
-          organisms (player-organisms state)]
+          organisms (group-organisms state)]
       (println "traced" organisms)
       (is (= 2 (count organisms)))
       (is (= 3 (count (get organisms ["orb" 111])))))))
@@ -185,7 +185,7 @@
     (let [state
           (-> integrity-position
               (clear-organisms))
-          organisms (player-organisms state)]
+          organisms (group-organisms state)]
       (println "cleared" organisms)
       (is (= 2 (count organisms)))
       (is (= 3 (count (get organisms ["orb" nil])))))))
@@ -193,7 +193,7 @@
 (deftest organisms-test
   (testing "identifying contiguous groups of elements as distinct organisms"
     (let [state (-> integrity-position (find-organisms))
-          organisms (player-organisms state)
+          organisms (group-organisms state)
           survival (evaluate-survival organisms)]
       (println "organisms" organisms)
       (println "survival" survival)
@@ -214,7 +214,7 @@
               (move "orb" [:red 2] [:yellow 0])
               (resolve-conflicts "orb")
               (check-integrity "orb"))
-          organisms (player-organisms state)]
+          organisms (group-organisms state)]
       (println "sacrifice" (:players state) organisms)
       (is (= 1 (count organisms)))
       (is (= 3 (count (get-in state [:players "orb" :captures])))))))
@@ -237,7 +237,7 @@
                          :element :eat})])])
           state (-> two-player-close
                     (take-turn orb-turn))
-          organisms (player-organisms state)]
+          organisms (group-organisms state)]
       (println "turn" orb-turn)
       (println organisms)
       (is (= 4 (count (last (first organisms))))))))

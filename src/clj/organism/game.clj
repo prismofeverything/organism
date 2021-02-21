@@ -386,7 +386,7 @@
    [:spaces space :element :organism]
    organism))
 
-(defn player-organisms
+(defn group-organisms
   [state]
   (reduce
    (fn [elements {:keys [space element]}]
@@ -399,6 +399,21 @@
        elements))
    {}
    (-> state :spaces vals)))
+
+(defn player-organisms
+  [state player]
+  (mapv
+   identity
+   (reduce
+    (fn [elements {:keys space element}]
+      (if (and element (= player (:player element)))
+        (update
+         elements
+         (:organism element)
+         conj element)
+        elements))
+    {}
+    (-> state :spaces vals))))
 
 (defn adjacent-elements
   [state space]
@@ -469,7 +484,7 @@
 (defn check-integrity
   [state active-player]
   (let [state (find-organisms state)
-        organisms (player-organisms state)]
+        organisms (group-organisms state)]
     (reduce
      (fn [state [[player organism] elements]]
        (if (alive? elements)
@@ -543,7 +558,7 @@
 
 (defn three-organisms?
   [state player]
-  (>= (count (get (player-organisms state) player)) 3))
+  (>= (count (player-organisms state player) player) 3))
 
 (defn player-wins?
   [state player]
