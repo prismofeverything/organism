@@ -222,6 +222,31 @@
    [:spaces space :element :food]
    (partial + amount)))
 
+(defn open?
+  [element]
+  (> *food-limit* (:food element)))
+
+(defn fed?
+  [element]
+  (> (:food element) 0))
+
+(defn adjacent-elements
+  [state space]
+  (remove
+   empty?
+   (map
+    (partial get-element state)
+    (adjacent-to state space))))
+
+(defn mobile?
+  [state space]
+  (let [element (get-element state space)
+        adjacent (adjacent-elements state space)
+        all-elements (conj adjacent element)]
+    (some
+     (comp (partial = :move) :type)
+     all-elements)))
+
 ;; ACTIONS -----------------------
 
 (defn introduce
@@ -405,7 +430,7 @@
   (mapv
    identity
    (reduce
-    (fn [elements {:keys space element}]
+    (fn [elements {:keys [space element]}]
       (if (and element (= player (:player element)))
         (update
          elements
@@ -415,25 +440,47 @@
     {}
     (-> state :spaces vals))))
 
-(defn adjacent-elements
+(defn adjacent-element-spaces
   [state space]
   (filter
    (fn [adjacent]
      (get-element state adjacent))
    (adjacent-to state space)))
 
-(defn trace-organism
-  [state space organism]
-  (loop [state state
-         spaces [space]
-         visited #{}]
+(defn contiguous-elements
+  [state space]
+  (loop [spaces [space]
+         visited #{}
+         contiguous []]
     (if (empty? spaces)
-      state
+      contiguous
       (let [space (first spaces)
-            state (set-organism state space organism)
-            adjacent (adjacent-elements state space)
+            contiguous (conj contiguous space)
+            adjacent (adjacent-element-spaces state space)
             unseen (remove visited adjacent)]
-        (recur state (concat (rest spaces) unseen) (conj visited space))))))
+        (recur
+         (concat (rest spaces) unseen)
+         (conj visited space)
+         contiguous)))))
+
+(defn trace-organism
+  [state center-space organism]
+  (let [spaces (contiguous-elements state center-space)]
+    (reduce
+     (fn [state space]
+       (set-organism state space organism))
+     state spaces)))
+
+  ;; (loop [state state
+  ;;        spaces [space]
+  ;;        visited #{}]
+  ;;   (if (empty? spaces)
+  ;;     state
+  ;;     (let [space (first spaces)
+  ;;           state (set-organism state space organism)
+  ;;           adjacent (adjacent-element-spaces state space)
+  ;;           unseen (remove visited adjacent)]
+  ;;       (recur state (concat (rest spaces) unseen) (conj visited space)))))
 
 (defn find-organism
   [state space element organism]
@@ -558,7 +605,7 @@
 
 (defn three-organisms?
   [state player]
-  (>= (count (player-organisms state player) player) 3))
+  (>= (count (player-organisms state player)) 3))
 
 (defn player-wins?
   [state player]

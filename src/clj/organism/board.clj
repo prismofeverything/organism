@@ -149,6 +149,10 @@
     :r radius
     :fill color}])
 
+(defn make-circle
+  [radius color [cx cy]]
+  (circle [cx cy radius color]))
+
 (defn build-background
   [radius buffer colors]
   (let [num-rings (count colors)
@@ -273,10 +277,6 @@
     :x2 x2
     :y2 y2
     :stroke color}])
-
-(defn make-circle
-  [radius color [cx cy]]
-  (circle [cx cy radius color]))
 
 (defn make-control
   [radius point-color line-color previous control]
