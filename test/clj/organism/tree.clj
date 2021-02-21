@@ -103,7 +103,7 @@
     (base/map-cat
      (partial
       walk-next-action
-      game turn organism elements organisms organism-turn actions-left)
+      game turn organism elements organisms organism-turn num-actions)
      move-actions)))
 
 (defn walk-move-actions
@@ -128,6 +128,88 @@
          walk-move-targets
          game turn organism elements organisms organism-turn actions-left)
         mobile-elements)
+       (walk-circulate-actions
+        game turn organism elements organisms organism-turn actions-left)))))
+
+(defn extend-contribution
+  [elements contribution]
+  (let [element-food
+        (map
+         (fn [{:keys [space food]}]
+           (let [spent (get contribution space 0)]
+             [space (- food spent)]))
+         elements)
+        possible-contributors
+        (filter
+         (fn [[space food]]
+           (> food 0))
+         element-food)]
+    (map
+     (fn [[space food]]
+       (update contribution space (fnil inc 0)))
+     possible-contributors)))
+
+(defn food-contributions
+  [elements total]
+  (loop [contributions [{}]
+         total total]
+    (if (zero? total)
+      contributions
+      (let [contributions
+            (base/map-cat
+             (partial extend-contribution elements)
+             contributions)]
+        (recur contributions (dec total))))))
+
+(defn walk-grow-contributions
+  [game turn
+   organism elements organisms organism-turn num-actions
+   growers element-type contribution]
+  (let [open (game/growable-spaces game (map :space growers))
+        grow-actions
+        (map
+         (fn [target]
+           (game/->Action
+            :grow
+            {:from contribution
+             :to target
+             :element element-type}))
+         open)]
+    (base/map-cat
+     (partial
+      walk-next-action
+      game turn organism elements organisms organism-turn num-actions)
+     grow-actions)))
+
+(defn walk-grow-element-types
+  [game turn organism elements organisms organism-turn num-actions element-type]
+  (let [existing (count (filter (comp (partial = element-type) :type) elements))
+        growers (filter (comp (partial = :grow) :type) elements)
+        grower-food (reduce (comp + :food) 0 growers)]
+    (if (>= grower-food existing)
+      (let [contributions (food-contributions growers existing)]
+        (base/map-cat
+         (partial
+          walk-grow-contributions
+          game turn organism elements organisms organism-turn num-actions growers element-type)
+         contributions)))))
+
+(defn walk-grow-actions
+  [game turn organism elements organisms organism-turn num-actions]
+  (if (zero? num-actions)
+    (walk-organism-turn
+     game
+     (update turn :organism-turns conj organism-turn)
+     organisms)
+
+    (let [actions-left (dec num-actions)]
+
+      (concat
+       (base/map-cat
+        (partial
+         walk-grow-element-types
+         game turn organism elements organisms organism-turn actions-left)
+        element-types)
        (walk-circulate-actions
         game turn organism elements organisms organism-turn actions-left)))))
 

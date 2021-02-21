@@ -258,6 +258,27 @@
           elements)))
      open)))
 
+(defn growable-adjacent
+  [state space]
+  (let [element (get-element state space)
+        open (open-spaces state space)]
+    (remove
+     (fn [open-space]
+       (let [adjacent (adjacent-elements state open-space)
+             elements (map (partial get-element state) adjacent)]
+         (some
+          (fn [adjacent-element]
+            (not= (:player adjacent-element) (:player element)))
+          elements)))
+     open)))
+
+(defn growable-spaces
+  [state spaces]
+  (set
+   (base/map-cat
+    (partial growable-adjacent state)
+    spaces)))
+
 (defn adjacent-element-spaces
   [state space]
   (filter

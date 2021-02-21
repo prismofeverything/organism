@@ -242,3 +242,8 @@
       (println organisms)
       (is (= 4 (count (last (first organisms))))))))
 
+(deftest walk-test
+  (testing "walking through every possible turn from a given position and player"
+    (let [game two-player-close
+          walk (tree/walk-turn game "orb")]
+      (println "walk" walk))))
