@@ -155,12 +155,13 @@
 (defrecord Player [name starting-spaces captures])
 (defrecord Element [player organism type space food captures])
 (defrecord Space [space element])
-(defrecord State [adjacencies center players spaces turn round history])
+(defrecord State [adjacencies center capture-limit players spaces turn round history])
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
   [adjacencies center player-info]
-  (let [spaces
+  (let [capture-limit 5
+        spaces
         (map
          (fn [space]
            [space (Space. space nil)])
@@ -174,6 +175,7 @@
     (State.
      adjacencies
      center
+     capture-limit
      (into {} players)
      (into {} spaces)
      0 0 [])))
@@ -195,6 +197,10 @@
 (defn adjacent-to
   [state space]
   (get-in state [:adjacencies space]))
+
+(defn get-player
+  [state player]
+  (get-in state [:players player]))
 
 (defn get-element
   [state space]
@@ -529,3 +535,18 @@
         (resolve-conflicts player)
         (check-integrity player))))
 
+(defn enough-captures?
+  [state player]
+  (>=
+   (count (get-in state [:players player :captures]))
+   (:capture-limit state)))
+
+(defn three-organisms?
+  [state player]
+  (>= (count (get (player-organisms state) player)) 3))
+
+(defn player-wins?
+  [state player]
+  (or
+   (enough-captures? state player)
+   (three-organisms? state player)))

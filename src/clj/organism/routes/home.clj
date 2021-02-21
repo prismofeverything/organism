@@ -1,5 +1,6 @@
 (ns organism.routes.home
   (:require
+   [clojure.pprint :as pprint]
    [organism.board :as board]
    [organism.layout :as layout]
    [organism.game :as game]
@@ -75,9 +76,9 @@
 (defn game-page [request]
   (content-type
    (ok
-    (let [colors (board/generate-colors [:A :B :C :D :E :F :G]) ;; board/organism-colors 
+    (let [colors (board/generate-colors [:A :B :C :D :E :F :G])
           _ (println "colors" colors)
-          board (board/build-board 6 50 2.1 colors ["orb" "mass"])]
+          board (board/build-board 6 50 2.1 colors ["orb" "mass"] true)]
       (println "board" board)
       (board/render-game board test-game)))
    "text/html; charset=utf-8"))

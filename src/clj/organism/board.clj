@@ -10,7 +10,7 @@
 (defn generate-colors
   [rings]
   (let [num-rings (count rings)
-        base 0.3
+        base 0.1
         max 0.9
         factor (/ (- max base) num-rings)
         jump-base 0.2
@@ -21,9 +21,9 @@
         [(conj
           colors
           [ring
-           (-> (color/hsva
+           (-> (color/hsla
                 hue
-                (+ base (rand (- max base)))
+                (- max (+ base (rand (- max base))))
                 (- max (* index factor))
                 1.0)
                color/as-css
@@ -95,22 +95,27 @@
      spaces)))
 
 (defn linear-rings
-  [start-beam end-beam]
+  [notch? start-beam end-beam]
   (let [between (map zero-dec (range (count start-beam)))]
     (concat
-     start-beam
+     (if notch?
+       (butlast start-beam)
+       start-beam)
      (mapcat linear-ring start-beam end-beam between))))
 
 (defn find-rings
-  [symmetry radius buffer colors]
+  [symmetry radius buffer colors notches?]
   (let [beams (find-beams symmetry radius buffer colors)
         next-beams (drop 1 (cycle beams))
-        rings (mapcat linear-rings beams next-beams)]
+        rings (mapcat
+               (partial linear-rings notches?)
+               beams
+               next-beams)]
     rings))
 
 (defn ring-map
-  [symmetry radius buffer colors]
-  (let [spaces (find-rings symmetry radius buffer (map last colors))
+  [symmetry radius buffer colors notches?]
+  (let [spaces (find-rings symmetry radius buffer (map last colors) notches?)
         inverse-colors (into {} (map (fn [[a b]] [b a]) colors))]
     (reduce
      (fn [rings space]
@@ -133,7 +138,7 @@
 
 (defn board-locations
   [symmetry radius buffer colors]
-  (let [rings (ring-map symmetry radius buffer colors)]
+  (let [rings (ring-map symmetry radius buffer colors false)]
     (rings->locations rings)))
 
 (defn circle
@@ -142,8 +147,6 @@
    {:cx x
     :cy y
     :r radius
-    ;; :stroke "#888"
-    ;; :stroke-width (* radius 0.07)
     :fill color}])
 
 (defn build-background
@@ -153,16 +156,22 @@
         center [field field]]
     [(concat
       [:defs]
-      (mapv
-       (fn [[color-key color] index]
-         [:radialGradient {:id color-key}
-          [:stop {:offset "0%" :stop-color "black"}]
-          [:stop {:offset "100%" :stop-color color}]])
-       (rest colors)
-       (map (comp inc inc) (range))))
+      (apply
+       concat
+       (map
+        (fn [[color-key color] index]
+          [[:radialGradient {:id color-key}
+            [:stop {:offset "0%" :stop-color "black"}]
+            [:stop {:offset "100%" :stop-color color}]]
+           [:radialGradient {:id (str (name color-key) "-element")}
+            [:stop {:offset "0%" :stop-color color}]
+            [:stop {:offset "50%" :stop-color color}]
+            [:stop {:offset "100%" :stop-color "black"}]]])
+        (rest colors)
+        (map (comp inc inc) (range)))))
      [:g
       (concat
-       [(make-circle field "black" center)]
+       [(make-circle (* field 0.93) "black" center)]
        (map
         (fn [[color-key color] index]
           (circle
@@ -173,38 +182,60 @@
         (map (partial + 1.9) (range))))]]))
 
 (defn board-layout
-  [symmetry radius buffer colors]
+  [symmetry radius buffer colors notches?]
   (let [field (* 2 radius buffer (count colors))]
     [:svg {:width field :height field}
      (concat
       [:g]
       (build-background radius buffer colors)
-      [(map circle (find-rings symmetry radius buffer (map last colors)))])]))
+      [(map circle (find-rings symmetry radius buffer (map last colors) notches?))])]))
 
 (defn render
-  [symmetry radius buffer colors]
-  (let [radiate (board-layout symmetry radius buffer colors)]
+  [symmetry radius buffer colors notches?]
+  (let [radiate (board-layout symmetry radius buffer colors notches?)]
     (up/html radiate)))
 
 (defrecord Board [symmetry radius buffer colors layout locations player-colors])
 
 (defn build-board
-  [symmetry radius buffer colors players]
-  (Board.
-   symmetry
-   radius
-   buffer
-   colors
-   (board-layout symmetry radius buffer colors)
-   (board-locations symmetry radius buffer colors)
-   (into
-    {}
-    (map
-     vector
-     players
-     (rest
-      (reverse
-       (map last colors)))))))
+  [symmetry radius buffer colors players notches?]
+  (let [num-rings (count colors)
+        outer-color (-> colors last first)
+        notches (map (fn [n] [outer-color (* n num-rings)]) (range symmetry))
+        locations (board-locations symmetry radius buffer colors)
+        locations (if notches?
+                    (reduce
+                     (fn [locations notch]
+                       (dissoc locations notch))
+                     locations
+                     notches)
+                    locations)]
+    (Board.
+     symmetry
+     radius
+     buffer
+     colors
+     (board-layout symmetry radius buffer colors notches?)
+     locations
+     (into
+      {}
+      (map
+       vector
+       players
+       (rest
+        (reverse
+         (map
+          (fn [[color-key color-str]]
+            color-str)
+            ;; (str "url(#" (name color-key) "-element)")
+          colors))))))))
+
+(defn get-ring
+  [board color]
+  (let [spaces (filter
+                (fn [[space-color number]]
+                  (= color space-color))
+                (-> board :locations keys))]))
 
 (defn add-vector
   [a b]
@@ -405,38 +436,44 @@
           (partial add-vector position)
           (partial radial-axis symmetry beam (* tau -0.25)))
          (range food))]
-    [:g (map
-         (partial render-single-food color radius)
-         points)]))
+    [:g
+     (map
+      (partial render-single-food color radius)
+      points)]))
+
+(defn brighten
+  [color-str factor]
+  (-> color-str
+      color/css
+      color/as-hsva
+      (update :v + factor)
+      color/as-css
+      :col))
 
 (defn render-element
   [color food-color [x y] radius element]
-  (println "element" [x y] color food-color)
   (let [subradius (* 0.87 radius)
         stroke-ratio 0.04
+        bright (brighten color 0.2)
         icon
         (condp = (:type element)
-          :eat (render-eat color stroke-ratio [x y] subradius (:food element))
-          :grow (render-grow color stroke-ratio [x y] subradius (:food element))
-          :move (render-move color stroke-ratio [x y] subradius (:food element))
+          :eat (render-eat bright stroke-ratio [x y] subradius (:food element))
+          :grow (render-grow bright stroke-ratio [x y] subradius (:food element))
+          :move (render-move bright stroke-ratio [x y] subradius (:food element))
           [:circle
            {:cx x
             :cy y
             :r (* radius 0.8)
-            :fill color
+            :fill bright
             :stroke "#333"
             :stroke-width (* radius stroke-ratio)}])
         food (render-food [x y] (* radius 0.3) (* radius 0.2) food-color (:food element))]
-    [:g
-     icon
-     food]))
+    [:g icon food]))
 
 (defn render-organism
   [locations color food-color radius spaces]
   (map
    (fn [{:keys [space element]}]
-     (println "locations" (keys locations))
-     (println "space" space)
      (let [location (get locations space)]
        (render-element color food-color location radius element)))
    spaces))
@@ -450,14 +487,12 @@
                     (comp :player :element)
                     (comp :organism :element))
                    element-spaces)
-        _ (println "organisms" organisms)
         elements (mapv
                   (fn [[[player organism] spaces]]
                     [:g
                      (let [color (get player-colors player)]
                        (render-organism locations color food-color radius spaces))])
                   organisms)
-        _ (println "elements" elements)
         svg (apply conj layout elements)]
     (up/html svg)))
 
