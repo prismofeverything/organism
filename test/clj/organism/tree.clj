@@ -50,7 +50,7 @@
 
 (defn walk-circulate-actions
   [game turn organism elements organisms organism-turn num-actions]
-  (let [fed-elements (filter game/fed? elements)]
+  (let [fed-elements (filter game/fed-element? elements)]
     (base/map-cat
      (partial
       walk-circulate-action

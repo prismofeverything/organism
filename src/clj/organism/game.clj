@@ -226,10 +226,6 @@
   [element]
   (> *food-limit* (:food element)))
 
-(defn fed?
-  [element]
-  (> (:food element) 0))
-
 (defn adjacent-elements
   [state space]
   (remove
@@ -237,6 +233,38 @@
    (map
     (partial get-element state)
     (adjacent-to state space))))
+
+(defn adjacent-element-spaces
+  [state space]
+  (filter
+   (fn [adjacent]
+     (get-element state adjacent))
+   (adjacent-to state space)))
+
+(defn contiguous-elements
+  [state space]
+  (loop [spaces [space]
+         visited #{}
+         contiguous []]
+    (if (empty? spaces)
+      contiguous
+      (let [space (first spaces)
+            contiguous (conj contiguous space)
+            adjacent (adjacent-element-spaces state space)
+            unseen (remove visited adjacent)]
+        (recur
+         (concat (rest spaces) unseen)
+         (conj visited space)
+         contiguous)))))
+
+(defn fed-element?
+  [element]
+  (> (:food element) 0))
+
+(defn fed?
+  [state space]
+  (let [element (get-element state space)]
+    (fed-element? element)))
 
 (defn mobile?
   [state space]
@@ -246,6 +274,27 @@
     (some
      (comp (partial = :move) :type)
      all-elements)))
+
+(defn alive-elements?
+  [elements]
+  (let [by-type (group-by :type elements)]
+     (>= (count by-type) 3)))
+
+(defn alive?
+  [state space]
+  (let [contiguous (contiguous-elements state space)
+        elements
+        (map
+         (partial get-element state)
+         contiguous)]
+    (alive-elements? elements)))
+
+(defn can-move?
+  [state space]
+  (and
+   (fed? state space)
+   (mobile? state space)
+   (alive? state space)))
 
 ;; ACTIONS -----------------------
 
@@ -440,29 +489,6 @@
     {}
     (-> state :spaces vals))))
 
-(defn adjacent-element-spaces
-  [state space]
-  (filter
-   (fn [adjacent]
-     (get-element state adjacent))
-   (adjacent-to state space)))
-
-(defn contiguous-elements
-  [state space]
-  (loop [spaces [space]
-         visited #{}
-         contiguous []]
-    (if (empty? spaces)
-      contiguous
-      (let [space (first spaces)
-            contiguous (conj contiguous space)
-            adjacent (adjacent-element-spaces state space)
-            unseen (remove visited adjacent)]
-        (recur
-         (concat (rest spaces) unseen)
-         (conj visited space)
-         contiguous)))))
-
 (defn trace-organism
   [state center-space organism]
   (let [spaces (contiguous-elements state center-space)]
@@ -470,17 +496,6 @@
      (fn [state space]
        (set-organism state space organism))
      state spaces)))
-
-  ;; (loop [state state
-  ;;        spaces [space]
-  ;;        visited #{}]
-  ;;   (if (empty? spaces)
-  ;;     state
-  ;;     (let [space (first spaces)
-  ;;           state (set-organism state space organism)
-  ;;           adjacent (adjacent-element-spaces state space)
-  ;;           unseen (remove visited adjacent)]
-  ;;       (recur state (concat (rest spaces) unseen) (conj visited space)))))
 
 (defn find-organism
   [state space element organism]
@@ -501,18 +516,13 @@
          (-> state :spaces vals))]
     state))
 
-(defn alive?
-  [elements]
-  (let [by-type (group-by :type elements)]
-     (>= (count by-type) 3)))
-
 (defn evaluate-survival
   [organisms]
   (into
    {}
    (map
     (fn [[key elements]]
-      [key (alive? elements)])
+      [key (alive-elements? elements)])
     organisms)))
 
 (defn players-captured
@@ -534,7 +544,7 @@
         organisms (group-organisms state)]
     (reduce
      (fn [state [[player organism] elements]]
-       (if (alive? elements)
+       (if (alive-elements? elements)
          state
          (let [spaces (map :space elements)
                state
