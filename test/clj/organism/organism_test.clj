@@ -1,7 +1,8 @@
 (ns organism.organism-test
   (:require
    [clojure.test :refer :all]
-   [organism.game :refer :all])
+   [organism.game :refer :all]
+   [organism.tree :as tree])
   (:import
    [organism.game
     Action
@@ -246,4 +247,4 @@
   (testing "walking through every possible turn from a given position and player"
     (let [game two-player-close
           walk (tree/walk-turn game "orb")]
-      (println "walk" walk))))
+      (println "walk length" (count walk)))))

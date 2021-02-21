@@ -510,11 +510,10 @@
   (reduce
    (fn [elements {:keys [space element]}]
      (if element
-       (do
-         (update
-          elements
-          [(:player element) (:organism element)]
-          conj element))
+       (update
+        elements
+        [(:player element) (:organism element)]
+        conj element)
        elements))
    {}
    (-> state :spaces vals)))
