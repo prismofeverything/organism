@@ -237,10 +237,9 @@
 (defn open-spaces
   [state space]
   (filter
-   empty?
-   (map
-    (partial get-element state)
-    (adjacent-to state space))))
+   (fn [adjacent]
+     (empty? (get-element state adjacent)))
+   (adjacent-to state space)))
 
 (defn available-spaces
   [state space]
@@ -304,6 +303,7 @@
 
 (defn fed-element?
   [element]
+  (println "fed element?" element)
   (> (:food element) 0))
 
 (defn fed?

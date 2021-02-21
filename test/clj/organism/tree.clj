@@ -17,14 +17,14 @@
 
 (defn walk-next-action
   [game turn organism elements organisms organism-turn num-actions action]
+  (println "next action" action)
   (let [game (game/perform-action game (:player turn) action)
         organism-turn (update organism-turn :actions conj action)
-        elements (get (game/player-organisms game (:player turn)) organism)
+        elements (get (into {} (game/player-organisms game (:player turn))) organism)
         element-walk (get element-walks (:choice organism-turn))]
-    (base/map-cat
-     (partial
-      element-walk
-      game turn organism elements organisms organism-turn num-actions))))
+    (element-walk
+     game turn
+     organism elements organisms organism-turn num-actions)))
 
 (defn walk-circulate-action
   [game turn organism elements organisms organism-turn num-actions fed-element]
@@ -54,7 +54,7 @@
     (base/map-cat
      (partial
       walk-circulate-action
-      game turn organism elements organisms organism-turn (dec num-actions))
+      game turn organism elements organisms organism-turn num-actions)
      fed-elements)))
 
 (defn walk-eat-actions
@@ -109,7 +109,6 @@
 
 (defn walk-move-actions
   [game turn organism elements organisms organism-turn num-actions]
-  (println "move" num-actions)
   (if (zero? num-actions)
     (walk-organism-turn
      game
@@ -189,7 +188,7 @@
   (println "grow element" element-type)
   (let [existing (count (filter (comp (partial = element-type) :type) elements))
         growers (filter (comp (partial = :grow) :type) elements)
-        grower-food (reduce (comp + :food) 0 growers)]
+        grower-food (reduce + 0 (map :food growers))]
     (if (>= grower-food existing)
       (let [contributions (food-contributions growers existing)]
         (base/map-cat
@@ -200,7 +199,6 @@
 
 (defn walk-grow-actions
   [game turn organism elements organisms organism-turn num-actions]
-  (println "grow" num-actions "times")
   (if (zero? num-actions)
     (walk-organism-turn
      game
@@ -220,6 +218,7 @@
 (defn walk-choose-action
   [game turn organism elements organisms organism-turn]
   (println "choose action" organism-turn)
+  (println "elements" elements)
   (let [{:keys [organism choice]} organism-turn
         num-actions (count
                      (filter
@@ -261,12 +260,16 @@
             organism 0
             combinations (combine/permutations element-types)
             introductions
-            (base/map-cat
+            (map
              (fn [combination]
-               (map
-                vector
-                combination
-                starting))
+               (assoc
+                (into
+                 {}
+                 (map
+                  vector
+                  combination
+                  starting))
+                :organism organism))
              combinations)]
         (base/map-cat
          (partial walk-perform-introduction game turn)

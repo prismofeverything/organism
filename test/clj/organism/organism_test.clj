@@ -247,4 +247,5 @@
   (testing "walking through every possible turn from a given position and player"
     (let [game two-player-close
           walk (tree/walk-turn game "orb")]
-      (println "walk length" (count walk)))))
+      (println "walk length" (count walk))
+      (println "first three actions" (nth walk 1) (nth walk 3) (nth walk 5)))))
