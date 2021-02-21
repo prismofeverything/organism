@@ -453,7 +453,7 @@
 (defn render-element
   [color food-color [x y] radius element]
   (let [subradius (* 0.87 radius)
-        stroke-ratio 0.04
+        stroke-ratio 0.007
         bright (brighten color 0.2)
         icon
         (condp = (:type element)
