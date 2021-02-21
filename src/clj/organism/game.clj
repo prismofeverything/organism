@@ -155,7 +155,9 @@
 (defrecord Player [name starting-spaces captures])
 (defrecord Element [player organism type space food captures])
 (defrecord Space [space element])
-(defrecord State [adjacencies center capture-limit players spaces turn round history])
+(defrecord State
+    [adjacencies center capture-limit turn-order
+     players spaces turn round history])
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
@@ -176,6 +178,7 @@
      adjacencies
      center
      capture-limit
+     (map first players)
      (into {} players)
      (into {} spaces)
      0 0 [])))
@@ -197,6 +200,32 @@
 (defn adjacent-to
   [state space]
   (get-in state [:adjacencies space]))
+
+(defn current-player
+  [{:keys [turn player-order] :as state}]
+  (nth player-order turn))
+
+(defn dynamic-state
+  [{:keys [players spaces]}]
+  (let [subplayers
+        (into
+         {}
+         (map
+          (fn [[player record]]
+            [player (:captures record)])
+          players))
+        subspaces
+        (into
+         {}
+         (map
+          (fn [[space record]]
+            [space (:element record)])
+          (filter
+           (fn [[space record]]
+             (not (empty? (:element record))))
+           spaces)))]
+    {:players subplayers
+     :spaces subspaces}))
 
 (defn get-player
   [state player]
@@ -638,18 +667,31 @@
       state)))
 
 (defn take-turn
-  [state {:keys [player introduction organism-turns] :as turn}]
+  [state {:keys [player introduction organism-turns] :as player-turn}]
   (let [state (award-center state player)
         state (if introduction
                 (introduce state player introduction)
                 state)
-        state (reduce
-               (fn [state actions]
-                 (perform-actions state player actions))
-               state (map :actions organism-turns))]
-    (-> state
-        (resolve-conflicts player)
-        (check-integrity player))))
+        state
+        (reduce
+         (fn [state actions]
+           (perform-actions state player actions))
+         state (map :actions organism-turns))
+
+        num-players (count (:players state))
+        state
+        (-> state
+            (resolve-conflicts player)
+            (check-integrity player)
+            (update :history conj player-turn)
+            (update :turn (fn [turn]
+                            (mod (inc turn) num-players))))
+
+        advance (:turn state)
+        state (if (zero? advance)
+                (update state :round inc)
+                state)]
+    state))
 
 (defn enough-captures?
   [state player]

@@ -228,11 +228,18 @@
         element-walk (get element-walks choice)]
     (element-walk game turn organism elements organisms organism-turn num-actions)))
 
+(defn walk-conflict-integrity
+  [game {:keys [player] :as turn}]
+  [(-> game
+       (game/resolve-conflicts player)
+       (game/check-integrity player))
+   turn])
+
 (defn walk-organism-turn
   [game turn organisms]
   (println "walk organisms" (count organisms))
   (if (empty? organisms)
-    [game turn]
+    [(walk-conflict-integrity game turn)]
     (let [[organism elements] (first organisms)
           organism-turns
           (map
@@ -282,7 +289,16 @@
   (let [original-game game
         game (game/award-center game player-name)
         player (game/get-player game player-name)
-        turn (game/->PlayerTurn player-name {} [])]
-    (if (game/player-wins? game player-name)
-      [[(assoc turn :introduction {:center 1}) game]]
-      (walk-introduction game turn))))
+        turn (game/->PlayerTurn player-name {} [])
+        branches
+        (if (game/player-wins? game player-name)
+          [[game [(assoc turn :introduction {:center 1})]]]
+          (walk-introduction game turn))]
+    (group-by
+     (comp
+      game/dynamic-state
+      first)
+     branches)))
+
+
+    

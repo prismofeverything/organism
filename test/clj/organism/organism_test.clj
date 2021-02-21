@@ -248,4 +248,9 @@
     (let [game two-player-close
           walk (tree/walk-turn game "orb")]
       (println "walk length" (count walk))
-      (println "first three actions" (nth walk 1) (nth walk 3) (nth walk 5)))))
+      (println "first seven actions")
+      (clojure.pprint/pprint
+       (map
+        (fn [[minimal choices]]
+          [minimal (map last choices)])
+        (take 7 walk))))))
