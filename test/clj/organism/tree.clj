@@ -91,6 +91,7 @@
 
 (defn walk-move-targets
   [game turn organism elements organisms organism-turn num-actions moving]
+  (println "moving" moving)
   (let [open (game/available-spaces game (:space moving))
         move-actions
         (map
@@ -108,6 +109,7 @@
 
 (defn walk-move-actions
   [game turn organism elements organisms organism-turn num-actions]
+  (println "move" num-actions)
   (if (zero? num-actions)
     (walk-organism-turn
      game
@@ -165,6 +167,7 @@
   [game turn
    organism elements organisms organism-turn num-actions
    growers element-type contribution]
+  (println "contribution" contribution)
   (let [open (game/growable-spaces game (map :space growers))
         grow-actions
         (map
@@ -183,6 +186,7 @@
 
 (defn walk-grow-element-types
   [game turn organism elements organisms organism-turn num-actions element-type]
+  (println "grow element" element-type)
   (let [existing (count (filter (comp (partial = element-type) :type) elements))
         growers (filter (comp (partial = :grow) :type) elements)
         grower-food (reduce (comp + :food) 0 growers)]
@@ -196,6 +200,7 @@
 
 (defn walk-grow-actions
   [game turn organism elements organisms organism-turn num-actions]
+  (println "grow" num-actions "times")
   (if (zero? num-actions)
     (walk-organism-turn
      game
@@ -203,7 +208,6 @@
      organisms)
 
     (let [actions-left (dec num-actions)]
-
       (concat
        (base/map-cat
         (partial
@@ -215,6 +219,7 @@
 
 (defn walk-choose-action
   [game turn organism elements organisms organism-turn]
+  (println "choose action" organism-turn)
   (let [{:keys [organism choice]} organism-turn
         num-actions (count
                      (filter
