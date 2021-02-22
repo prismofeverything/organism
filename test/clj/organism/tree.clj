@@ -289,6 +289,3 @@
       game/dynamic-state
       first)
      branches)))
-
-
-    

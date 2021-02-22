@@ -331,7 +331,6 @@
 
 (defn fed-element?
   [element]
-  (println "fed element?" element)
   (> (:food element) 0))
 
 (defn fed?

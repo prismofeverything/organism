@@ -256,14 +256,26 @@
       (println organisms)
       (is (= 4 (count (last (first organisms))))))))
 
+(def two-organism-position
+  (-> two-player-close
+      (add-element "orb" 0 :grow [:orange 4] 1)
+      (add-element "orb" 0 :eat [:orange 5] 0)
+      (add-element "orb" 0 :move [:blue 4] 2)
+      (add-element "orb" 0 :grow [:red 2] 1)
+      (add-element "orb" 1 :eat [:blue 9] 1)
+      (add-element "orb" 1 :move [:red 5] 1)
+      (add-element "orb" 1 :grow [:blue 11] 1)
+      (add-element "orb" 1 :grow [:orange 17] 0)))
+
 (deftest walk-test
   (testing "walking through every possible turn from a given position and player"
-    (let [game conflict-position
-          walk (tree/walk-turn game "orb")]
+    (let [game two-organism-position
+          walk (time (tree/walk-turn game "orb"))]
       (println "walk length" (count walk))
-      (println "ACTIONS")
-      (clojure.pprint/pprint
-       (map
-        (fn [[minimal choices]]
-          [minimal (map last choices)])
-        walk)))))
+      ;; (println "ACTIONS")
+      ;; (clojure.pprint/pprint
+      ;;  (map
+      ;;   (fn [[minimal choices]]
+      ;;     [minimal (map last choices)])
+      ;;   walk))
+      )))
