@@ -292,12 +292,11 @@
         open (open-spaces state space)]
     (remove
      (fn [open-space]
-       (let [adjacent (adjacent-elements state open-space)
-             elements (map (partial get-element state) adjacent)]
+       (let [adjacent (adjacent-elements state open-space)]
          (some
           (fn [adjacent-element]
             (not= (:player adjacent-element) (:player element)))
-          elements)))
+          adjacent)))
      open)))
 
 (defn growable-spaces

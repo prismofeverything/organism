@@ -17,7 +17,6 @@
 
 (defn walk-next-action
   [game turn organism elements organisms organism-turn num-actions action]
-  (println "next action" action)
   (let [game (game/perform-action game (:player turn) action)
         organism-turn (update organism-turn :actions conj action)
         elements (get (into {} (game/player-organisms game (:player turn))) organism)
@@ -91,7 +90,6 @@
 
 (defn walk-move-targets
   [game turn organism elements organisms organism-turn num-actions moving]
-  (println "moving" moving)
   (let [open (game/available-spaces game (:space moving))
         move-actions
         (map
@@ -166,7 +164,6 @@
   [game turn
    organism elements organisms organism-turn num-actions
    growers element-type contribution]
-  (println "contribution" contribution)
   (let [open (game/growable-spaces game (map :space growers))
         grow-actions
         (map
@@ -185,7 +182,6 @@
 
 (defn walk-grow-element-types
   [game turn organism elements organisms organism-turn num-actions element-type]
-  (println "grow element" element-type)
   (let [existing (count (filter (comp (partial = element-type) :type) elements))
         growers (filter (comp (partial = :grow) :type) elements)
         grower-food (reduce + 0 (map :food growers))]
@@ -217,8 +213,6 @@
 
 (defn walk-choose-action
   [game turn organism elements organisms organism-turn]
-  (println "choose action" organism-turn)
-  (println "elements" elements)
   (let [{:keys [organism choice]} organism-turn
         num-actions (count
                      (filter
@@ -237,7 +231,6 @@
 
 (defn walk-organism-turn
   [game turn organisms]
-  (println "walk organisms" (count organisms))
   (if (empty? organisms)
     [(walk-conflict-integrity game turn)]
     (let [[organism elements] (first organisms)
@@ -252,7 +245,6 @@
 
 (defn walk-perform-introduction
   [game {:keys [player] :as turn} introduction]
-  (println "performing introduction" introduction)
   (let [game (game/introduce game player introduction)
         turn (assoc turn :introduction introduction)
         organisms (game/player-organisms game player)]
@@ -260,7 +252,6 @@
 
 (defn walk-introduction
   [game {:keys [player] :as turn}]
-  (println "introduction for" player turn)
   (let [organisms (game/player-organisms game player)]
     (if (empty? organisms)
       (let [starting (get-in game [:players player :starting-spaces])
@@ -285,7 +276,6 @@
 
 (defn walk-turn
   [game player-name]
-  (println "")
   (let [original-game game
         game (game/award-center game player-name)
         player (game/get-player game player-name)

@@ -170,6 +170,19 @@
       (add-element "mass" 1 :grow [:blue 11] 1)
       (add-element "mass" 1 :grow [:orange 17] 0)))
 
+(deftest growable-spaces-test
+  (testing "find all adjacent spaces that can be grown into"
+    (let [state conflict-position
+          organisms (group-organisms state)
+          grower-space [:red 2]
+          grower (get-element state grower-space)
+          open (open-spaces state grower-space)
+          growable (growable-adjacent state grower-space)]
+      (println "open" open)
+      (println "growable" growable)
+      (is (= 5 (count open)))
+      (is (= 4 (count growable))))))
+
 (deftest trace-organism-test
   (testing "trace from the current space along all adjacent elements"
     (let [state
@@ -245,12 +258,12 @@
 
 (deftest walk-test
   (testing "walking through every possible turn from a given position and player"
-    (let [game two-player-close
+    (let [game conflict-position
           walk (tree/walk-turn game "orb")]
       (println "walk length" (count walk))
-      (println "first seven actions")
+      (println "ACTIONS")
       (clojure.pprint/pprint
        (map
         (fn [[minimal choices]]
           [minimal (map last choices)])
-        (take 7 walk))))))
+        walk)))))
