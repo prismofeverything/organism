@@ -1,6 +1,7 @@
 (ns organism.organism-test
   (:require
    [clojure.test :refer :all]
+   [taoensso.tufte :as tufte]
    [organism.game :refer :all]
    [organism.tree :as tree])
   (:import
@@ -267,10 +268,24 @@
       (add-element "orb" 1 :grow [:blue 11] 1)
       (add-element "orb" 1 :grow [:orange 17] 0)))
 
+(def large-organism-position
+  (-> two-player-close
+      (add-element "orb" 0 :grow [:orange 4] 1)
+      (add-element "orb" 0 :eat [:orange 5] 0)
+      (add-element "orb" 0 :move [:blue 4] 2)
+      (add-element "orb" 0 :grow [:red 2] 1)
+      (add-element "orb" 0 :eat [:blue 9] 1)
+      (add-element "orb" 0 :eat [:yellow 0] 1)
+      (add-element "orb" 0 :move [:red 5] 1)
+      (add-element "orb" 0 :move [:blue 11] 1)
+      (add-element "orb" 0 :grow [:orange 17] 0)))
+
+(tufte/add-basic-println-handler! {})
+
 (deftest walk-test
   (testing "walking through every possible turn from a given position and player"
     (let [game two-organism-position
-          walk (time (tree/walk-turn game "orb"))]
+          walk (tufte/profile {} (tree/walk-turn game "orb"))]
       (println "walk length" (count walk))
       ;; (println "ACTIONS")
       ;; (clojure.pprint/pprint
