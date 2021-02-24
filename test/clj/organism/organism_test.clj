@@ -284,7 +284,7 @@
 
 (deftest walk-test
   (testing "walking through every possible turn from a given position and player"
-    (let [game two-organism-position
+    (let [game two-player-close ;; two-organism-position
           walk (tufte/profile {} (tree/walk-turn game "orb"))]
       (println "walk length" (count walk))
       ;; (println "ACTIONS")
