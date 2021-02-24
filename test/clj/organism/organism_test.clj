@@ -94,7 +94,7 @@
                   :grow [:orange 2]
                   :move [:orange 1]})
           state (move
-                 state "orb"
+                 state
                  [:orange 2]
                  [:blue 1])
           state (introduce
@@ -103,29 +103,29 @@
                   :grow [:orange 10]
                   :move [:orange 11]})
           state (grow
-                 state "mass"
+                 state
                  {[:orange 10] 1}
                  [:blue 6]
                  :move)
           state (grow
-                 state "orb"
+                 state
                  {[:blue 1] 1}
                  [:red 1]
                  :grow)
           state (move
-                 state "mass"
+                 state
                  [:orange 10]
                  [:blue 7])
           state (circulate
-                 state "orb"
+                 state
                  [:orange 0]
                  [:blue 1])
           state (circulate
-                 state "orb"
+                 state
                  [:orange 1]
                  [:red 1])
           state (eat
-                 state "mass"
+                 state
                  [:orange 9])]
       ;; (println state)
       (println (player-elements state)))))
@@ -231,7 +231,7 @@
   (testing "resolution of integrity with respect to captures and removal of non-alive organisms"
     (let [state
           (-> conflict-position
-              (move "orb" [:red 2] [:yellow 0])
+              (move [:red 2] [:yellow 0])
               (resolve-conflicts "orb")
               (check-integrity "orb"))
           organisms (group-organisms state)]

@@ -32,7 +32,6 @@
           :move [:D 1]})
 
         (game/move
-         "orb"
          [:D 2]
          [:C 1])
 
@@ -43,34 +42,28 @@
           :move [:D 11]})
 
         (game/grow
-         "mass"
          {[:D 10] 1}
          [:C 6]
          :move)
 
         (game/grow
-         "orb"
          {[:C 1] 1}
          [:B 1]
          :grow)
 
         (game/move
-         "mass"
          [:D 10]
          [:C 7])
 
         (game/circulate
-         "orb"
          [:D 0]
          [:C 1])
 
         (game/circulate
-         "orb"
          [:D 1]
          [:B 1])
 
         (game/eat
-         "mass"
          [:D 9]))))
 
 (defn game-page [request]

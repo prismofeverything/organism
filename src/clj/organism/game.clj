@@ -358,7 +358,7 @@
 (defn alive-elements?
   [elements]
   (let [by-type (group-by :type elements)]
-     (>= (count by-type) 3)))
+    (>= (count by-type) 3)))
 
 (defn alive?
   [game space]
@@ -386,15 +386,79 @@
       (add-element player organism :move move 1)
       (assoc-in [:state :player-turn :introduction] introduction)))
 
+(defn empty-organism-turn
+  [game organism]
+  (update-in
+   game
+   [:state :player-turn :organism-turns]
+   conj (OrganismTurn. organism nil [])))
+
+(defn update-organism-turn
+  [game f]
+  (update-in
+   game
+   [:state :player-turn :organism-turns]
+   (fn [turns]
+     (let [end (-> turns count dec)]
+       (update turns end f)))))
+
+(defn choose-action-type
+  [game type]
+  (update-organism-turn
+   (empty-organism-turn game)
+   (fn [organism-turn]
+     (assoc organism-turn :choice type))))
+
+(defn empty-action
+  [game]
+  (update-organism-turn
+   game
+   (fn [organism-turn]
+     (update organism-turn :actions conj (Action. nil {})))))
+
+(defn update-action
+  [game f]
+  (update-organism-turn
+   game
+   (fn [organism-turn]
+     (let [end (-> organism-turn :actions count dec)]
+       (update-in organism-turn [:actions end] f)))))
+
+(defn choose-action
+  [game type]
+  (update-action
+   (empty-action game)
+   (fn [action]
+     (assoc action :type type))))
+
+(defn choose-grow-element
+  [game element]
+  (update-action
+   game
+   (fn [action]
+     (assoc-in action [:action :element] element))))
+
+(def action-fields
+  {:eat [:to]
+   :grow [:element :from :to]
+   :move [:from :to]
+   :circulate [:from :to]})
+
+(defn complete-action?
+  [{:keys [type action]}]
+  (let [fields (get action-fields type)]
+    (every? action fields)))
+
 (defn eat
-  [game player space]
+  [game space]
   (adjust-food game space 1))
 
 (defn grow
-  [game player source target type]
+  [game source target type]
   (let [space (-> source first first)
         element (get-element game space)
         organism (:organism element)
+        player (:player element)
         game
         (reduce
          (fn [game [space food]]
@@ -404,7 +468,7 @@
     (add-element game player organism type target 0)))
 
 (defn move
-  [game player from to]
+  [game from to]
   (let [element (get-element game from)
         element (assoc element :space to)]
     (-> game
@@ -414,7 +478,7 @@
          element))))
 
 (defn circulate
-  [game player from to]
+  [game from to]
   (-> game
       (adjust-food from -1)
       (adjust-food to 1)))
@@ -648,19 +712,19 @@
      game organisms)))
 
 (defn perform-action
-  [game player {:keys [type action]}]
+  [game {:keys [type action]}]
   (condp = type
-    :eat (eat game player (:to action))
-    :grow (grow game player (:from action) (:to action) (:element action))
-    :move (move game player (:from action) (:to action))
-    :circulate (circulate game player (:from action) (:to action))
+    :eat (eat game (:to action))
+    :grow (grow game (:from action) (:to action) (:element action))
+    :move (move game (:from action) (:to action))
+    :circulate (circulate game (:from action) (:to action))
     (str "unknown action type " type)))
 
 (defn perform-actions
-  [game player actions]
+  [game actions]
   (reduce
    (fn [game action]
-     (perform-action game player action))
+     (perform-action game action))
    game actions))
 
 (defn award-center
@@ -685,7 +749,7 @@
         game
         (reduce
          (fn [game actions]
-           (perform-actions game player actions))
+           (perform-actions game actions))
          game (map :actions organism-turns))
 
         num-players (count (:players game))

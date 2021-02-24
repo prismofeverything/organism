@@ -18,7 +18,7 @@
 
 (defn walk-next-action
   [game turn organism elements organisms organism-turn num-actions action]
-  (let [game (game/perform-action game (:player turn) action)
+  (let [game (game/perform-action game action)
         organism-turn (update organism-turn :actions conj action)
         elements (get (into {} (game/player-organisms game (:player turn))) organism)
         element-walk (get element-walks (:choice organism-turn))]
