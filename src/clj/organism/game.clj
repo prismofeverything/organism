@@ -152,36 +152,59 @@
 
 ;; STATE ---------------------------------
 
-(defrecord Player [name starting-spaces captures])
+(def phases
+  [:introduce
+   :choose-organism
+   :choose-action
+   :eat
+   :move-from
+   :move-to
+   :grow-type
+   :grow-source
+   :grow-to
+   :circulate-from
+   :circulate-to])
+
+(defrecord Action [type action])
+(defrecord OrganismTurn [organism choice actions])
+(defrecord PlayerTurn [player introduction organism-turns])
+
+(defrecord Player [name starting-spaces])
 (defrecord Element [player organism type space food captures])
-(defrecord Space [space element])
-(defrecord State
-    [adjacencies center capture-limit turn-order
-     players spaces turn round history])
+(defrecord State [elements captures player-turn])
+(defrecord Game
+    [adjacencies center
+     capture-limit players
+     turn-order round history
+     state])
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
   [adjacencies center player-info]
   (let [capture-limit 5
-        spaces
-        (map
-         (fn [space]
-           [space (Space. space nil)])
-         (keys adjacencies))
         players
         (map
          (fn [[player-name starting-spaces]]
            [player-name
-            (Player. player-name starting-spaces [])])
-         player-info)]
-    (State.
+            (Player. player-name starting-spaces)])
+         player-info)
+        turn-order (map first players)
+        empty-captures
+        (into {} (map vector turn-order (repeat [])))
+        first-player (first turn-order)
+        state
+        (State.
+         {}
+         empty-captures
+         (PlayerTurn. first-player {} []))]
+    (Game.
      adjacencies
      center
      capture-limit
-     (map first players)
      (into {} players)
-     (into {} spaces)
-     0 0 [])))
+     (map first players)
+     0 []
+     state)))
 
 (defn create-game
   "generate adjacencies for a given symmetry with a ring for each color,
@@ -198,57 +221,42 @@
     (initial-state adjacencies (-> rings first last last) player-info)))
 
 (defn adjacent-to
-  [state space]
-  (get-in state [:adjacencies space]))
+  [game space]
+  (get-in game [:adjacencies space]))
 
-(defn current-player
-  [{:keys [turn player-order] :as state}]
-  (nth player-order turn))
-
-(defn dynamic-state
-  [{:keys [players spaces]}]
-  (let [subplayers
-        (into
-         {}
-         (map
-          (fn [[player record]]
-            [player (:captures record)])
-          players))
-        subspaces
-        (into
-         {}
-         (map
-          (fn [[space record]]
-            [space (:element record)])
-          (filter
-           (fn [[space record]]
-             (not (empty? (:element record))))
-           spaces)))]
-    {:players subplayers
-     :spaces subspaces}))
+(defn active-player
+  [{:keys [state] :as game}]
+  (:active-player state))
 
 (defn get-player
-  [state player]
-  (get-in state [:players player]))
+  [game player]
+  (get-in game [:players player]))
 
 (defn get-element
-  [state space]
-  (get-in state [:spaces space :element]))
+  [game space]
+  (get-in game [:state :elements space]))
+
+(defn get-captures
+  [game player]
+  (get-in game [:state :captures player]))
 
 (defn add-element
-  [state player organism type space food]
+  [game player organism type space food]
   (let [element (Element. player organism type space food [])]
-    (assoc-in state [:spaces space :element] element)))
+    (assoc-in game [:state :elements space] element)))
 
 (defn remove-element
-  [state space]
-  (assoc-in state [:spaces space :element] nil))
+  [game space]
+  (update-in
+   game
+   [:state :elements]
+   dissoc space))
 
 (defn adjust-food
-  [state space amount]
+  [game space amount]
   (update-in
-   state
-   [:spaces space :element :food]
+   game
+   [:state :elements space :food]
    (partial + amount)))
 
 (defn adjacent-elements
@@ -264,20 +272,20 @@
   (> *food-limit* (:food element)))
 
 (defn open-spaces
-  [state space]
+  [game space]
   (filter
    (fn [adjacent]
-     (empty? (get-element state adjacent)))
-   (adjacent-to state space)))
+     (empty? (get-element game adjacent)))
+   (adjacent-to game space)))
 
 (defn available-spaces
-  [state space]
-  (let [element (get-element state space)
-        open (open-spaces state space)]
+  [game space]
+  (let [element (get-element game space)
+        open (open-spaces game space)]
     (remove
      (fn [open-space]
-       (let [adjacent (adjacent-elements state open-space)
-             elements (map (partial get-element state) adjacent)]
+       (let [adjacent (adjacent-elements game open-space)
+             elements (map (partial get-element game) adjacent)]
          (some
           (fn [adjacent-element]
             (and
@@ -287,12 +295,12 @@
      open)))
 
 (defn growable-adjacent
-  [state space]
-  (let [element (get-element state space)
-        open (open-spaces state space)]
+  [game space]
+  (let [element (get-element game space)
+        open (open-spaces game space)]
     (remove
      (fn [open-space]
-       (let [adjacent (adjacent-elements state open-space)]
+       (let [adjacent (adjacent-elements game open-space)]
          (some
           (fn [adjacent-element]
             (not= (:player adjacent-element) (:player element)))
@@ -300,21 +308,21 @@
      open)))
 
 (defn growable-spaces
-  [state spaces]
+  [game spaces]
   (set
    (base/map-cat
-    (partial growable-adjacent state)
+    (partial growable-adjacent game)
     spaces)))
 
 (defn adjacent-element-spaces
-  [state space]
+  [game space]
   (filter
    (fn [adjacent]
-     (get-element state adjacent))
-   (adjacent-to state space)))
+     (get-element game adjacent))
+   (adjacent-to game space)))
 
 (defn contiguous-elements
-  [state space]
+  [game space]
   (loop [spaces [space]
          visited #{}
          contiguous []]
@@ -322,7 +330,7 @@
       contiguous
       (let [space (first spaces)
             contiguous (conj contiguous space)
-            adjacent (adjacent-element-spaces state space)
+            adjacent (adjacent-element-spaces game space)
             unseen (remove visited adjacent)]
         (recur
          (concat (rest spaces) unseen)
@@ -334,14 +342,14 @@
   (> (:food element) 0))
 
 (defn fed?
-  [state space]
-  (let [element (get-element state space)]
+  [game space]
+  (let [element (get-element game space)]
     (fed-element? element)))
 
 (defn mobile?
-  [state space]
-  (let [element (get-element state space)
-        adjacent (adjacent-elements state space)
+  [game space]
+  (let [element (get-element game space)
+        adjacent (adjacent-elements game space)
         all-elements (conj adjacent element)]
     (some
      (comp (partial = :move) :type)
@@ -353,72 +361,72 @@
      (>= (count by-type) 3)))
 
 (defn alive?
-  [state space]
-  (let [contiguous (contiguous-elements state space)
+  [game space]
+  (let [contiguous (contiguous-elements game space)
         elements
         (map
-         (partial get-element state)
+         (partial get-element game)
          contiguous)]
     (alive-elements? elements)))
 
 (defn can-move?
-  [state space]
+  [game space]
   (and
-   (fed? state space)
-   (mobile? state space)
-   (alive? state space)))
+   (fed? game space)
+   (mobile? game space)
+   (alive? game space)))
 
 ;; ACTIONS -----------------------
 
 (defn introduce
-  [state player {:keys [organism eat grow move]}]
-  (-> state
+  [game player {:keys [organism eat grow move]}]
+  (-> game
       (add-element player organism :eat eat 1)
       (add-element player organism :grow grow 1)
       (add-element player organism :move move 1)))
 
 (defn eat
-  [state player space]
-  (adjust-food state space 1))
+  [game player space]
+  (adjust-food game space 1))
 
 (defn grow
-  [state player source target type]
+  [game player source target type]
   (let [space (-> source first first)
-        element (get-element state space)
+        element (get-element game space)
         organism (:organism element)
-        state
+        game
         (reduce
-         (fn [state [space food]]
-           (adjust-food state space (* food -1)))
-         state
+         (fn [game [space food]]
+           (adjust-food game space (* food -1)))
+         game
          source)]
-    (add-element state player organism type target 0)))
+    (add-element game player organism type target 0)))
 
 (defn move
-  [state player from to]
-  (let [element (get-in state [:spaces from :element])
+  [game player from to]
+  (let [element (get-element game from)
         element (assoc element :space to)]
-    (-> state
+    (-> game
         (remove-element from)
         (assoc-in
-         [:spaces to :element]
+         [:state :elements to]
          element))))
 
 (defn circulate
-  [state player from to]
-  (-> state
+  [game player from to]
+  (-> game
       (adjust-food from -1)
       (adjust-food to 1)))
 
 (defn player-elements
-  [state]
+  [game]
   (reduce
-   (fn [elements {:keys [space element]}]
+   (fn [elements element]
      (if element
        (update elements (:player element) conj element)
        elements))
    {}
-   (-> state :spaces vals)))
+   (-> game :state :elements vals)))
 
 ;; CONFLICTS ------------------
 
@@ -435,11 +443,11 @@
     [b a]))
 
 (defn element-conflicts
-  [state {:keys [space player] :as element}]
-  (let [adjacents (adjacent-to state space)]
+  [game {:keys [space player] :as element}]
+  (let [adjacents (adjacent-to game space)]
     (base/map-cat
      (fn [adjacent]
-       (let [adjacent-element (get-in state [:spaces adjacent :element])]
+       (let [adjacent-element (get-element game adjacent)]
          (if (and
               adjacent-element
               (not= (:player adjacent-element) player))
@@ -447,37 +455,40 @@
      adjacents)))
 
 (defn player-conflicts
-  [state player]
-  (let [all-elements (player-elements state)
+  [game player]
+  (let [all-elements (player-elements game)
         elements (get all-elements player)]
     (base/map-cat
-     (partial element-conflicts state)
+     (partial element-conflicts game)
      elements)))
 
 (defn cap-food
-  [state space]
+  [game space]
   (update-in
-   state
-   [:spaces space :element :food]
+   game
+   [:state :elements space :food]
    (fn [food]
      (if (> food *food-limit*)
        *food-limit*
        food))))
 
 (defn mark-capture
-  [state space capture]
+  [game space capture]
   (update-in
-   state
-   [:spaces space :element :captures]
+   game
+   [:state :elements space :captures]
    conj capture))
 
 (defn award-capture
-  [state player element]
-  (update-in state [:players player :captures] conj element))
+  [game player element]
+  (update-in
+   game
+   [:state :captures player]
+   conj element))
 
 (defn resolve-conflict
-  [state rise fall]
-  (-> state
+  [game rise fall]
+  (-> game
       (adjust-food (:space rise) (:food fall))
       (cap-food (:space rise))
       (remove-element (:space fall))
@@ -491,8 +502,8 @@
     (conj s el)))
 
 (defn resolve-conflicts
-  [state player]
-  (let [conflicting-elements (player-conflicts state player)
+  [game player]
+  (let [conflicting-elements (player-conflicts game player)
         conflicts (reduce
                    (fn [conflicts [from to]]
                      (update conflicts from set-add to))
@@ -503,89 +514,93 @@
             {} conflicting-elements)
         order (graph/kahn-sort conflicts)]
     (reduce
-     (fn [state fall]
+     (fn [game fall]
        (let [rise (get up (:space fall))]
          (if rise
            (resolve-conflict
-            state
-            (get-element state (:space rise))
-            (get-element state (:space fall)))
-           state)))
-     state (reverse order))))
+            game
+            (get-element game (:space rise))
+            (get-element game (:space fall)))
+           game)))
+     game (reverse order))))
 
 ;; INTEGRITY -----------------------
 
 (defn clear-organisms
-  [state]
+  [game]
   (reduce
-   (fn [state {:keys [space element]}]
+   (fn [game element]
      (if element
-       (assoc-in state [:spaces space :element :organism] nil)
-       state))
-   state
-   (-> state :spaces vals)))
+       (assoc-in
+        game
+        [:state :elements (:space element) :organism]
+        nil)
+       game))
+   game
+   (-> game :state :elements vals)))
 
 (defn set-organism
-  [state space organism]
+  [game space organism]
   (assoc-in
-   state
-   [:spaces space :element :organism]
+   game
+   [:state :elements space :organism]
    organism))
 
 (defn group-organisms
-  [state]
+  [game]
   (reduce
-   (fn [elements {:keys [space element]}]
+   (fn [organisms element]
      (if element
        (update
-        elements
+        organisms
         [(:player element) (:organism element)]
         conj element)
-       elements))
+       organisms))
    {}
-   (-> state :spaces vals)))
+   (-> game :state :elements vals)))
 
 (defn player-organisms
-  [state player]
+  [game player]
   (mapv
    identity
    (reduce
-    (fn [elements {:keys [space element]}]
+    (fn [organisms element]
       (if (and element (= player (:player element)))
         (update
-         elements
+         organisms
          (:organism element)
          conj element)
-        elements))
+        organisms))
     {}
-    (-> state :spaces vals))))
+    (-> game :state :elements vals))))
 
 (defn trace-organism
-  [state center-space organism]
-  (let [spaces (contiguous-elements state center-space)]
+  [game center-space organism]
+  (let [spaces (contiguous-elements game center-space)]
     (reduce
-     (fn [state space]
-       (set-organism state space organism))
-     state spaces)))
+     (fn [game space]
+       (set-organism game space organism))
+     game spaces)))
 
 (defn find-organism
-  [state space element organism]
+  [game element organism]
   (if element
     (if (:organism element)
-      [state organism]
-      [(trace-organism state space organism) (inc organism)])
-    [state organism]))
+      [game organism]
+      [(trace-organism game (:space element) organism)
+       (inc organism)])
+    [game organism]))
 
 (defn find-organisms
-  [state]
-  (let [state (clear-organisms state)
-        [state _]
+  [game]
+  (let [game (clear-organisms game)
+        [game _]
         (reduce
-         (fn [[state organism] {:keys [space element]}]
-           (find-organism state space element organism))
-         [state 0]
-         (-> state :spaces vals))]
-    state))
+         (fn [[game organism] element]
+           (find-organism game element organism))
+         [game 0]
+         (-> game :state :elements vals))]
+    game))
 
 (defn evaluate-survival
   [organisms]
@@ -610,99 +625,89 @@
    elements))
 
 (defn check-integrity
-  [state active-player]
-  (let [state (find-organisms state)
-        organisms (group-organisms state)]
+  [game active-player]
+  (let [game (find-organisms game)
+        organisms (group-organisms game)]
     (reduce
-     (fn [state [[player organism] elements]]
+     (fn [game [[player organism] elements]]
        (if (alive-elements? elements)
-         state
+         game
          (let [spaces (map :space elements)
-               state
+               game
                (if (= active-player player)
                  (let [captures (players-captured elements)
                        sacrifice (assoc (first elements) :type :sacrifice)]
                    (reduce
-                    (fn [state player]
-                      (award-capture state player sacrifice))
-                    state captures))
+                    (fn [game player]
+                      (award-capture game player sacrifice))
+                    game captures))
                  (let [capture (assoc (first elements) :type :integrity)]
-                   (award-capture state active-player capture)))]
-           (reduce remove-element state spaces))))
-     state organisms)))
-
-(defrecord Action [type action])
-(defrecord OrganismTurn [organism choice actions])
-(defrecord PlayerTurn [player introduction organism-turns])
+                   (award-capture game active-player capture)))]
+           (reduce remove-element game spaces))))
+     game organisms)))
 
 (defn perform-action
-  [state player {:keys [type action]}]
+  [game player {:keys [type action]}]
   (condp = type
-    :eat (eat state player (:to action))
-    :grow (grow state player (:from action) (:to action) (:element action))
-    :move (move state player (:from action) (:to action))
-    :circulate (circulate state player (:from action) (:to action))
+    :eat (eat game player (:to action))
+    :grow (grow game player (:from action) (:to action) (:element action))
+    :move (move game player (:from action) (:to action))
+    :circulate (circulate game player (:from action) (:to action))
     (str "unknown action type " type)))
 
 (defn perform-actions
-  [state player actions]
+  [game player actions]
   (reduce
-   (fn [state action]
-     (perform-action state player action))
-   state actions))
+   (fn [game action]
+     (perform-action game player action))
+   game actions))
 
 (defn award-center
-  [state player]
-  (let [center (:center state)
-        center-element (get-element state center)]
+  [game player]
+  (let [center (:center game)
+        center-element (get-element game center)]
     (if (and
          center-element
          (= player (:player center-element)))
       (update-in
-       state
-       [:players player :captures]
+       game
+       [:state :captures player]
        conj (Element. player -1 :center center 0 []))
-      state)))
+      game)))
 
-(defn take-turn
-  [state {:keys [player introduction organism-turns] :as player-turn}]
-  (let [state (award-center state player)
-        state (if introduction
-                (introduce state player introduction)
-                state)
-        state
+(defn apply-turn
+  [game {:keys [player introduction organism-turns] :as player-turn}]
+  (let [game (award-center game player)
+        game (if introduction
+               (introduce game player introduction)
+               game)
+        game
         (reduce
-         (fn [state actions]
-           (perform-actions state player actions))
-         state (map :actions organism-turns))
+         (fn [game actions]
+           (perform-actions game player actions))
+         game (map :actions organism-turns))
 
-        num-players (count (:players state))
-        state
-        (-> state
+        num-players (count (:players game))
+        game
+        (-> game
             (resolve-conflicts player)
             (check-integrity player)
-            (update :history conj player-turn)
-            (update :turn (fn [turn]
-                            (mod (inc turn) num-players))))
-
-        advance (:turn state)
-        state (if (zero? advance)
-                (update state :round inc)
-                state)]
-    state))
+            (update :history conj player-turn))]
+    game))
 
 (defn enough-captures?
-  [state player]
+  [game player]
   (>=
-   (count (get-in state [:players player :captures]))
-   (:capture-limit state)))
+   (count (get-in game [:state :captures player]))
+   (:capture-limit game)))
 
 (defn three-organisms?
-  [state player]
-  (>= (count (player-organisms state player)) 3))
+  [game player]
+  (>= (count (player-organisms game player)) 3))
 
 (defn player-wins?
-  [state player]
+  [game player]
   (or
-   (enough-captures? state player)
-   (three-organisms? state player)))
+   (enough-captures? game player)
+   (three-organisms? game player)))
+

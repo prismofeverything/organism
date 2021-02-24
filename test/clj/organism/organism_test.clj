@@ -73,15 +73,15 @@
 
 (deftest introduce-test
   (testing "how introducing a new organism works"
-    (let [state two-player-close
-          state (introduce
-                 state "orb"
+    (let [game two-player-close
+          game (introduce
+                 game "orb"
                  {:eat [:orange 0]
                   :grow [:orange 2]
                   :move [:orange 1]})]
-      (println (get-in state [:players "orb"]))
-      (is (= :move (get-in state [:spaces [:orange 1] :element :type])))
-      (is (= 1 (get-in state [:spaces [:orange 0] :element :food]))))))
+      (println (get-in game [:players "orb"]))
+      (is (= :move (get-in game [:state :elements [:orange 1] :type])))
+      (is (= 1 (get-in game [:state :elements [:orange 0] :food]))))))
 
 (deftest action-test
   (testing "applying the various actions to the state"
@@ -130,19 +130,22 @@
 
 (deftest conflict-test
   (testing "resolving complex chains of conflict"
-    (let [state (-> two-player-close
+    (let [game (-> two-player-close
                     (add-element "orb" 0 :eat [:orange 5] 0)
                     (add-element "orb" 0 :move [:blue 4] 2)
-                    (add-element "mass" 1 :grow [:blue 3] 2)
-                    (resolve-conflicts "orb"))
-          elements (player-elements state)
-          orb-elements (get elements "orb")]
-      (println "post conflict" elements)
+                    (add-element "mass" 1 :grow [:blue 3] 2))
+          resolved (resolve-conflicts game "orb")
+          elements (player-elements game)
+          aftermath (player-elements resolved)
+          orb-elements (get aftermath "orb")]
+      (println "conflict elements" elements)
+      (println "aftermath" aftermath)
+      (println "post conflict" (:state resolved))
       (is (= 1 (count orb-elements)))
       (is (= :eat (:type (first orb-elements))))
       (is (= 3 (:food (first orb-elements))))
-      (is (= 1 (count (get-in state [:players "orb" :captures]))))
-      (is (= 1 (count (get-in state [:players "mass" :captures])))))))
+      (is (= 1 (count (get-captures resolved "orb"))))
+      (is (= 1 (count (get-captures resolved "mass")))))))
 
 (def integrity-position
   (-> two-player-close
@@ -220,7 +223,7 @@
     (let [state
           (-> center-position
               (award-center "orb"))]
-      (is (= 1 (count (get-in state [:players "orb" :captures])))))))
+      (is (= 1 (count (get-captures state "orb")))))))
 
 (deftest integrity-test
   (testing "resolution of integrity with respect to captures and removal of non-alive organisms"
@@ -230,9 +233,9 @@
               (resolve-conflicts "orb")
               (check-integrity "orb"))
           organisms (group-organisms state)]
-      (println "sacrifice" (:players state) organisms)
+      (println "sacrifice" (:state state) organisms)
       (is (= 1 (count organisms)))
-      (is (= 3 (count (get-in state [:players "orb" :captures])))))))
+      (is (= 3 (count (get-captures state "orb")))))))
 
 (deftest turn-test
   (testing "taking a turn"
@@ -251,7 +254,7 @@
                          :to [:blue 0]
                          :element :eat})])])
           state (-> two-player-close
-                    (take-turn orb-turn))
+                    (apply-turn orb-turn))
           organisms (group-organisms state)]
       (println "turn" orb-turn)
       (println organisms)
@@ -287,7 +290,8 @@
     (let [game two-player-close ;; two-organism-position
           walk (tufte/profile {} (tree/walk-turn game "orb"))]
       (println "walk length" (count walk))
-      ;; (println "ACTIONS")
+      (println "ACTIONS")
+      (clojure.pprint/pprint walk)
       ;; (clojure.pprint/pprint
       ;;  (map
       ;;   (fn [[minimal choices]]

@@ -227,7 +227,8 @@
   [game {:keys [player] :as turn}]
   [(-> game
        (game/resolve-conflicts player)
-       (game/check-integrity player))
+       (game/check-integrity player)
+       :state)
    turn])
 
 (defn walk-organism-turn
@@ -279,14 +280,11 @@
   [game player-name]
   (let [original-game game
         game (game/award-center game player-name)
-        player (game/get-player game player-name)
         turn (game/->PlayerTurn player-name {} [])
         branches
         (if (game/player-wins? game player-name)
-          [[game [(assoc turn :introduction {:center 1})]]]
+          [[(:state game) [(assoc turn :introduction {:center 1})]]]
           (walk-introduction game turn))]
     (group-by
-     (comp
-      game/dynamic-state
-      first)
+     first
      branches)))
