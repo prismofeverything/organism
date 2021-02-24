@@ -379,11 +379,12 @@
 ;; ACTIONS -----------------------
 
 (defn introduce
-  [game player {:keys [organism eat grow move]}]
+  [game player {:keys [organism eat grow move] :as introduction}]
   (-> game
       (add-element player organism :eat eat 1)
       (add-element player organism :grow grow 1)
-      (add-element player organism :move move 1)))
+      (add-element player organism :move move 1)
+      (assoc-in [:state :player-turn :introduction] introduction)))
 
 (defn eat
   [game player space]

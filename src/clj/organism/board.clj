@@ -471,29 +471,30 @@
     [:g icon food]))
 
 (defn render-organism
-  [locations color food-color radius spaces]
+  [locations color food-color radius elements]
   (map
-   (fn [{:keys [space element]}]
+   (fn [{:keys [space] :as element}]
      (let [location (get locations space)]
        (render-element color food-color location radius element)))
-   spaces))
+   elements))
 
 (defn render-game
   [{:keys [colors radius layout background locations player-colors] :as board} game]
-  (let [element-spaces (filter :element (vals (:spaces game)))
+  (let [all-elements (-> game :state :elements vals)
         food-color (-> colors first last)
         organisms (group-by
                    (juxt
-                    (comp :player :element)
-                    (comp :organism :element))
-                   element-spaces)
-        elements (mapv
-                  (fn [[[player organism] spaces]]
-                    [:g
-                     (let [color (get player-colors player)]
-                       (render-organism locations color food-color radius spaces))])
-                  organisms)
-        svg (apply conj layout elements)]
+                    :player
+                    :organism)
+                   all-elements)
+        element-icons
+        (mapv
+         (fn [[[player organism] elements]]
+           [:g
+            (let [color (get player-colors player)]
+              (render-organism locations color food-color radius elements))])
+         organisms)
+        svg (apply conj layout element-icons)]
     (up/html svg)))
 
 (defn export

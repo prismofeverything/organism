@@ -1,9 +1,11 @@
 (ns organism.organism-test
   (:require
+   [clojure.pprint :refer (pprint)]
    [clojure.test :refer :all]
    [taoensso.tufte :as tufte]
    [organism.game :refer :all]
-   [organism.tree :as tree])
+   [organism.tree :as tree]
+   [organism.choice :as choice])
   (:import
    [organism.game
     Action
@@ -283,18 +285,17 @@
       (add-element "orb" 0 :move [:blue 11] 1)
       (add-element "orb" 0 :grow [:orange 17] 0)))
 
-(tufte/add-basic-println-handler! {})
+(deftest introduce-choices-test
+  (testing "the choices for introduction"
+    (let [game two-player-close
+          choices (choice/find-choices game)]
+      (assert (= 6 (count choices))))))
 
 (deftest walk-test
   (testing "walking through every possible turn from a given position and player"
-    (let [game two-player-close ;; two-organism-position
-          walk (tufte/profile {} (tree/walk-turn game "orb"))]
+    (let [game two-player-close ;; two-organism-position ;; 
+          walk (time (tree/walk-turn game "orb"))]
       (println "walk length" (count walk))
-      (println "ACTIONS")
-      (clojure.pprint/pprint walk)
-      ;; (clojure.pprint/pprint
-      ;;  (map
-      ;;   (fn [[minimal choices]]
-      ;;     [minimal (map last choices)])
-      ;;   walk))
+      ;; (println "ACTIONS")
+      ;; (pprint walk)
       )))
