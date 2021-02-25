@@ -255,10 +255,11 @@
                         {:from {[:orange 1] 1}
                          :to [:blue 0]
                          :element :eat})])])
-          state (-> two-player-close
-                    (apply-turn orb-turn))
-          organisms (group-organisms state)]
+          game (-> two-player-close
+                   (apply-turn orb-turn))
+          organisms (group-organisms game)]
       (println "turn" orb-turn)
+      (println "game" game)
       (println organisms)
       (is (= 4 (count (last (first organisms))))))))
 

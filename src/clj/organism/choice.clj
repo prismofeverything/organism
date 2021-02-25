@@ -35,11 +35,11 @@
 (defn choose-organism-choices
   [game organisms]
   (map
-   (partial game/empty-organism-turn game)
+   (partial game/choose-organism game)
    organisms))
 
 (defn choose-action-type-choices
-  [game organism]
+  [game]
   (map
    (partial game/choose-action-type game)
    element-types))
@@ -112,7 +112,10 @@
       (empty? organism-turns)
       (if (> (count organisms) 1)
         (choose-organism-choices game (keys organisms))
-        (choose-action-type-choices game (-> organisms keys first)))
+        (choose-action-type-choices
+         (game/choose-organism
+          game
+          (-> organisms keys first))))
 
       :else
       (let [{:keys [organism choice actions] :as organism-turn} (last organism-turns)
@@ -132,10 +135,15 @@
                   missing (remove acted (keys organisms))]
               (if (> (count missing) 1)
                 (choose-organism-choices game missing)
-                (choose-action-type-choices game (first missing))))
+                (choose-action-type-choices
+                 (game/choose-organism
+                  game
+                  (first missing)))))
 
-            ;; move on to the next player here?
-            :else [game])
+            ;; move on to the next player
+            :else
+            (find-choices
+             (game/finish-turn game)))
 
           :else
           (let [{:keys [type action]} (last actions)

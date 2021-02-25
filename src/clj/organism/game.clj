@@ -173,9 +173,8 @@
 (defrecord Element [player organism type space food captures])
 (defrecord State [elements captures player-turn])
 (defrecord Game
-    [adjacencies center
-     capture-limit players
-     turn-order round history
+    [adjacencies center capture-limit
+     players turn-order round history
      state])
 
 (defn initial-state
@@ -386,7 +385,7 @@
       (add-element player organism :move move 1)
       (assoc-in [:state :player-turn :introduction] introduction)))
 
-(defn empty-organism-turn
+(defn choose-organism
   [game organism]
   (update-in
    game
@@ -405,16 +404,19 @@
 (defn choose-action-type
   [game type]
   (update-organism-turn
-   (empty-organism-turn game)
+   game
    (fn [organism-turn]
      (assoc organism-turn :choice type))))
 
-(defn empty-action
-  [game]
+(defn choose-action
+  [game type]
   (update-organism-turn
    game
    (fn [organism-turn]
-     (update organism-turn :actions conj (Action. nil {})))))
+     (update
+      organism-turn
+      :actions
+      conj (Action. type {})))))
 
 (defn update-action
   [game f]
@@ -423,13 +425,6 @@
    (fn [organism-turn]
      (let [end (-> organism-turn :actions count dec)]
        (update-in organism-turn [:actions end] f)))))
-
-(defn choose-action
-  [game type]
-  (update-action
-   (empty-action game)
-   (fn [action]
-     (assoc action :type type))))
 
 (defn choose-grow-element
   [game element]
@@ -740,6 +735,30 @@
        conj (Element. player -1 :center center 0 []))
       game)))
 
+(defn next-player
+  [{:keys [state turn-order] :as game}]
+  (let [{:keys [player-turn]} state
+        {:keys [player]} player-turn
+        index (.indexOf turn-order player)
+        next-index (mod (inc index) (count turn-order))]
+    [next-index (nth turn-order next-index)]))
+
+(defn finish-turn
+  [{:keys [state turn-order] :as game}]
+  (let [{:keys [player-turn]} state
+        {:keys [player]} player-turn
+        [index next] (next-player game)
+        game (if (zero? index)
+               (update game :round inc)
+               game)]
+    (-> game
+        (resolve-conflicts player)
+        (check-integrity player)
+        (update :history conj player-turn)
+        (assoc-in
+         [:state :player-turn]
+         (PlayerTurn. next-player {} [])))))
+
 (defn apply-turn
   [game {:keys [player introduction organism-turns] :as player-turn}]
   (let [game (award-center game player)
@@ -751,14 +770,11 @@
          (fn [game actions]
            (perform-actions game actions))
          game (map :actions organism-turns))
-
-        num-players (count (:players game))
-        game
-        (-> game
-            (resolve-conflicts player)
-            (check-integrity player)
-            (update :history conj player-turn))]
-    game))
+        num-players (count (:players game))]
+    (finish-turn
+     (assoc-in
+      game [:state :player-turn]
+      player-turn))))
 
 (defn enough-captures?
   [game player]
