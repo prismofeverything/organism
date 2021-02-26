@@ -16,7 +16,8 @@
 (defn about-page [request]
   (layout/render request "about.html"))
 
-(def test-game
+(defn test-game
+  []
   (let [game (game/create-game
                6
                [:A :B :C :D]
@@ -25,46 +26,84 @@
                false)]
     (-> game
 
-        (game/introduce
-         "orb"
-         {:eat [:D 0]
-          :grow [:D 2]
-          :move [:D 1]})
+        (game/apply-turn
+         (game/->PlayerTurn
+          "orb"
+          {:eat [:D 0]
+           :grow [:D 2]
+           :move [:D 1]
+           :organism 0}
+          [(game/->OrganismTurn
+            0
+            :move
+            [(game/->Action
+              :move
+              {:from [:D 2]
+               :to [:C 1]})])]))
 
-        (game/move
-         [:D 2]
-         [:C 1])
+        (game/apply-turn
+         (game/->PlayerTurn
+          "mass"
+          {:eat [:D 9]
+           :grow [:D 10]
+           :move [:D 11]
+           :organism 0}
+          [(game/->OrganismTurn
+            0
+            :grow
+            [(game/->Action
+              :grow
+              {:from {[:D 10] 1}
+               :to [:C 6]
+               :element :move})])]))
 
-        (game/introduce
-         "mass"
-         {:eat [:D 9]
-          :grow [:D 10]
-          :move [:D 11]})
+        (game/apply-turn
+         (game/->PlayerTurn
+          "orb" {}
+          [(game/->OrganismTurn
+            0
+            :grow
+            [(game/->Action
+              :grow
+              {:from {[:C 1] 1}
+               :to [:B 1]
+               :element :grow})])]))
 
-        (game/grow
-         {[:D 10] 1}
-         [:C 6]
-         :move)
+        (game/apply-turn
+         (game/->PlayerTurn
+          "mass" {}
+          [(game/->OrganismTurn
+            0
+            :move
+            [(game/->Action
+              :move
+              {:from [:D 10]
+               :to [:C 7]})])]))
 
-        (game/grow
-         {[:C 1] 1}
-         [:B 1]
-         :grow)
+        (game/apply-turn
+         (game/->PlayerTurn
+          "orb" {}
+          [(game/->OrganismTurn
+            0
+            :grow
+            [(game/->Action
+              :circulate
+              {:from [:D 0]
+               :to [:C 1]})
+             (game/->Action
+              :circulate
+              {:from [:D 1]
+               :to [:B 1]})])]))
 
-        (game/move
-         [:D 10]
-         [:C 7])
-
-        (game/circulate
-         [:D 0]
-         [:C 1])
-
-        (game/circulate
-         [:D 1]
-         [:B 1])
-
-        (game/eat
-         [:D 9]))))
+        (game/apply-turn
+         (game/->PlayerTurn
+          "mass" {}
+          [(game/->OrganismTurn
+            0
+            :eat
+            [(game/->Action
+              :eat
+              {:to [:D 9]})])])))))
 
 (defn game-page [request]
   (content-type
@@ -73,7 +112,7 @@
           _ (println "colors" colors)
           board (board/build-board 6 50 2.1 colors ["orb" "mass"] true)]
       (println "board" board)
-      (board/render-game board test-game)))
+      (board/render-game board (test-game))))
    "text/html; charset=utf-8"))
 
 (defn home-routes []

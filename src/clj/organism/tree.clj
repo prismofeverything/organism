@@ -279,8 +279,8 @@
 (defn walk-turn
   [game player-name]
   (let [original-game game
-        game (game/award-center game player-name)
-        turn (game/->PlayerTurn player-name {} [])
+        game (game/start-turn game player-name)
+        turn (get-in game [:state :player-turn])
         branches
         (if (game/player-wins? game player-name)
           [[(:state game) [(assoc turn :introduction {:center 1})]]]

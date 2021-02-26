@@ -5,7 +5,8 @@
    [taoensso.tufte :as tufte]
    [organism.game :refer :all]
    [organism.tree :as tree]
-   [organism.choice :as choice])
+   [organism.choice :as choice]
+   [organism.routes.home :as home])
   (:import
    [organism.game
     Action
@@ -87,48 +88,9 @@
 
 (deftest action-test
   (testing "applying the various actions to the state"
-    (let [state two-player-close
-          state (introduce
-                 state "orb"
-                 {:eat [:orange 0]
-                  :grow [:orange 2]
-                  :move [:orange 1]})
-          state (move
-                 state
-                 [:orange 2]
-                 [:blue 1])
-          state (introduce
-                 state "mass"
-                 {:eat [:orange 9]
-                  :grow [:orange 10]
-                  :move [:orange 11]})
-          state (grow
-                 state
-                 {[:orange 10] 1}
-                 [:blue 6]
-                 :move)
-          state (grow
-                 state
-                 {[:blue 1] 1}
-                 [:red 1]
-                 :grow)
-          state (move
-                 state
-                 [:orange 10]
-                 [:blue 7])
-          state (circulate
-                 state
-                 [:orange 0]
-                 [:blue 1])
-          state (circulate
-                 state
-                 [:orange 1]
-                 [:red 1])
-          state (eat
-                 state
-                 [:orange 9])]
-      ;; (println state)
-      (println (player-elements state)))))
+    (let [game (home/test-game)]
+      ;; (println game)
+      (println (player-elements game)))))
 
 (deftest conflict-test
   (testing "resolving complex chains of conflict"
@@ -229,15 +191,18 @@
 
 (deftest integrity-test
   (testing "resolution of integrity with respect to captures and removal of non-alive organisms"
-    (let [state
+    (let [game
           (-> conflict-position
-              (move [:red 2] [:yellow 0])
+              (start-turn "orb")
+              (choose-organism 0)
+              (choose-action-type :move)
+              (move {:from [:red 2] :to [:yellow 0]})
               (resolve-conflicts "orb")
               (check-integrity "orb"))
-          organisms (group-organisms state)]
-      (println "sacrifice" (:state state) organisms)
+          organisms (group-organisms game)]
+      (println "sacrifice" (:state game) organisms)
       (is (= 1 (count organisms)))
-      (is (= 3 (count (get-captures state "orb")))))))
+      (is (= 3 (count (get-captures game "orb")))))))
 
 (deftest turn-test
   (testing "taking a turn"
@@ -258,9 +223,16 @@
           game (-> two-player-close
                    (apply-turn orb-turn))
           organisms (group-organisms game)]
+      (println)
       (println "turn" orb-turn)
+      (println)
+      (println)
       (println "game" game)
-      (println organisms)
+      (println)
+      (println "organisms" organisms)
+      (println)
+      (is (= "mass" (get-in game [:state :player-turn :player])))
+      (is (= 1 (count (get game :history))))
       (is (= 4 (count (last (first organisms))))))))
 
 (def two-organism-position
@@ -292,11 +264,11 @@
           choices (choice/find-choices game)]
       (assert (= 6 (count choices))))))
 
-(deftest walk-test
-  (testing "walking through every possible turn from a given position and player"
-    (let [game two-player-close ;; two-organism-position ;; 
-          walk (time (tree/walk-turn game "orb"))]
-      (println "walk length" (count walk))
-      ;; (println "ACTIONS")
-      ;; (pprint walk)
-      )))
+;; (deftest walk-test
+;;   (testing "walking through every possible turn from a given position and player"
+;;     (let [game two-player-close ;; two-organism-position ;; 
+;;           walk (time (tree/walk-turn game "orb"))]
+;;       (println "walk length" (count walk))
+;;       ;; (println "ACTIONS")
+;;       ;; (pprint walk)
+;;       )))
