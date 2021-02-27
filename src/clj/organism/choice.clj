@@ -83,10 +83,75 @@
      (partial game/choose-action-field game :element)
      available)))
 
-(defn grow-from-choices [])
-(defn grow-to-choices [])
-(defn move-from-choices [])
-(defn move-to-choices [])
+(defn extend-contribution
+  [elements contribution]
+  (let [element-food
+        (map
+         (fn [{:keys [space food]}]
+           (let [spent (get contribution space 0)]
+             [space (- food spent)]))
+         elements)
+        possible-contributors
+        (filter
+         (fn [[space food]]
+           (> food 0))
+         element-food)]
+    (map
+     (fn [[space food]]
+       (update contribution space (fnil inc 0)))
+     possible-contributors)))
+
+(defn food-contributions
+  [elements total]
+  (loop [contributions [{}]
+         total total]
+    (if (zero? total)
+      contributions
+      (let [contributions
+            (base/map-cat
+             (partial extend-contribution elements)
+             contributions)]
+        (recur contributions (dec total))))))
+
+(defn grow-from-choices
+  [game elements]
+  (let [types (group-by :type elements)
+        element-choice (game/get-action-field game :element)
+        existing (count (get types element-choice))
+        contributions (food-contributions elements existing)]
+    (map
+     (partial game/choose-action-field game :from)
+     contributions)))
+
+(defn grow-to-choices
+  [game elements]
+  (let [types (group-by :type elements)
+        growers (get types :grow)
+        growable (game/growable-spaces game (map :space growers))]
+    (map
+     (partial game/choose-action-field game :to)
+     growable)))
+
+(defn move-from-choices
+  [game elements]
+  (let [mobile-elements
+        (filter
+         (comp
+          (partial game/can-move? game)
+          :space)
+         elements)]
+    (map
+     (partial game/choose-action-field game :from)
+     mobile-elements)))
+
+(defn move-to-choices
+  [game elements]
+  (let [from (game/get-action-field game :from)
+        open-spaces (game/available-spaces game from)]
+    (map
+     (partial game/choose-action-field game :to)
+     open-spaces)))
+
 (defn circulate-from-choices [])
 (defn circulate-to-choices [])
 

@@ -453,12 +453,36 @@
    :move [:from :to]
    :circulate [:from :to]})
 
+(defn get-organism-turn
+  [game]
+  (let [organism-turns (get-in game [:state :player-turn :organism-turns])]
+    (last organism-turns)))
+
+(defn get-current-action
+  [game]
+  (let [organism-turn (get-organism-turn game)
+        actions (get organism-turn :actions)]
+    (last actions)))
+
+(defn get-action-field
+  [game field]
+  (get-in
+   (get-current-action game)
+   [:action field]))
+
 (defn choose-action-field
   [game field value]
   (update-action
    game
    (fn [action]
      (assoc-in action [:action field] value))))
+
+(defn apply-action-fields
+  [game fields]
+  (update-action
+   game
+   (fn [action]
+     (update action :action merge fields))))
 
 (defn record-action
   [game action fields]
@@ -476,14 +500,12 @@
 (defn eat
   [game {:keys [to] :as fields}]
   (-> game
-      (record-action :eat fields)
       (adjust-food to 1)))
 
 (defn grow
   [game {:keys [element from to] :as fields}]
   (let [space (-> from first first)
         {:keys [organism player]} (get-element game space)
-        game (record-action game :grow fields)
         game
         (reduce
          (fn [game [space food]]
@@ -497,7 +519,6 @@
   (let [element (get-element game from)
         element (assoc element :space to)]
     (-> game
-        (record-action :move fields)
         (remove-element from)
         (assoc-in
          [:state :elements to]
@@ -506,7 +527,6 @@
 (defn circulate
   [game {:keys [from to] :as fields}]
   (-> game
-      (record-action :circulate fields)
       (adjust-food from -1)
       (adjust-food to 1)))
 
@@ -753,8 +773,10 @@
 (defn perform-actions
   [game actions]
   (reduce
-   (fn [game action]
-     (perform-action game action))
+   (fn [game {:keys [type action] :as action-turn}]
+     (-> game
+         (record-action type action)
+         (perform-action action-turn)))
    game actions))
 
 (defn next-player
@@ -770,14 +792,15 @@
   (let [{:keys [player-turn]} state
         {:keys [player]} player-turn
         [index next] (next-player game)
-        game (if (zero? index)
-               (update game :round inc)
-               game)]
-    (-> game
-        (resolve-conflicts player)
-        (check-integrity player)
-        (update :history conj player-turn)
-        (start-turn next))))
+        game
+        (-> game
+            (resolve-conflicts player)
+            (check-integrity player)
+            (update :history conj player-turn)
+            (start-turn next))]
+    (if (zero? index)
+      (update game :round inc)
+      game)))
 
 (defn apply-turn
   [game {:keys [player introduction organism-turns] :as player-turn}]
