@@ -23,7 +23,7 @@
         core (list [core-color 0])]
     (concat
      [[core-color core]]
-     (mapv
+     (map
       (fn [color level]
         [color
          (build-ring
@@ -38,7 +38,7 @@
   [rings]
   (apply
    concat
-   (mapv second rings)))
+   (map second rings)))
 
 (defn mod-space
   "contain the step within the given ring of spaces"
@@ -49,10 +49,10 @@
   "find all adjacencies in these rings for the given space"
   [rings space]
   (let [[color step] space
-        level (.indexOf (map first rings) color)
+        level (.indexOf (mapv first rings) color)
         same-ring (nth rings level)
         same-spaces (count (last same-ring))
-        same (map (partial + step) [-1 1])
+        same (mapv (partial + step) [-1 1])
         same-neighbors [[color same-spaces] same]        
 
         along (mod step level)
@@ -79,8 +79,8 @@
                       outer-along (+ along outer-ratio)]
                   [[outer-color outer-spaces]
                    (if axis?
-                     (map (partial + outer-ratio) [-1 0 1])
-                     (map (partial + outer-along) [0 1]))]))
+                     (mapv (partial + outer-ratio) [-1 0 1])
+                     (mapv (partial + outer-along) [0 1]))]))
 
         neighbors [same-neighbors inner-neighbors]
         neighbors (if outer
@@ -89,7 +89,7 @@
 
         adjacent-spaces (base/map-cat
                          (fn [[[color spaces] adjacent]]
-                           (map
+                           (mapv
                             (partial mod-space color spaces)
                             adjacent))
                          neighbors)]
@@ -111,7 +111,7 @@
 (defn find-adjacencies
   "find all adjacencies for all rings"
   [rings]
-  (let [colors (map first rings)
+  (let [colors (mapv first rings)
         [core-color core-spaces] (first rings)
         core (first core-spaces)
         adjacent {core (second (second rings))}
@@ -129,7 +129,7 @@
                (keys adjacencies))
         total (count outer)
         jump (quot total symmetry)
-        corners (map
+        corners (mapv
                  (comp
                   (partial conj [outer-ring])
                   (partial * jump))
@@ -138,10 +138,11 @@
 
 (defn remove-space
   [adjacencies space]
-  (let [adjacent (get adjacencies space)]
+  (let [adjacent (get adjacencies space)
+        cut (comp vec (partial remove #{space}))]
     (reduce
      (fn [adjacencies neighbor]
-       (update adjacencies neighbor remove #{space}))
+       (update adjacencies neighbor cut))
      (dissoc adjacencies space)
      adjacent)))
 
@@ -182,14 +183,14 @@
   [adjacencies center player-info]
   (let [capture-limit 5
         players
-        (map
+        (mapv
          (fn [[player-name starting-spaces]]
            [player-name
             (Player. player-name starting-spaces)])
          player-info)
-        turn-order (map first players)
+        turn-order (mapv first players)
         empty-captures
-        (into {} (map vector turn-order (repeat [])))
+        (into {} (mapv vector turn-order (repeat [])))
         first-player (first turn-order)
         state
         (State.
@@ -201,7 +202,7 @@
      center
      capture-limit
      (into {} players)
-     (map first players)
+     turn-order
      0 []
      state)))
 
@@ -262,7 +263,7 @@
   [state space]
   (remove
    empty?
-   (map
+   (mapv
     (partial get-element state)
     (adjacent-to state space))))
 
@@ -284,7 +285,7 @@
     (remove
      (fn [open-space]
        (let [adjacent (adjacent-elements game open-space)
-             elements (map (partial get-element game) adjacent)]
+             elements (mapv (partial get-element game) adjacent)]
          (some
           (fn [adjacent-element]
             (and
@@ -420,7 +421,7 @@
    [:state :player-turn :organism-turns]
    (fn [turns]
      (let [end (-> turns count dec)]
-       (update turns end f)))))
+       (update (vec turns) end f)))))
 
 (defn choose-action-type
   [game type]

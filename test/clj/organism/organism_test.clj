@@ -57,6 +57,16 @@
           initial (initial-state adjacencies [:yellow 0] player-info)]
       (println initial))))
 
+(deftest find-corners-test
+  (testing "the process for finding corners"
+    (let [symmetry 6
+          six-rings (build-rings symmetry [:yellow :red :blue :orange :green :purple :grey])
+          six-adjacencies (find-adjacencies six-rings)
+          corners (find-corners six-adjacencies :grey symmetry)]
+      (is (every? (fn [[color space]] (mod space symmetry)) corners))
+      (println "CORNERS")
+      (pprint corners))))
+
 (deftest corner-notches-test
   (testing "if the corners are removed"
     (let [game (create-game
@@ -66,6 +76,24 @@
                 true)]
       (is (not (some #{[:blue 0]} (-> game :adjacencies keys))))
       (is (= 11 (count (get game :adjacencies)))))))
+
+(deftest create-game-test
+  (testing "creating a basic game"
+    (let [game (create-game
+                6
+                [:A :B :C :D :E :F :G]
+                [["orb" [[:G 1] [:G 2] [:G 3]]]
+                 ["mass" [[:G 7] [:G 8] [:G 9]]]
+                 ["brone" [[:G 13] [:G 14] [:G 15]]]
+                 ["laam" [[:G 19] [:G 20] [:G 21]]]
+                 ["stuk" [[:G 25] [:G 26] [:G 27]]]
+                 ["faast" [[:G 31] [:G 32] [:G 33]]]]
+                true)]
+      (mapv
+       (fn [[key value]]
+         (println "CREATE" key)
+         (println value))
+       game))))
 
 (deftest introduce-test
   (testing "how introducing a new organism works"

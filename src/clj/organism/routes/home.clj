@@ -1,9 +1,10 @@
 (ns organism.routes.home
   (:require
-   [clojure.pprint :as pprint]
+   [clojure.pprint :refer (pprint)]
    [organism.board :as board]
    [organism.layout :as layout]
    [organism.game :as game]
+   [organism.choice :as choice]
    [clojure.java.io :as io]
    [organism.middleware :as middleware]
    [ring.util.http-response :refer [content-type ok] :as response]
@@ -18,101 +19,46 @@
 
 (defn test-game
   []
-  (let [game (game/create-game
-               6
-               [:A :B :C :D]
-               [["orb" [[:D 0] [:D 1] [:D 2]]]
-                ["mass" [[:D 9] [:D 10] [:D 11]]]]
-               false)]
-    (-> game
+  (game/create-game
+   6
+   [:A :B :C :D :E :F :G]
+   [["orb" [[:G 1] [:G 2] [:G 3]]]
+    ["mass" [[:G 7] [:G 8] [:G 9]]]
+    ["brone" [[:G 13] [:G 14] [:G 15]]]
+    ["laam" [[:G 19] [:G 20] [:G 21]]]
+    ["stuk" [[:G 25] [:G 26] [:G 27]]]
+    ["faast" [[:G 31] [:G 32] [:G 33]]]]
+   true))
 
-        (game/apply-turn
-         (game/->PlayerTurn
-          "orb"
-          {:eat [:D 0]
-           :grow [:D 2]
-           :move [:D 1]
-           :organism 0}
-          [(game/->OrganismTurn
-            0
-            :move
-            [(game/->Action
-              :move
-              {:from [:D 2]
-               :to [:C 1]})])]))
+(def home-game
+  (atom {}))
 
-        (game/apply-turn
-         (game/->PlayerTurn
-          "mass"
-          {:eat [:D 9]
-           :grow [:D 10]
-           :move [:D 11]
-           :organism 0}
-          [(game/->OrganismTurn
-            0
-            :grow
-            [(game/->Action
-              :grow
-              {:from {[:D 10] 1}
-               :to [:C 6]
-               :element :move})])]))
-
-        (game/apply-turn
-         (game/->PlayerTurn
-          "orb" {}
-          [(game/->OrganismTurn
-            0
-            :grow
-            [(game/->Action
-              :grow
-              {:from {[:C 1] 1}
-               :to [:B 1]
-               :element :grow})])]))
-
-        (game/apply-turn
-         (game/->PlayerTurn
-          "mass" {}
-          [(game/->OrganismTurn
-            0
-            :move
-            [(game/->Action
-              :move
-              {:from [:D 10]
-               :to [:C 7]})])]))
-
-        (game/apply-turn
-         (game/->PlayerTurn
-          "orb" {}
-          [(game/->OrganismTurn
-            0
-            :grow
-            [(game/->Action
-              :circulate
-              {:from [:D 0]
-               :to [:C 1]})
-             (game/->Action
-              :circulate
-              {:from [:D 1]
-               :to [:B 1]})])]))
-
-        (game/apply-turn
-         (game/->PlayerTurn
-          "mass" {}
-          [(game/->OrganismTurn
-            0
-            :eat
-            [(game/->Action
-              :eat
-              {:to [:D 9]})])])))))
+(defn empty-game
+  [starting-game]
+  {:colors
+   (board/generate-colors
+    [:A :B :C :D :E :F :G])
+   :games
+   (choice/random-walk
+    starting-game)})
 
 (defn game-page [request]
   (content-type
    (ok
-    (let [colors (board/generate-colors [:A :B :C :D :E :F :G])
-          _ (println "colors" colors)
-          board (board/build-board 6 50 2.1 colors ["orb" "mass"] true)]
-      (println "board" board)
-      (board/render-game board (test-game))))
+    (do
+      (if (empty? (deref home-game))
+        (reset! home-game (empty-game (test-game))))
+      (let [home (deref home-game)
+            {:keys [games colors]} home
+            game (first games)
+            _ (println "EMPTY GAME")
+            _ (println (test-game))
+            _ (println "GAME STATE")
+            _ (pprint game)
+            _ (println "COLOR" colors)
+            board (board/build-board 6 50 2.1 colors (:turn-order game) true)]
+        (swap! home-game update :games rest)
+        (board/render-game board game))))
    "text/html; charset=utf-8"))
 
 (defn home-routes []

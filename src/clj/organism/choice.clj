@@ -253,7 +253,20 @@
   [game path]
   (reduce
    (fn [game choice]
-     (pprint (:state game))
+     ;; (pprint (:state game))
      (let [choices (find-choices game)]
        (nth choices choice)))
    game path))
+
+(defn random-walk
+  [game]
+  (iterate
+   (fn [game]
+     (println "RANDOM" (:state game))
+     (let [choices (find-choices game)
+           num-choices (count choices)
+           choice (rand-int num-choices)]
+       (println "CHOICES")
+       (pprint (map :state choices))
+       (nth choices choice)))
+   game))
