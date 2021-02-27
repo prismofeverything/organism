@@ -1,6 +1,7 @@
 (ns organism.choice
   (:require
    [clojure.math.combinatorics :as combine]
+   [clojure.pprint :refer (pprint)]
    [organism.base :as base]
    [organism.game :as game]))
 
@@ -28,25 +29,25 @@
               starting))
             :organism organism))
          orders)]
-    (map
+    (mapv
      (partial game/introduce game player)
      introductions)))
 
 (defn choose-organism-choices
   [game organisms]
-  (map
+  (mapv
    (partial game/choose-organism game)
    organisms))
 
 (defn choose-action-type-choices
   [game]
-  (map
+  (mapv
    (partial game/choose-action-type game)
    element-types))
 
 (defn choose-action-choices
   [game action-type]
-  (map
+  (mapv
    (partial game/choose-action game)
    [action-type :circulate]))
 
@@ -59,11 +60,13 @@
             (= :eat (:type element))
             (game/open? element)))
          elements)]
-    (map
+    (println "EAT TO" (:state game))
+    (mapv
      (comp
-      (partial game/eat game)
+      game/complete-action
+      (partial game/choose-action-field game :to)
       :space)
-     elements)))
+     open-eaters)))
 
 (defn grow-element-choices
   [game elements]
@@ -79,7 +82,7 @@
             (count (get types type))
             grower-food))
          element-types)]
-    (map
+    (mapv
      (partial game/choose-action-field game :element)
      available)))
 
@@ -96,7 +99,7 @@
          (fn [[space food]]
            (> food 0))
          element-food)]
-    (map
+    (mapv
      (fn [[space food]]
        (update contribution space (fnil inc 0)))
      possible-contributors)))
@@ -119,7 +122,7 @@
         element-choice (game/get-action-field game :element)
         existing (count (get types element-choice))
         contributions (food-contributions elements existing)]
-    (map
+    (mapv
      (partial game/choose-action-field game :from)
      contributions)))
 
@@ -128,19 +131,19 @@
   (let [types (group-by :type elements)
         growers (get types :grow)
         growable (game/growable-spaces game (map :space growers))]
-    (map
-     (partial game/choose-action-field game :to)
+    (mapv
+     (comp
+      game/complete-action
+      (partial game/choose-action-field game :to))
      growable)))
 
 (defn move-from-choices
   [game elements]
   (let [mobile-elements
         (filter
-         (comp
-          (partial game/can-move? game)
-          :space)
-         elements)]
-    (map
+         (partial game/can-move? game)
+         (map :space elements))]
+    (mapv
      (partial game/choose-action-field game :from)
      mobile-elements)))
 
@@ -148,12 +151,36 @@
   [game elements]
   (let [from (game/get-action-field game :from)
         open-spaces (game/available-spaces game from)]
-    (map
-     (partial game/choose-action-field game :to)
+    (mapv
+     (comp
+      game/complete-action
+      (partial game/choose-action-field game :to))
      open-spaces)))
 
-(defn circulate-from-choices [])
-(defn circulate-to-choices [])
+(defn circulate-from-choices
+  [game elements]
+  (let [fed (filter game/fed-element? elements)]
+    (mapv
+     (comp
+      (partial game/choose-action-field game :from)
+      :space)
+     fed)))
+
+(defn circulate-to-choices
+  [game elements]
+  (let [from (game/get-action-field game :from)
+        open (filter
+              (fn [element]
+                (and
+                 (game/open? element)
+                 (not= (:space element) from)))
+              elements)]
+    (mapv
+     (comp
+      game/complete-action
+      (partial game/choose-action-field game :to)
+      :space)
+     open)))
 
 (def action-choices
   {[:eat :to] eat-to-choices
@@ -188,8 +215,14 @@
             elements (get organisms organism)
             types (group-by :type elements)]
 
+        (println "organism" organism)
+        (println "organisms" organisms)
+        (println "organism turn" organism-turn)
+        (println "elements" elements)
+        (println "types" types)
+
         (cond
-          (empty? choice) (choose-action-type-choices game)
+          (nil? choice) (choose-action-type-choices game)
 
           (every? game/complete-action? actions)
           (cond
@@ -215,6 +248,25 @@
           (let [{:keys [type action]} (last actions)
                 fields (get game/action-fields type)
                 fields-present (-> action keys set)
-                next-field (some (fn [field] (not (fields-present field))) fields)
+                next-field (first
+                            (filter
+                             (fn [field]
+                               (not (fields-present field)))
+                             fields))
                 next-choices (get action-choices [type next-field])]
+            (println "type" type)
+            (println "action" action)
+            (println "fields" fields)
+            (println "fields present" fields-present)
+            (println "next-field" next-field)
+            (println "next-choices" next-choices)
             (next-choices game elements)))))))
+
+(defn take-path
+  [game path]
+  (reduce
+   (fn [game choice]
+     (pprint (:state game))
+     (let [choices (find-choices game)]
+       (nth choices choice)))
+   game path))

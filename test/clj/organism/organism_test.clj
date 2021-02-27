@@ -6,6 +6,7 @@
    [organism.game :refer :all]
    [organism.tree :as tree]
    [organism.choice :as choice]
+   [organism.examples :as examples]
    [organism.routes.home :as home])
   (:import
    [organism.game
@@ -66,17 +67,9 @@
       (is (not (some #{[:blue 0]} (-> game :adjacencies keys))))
       (is (= 11 (count (get game :adjacencies)))))))
 
-(def two-player-close
-  (create-game
-   6
-   [:yellow :red :blue :orange]
-   [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
-    ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
-   false))
-
 (deftest introduce-test
   (testing "how introducing a new organism works"
-    (let [game two-player-close
+    (let [game examples/two-player-close
           game (introduce
                  game "orb"
                  {:eat [:orange 0]
@@ -94,7 +87,7 @@
 
 (deftest conflict-test
   (testing "resolving complex chains of conflict"
-    (let [game (-> two-player-close
+    (let [game (-> examples/two-player-close
                     (add-element "orb" 0 :eat [:orange 5] 0)
                     (add-element "orb" 0 :move [:blue 4] 2)
                     (add-element "mass" 1 :grow [:blue 3] 2))
@@ -112,7 +105,7 @@
       (is (= 1 (count (get-captures resolved "mass")))))))
 
 (def integrity-position
-  (-> two-player-close
+  (-> examples/two-player-close
       (add-element "orb" 8 :eat [:orange 5] 0)
       (add-element "orb" 11 :move [:blue 4] 2)
       (add-element "orb" 44 :grow [:red 2] 1)
@@ -122,13 +115,13 @@
       (add-element "mass" 5 :move [:blue 7] 1)))
 
 (def center-position
-  (-> two-player-close
+  (-> examples/two-player-close
       (add-element "orb" 8 :eat [:blue 5] 0)
       (add-element "orb" 11 :move [:red 2] 2)
       (add-element "orb" 44 :grow [:yellow 0] 1)))
 
 (def conflict-position
-  (-> two-player-close
+  (-> examples/two-player-close
       (add-element "orb" 0 :grow [:orange 4] 1)
       (add-element "orb" 0 :eat [:orange 5] 0)
       (add-element "orb" 0 :move [:blue 4] 2)
@@ -220,7 +213,7 @@
                         {:from {[:orange 1] 1}
                          :to [:blue 0]
                          :element :eat})])])
-          game (-> two-player-close
+          game (-> examples/two-player-close
                    (apply-turn orb-turn))
           organisms (group-organisms game)]
       (println)
@@ -236,7 +229,7 @@
       (is (= 4 (count (last (first organisms))))))))
 
 (def two-organism-position
-  (-> two-player-close
+  (-> examples/two-player-close
       (add-element "orb" 0 :grow [:orange 4] 1)
       (add-element "orb" 0 :eat [:orange 5] 0)
       (add-element "orb" 0 :move [:blue 4] 2)
@@ -247,7 +240,7 @@
       (add-element "orb" 1 :grow [:orange 17] 0)))
 
 (def large-organism-position
-  (-> two-player-close
+  (-> examples/two-player-close
       (add-element "orb" 0 :grow [:orange 4] 1)
       (add-element "orb" 0 :eat [:orange 5] 0)
       (add-element "orb" 0 :move [:blue 4] 2)
@@ -260,13 +253,30 @@
 
 (deftest introduce-choices-test
   (testing "the choices for introduction"
-    (let [game two-player-close
+    (let [game examples/two-player-close
           choices (choice/find-choices game)]
       (assert (= 6 (count choices))))))
 
+(deftest choices-walk-test
+  (testing "taking a path through game space"
+    (let [game examples/two-player-close
+          later (choice/take-path
+                 game
+                 [0 0 0 0
+                  1 1 0 0 0 1
+                  2 0 1 1])]
+      (println)
+      (println)
+      (println)
+      (println "TAKE PATH")
+      (pprint later)
+      (println)
+      (println)
+      (println))))
+
 ;; (deftest walk-test
 ;;   (testing "walking through every possible turn from a given position and player"
-;;     (let [game two-player-close ;; two-organism-position ;; 
+;;     (let [game examples/two-player-close ;; two-organism-position ;; 
 ;;           walk (time (tree/walk-turn game "orb"))]
 ;;       (println "walk length" (count walk))
 ;;       ;; (println "ACTIONS")

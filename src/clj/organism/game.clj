@@ -673,18 +673,16 @@
 
 (defn player-organisms
   [game player]
-  (mapv
-   identity
-   (reduce
-    (fn [organisms element]
-      (if (and element (= player (:player element)))
-        (update
-         organisms
-         (:organism element)
-         conj element)
-        organisms))
-    {}
-    (-> game :state :elements vals))))
+  (reduce
+   (fn [organisms element]
+     (if (and element (= player (:player element)))
+       (update
+        organisms
+        (:organism element)
+        conj element)
+       organisms))
+   {}
+   (-> game :state :elements vals)))
 
 (defn trace-organism
   [game center-space organism]
@@ -769,6 +767,11 @@
   (if-let [perform (get action-map type)]
     (perform game action)
     (str "unknown action type " type " " (:state game))))
+
+(defn complete-action
+  [game]
+  (let [action (get-current-action game)]
+    (perform-action game action)))
 
 (defn perform-actions
   [game actions]
