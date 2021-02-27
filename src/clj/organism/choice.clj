@@ -60,7 +60,6 @@
             (= :eat (:type element))
             (game/open? element)))
          elements)]
-    (println "EAT TO" (:state game))
     (mapv
      (comp
       game/complete-action
@@ -215,12 +214,6 @@
             elements (get organisms organism)
             types (group-by :type elements)]
 
-        (println "organism" organism)
-        (println "organisms" organisms)
-        (println "organism turn" organism-turn)
-        (println "elements" elements)
-        (println "types" types)
-
         (cond
           (nil? choice) (choose-action-type-choices game)
 
@@ -254,12 +247,6 @@
                                (not (fields-present field)))
                              fields))
                 next-choices (get action-choices [type next-field])]
-            (println "type" type)
-            (println "action" action)
-            (println "fields" fields)
-            (println "fields present" fields-present)
-            (println "next-field" next-field)
-            (println "next-choices" next-choices)
             (next-choices game elements)))))))
 
 (defn take-path
