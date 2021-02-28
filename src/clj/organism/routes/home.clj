@@ -1,21 +1,17 @@
 (ns organism.routes.home
   (:require
-   [clojure.pprint :refer (pprint)]
    [organism.board :as board]
    [organism.layout :as layout]
    [organism.game :as game]
    [organism.choice :as choice]
+   [organism.layout :as layout]
    [clojure.java.io :as io]
    [organism.middleware :as middleware]
-   [ring.util.http-response :refer [content-type ok] :as response]
    [ring.util.response]
    [ring.util.http-response :as response]))
 
 (defn home-page [request]
-  (layout/render request "home.html" {:docs (-> "docs/docs.md" io/resource slurp)}))
-
-(defn about-page [request]
-  (layout/render request "about.html"))
+  (layout/render request "home.html"))
 
 (defn test-game
   []
@@ -43,8 +39,8 @@
     starting-game)})
 
 (defn game-page [request]
-  (content-type
-   (ok
+  (response/content-type
+   (response/ok
     (do
       (if (empty? (deref home-game))
         (reset! home-game (empty-game (test-game))))
@@ -61,6 +57,8 @@
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["/" {:get home-page}]
-   ["/about" {:get about-page}]
-   ["/game" {:get game-page}]])
+   ["/game" {:get game-page}]
+   ["/docs" {:get (fn [_]
+                    (-> (response/ok (-> "docs/docs.md" io/resource slurp))
+                        (response/header "Content-Type" "text/plain; charset=utf-8")))}]])
 

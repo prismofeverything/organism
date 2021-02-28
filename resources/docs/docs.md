@@ -14,7 +14,9 @@ request is made to the `/` URI using the `GET` method.
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["/" {:get home-page}]
-   ["/about" {:get about-page}]])
+   ["/docs" {:get (fn [request]
+                    (-> (response/ok (-> "docs/docs.md" io/resource slurp))
+                        (response/header "Content-Type" "text/plain; charset=utf-8")))}]])
 ```
 
 The `home-page` function will in turn call the `organism.layout/render` function
@@ -22,24 +24,16 @@ to render the HTML content:
 
 ```
 (defn home-page [request]
-  (layout/render
-    request 
-    "home.html" {:docs (-> "docs/docs.md" io/resource slurp)}))
+  (layout/render request "home.html"))
 ```
 
-The `render` function will render the `home.html` template found in the `resources/html`
-folder using a parameter map containing the `:docs` key. This key points to the
-contents of the `resources/docs/docs.md` file containing these instructions.
-
-The HTML templates are written using [Selmer](https://github.com/yogthos/Selmer) templating engine.
+The page contains a link to the compiled ClojureScript found in the `target/cljsbuild/public` folder:
 
 ```
-<div class="content">
-  {{docs|markdown}}
-</div>
+{% script "/js/app.js" %}
 ```
 
-<a class="level-item button" href="https://luminusweb.com/docs/html_templating.html">learn more about HTML templating »</a>
+The rest of this page is rendered by ClojureScript found in the `src/cljs/organism/core.cljs` file.
 
 
 

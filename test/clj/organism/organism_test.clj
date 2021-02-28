@@ -2,9 +2,7 @@
   (:require
    [clojure.pprint :refer (pprint)]
    [clojure.test :refer :all]
-   [taoensso.tufte :as tufte]
    [organism.game :refer :all]
-   [organism.tree :as tree]
    [organism.choice :as choice]
    [organism.examples :as examples]
    [organism.routes.home :as home])
@@ -304,11 +302,3 @@
       (println)
       (println))))
 
-;; (deftest walk-test
-;;   (testing "walking through every possible turn from a given position and player"
-;;     (let [game examples/two-player-close ;; two-organism-position ;; 
-;;           walk (time (tree/walk-turn game "orb"))]
-;;       (println "walk length" (count walk))
-;;       ;; (println "ACTIONS")
-;;       ;; (pprint walk)
-;;       )))
