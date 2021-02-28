@@ -272,7 +272,10 @@
           (every? game/complete-action? actions)
           (cond
             (< (count actions) num-actions)
-            (choose-action-choices game choice)
+            (let [choices (choose-action-choices game choice)]
+              (if (empty? choices)
+                (list (game/pass-action game))
+                choices))
 
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))
