@@ -274,7 +274,10 @@
             (< (count actions) num-actions)
             (let [choices (choose-action-choices game choice)]
               (if (empty? choices)
-                (list (game/pass-action game))
+                (-> game
+                    (game/choose-action :circulate)
+                    game/pass-action
+                    list)
                 choices))
 
             (< (count organism-turns) (count organisms))

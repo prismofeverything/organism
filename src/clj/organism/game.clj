@@ -288,14 +288,13 @@
         open (open-spaces game space)]
     (remove
      (fn [open-space]
-       (let [adjacent (adjacent-elements game open-space)
-             elements (mapv (partial get-element game) adjacent)]
+       (let [adjacent (adjacent-elements game open-space)]
          (some
           (fn [adjacent-element]
             (and
              (= (:type adjacent-element) (:type element))
              (not= (:player adjacent-element) (:player element))))
-          elements)))
+          adjacent)))
      open)))
 
 (defn growable-adjacent

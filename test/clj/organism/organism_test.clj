@@ -236,6 +236,7 @@
                     [(OrganismTurn.
                       0
                       :grow
+                      1
                       [(Action.
                         :grow
                         {:from {[:orange 1] 1}
@@ -291,9 +292,9 @@
           later (choice/take-path
                  game
                  [0 0 0 0
-                  1 1 0 0 0 1
-                  2 0 1 1
-                  1 1 1 1])]
+                  0 0 0 0 0 0
+                  0 0 0 0
+                  0 0 0 0])]
       (println)
       (println)
       (println)
