@@ -22,12 +22,12 @@
   (game/create-game
    6
    [:A :B :C :D :E :F :G]
-   [["orb" [[:G 1] [:G 2] [:G 3]]]
-    ["mass" [[:G 7] [:G 8] [:G 9]]]
-    ["brone" [[:G 13] [:G 14] [:G 15]]]
-    ["laam" [[:G 19] [:G 20] [:G 21]]]
-    ["stuk" [[:G 25] [:G 26] [:G 27]]]
-    ["faast" [[:G 31] [:G 32] [:G 33]]]]
+   [["orb" [[:G 2] [:G 3] [:G 4]]]
+    ["mass" [[:G 8] [:G 9] [:G 10]]]
+    ["brone" [[:G 14] [:G 15] [:G 16]]]
+    ["laam" [[:G 20] [:G 21] [:G 22]]]
+    ["stuk" [[:G 26] [:G 27] [:G 28]]]
+    ["faast" [[:G 32] [:G 33] [:G 34]]]]
    true))
 
 (def home-game
@@ -51,11 +51,6 @@
       (let [home (deref home-game)
             {:keys [games colors]} home
             game (first games)
-            _ (println "EMPTY GAME")
-            _ (println (test-game))
-            _ (println "GAME STATE")
-            _ (pprint game)
-            _ (println "COLOR" colors)
             board (board/build-board 6 50 2.1 colors (:turn-order game) true)]
         (swap! home-game update :games rest)
         (board/render-game board game))))

@@ -120,7 +120,8 @@
   (let [types (group-by :type elements)
         element-choice (game/get-action-field game :element)
         existing (count (get types element-choice))
-        contributions (food-contributions elements existing)]
+        growers (get types :grow)
+        contributions (food-contributions growers existing)]
     (mapv
      (partial game/choose-action-field game :from)
      contributions)))
@@ -210,7 +211,7 @@
             (-> organisms keys first)))))
 
       :else
-      (let [{:keys [organism choice actions] :as organism-turn} (last organism-turns)
+      (let [{:keys [organism choice num-actions actions] :as organism-turn} (last organism-turns)
             elements (get organisms organism)
             types (group-by :type elements)]
 
@@ -219,7 +220,7 @@
 
           (every? game/complete-action? actions)
           (cond
-            (< (count actions) (count (get types choice)))
+            (< (count actions) num-actions)
             (choose-action-choices game choice)
 
             (< (count organism-turns) (count organisms))
@@ -262,11 +263,10 @@
   [game]
   (iterate
    (fn [game]
-     (println "RANDOM" (:state game))
      (let [choices (find-choices game)
            num-choices (count choices)
            choice (rand-int num-choices)]
-       (println "CHOICES")
+       (println "CHOICE")
        (pprint (map :state choices))
        (nth choices choice)))
    game))

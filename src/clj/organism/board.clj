@@ -1,6 +1,7 @@
 (ns organism.board
   (:require
    [clojure.string :as string]
+   [clojure.pprint :refer (pprint)]
    [thi.ng.color.core :as color]
    [hiccup.core :as up]
    [organism.base :as base]))
@@ -205,7 +206,7 @@
   [symmetry radius buffer colors players notches?]
   (let [num-rings (count colors)
         outer-color (-> colors last first)
-        notches (map (fn [n] [outer-color (* n num-rings)]) (range symmetry))
+        notches (map (fn [n] [outer-color (* n (dec num-rings))]) (range symmetry))
         locations (board-locations symmetry radius buffer colors)
         locations (if notches?
                     (reduce
@@ -226,12 +227,12 @@
       (map
        vector
        players
-       (rest
-        (reverse
+       (reverse
+        (rest
          (map
           (fn [[color-key color-str]]
             color-str)
-            ;; (str "url(#" (name color-key) "-element)")
+          ;; (str "url(#" (name color-key) "-element)")
           colors))))))))
 
 (defn get-ring

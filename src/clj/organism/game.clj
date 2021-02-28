@@ -167,7 +167,7 @@
    :circulate-to])
 
 (defrecord Action [type action])
-(defrecord OrganismTurn [organism choice actions])
+(defrecord OrganismTurn [organism choice num-actions actions])
 (defrecord PlayerTurn [player introduction organism-turns])
 
 (defrecord Player [name starting-spaces])
@@ -224,9 +224,9 @@
   [game space]
   (get-in game [:adjacencies space]))
 
-(defn active-player
+(defn current-player
   [{:keys [state] :as game}]
-  (:active-player state))
+  (get-in state [:player-turn :player]))
 
 (defn get-player
   [game player]
@@ -412,7 +412,7 @@
   (update-in
    game
    [:state :player-turn :organism-turns]
-   conj (OrganismTurn. organism nil [])))
+   conj (OrganismTurn. organism nil -1 [])))
 
 (defn update-organism-turn
   [game f]
@@ -423,12 +423,33 @@
      (let [end (-> turns count dec)]
        (update (vec turns) end f)))))
 
+(defn player-organisms
+  [game player]
+  (reduce
+   (fn [organisms element]
+     (if (and element (= player (:player element)))
+       (update
+        organisms
+        (:organism element)
+        conj element)
+       organisms))
+   {}
+   (-> game :state :elements vals)))
+
 (defn choose-action-type
   [game type]
-  (update-organism-turn
-   game
-   (fn [organism-turn]
-     (assoc organism-turn :choice type))))
+  (let [player (current-player game)
+        organisms (player-organisms game player)]
+    (update-organism-turn
+     game
+     (fn [{:keys [organism] :as organism-turn}]
+       (let [elements (get organisms organism)
+             types (group-by :type elements)
+             num-actions (count (get types type))]
+         (assoc
+          organism-turn
+          :choice type
+          :num-actions num-actions))))))
 
 (defn choose-action
   [game type]
@@ -667,19 +688,6 @@
        (update
         organisms
         [(:player element) (:organism element)]
-        conj element)
-       organisms))
-   {}
-   (-> game :state :elements vals)))
-
-(defn player-organisms
-  [game player]
-  (reduce
-   (fn [organisms element]
-     (if (and element (= player (:player element)))
-       (update
-        organisms
-        (:organism element)
         conj element)
        organisms))
    {}
