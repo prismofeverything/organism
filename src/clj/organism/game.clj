@@ -271,6 +271,10 @@
   [element]
   (> *food-limit* (:food element)))
 
+(defn full?
+  [element]
+  (= *food-limit* (:food element)))
+
 (defn open-spaces
   [game space]
   (filter
@@ -340,6 +344,10 @@
 (defn fed-element?
   [element]
   (> (:food element) 0))
+
+(defn unfed?
+  [element]
+  (zero? (:food element)))
 
 (defn fed?
   [game space]
@@ -492,6 +500,13 @@
   (let [organism-turn (get-organism-turn game)
         actions (get organism-turn :actions)]
     (last actions)))
+
+(defn current-organism-elements
+  [game]
+  (let [player (current-player game)
+        {:keys [organism] :as organism-turn} (get-organism-turn game)
+        organisms (player-organisms game player)]
+    (get organisms organism)))
 
 (defn get-action-field
   [game field]

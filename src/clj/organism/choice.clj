@@ -41,15 +41,66 @@
 
 (defn choose-action-type-choices
   [game]
+  (let [elements (game/current-organism-elements game)
+        food (reduce + 0 (map :food elements))
+        types (if (zero? food)
+                [:eat]
+                element-types)])
   (mapv
    (partial game/choose-action-type game)
    element-types))
+
+(defn eat-filter
+  [game]
+  (let [elements (game/current-organism-elements game)
+        types (group-by :type elements)
+        eaters (get types :eat)]
+    (not (every? game/full? eaters))))
+
+(defn grow-filter
+  [game]
+  (let [elements (game/current-organism-elements game)
+        types (group-by :type elements)
+        growers (get types :grow)
+        food (reduce + 0 (map :food growers))
+        existing (map count (vals types))
+        least (apply min existing)]
+    (>= food least)))
+
+(defn move-filter
+  [game]
+  (let [elements (game/current-organism-elements game)
+        mobile (filter
+                (comp
+                 (partial game/can-move? game)
+                 :space)
+                elements)]
+    (> (count mobile) 0)))
+
+(defn circulate-filter
+  [game]
+  (let [elements (game/current-organism-elements game)
+        food (reduce + 0 (map :food elements))]
+    (> food 0)))
+
+(def action-filters
+  {:eat eat-filter
+   :move move-filter
+   :grow grow-filter
+   :circulate circulate-filter})
+
+(defn action-filter
+  [game action-type]
+  (let [filter-action (get action-filters action-type)]
+    (filter-action game)))
 
 (defn choose-action-choices
   [game action-type]
   (mapv
    (partial game/choose-action game)
-   [action-type :circulate]))
+   (filter
+    (partial action-filter game)
+    [action-type :circulate])))
 
 (defn eat-to-choices
   [game elements]
@@ -257,7 +308,6 @@
   [game path]
   (reduce
    (fn [game choice]
-     ;; (pprint (:state game))
      (let [choices (find-choices game)]
        (nth choices choice)))
    game path))
