@@ -469,6 +469,13 @@
      (let [end (-> organism-turn :actions count dec)]
        (update-in organism-turn [:actions end] f)))))
 
+(defn pass-action
+  [game]
+  (update-action
+   game
+   (fn [action]
+     (assoc-in action [:action :pass] true))))
+
 (def action-fields
   {:eat [:to]
    :grow [:element :from :to]
@@ -517,7 +524,9 @@
 (defn complete-action?
   [{:keys [type action]}]
   (let [fields (get action-fields type)]
-    (every? action fields)))
+    (or
+     (every? action fields)
+     (:pass action))))
 
 (defn eat
   [game {:keys [to] :as fields}]
@@ -773,9 +782,11 @@
 
 (defn perform-action
   [game {:keys [type action]}]
-  (if-let [perform (get action-map type)]
-    (perform game action)
-    (str "unknown action type " type " " (:state game))))
+  (if (:pass action)
+    game
+    (if-let [perform (get action-map type)]
+      (perform game action)
+      (str "unknown action type " type " " (:state game)))))
 
 (defn complete-action
   [game]

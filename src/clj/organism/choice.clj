@@ -247,8 +247,11 @@
                              (fn [field]
                                (not (fields-present field)))
                              fields))
-                next-choices (get action-choices [type next-field])]
-            (next-choices game elements)))))))
+                next-choices (get action-choices [type next-field])
+                choices (next-choices game elements)]
+            (if (empty? choices)
+              (list (game/pass-action game))
+              choices)))))))
 
 (defn take-path
   [game path]
@@ -265,8 +268,11 @@
    (fn [game]
      (let [choices (find-choices game)
            num-choices (count choices)
-           choice (rand-int num-choices)]
+           choice (rand-int num-choices)
+           chosen (nth choices choice)]
+       (println "CHOICES")
+       (pprint (map (comp :player-turn :state) choices))
        (println "CHOICE")
-       (pprint (map :state choices))
-       (nth choices choice)))
+       (pprint (get-in chosen [:state :player-turn]))
+       chosen))
    game))
