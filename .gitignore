@@ -11,6 +11,6 @@ test-config.edn
 profiles.clj
 /.env
 .nrepl-port
-
+.rebel_readline_history
 /node_modules
 /log

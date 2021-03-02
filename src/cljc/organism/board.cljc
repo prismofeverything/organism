@@ -2,8 +2,8 @@
   (:require
    [clojure.string :as string]
    [clojure.pprint :refer (pprint)]
+   #?(:clj [hiccup.core :as up])
    [thi.ng.color.core :as color]
-   [hiccup.core :as up]
    [organism.base :as base]))
 
 (def tau (* 2 Math/PI))
@@ -194,11 +194,6 @@
       [:g]
       (build-background radius buffer colors)
       [(map circle (find-rings symmetry radius buffer (map last colors) notches?))])]))
-
-(defn render
-  [symmetry radius buffer colors notches?]
-  (let [radiate (board-layout symmetry radius buffer colors notches?)]
-    (up/html radiate)))
 
 (defrecord Board [symmetry radius buffer colors layout locations player-colors])
 
@@ -496,11 +491,12 @@
               (render-organism locations color food-color radius elements))])
          organisms)
         svg (apply conj layout element-icons)]
-    (up/html svg)))
+    svg))
 
-(defn export
-  [symmetry radius buffer colors path]
-  (let [radiate (board-layout symmetry radius buffer colors)
-        out (up/html radiate)]
-    (spit path out)))
+#?(:clj
+   (defn export
+     [symmetry radius buffer colors path]
+     (let [radiate (board-layout symmetry radius buffer colors)
+           out (up/html radiate)]
+       (spit path out))))
 

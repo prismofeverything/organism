@@ -175,7 +175,7 @@
 (defrecord State [elements captures player-turn])
 (defrecord Game
     [adjacencies center capture-limit
-     players turn-order round history
+     players turn-order round
      state])
 
 (defn initial-state
@@ -203,7 +203,7 @@
      capture-limit
      (into {} players)
      turn-order
-     0 []
+     0
      state)))
 
 (defn create-game
@@ -833,7 +833,6 @@
         (-> game
             (resolve-conflicts player)
             (check-integrity player)
-            (update :history conj player-turn)
             (start-turn next))]
     (if (zero? index)
       (update game :round inc)

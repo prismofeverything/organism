@@ -318,6 +318,13 @@
        (nth choices choice)))
    game path))
 
+;; levels of challenge
+;; * random walk
+;; * won't die immediately
+;; * some idea of what's going on
+;; * competent
+;; * invincible
+
 (defn random-walk
   [game]
   (iterate

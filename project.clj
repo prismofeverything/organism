@@ -7,6 +7,7 @@
                  [clojure.java-time "0.3.2"]
                  [org.clojure/math.combinatorics "0.1.6"]
                  [com.cognitect/transit-clj "1.0.324"]
+                 [com.cognitect/transit-cljs "0.8.264"]
                  [cprop "0.1.17"]
                  [expound "0.8.9"]
                  [funcool/struct "1.4.0"]
@@ -31,7 +32,8 @@
                  [ring/ring-core "1.9.1"]
                  [ring/ring-defaults "0.3.2"]
                  [selmer "1.12.33"]
-                 [thi.ng/color "1.4.0"]]
+                 [thi.ng/color "1.4.0"]
+                 [buddy/buddy-auth "2.2.0"]]
 
   :min-lein-version "2.0.0"
   

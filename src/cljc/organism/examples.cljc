@@ -10,3 +10,15 @@
     ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
    false))
 
+(defn six-player-game
+  []
+  (game/create-game
+   6
+   [:A :B :C :D :E :F :G]
+   [["orb" [[:G 2] [:G 3] [:G 4]]]
+    ["mass" [[:G 8] [:G 9] [:G 10]]]
+    ["brone" [[:G 14] [:G 15] [:G 16]]]
+    ["laam" [[:G 20] [:G 21] [:G 22]]]
+    ["stuk" [[:G 26] [:G 27] [:G 28]]]
+    ["faast" [[:G 32] [:G 33] [:G 34]]]]
+   true))
