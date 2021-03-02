@@ -24,7 +24,7 @@
    (choice/random-walk
     starting-game)})
 
-(defn game-page [request]
+(defn eternal-page [request]
   (response/content-type
    (response/ok
     (do
@@ -41,12 +41,18 @@
 (defn home-page [request]
   (layout/render request "home.html"))
 
+(defn game-page [request]
+  (clojure.pprint/pprint request)
+  (println "KEYS" (keys request))
+  (layout/render request "game.html" {:game (get-in request [:path-params :game])}))
+
 (defn home-routes []
   [""
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["/" {:get home-page}]
-   ["/eternal" {:get game-page}]
+   ["/eternal" {:get eternal-page}]
+   ["/game/:game" {:get game-page}]
    ["/docs" {:get (fn [_]
                     (-> (response/ok (-> "docs/docs.md" io/resource slurp))
                         (response/header "Content-Type" "text/plain; charset=utf-8")))}]])

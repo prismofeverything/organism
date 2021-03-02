@@ -25,6 +25,7 @@
 
 (defn connect!
   [{:keys [game-key player]} channel]
+  (log/info "channel open")
   (let [existing (get-in (deref games) [:games game-key])]
     (if (empty? existing)
       (swap!
@@ -37,7 +38,7 @@
        games
        update-in [:games game-key :channels]
        conj channel))
-    (let [game-state (get-in (deref games [:games game-key]))]
+    (let [game-state (get-in (deref games) [:games game-key])]
       (async/send!
        channel
        {:game (:game game-state)
@@ -55,12 +56,14 @@
 
 (defn disconnect!
   [{:keys [game-key player]} channel {:keys [code reason]}]
+  (log/info "channel closed" code reason)
   (swap!
    games
    (partial disconnect-game game-key channel)))
 
 (defn update-game-state
   [game-key channel message]
+  (log/info "received game-state message")
   (let [{:keys [game complete]} message]
     (swap!
      games
@@ -84,6 +87,7 @@
 
 (defn update-chat
   [game-key channel message]
+  (log/info "received chat message" message)
   (swap!
    games
    update-in [:games game-key :chat]

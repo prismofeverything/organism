@@ -6,6 +6,7 @@
     [goog.history.EventType :as HistoryEventType]
     [markdown.core :refer [md->html]]
     [organism.ajax :as ajax]
+    [organism.websockets :as ws]
     [ajax.core :refer [GET POST]]
     [reitit.core :as reitit]
     [clojure.string :as string])
@@ -42,7 +43,7 @@
 
 (defn learn-page []
   [:section.section>div.container>div.content
-   [:img {:src "/img/warning_clojure.png"}]])
+   [:img {:src "/img/seahorse.png"}]])
 
 (defn home-page []
   [:section.section>div.container>div.content
@@ -56,8 +57,7 @@
 
 (def pages
   {:home #'home-page
-   :learn #'learn-page
-   :game #'game-page})
+   :learn #'learn-page})
 
 (defn page []
   [(pages (:page @session))])
@@ -73,8 +73,7 @@
      ["/join" :join]
      ["/watch" :watch]
      ["/study" :study]
-     ["/learn" :learn]
-     ["/game/:id" :game]]))
+     ["/learn" :learn]]))
 
 (defn match-route [uri]
   (->> (or (not-empty (string/replace uri #"^.*#" "")) "/")
@@ -93,17 +92,11 @@
         (swap! session assoc :page (match-route (.-token event)))))
     (.setEnabled true)))
 
-;; -------------------------
-;; Initialize app
-(defn fetch-docs! []
-  (GET "/docs" {:handler #(swap! session assoc :docs %)}))
-
 (defn mount-components []
   (rdom/render [#'navbar] (.getElementById js/document "navbar"))
   (rdom/render [#'page] (.getElementById js/document "app")))
 
 (defn init! []
   (ajax/load-interceptors!)
-  (fetch-docs!)
   (hook-browser-navigation!)
   (mount-components))

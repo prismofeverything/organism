@@ -58,13 +58,26 @@
   :profiles
   {:uberjar {:omit-source true
              :prep-tasks ["compile" ["cljsbuild" "once" "min"]]
-             :cljsbuild{:builds
-              {:min
+             :cljsbuild
+             {:builds
+              {:app
                {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
                 :compiler
                 {:output-dir "target/cljsbuild/public/js"
                  :output-to "target/cljsbuild/public/js/app.js"
                  :source-map "target/cljsbuild/public/js/app.js.map"
+                 :optimizations :advanced
+                 :pretty-print false
+                 :infer-externs true
+                 :closure-warnings
+                 {:externs-validation :off :non-standard-jsdoc :off}
+                 :externs ["react/externs/react.js"]}}
+               :organism
+               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
+                :compiler
+                {:output-dir "target/cljsbuild/public/js"
+                 :output-to "target/cljsbuild/public/js/organism.js"
+                 :source-map "target/cljsbuild/public/js/organism.js.map"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
@@ -93,19 +106,30 @@
                                  [jonase/eastwood "0.3.5"]
                                  [lein-doo "0.1.11"]
                                  [lein-figwheel "0.5.20"]] 
-                  :cljsbuild{:builds
+                  :cljsbuild
+                  {:builds
                    {:app
                     {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
                      :figwheel {:on-jsload "organism.core/mount-components"}
                      :compiler
                      {:main "organism.app"
-                      :asset-path "/js/out"
+                      :asset-path "/js/app/out"
                       :output-to "target/cljsbuild/public/js/app.js"
-                      :output-dir "target/cljsbuild/public/js/out"
+                      :output-dir "target/cljsbuild/public/js/app/out"
+                      :source-map true
+                      :optimizations :none
+                      :pretty-print true}}
+                    :organism
+                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
+                     :figwheel {:on-jsload "organism.play/mount-components"}
+                     :compiler
+                     {:main "organism.organism"
+                      :asset-path "/js/organism/out"
+                      :output-to "target/cljsbuild/public/js/organism.js"
+                      :output-dir "target/cljsbuild/public/js/organism/out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}}}
-                  
                   
                   :doo {:build "test"}
                   :source-paths ["env/dev/clj" ]

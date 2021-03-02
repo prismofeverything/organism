@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>ORGANISM</title>
+  </head>
+  <body>
+    <div id="navbar"></div>
+    <div id="app">
+      <section class="section">
+        <div class="container is-fluid">
+          <div class="content">
+            <h4 class="title">ORGANISM</h4>
+            <p>ORBBBBBBB MASSS</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- scripts and styles -->
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/assets/material-icons/css/material-icons.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var gameKey = "{{game}}";
+      console.log("game key: " + gameKey);
+    </script>
+    {% script "/js/organism.js" %}
+  </body>
+</html>
