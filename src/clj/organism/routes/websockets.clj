@@ -69,7 +69,8 @@
     (let [game-state (get-in (deref games) [:games game-key])]
       (send!
        channel
-       {:game (:game game-state)
+       {:type "initialize"
+        :game (:game game-state)
         :history (:history game-state)
         :chat (:chat game-state)}))))
 
@@ -90,37 +91,33 @@
    (partial disconnect-game game-key channel)))
 
 (defn update-game-state
-  [game-key channel message]
-  (log/info "received game-state message")
-  (let [{:keys [game complete]} message]
-    (swap!
-     games
-     update-in [:games game-key]
-     (fn [game-state]
-       (let [game-state (assoc game-state :working game)]
-         (if complete
-           (-> game-state
-               (update :current game)
-               (update :history conj game))
-           game-state))))
-    (doseq [ch (get-in @games [:games game-key :channels])]
-      (if (not= ch channel)
-        (async/send! ch message)))))
-
-(defrecord ChatMessage [player time message])
+  [game-key channel {:keys [game complete] :as message}]
+  (log/info "received game-state message" message)
+  (swap!
+   games
+   update-in [:games game-key]
+   (fn [game-state]
+     (let [game-state (assoc game-state :working game)]
+       (if complete
+         (-> game-state
+             (update :current game)
+             (update :history conj game))
+         game-state))))
+  (doseq [ch (get-in @games [:games game-key :channels])]
+    (send! ch message)))
 
 (defn timestamp
   []
   (quot (System/currentTimeMillis) 1000))
 
 (defn update-chat
-  [game-key channel message]
-  (log/info "received chat message" message)
+  [game-key channel {:keys [player message] :as received}]
+  (log/info "received chat message" received)
   (let [chat-message
-        (ChatMessage.
-         (:player message)
-         (timestamp)
-         (:message message))
+        {:type "chat"
+         :player player
+         :time (timestamp)
+         :message message}
         _
         (swap!
          games
@@ -128,16 +125,14 @@
          conj
          chat-message)
         channels (get-in @games [:games game-key :channels])]
-    (log/info "channels" channels)
     (doseq [ch channels]
-      (log/info "sending" ch chat-message)
-      (send! ch (assoc (into {} chat-message) :type "chat")))))
+      (log/info "sending" chat-message)
+      (send! ch chat-message))))
 
 (defn notify-clients!
   [{:keys [game-key player]} channel raw]
-  (log/info "MESSAGE RECEIVED -" raw)
   (let [message (read-json raw)]
-    (log/info "MESSAGE DECODED -" message)
+    (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
       "game-state" (update-game-state game-key channel message)
       "chat" (update-chat game-key channel message)

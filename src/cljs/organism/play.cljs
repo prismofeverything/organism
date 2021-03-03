@@ -5,14 +5,35 @@
    [organism.websockets :as ws]))
 
 (defonce chat (r/atom []))
-(defonce game (r/atom {}))
+(defonce game-state (r/atom {:game {} :history []}))
+
+(defn initialize-chat
+  [chat message]
+  (println "initializing chat" (:chat message))
+  (:chat message))
+
+(defn initialize-game
+  [game-state message]
+  (println "initializing game" (:game message))
+  {:game (:game message)
+   :history (:history message)})
+
+(defn update-chat
+  [chat message]
+  (conj chat message))
+
+(defn update-game
+  [game-state message]
+  (-> game-state
+      (assoc-in [:game :state] (:game message))
+      (update :history conj (:game message))))
 
 (defn chat-list
   []
   [:ul
    (for [[i message] (map-indexed vector @chat)]
      ^{:key i}
-     [:li message])])
+     [:li (:player message) ":" (:message message)])])
 
 (defn chat-input
   []
@@ -46,12 +67,15 @@
       [chat-input]]]]])
 
 (defn update-messages!
-  [received]
+  [{:keys [type] :as received}]
   (println "MESSAGE RECEIVED" received)
-  (let [{:keys [type message]} received]
-    (condp = type
-      "chat" (swap! chat conj message)
-      "game-state" (swap! game update :state message))))
+  (condp = type
+    "initialize"
+    (do
+      (swap! game-state initialize-game received)
+      (swap! chat initialize-chat received))
+    "game-state" (swap! game-state update-game received)
+    "chat" (swap! chat update-chat received)))
 
 (defn mount-components
   []

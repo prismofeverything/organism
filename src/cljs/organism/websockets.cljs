@@ -10,7 +10,6 @@
   [update-fn]
   (fn [raw]
     (let [message (->> raw .-data (t/read json-reader))]
-      (println "received message" message)
       (update-fn message))))
 
 (defn send-transit-message!
