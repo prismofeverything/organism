@@ -47,7 +47,8 @@
 
 (defn update-messages!
   [received]
-  (let [{:keys [type message]} (:message received)]
+  (println "MESSAGE RECEIVED" received)
+  (let [{:keys [type message]} received]
     (condp = type
       "chat" (swap! chat conj message)
       "game-state" (swap! game update :state message))))

@@ -1,9 +1,37 @@
 (ns organism.routes.websockets
   (:require
+   [clojure.java.io :as io]
    [clojure.tools.logging :as log]
+   [cognitect.transit :as transit]
    [immutant.web.async :as async]
    [organism.game :as game]
-   [organism.examples :as examples]))
+   [organism.examples :as examples])
+  (:import
+   [java.io ByteArrayOutputStream]))
+
+(defn- ->stream [input]
+  (cond (string? input) (io/input-stream (.getBytes input))
+        :default input))
+
+(defn read-json [input]
+  (with-open [ins (->stream input)]
+    (-> ins
+        (transit/reader :json)
+        transit/read)))
+
+(defn write-json [output]
+  (let [out (ByteArrayOutputStream. 4096)
+        r (transit/writer out :json)
+        _ (transit/write r output)
+        ret (.toString out)]
+    (.reset out)
+    ret))
+
+(defn send!
+  [channel message]
+  (async/send!
+   channel
+   (write-json message)))
 
 (defonce games
   (atom {:games {}}))
@@ -39,7 +67,7 @@
        update-in [:games game-key :channels]
        conj channel))
     (let [game-state (get-in (deref games) [:games game-key])]
-      (async/send!
+      (send!
        channel
        {:game (:game game-state)
         :history (:history game-state)
@@ -88,24 +116,32 @@
 (defn update-chat
   [game-key channel message]
   (log/info "received chat message" message)
-  (swap!
-   games
-   update-in [:games game-key :chat]
-   conj
-   (ChatMessage.
-    (:player message)
-    (timestamp)
-    (:message message)))
-  (doseq [ch (get-in @games [:games game-key :channels])]
-    (if (not= ch channel)
-      (async/send! ch message))))
+  (let [chat-message
+        (ChatMessage.
+         (:player message)
+         (timestamp)
+         (:message message))
+        _
+        (swap!
+         games
+         update-in [:games game-key :chat]
+         conj
+         chat-message)
+        channels (get-in @games [:games game-key :channels])]
+    (log/info "channels" channels)
+    (doseq [ch channels]
+      (log/info "sending" ch chat-message)
+      (send! ch (assoc (into {} chat-message) :type "chat")))))
 
 (defn notify-clients!
-  [{:keys [game-key player]} channel message]
-  (condp = (:type message)
-    "game-state" (update-game-state game-key channel message)
-    "chat" (update-chat game-key channel message)
-    (str "unknown message! " message)))
+  [{:keys [game-key player]} channel raw]
+  (log/info "MESSAGE RECEIVED -" raw)
+  (let [message (read-json raw)]
+    (log/info "MESSAGE DECODED -" message)
+    (condp = (:type message)
+      "game-state" (update-game-state game-key channel message)
+      "chat" (update-chat game-key channel message)
+      (log/error "unknown message!" message))))
 
 (defn websocket-callbacks
   [game-key]

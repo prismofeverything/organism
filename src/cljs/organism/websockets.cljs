@@ -8,8 +8,10 @@
 
 (defn receive-transit-message!
   [update-fn]
-  (fn [message]
-    (->> message .-data (t/read json-reader))))
+  (fn [raw]
+    (let [message (->> raw .-data (t/read json-reader))]
+      (println "received message" message)
+      (update-fn message))))
 
 (defn send-transit-message!
   [message]
