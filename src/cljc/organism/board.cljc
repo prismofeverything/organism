@@ -491,6 +491,7 @@
               (render-organism locations color food-color radius elements))])
          organisms)
         svg (apply conj layout element-icons)]
+    (println "SVG" svg)
     svg))
 
 #?(:clj

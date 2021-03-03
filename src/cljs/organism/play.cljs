@@ -2,10 +2,17 @@
   (:require
    [reagent.core :as r]
    [reagent.dom :as rdom]
+   [organism.board :as board]
    [organism.websockets :as ws]))
 
-(defonce chat (r/atom []))
-(defonce game-state (r/atom {:game {} :history []}))
+(defonce chat
+  (r/atom []))
+
+(defonce game-state
+  (r/atom
+   {:game {}
+    :history []
+    :board {}}))
 
 (defn initialize-chat
   [chat message]
@@ -13,10 +20,15 @@
   (:chat message))
 
 (defn initialize-game
-  [game-state message]
-  (println "initializing game" (:game message))
-  {:game (:game message)
-   :history (:history message)})
+  [game-state {:keys [game history colors board] :as message}]
+  (let [board (board/build-board 6 50 2.1 colors (:turn-order game) true)]
+    (println "initializing game" game)
+    (println "initializing board" board)
+    {:game game
+     :history history
+     :board (board/build-board
+             6 35 2.1
+             colors (:turn-order game) true)}))
 
 (defn update-chat
   [chat message]
@@ -28,12 +40,40 @@
       (assoc-in [:game :state] (:game message))
       (update :history conj (:game message))))
 
+;; (defn style
+;;   [info]
+;;   {:style
+;;    (.trim
+;;     (apply
+;;      str
+;;      (map
+;;       #(let [[kwd val] %]
+;;          (str kwd ":" val "; "))
+;;       (apply hash-map info))))})
+
+(defn player-list
+  []
+  (let [{:keys [game board] :as game-state} @game-state
+        {:keys [state turn-order]} game
+        {:keys [player-colors]} board]
+    [:ul
+     (for [player turn-order]
+       ^{:key player}
+       [:li
+        {:style {:color (get player-colors player)}}
+        player " - " (count (get-in state [:captures player]))])]))
+
 (defn chat-list
   []
   [:ul
-   (for [[i message] (map-indexed vector @chat)]
-     ^{:key i}
-     [:li (:player message) ":" (:message message)])])
+   (let [player-colors (get-in @game-state [:board :player-colors])]
+     (for [[i message] (map-indexed vector @chat)]
+       ^{:key i}
+       (let [player (:player message)
+             color (get player-colors player)]
+         [:li
+          {:style {:color color}}
+          player ": " (:message message)])))])
 
 (defn chat-input
   []
@@ -52,19 +92,30 @@
              :message @value})
            (reset! value nil))}])))
 
+(defn organism-board
+  []
+  (let [{:keys [game board]} @game-state]
+    (board/render-game board game)))
+
 (defn game-page
   []
-  [:section.section
-   [:div.container
-    [:div.row
-     [:div.col-md-12
-      [:h2 "discussion"]]]
-    [:div.row
-     [:div.col-sm-6
-      [chat-list]]]
-    [:div.row
-     [:div.col-sm-6
-      [chat-input]]]]])
+  [:div
+   [:section.section
+    [:div.container
+     [player-list]]]
+   [:section.section
+    [:div.container
+     [organism-board]]
+    [:div.container
+     [:div.row
+      [:div.col-md-12
+       [:h2 "discussion"]]]
+     [:div.row
+      [:div.col-sm-6
+       [chat-list]]]
+     [:div.row
+      [:div.col-sm-6
+       [chat-input]]]]]])
 
 (defn update-messages!
   [{:keys [type] :as received}]

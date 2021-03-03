@@ -42,7 +42,6 @@
   (layout/render request "home.html"))
 
 (defn game-page [request]
-  (clojure.pprint/pprint request)
   (println "KEYS" (keys request))
   (layout/render request "game.html" {:game (get-in request [:path-params :game])}))
 

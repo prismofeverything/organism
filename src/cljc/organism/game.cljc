@@ -174,13 +174,13 @@
 (defrecord Element [player organism type space food captures])
 (defrecord State [elements captures player-turn])
 (defrecord Game
-    [adjacencies center capture-limit
+    [rings adjacencies center capture-limit
      players turn-order round
      state])
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
-  [adjacencies center player-info]
+  [rings adjacencies center player-info]
   (let [capture-limit 5
         players
         (mapv
@@ -198,6 +198,7 @@
          empty-captures
          (PlayerTurn. first-player {} []))]
     (Game.
+     rings
      adjacencies
      center
      capture-limit
@@ -218,7 +219,7 @@
                        (last colors)
                        symmetry)
                       adjacencies)]
-    (initial-state adjacencies (-> rings first last last) player-info)))
+    (initial-state colors adjacencies (-> rings first last last) player-info)))
 
 (defn adjacent-to
   [game space]

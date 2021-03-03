@@ -4,8 +4,7 @@
    [clojure.test :refer :all]
    [organism.game :refer :all]
    [organism.choice :as choice]
-   [organism.examples :as examples]
-   [organism.routes.home :as home])
+   [organism.examples :as examples])
   (:import
    [organism.game
     Action
@@ -48,11 +47,12 @@
 
 (deftest initial-state-test
   (testing "the creation of initial state from player info and adjacencies"
-    (let [rings (build-rings 6 [:yellow :red :blue :orange])
+    (let [colors [:yellow :red :blue :orange]
+          rings (build-rings 6 colors)
           adjacencies (find-adjacencies rings)
           player-info [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
                        ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
-          initial (initial-state adjacencies [:yellow 0] player-info)]
+          initial (initial-state colors adjacencies [:yellow 0] player-info)]
       (println initial))))
 
 (deftest find-corners-test
@@ -104,12 +104,6 @@
       (println (get-in game [:players "orb"]))
       (is (= :move (get-in game [:state :elements [:orange 1] :type])))
       (is (= 1 (get-in game [:state :elements [:orange 0] :food]))))))
-
-(deftest action-test
-  (testing "applying the various actions to the state"
-    (let [game (home/test-game)]
-      ;; (println game)
-      (println (player-elements game)))))
 
 (deftest conflict-test
   (testing "resolving complex chains of conflict"
@@ -252,7 +246,6 @@
       (println "organisms" organisms)
       (println)
       (is (= "mass" (get-in game [:state :player-turn :player])))
-      (is (= 1 (count (get game :history))))
       (is (= 4 (count (last (first organisms))))))))
 
 (def two-organism-position

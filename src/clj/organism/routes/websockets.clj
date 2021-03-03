@@ -5,6 +5,7 @@
    [cognitect.transit :as transit]
    [immutant.web.async :as async]
    [organism.game :as game]
+   [organism.board :as board]
    [organism.examples :as examples])
   (:import
    [java.io ByteArrayOutputStream]))
@@ -36,15 +37,18 @@
 (defonce games
   (atom {:games {}}))
 
-(defrecord GameState [key game current working history chat channels])
+(defrecord GameState [key game colors current working history chat channels])
 
 (defn load-game
   [game-key channel]
   (let [game (examples/six-player-game)
-        state (:state game)]
+        state (:state game)
+        colors (board/generate-colors (:rings game))]
+    (println "COLORS" colors)
     (GameState.
      game-key
      game
+     colors
      state
      state
      [state]
@@ -71,6 +75,7 @@
        channel
        {:type "initialize"
         :game (:game game-state)
+        :colors (:colors game-state)
         :history (:history game-state)
         :chat (:chat game-state)}))))
 
@@ -149,7 +154,6 @@
 (defn ws-handler
   [{:keys [path-params] :as request}]
   (let [{:keys [game]} path-params]
-    (log/info (with-out-str (clojure.pprint/pprint request)))
     (async/as-channel request (websocket-callbacks game))))
 
 (defn websocket-routes
