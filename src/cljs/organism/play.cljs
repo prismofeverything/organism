@@ -11,6 +11,7 @@
 (defonce game-state
   (r/atom
    {:game {}
+    :player "NULL"
     :history []
     :board {}}))
 
@@ -20,15 +21,15 @@
   (:chat message))
 
 (defn initialize-game
-  [game-state {:keys [game history colors board] :as message}]
-  (let [board (board/build-board 6 50 2.1 colors (:turn-order game) true)]
+  [game-state {:keys [game player history colors board] :as message}]
+  (let [board (board/build-board 6 35 2.1 colors (:turn-order game) true)]
     (println "initializing game" game)
     (println "initializing board" board)
+    (println "player" player)
     {:game game
+     :player player
      :history history
-     :board (board/build-board
-             6 35 2.1
-             colors (:turn-order game) true)}))
+     :board board}))
 
 (defn update-chat
   [chat message]
@@ -39,17 +40,6 @@
   (-> game-state
       (assoc-in [:game :state] (:game message))
       (update :history conj (:game message))))
-
-;; (defn style
-;;   [info]
-;;   {:style
-;;    (.trim
-;;     (apply
-;;      str
-;;      (map
-;;       #(let [[kwd val] %]
-;;          (str kwd ":" val "; "))
-;;       (apply hash-map info))))})
 
 (defn player-list
   []
@@ -88,7 +78,7 @@
         #(when (= (.-keyCode %) 13)
            (ws/send-transit-message!
             {:type "chat"
-             :player "orb"
+             :player (get @game-state :player)
              :message @value})
            (reset! value nil))}])))
 

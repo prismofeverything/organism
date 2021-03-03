@@ -55,8 +55,11 @@
      []
      #{channel})))
 
+(def player-cycle
+  (atom (cycle ["orb" "mass" "brone" "laam" "stuk" "faast"])))
+
 (defn connect!
-  [{:keys [game-key player]} channel]
+  [{:keys [game-key]} channel]
   (log/info "channel open")
   (let [existing (get-in (deref games) [:games game-key])]
     (if (empty? existing)
@@ -70,11 +73,14 @@
        games
        update-in [:games game-key :channels]
        conj channel))
-    (let [game-state (get-in (deref games) [:games game-key])]
+    (let [game-state (get-in (deref games) [:games game-key])
+          player (first @player-cycle)]
+      (swap! player-cycle rest)
       (send!
        channel
        {:type "initialize"
         :game (:game game-state)
+        :player player
         :colors (:colors game-state)
         :history (:history game-state)
         :chat (:chat game-state)}))))
@@ -145,8 +151,7 @@
 
 (defn websocket-callbacks
   [game-key]
-  (let [player "orb"
-        config {:game-key game-key :player player}]
+  (let [config {:game-key game-key}]
     {:on-open (partial connect! config)
      :on-close (partial disconnect! config)
      :on-message (partial notify-clients! config)}))
