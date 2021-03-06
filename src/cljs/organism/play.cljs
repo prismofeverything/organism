@@ -1,5 +1,6 @@
 (ns organism.play
   (:require
+   [cljs.pprint :refer (pprint)]
    [reagent.core :as r]
    [reagent.dom :as rdom]
    [organism.game :as game]
@@ -13,6 +14,7 @@
 (defonce game-state
   (r/atom
    {:game {}
+    :player nil
     :history []
     :board {}
     :turn :open
@@ -55,7 +57,7 @@
   (:chat message))
 
 (defn initialize-game
-  [game-state {:keys [game history colors board] :as message}]
+  [game-state {:keys [game player history colors board] :as message}]
   (let [board (board/build-board 6 40 2.1 colors (:turn-order game) true)
         [turn choices] (choice/find-state game)]
     (println "initializing game" game)
@@ -63,6 +65,7 @@
     (println "turn" turn)
     (println "choices" (count choices))
     {:game game
+     :player player
      :history history
      :board board
      :turn turn
@@ -117,7 +120,7 @@
         #(when (= (.-keyCode %) 13)
            (ws/send-transit-message!
             {:type "chat"
-             :player (game/current-player (:game @game-state))
+             :player (:player @game-state)
              :message @value})
            (reset! value nil))}])))
 
@@ -310,7 +313,8 @@
            "confirm"]
           [:span
            {:style {:color "hsl(0, 10%, 80%)"}}
-           "resolve"])]])))
+           "resolve"])]
+       [:h2 (with-out-str (pprint (-> game :state :player-turn)))]])))
 
 (defn game-page
   []
