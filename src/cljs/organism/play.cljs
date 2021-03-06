@@ -18,17 +18,17 @@
     :turn :open
     :choices []}))
 
-;; (defonce introduction
-;;   (r/atom
-;;    {:chosen-space [:G 2]
-;;     :chosen-element nil
-;;     :progress {:eat [:G 4]}}))
-
 (defonce introduction
   (r/atom
    {:chosen-space nil
-    :chosen-element :move
-    :progress {:eat [:G 4]}}))
+    :chosen-element nil
+    :progress {}}))
+
+(defn introduction-complete?
+  [{:keys [progress]}]
+  (and
+   (= 3 (count (set (keys progress))))
+   (= 3 (count (set (vals progress))))))
 
 (defonce food-source
   (r/atom {}))
@@ -276,22 +276,41 @@
                  (fn [event]
                    (condp = turn
                      :introduce
-                     (let [{:keys [chosen-space chosen-element progress]} @introduction]
-                       (println "CHOSEN" chosen-space type chosen-element progress)
-                       (if (= type chosen-element)
+                     (if (= type chosen-element)
+                       (swap!
+                        introduction
+                        dissoc
+                        :chosen-element)
+                       (if chosen-space
                          (swap!
                           introduction
-                          dissoc
-                          :chosen-element)
-                         (if chosen-space
-                           (swap!
-                            introduction
-                            (fn [intro]
-                              (-> intro
-                                  (dissoc :chosen-element)
-                                  (dissoc :chosen-space)
-                                  (update :progress (fn [pro] (assoc pro type chosen-space))))))
-                           (swap! introduction assoc :chosen-element type))))))))))]])))
+                          (fn [intro]
+                            (-> intro
+                                (dissoc :chosen-element)
+                                (dissoc :chosen-space)
+                                (update :progress (fn [pro] (assoc pro type chosen-space))))))
+                         (swap! introduction assoc :chosen-element type)))))))))]
+       [:h2
+        [:span
+         {:style
+          {:color "hsl(0,50%,50%)"}
+          :on-click
+          (fn [event]
+            (reset! introduction {:progress {}}))}
+         "reset"]
+        "  |  "
+        (if (introduction-complete? introduce)
+          [:span
+           {:style
+            {:color "hsl(100,50%,50%)"}
+            :on-click
+            (fn [event]
+              (reset! introduction {:progress {}})
+              (swap! game game/introduce current-player (assoc progress :organism 0)))}
+           "confirm"]
+          [:span
+           {:style {:color "hsl(0, 10%, 80%)"}}
+           "resolve"])]])))
 
 (defn game-page
   []
