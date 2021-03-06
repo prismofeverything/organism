@@ -18,6 +18,31 @@
     :turn :open
     :choices []}))
 
+(defonce introduction
+  (r/atom
+   {:chosen-space [:G 2]
+    :chosen-element nil
+    :progress {:eat [:G 4]}}))
+
+(defonce food-source
+  (r/atom {}))
+
+(defn assoc-prop
+  [el key value]
+  (if (> 1 (count el))
+    (if (map? (nth el 1))
+      (assoc-in el [1 key] value)
+      (vec
+       (concat
+        [(first el) {key value}]
+        (rest el))))
+    (vec
+     (conj
+      (conj
+       (rest el)
+       {key value})
+      (first el)))))
+
 (defn initialize-chat
   [chat message]
   (println "initializing chat" (:chat message))
@@ -25,7 +50,7 @@
 
 (defn initialize-game
   [game-state {:keys [game history colors board] :as message}]
-  (let [board (board/build-board 6 35 2.1 colors (:turn-order game) true)
+  (let [board (board/build-board 6 40 2.1 colors (:turn-order game) true)
         [turn choices] (choice/find-state game)]
     (println "initializing game" game)
     (println "initializing board" board)
@@ -97,17 +122,65 @@
     :introduce
     (let [player (game/current-player game)
           color (get-in board [:player-colors player])
-          highlight-color (board/brighten color 1.1)
+          highlight-color (board/brighten color 0.3)
           locations (:locations board)
+          factor 0.93
+          radius (* (:radius board) factor)
+          element-radius (* (:radius board) 1)
+          starting-spaces (get-in game [:players player :starting-spaces])
+          {:keys [chosen-space progress]} (deref introduction)
           highlights
-          (map
+          (mapv
            (fn [space]
              (let [[x y] (get locations space)]
                ^{:key space}
-               [:circle {:cx x :cy y :radius 10 :fill-color :white}]))
-           (get-in game [:players player :starting-spaces]))]
-      (println "highlights" highlights)
-      [:g highlights])))
+               [:circle {:cx x :cy y
+                         :r radius
+                         :stroke highlight-color
+                         :stroke-width (* 0.19 radius)
+                         :fill-opacity 0.04
+                         :fill "white"
+                         :on-click
+                         (fn [event]
+                           (println "choosing" space event)
+                           (swap! introduction assoc :chosen-space space))}]))
+           (remove
+            (set (conj (vals progress) chosen-space))
+            starting-spaces))
+          highlights
+          (if chosen-space
+            (let [[x y] (get locations chosen-space)]
+              (conj
+               highlights
+               ^{:key chosen-space}
+               [:circle
+                {:cx x :cy y
+                 :r radius
+                 :stroke (board/brighten color 0.5)
+                 :stroke-width (* 0.21 radius)
+                 :fill highlight-color}]))
+            highlights)
+          elements
+          (map
+           (fn [[type space]]
+             ^{:key space}
+             (let [g (board/render-element
+                      highlight-color "white"
+                      (get locations space)
+                      element-radius
+                      {:type type :food 1})
+                   _ (println "G before" g)
+                   g (assoc-prop
+                      g :on-click
+                      (fn [event]
+                        (println "choosing" space)
+                        (swap! introduction assoc :chosen-space space)))]
+               (println "G after" g)
+               g))
+           progress)]
+      (println "highlights" highlights elements)
+      ^{:key "highlights"}
+      [:g (concat highlights elements)])))
 
 (defn organism-board
   []
@@ -116,23 +189,13 @@
         highlights (find-highlights game board turn choices)]
     (conj svg highlights)))
 
-(defn assoc-prop
-  [el key value]
-  (if (> 1 (count el))
-    (if (map? (nth el 1))
-      (assoc-in el [1 key] value)
-      (vec
-       (concat
-        [(first el) {key value}]
-        (rest el))))
-    (conj el {key value})))
-
 (defn organism-controls
   []
   (let [{:keys [game board turn choices] :as game-state} @game-state
         player-colors (:player-colors board)
         current-player (game/current-player game)
-        current-color (get player-colors current-player)]
+        current-color (get player-colors current-player)
+        element-radius (* (:radius board) 1)]
     (println "current color" player-colors)
     (if current-player
       [:div
@@ -148,7 +211,11 @@
                [:eat :grow :move])]
           ^{:key type}
           (assoc-prop
-           (board/render-element current-color current-color location 40 {:type type :food 0})
+           (board/render-element
+            current-color current-color
+            location
+            element-radius
+            {:type type :food 0})
            :id (str (name type) "-control")))]])))
 
 (defn game-page

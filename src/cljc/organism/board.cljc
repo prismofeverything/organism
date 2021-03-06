@@ -486,6 +486,7 @@
         element-icons
         (mapv
          (fn [[[player organism] elements]]
+           ^{:key [player organism]}
            [:g
             (let [color (get player-colors player)]
               (render-organism locations color food-color radius elements))])
