@@ -278,10 +278,14 @@
                      :introduce
                      (let [{:keys [chosen-space chosen-element progress]} @introduction]
                        (println "CHOSEN" chosen-space type chosen-element progress)
-                       (if (not (= type chosen-element))
+                       (if (= type chosen-element)
+                         (swap!
+                          introduction
+                          dissoc
+                          :chosen-element)
                          (if chosen-space
                            (swap!
-                            introduction update
+                            introduction
                             (fn [intro]
                               (-> intro
                                   (dissoc :chosen-element)
