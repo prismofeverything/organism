@@ -222,7 +222,7 @@
 
 (defn organism-controls
   []
-  (let [{:keys [game board turn choices] :as game-state} @game-state
+  (let [{:keys [game board turn choices]} @game-state
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
@@ -309,7 +309,14 @@
             :on-click
             (fn [event]
               (reset! introduction {:progress {}})
-              (swap! game game/introduce current-player (assoc progress :organism 0)))}
+              (ws/send-transit-message!
+               {:type "game-state"
+                :game (-> @game-state :game :state)
+                :complete true})
+              (swap!
+               game-state update :game
+               game/introduce current-player
+               (assoc (:progress introduce) :organism 0)))}
            "confirm"]
           [:span
            {:style {:color "hsl(0, 10%, 80%)"}}
