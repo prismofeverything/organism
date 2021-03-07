@@ -112,7 +112,8 @@
        (if complete
          (-> game-state
              (update :current game)
-             (update :history conj game))
+             (update :history conj game)
+             (assoc-in [:game :state] game))
          game-state))))
   (doseq [ch (get-in @games [:games game-key :channels])]
     (send! ch message)))

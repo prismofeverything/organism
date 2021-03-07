@@ -15,7 +15,10 @@
 (defn send-transit-message!
   [message]
   (if @ws-channel
-    (.send @ws-channel (t/write json-writer message))
+    (try
+      (.send @ws-channel (t/write json-writer message))
+      (catch js/Object e
+        (println "could not write: " message)))
     (throw (js/Error. "websocket not available"))))
 
 (defn make-websocket!

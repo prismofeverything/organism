@@ -308,15 +308,13 @@
             {:color "hsl(100,50%,50%)"}
             :on-click
             (fn [event]
-              (reset! introduction {:progress {}})
-              (ws/send-transit-message!
-               {:type "game-state"
-                :game (-> @game-state :game :state)
-                :complete true})
-              (swap!
-               game-state update :game
-               game/introduce current-player
-               (assoc (:progress introduce) :organism 0)))}
+              (let [progress (assoc progress :organism 0)
+                    game (game/introduce game current-player progress)]
+                (reset! introduction {:progress {}})
+                (ws/send-transit-message!
+                 {:type "game-state"
+                  :game (:state game)
+                  :complete true})))}
            "confirm"]
           [:span
            {:style {:color "hsl(0, 10%, 80%)"}}
