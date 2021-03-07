@@ -439,13 +439,14 @@
 
 (defn brighten
   [color-str factor]
-  (-> color-str
-      color/css
-      color/as-hsva
-      (update :v + factor)
-      (update :s - 0.1)
-      color/as-css
-      :col))
+  (if color-str
+    (-> color-str
+        color/css
+        color/as-hsva
+        (update :v + factor)
+        (update :s - 0.1)
+        color/as-css
+        :col)))
 
 (defn render-element
   [color food-color [x y] radius element]

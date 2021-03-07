@@ -328,7 +328,8 @@
                                 (update :progress (fn [pro] (assoc pro type chosen-space))))))
                          (swap! introduction assoc :chosen-element type)))
                      :choose-action-type
-                     (send-choice! :choose-action-type choices type true)))))))]
+                     (send-choice! :choose-action-type choices type true)
+                     nil))))))]
 
        ;; CIRCULATE
        [:h1
