@@ -522,6 +522,11 @@
   (let [organism-turns (get-in game [:state :player-turn :organism-turns])]
     (last organism-turns)))
 
+(defn get-action-type
+  [game]
+  (let [organism-turn (get-organism-turn game)]
+    (:choice organism-turn)))
+
 (defn get-current-action
   [game]
   (let [organism-turn (get-organism-turn game)

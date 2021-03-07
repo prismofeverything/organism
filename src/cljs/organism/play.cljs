@@ -77,9 +77,12 @@
 
 (defn update-game
   [game-state message]
-  (-> game-state
-      (assoc-in [:game :state] (:game message))
-      (update :history conj (:game message))))
+  (let [game-state (assoc-in game-state [:game :state] (:game message))
+        [turn choices] (choice/find-state (:game game-state))]
+    (-> game-state
+        (update :history conj (:game message))
+        (assoc :turn turn)
+        (assoc :choices choices))))
 
 (defn player-list
   []
@@ -211,14 +214,32 @@
   [game board turn choices]
   (condp = turn
     :open []
-    :introduce (introduce-highlights game board turn choices)))
+    :introduce (introduce-highlights game board turn choices)
+    []))
+
+(defn resolve-action
+  []
+  [:span
+   {:style {:color "hsl(0, 10%, 80%)"}}
+   "resolve"])
+
+(defn send-choice!
+  [turn choices match complete]
+  (let [choice (choice/find-choice turn choices match)]
+    (if choice
+      (ws/send-transit-message!
+       {:type "game-state"
+        :game (:state choice)
+        :complete complete}))))
 
 (defn organism-board
   []
   (let [{:keys [game board turn choices]} @game-state
         svg (board/render-game board game)
         highlights (find-highlights game board turn choices)]
-    (conj svg highlights)))
+    (if (empty? highlights)
+      svg
+      (conj svg highlights))))
 
 (defn organism-controls
   []
@@ -226,6 +247,9 @@
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
+        highlight-color (board/brighten current-color 0.2)
+        focus-color (board/brighten current-color 0.4)
+
         element-radius (* (:radius board) 1)
         element-controls
         (map
@@ -241,11 +265,11 @@
         "> " current-player " - " (name turn)]
        [:svg
         {:width 200 :height 180}
+
+        ;; ELEMENT CONTROLS
         (for [[location type] element-controls]
           ^{:key type}
-          (let [highlight-color (board/brighten current-color 0.3)
-
-                type->location
+          (let [type->location
                 (into
                  {}
                  (map
@@ -253,22 +277,32 @@
                     [type location])
                   element-controls))
 
-                _ (println "CONTROLS" turn progress type chosen-element chosen-space)
-                color
+                element-state
                 (cond
-                  (and
-                   (= turn :introduce)
-                   (= chosen-element type))
-                  (board/brighten current-color 0.6)
+                  (or
+                   (and
+                    (= turn :introduce)
+                    (= chosen-element type))
+                   (= turn :choose-action-type)
+                   (and
+                    (= turn :choose-action)
+                    (let [organism-turn (game/get-organism-turn game)]
+                      (= type (:choice organism-turn)))))
+                  :focus
 
                   (and
                    (= turn :introduce)
                    (not (get progress type)))
-                  highlight-color
+                  :highlight
 
-                  :else current-color)]
+                  :else :neutral)
+                
+                color
+                (condp = element-state
+                  :focus focus-color
+                  :highlight highlight-color
+                  :neutral current-color)]
 
-            _ (println "COLORS" current-color highlight-color color)
             (-> (board/render-element
                  color color
                  location
@@ -292,7 +326,29 @@
                                 (dissoc :chosen-element)
                                 (dissoc :chosen-space)
                                 (update :progress (fn [pro] (assoc pro type chosen-space))))))
-                         (swap! introduction assoc :chosen-element type)))))))))]
+                         (swap! introduction assoc :chosen-element type)))
+                     :choose-action-type
+                     (send-choice! :choose-action-type choices type true)))))))]
+
+       ;; CIRCULATE
+       [:h1
+        {:style
+         {:color
+          (cond
+            (and
+             (= turn :choose-action)
+             ((set (map (comp :type game/get-current-action) choices)) :circulate))
+            focus-color
+            :else current-color)}
+         :on-click
+         (condp = turn
+           :choose-action
+           (fn [event]
+             (send-choice! :choose-action choices :circulate true))
+           (fn [event]))}
+        "circulate"]
+
+       ;; RESET
        [:h2
         [:span
          {:style
@@ -302,23 +358,21 @@
             (reset! introduction {:progress {}}))}
          "reset"]
         "  |  "
-        (if (introduction-complete? introduce)
-          [:span
-           {:style
-            {:color "hsl(100,50%,50%)"}
-            :on-click
-            (fn [event]
-              (let [progress (assoc progress :organism 0)
-                    game (game/introduce game current-player progress)]
+
+        ;; CONFIRM
+        (condp = turn
+          :introduce
+          (if (introduction-complete? introduce)
+            [:span
+             {:style
+              {:color "hsl(100,50%,50%)"}
+              :on-click
+              (fn [event]
                 (reset! introduction {:progress {}})
-                (ws/send-transit-message!
-                 {:type "game-state"
-                  :game (:state game)
-                  :complete true})))}
-           "confirm"]
-          [:span
-           {:style {:color "hsl(0, 10%, 80%)"}}
-           "resolve"])]
+                (send-choice! turn choices progress true))}
+             "confirm"]
+            [resolve-action])
+          [resolve-action])]
        [:h2 (with-out-str (pprint (-> game :state :player-turn)))]])))
 
 (defn game-page

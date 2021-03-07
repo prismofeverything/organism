@@ -443,6 +443,7 @@
       color/css
       color/as-hsva
       (update :v + factor)
+      (update :s - 0.1)
       color/as-css
       :col))
 

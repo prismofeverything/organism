@@ -389,6 +389,30 @@
        (nth choices choice)))
    game path))
 
+(defn find-conditions
+  [info]
+  {:introduce
+   (fn [game]
+     (let [introduction (get-in game [:state :player-turn :introduction])]
+       (every?
+        (fn [[type space]]
+          (= space (get introduction type)))
+        info)))
+   :choose-action-type
+   (fn [game]
+     (= info (game/get-action-type game)))
+   :choose-action
+   (fn [game]
+     (= info (:type (game/get-current-action game))))})
+
+(defn find-choice
+  [turn choices info]
+  (let [find-condition (get (find-conditions info) turn)]
+    (first
+     (filter
+      find-condition
+      choices))))
+
 ;; levels of challenge
 ;; * random walk
 ;; * won't die immediately
