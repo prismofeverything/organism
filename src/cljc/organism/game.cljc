@@ -172,10 +172,10 @@
 
 (defrecord Player [name starting-spaces])
 (defrecord Element [player organism type space food captures])
-(defrecord State [elements captures player-turn])
+(defrecord State [round elements captures player-turn])
 (defrecord Game
     [rings adjacencies center capture-limit
-     players turn-order round
+     players turn-order
      state])
 
 (defn initial-state
@@ -186,26 +186,32 @@
         (mapv
          (fn [[player-name starting-spaces]]
            [player-name
-            (Player. player-name starting-spaces)])
+            ;; Player
+            {:name player-name
+             :starting-spaces starting-spaces}])
          player-info)
         turn-order (mapv first players)
         empty-captures
         (into {} (mapv vector turn-order (repeat [])))
         first-player (first turn-order)
         state
-        (State.
-         {}
-         empty-captures
-         (PlayerTurn. first-player {} []))]
-    (Game.
-     rings
-     adjacencies
-     center
-     capture-limit
-     (into {} players)
-     turn-order
-     0
-     state)))
+        ;; State
+        {:round 0
+         :elements {}
+         :captures empty-captures
+         :player-turn
+         ;; PlayerTurn
+         {:player first-player
+          :introduction {}
+          :organism-turns []}}]
+    ;; Game
+    {:rings rings
+     :adjacencies adjacencies
+     :center center
+     :capture-limit capture-limit
+     :players (into {} players)
+     :turn-order turn-order
+     :state state}))
 
 (defn create-game
   "generate adjacencies for a given symmetry with a ring for each color,
@@ -243,7 +249,14 @@
 
 (defn add-element
   [game player organism type space food]
-  (let [element (Element. player organism type space food [])]
+  (let [element
+        ;; Element
+        {:player player
+         :organism organism
+         :type type
+         :space space
+         :food food
+         :captures []}]
     (assoc-in game [:state :elements space] element)))
 
 (defn remove-element
@@ -396,7 +409,13 @@
       (update-in
        game
        [:state :captures player]
-       conj (Element. player -1 :center center 0 []))
+       conj
+       {:player player
+        :organism -1
+        :type :center
+        :space center
+        :food 0
+        :captures[]})
       game)))
 
 (defn start-turn
@@ -404,7 +423,10 @@
   (-> game
       (assoc-in
        [:state :player-turn]
-       (PlayerTurn. player {} []))
+       ;; PlayerTurn
+       {:player player
+        :introduction {}
+        :organism-turns []})
       (award-center player)))
 
 (defn introduce
@@ -420,7 +442,12 @@
   (update-in
    game
    [:state :player-turn :organism-turns]
-   conj (OrganismTurn. organism nil -1 [])))
+   conj
+   ;; OrganismTurn
+   {:organism organism
+    :choice nil
+    :num-actions -1
+    :actions []}))
 
 (defn update-organism-turn
   [game f]
@@ -467,7 +494,7 @@
      (update
       organism-turn
       :actions
-      conj (Action. type {})))))
+      conj {:type type :action {}}))))
 
 (defn update-action
   [game f]
@@ -836,7 +863,7 @@
             (check-integrity player)
             (start-turn next))]
     (if (zero? index)
-      (update game :round inc)
+      (update-in game [:state :round] inc)
       game)))
 
 (defn apply-turn

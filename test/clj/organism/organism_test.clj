@@ -219,21 +219,28 @@
 
 (deftest turn-test
   (testing "taking a turn"
-    (let [orb-turn (PlayerTurn.
-                    "orb"
-                    {:organism 0
-                     :eat [:orange 0]
-                     :grow [:orange 1]
-                     :move [:orange 2]}
-                    [(OrganismTurn.
-                      0
-                      :grow
-                      1
-                      [(Action.
-                        :grow
-                        {:from {[:orange 1] 1}
-                         :to [:blue 0]
-                         :element :eat})])])
+    (let [orb-turn
+          ;; game/PlayerTurn
+          {:player "orb"
+
+           :introduction
+           {:organism 0
+            :eat [:orange 0]
+            :grow [:orange 1]
+            :move [:orange 2]}
+
+           :organism-turns
+           ;; game/OrganismTurn
+           [{:organism 0
+             :choice :grow
+             :num-actions 1
+             :actions
+             ;; game/Action
+             [{:type :grow
+               :action
+               {:from {[:orange 1] 1}
+                :to [:blue 0]
+                :element :eat}}]}]}
           game (-> examples/two-player-close
                    (apply-turn orb-turn))
           organisms (group-organisms game)]
