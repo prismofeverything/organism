@@ -322,11 +322,28 @@
   [game]
   (let [[turn choices] (find-state game)]
     (condp = turn
-      :introduction (assoc-in game [game :state :player-turn :introduction {}])
-      :choose-organism (assoc-in game [game :state :player-turn :introduction {}])
-      :choose-action-type (assoc-in game [game :state :player-turn :introduction {}])
-      :choose-action (game/update-organism-turn game (fn [organism-turn] dissoc :choice))
-      (game/update-action game (fn [action] (assoc action :action {}))))))
+      :introduction (assoc-in game [:state :player-turn :introduction] {})
+      :choose-organism
+      (-> game
+          (assoc-in [:state :player-turn :introduction] {})
+          (assoc-in [:state :player-turn :organism-turns] []))
+      :choose-action-type
+      (-> game
+          (update-in [:state :player-turn :organism-turns] butlast))
+      :choose-action
+      (game/update-organism-turn
+       game
+       (fn [organism-turn]
+         (-> organism-turn
+             (dissoc :choice)
+             (assoc :actions []))))
+      (game/update-organism-turn
+       game
+       (fn [organism-turn]
+         (let [organism-turn (update organism-turn :actions butlast)]
+           (if (empty? :actions)
+             (dissoc organism-turn :choice)
+             organism-turn)))))))
 
 (defn find-choices
   [game]

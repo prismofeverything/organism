@@ -346,7 +346,7 @@
 
 (defn organism-controls
   []
-  (let [{:keys [game board turn choices]} @game-state
+  (let [{:keys [game board turn choices history]} @game-state
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
@@ -460,7 +460,10 @@
           {:color "hsl(0,50%,50%)"}
           :on-click
           (fn [event]
-            (reset! introduction {:progress {}}))}
+            (let [before (last history)
+                  past (butlast history)]
+              (swap! game-state update :history butlast)
+              (send-state! before false)))}
          "reset"]
         "  |  "
 
