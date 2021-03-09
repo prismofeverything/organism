@@ -138,6 +138,8 @@
         element-radius (* (:radius board) 1)
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space chosen-element progress]} (deref introduction)
+
+        ;; unchosen starting spaces
         highlights
         (mapv
          (fn [space]
@@ -164,6 +166,8 @@
          (remove
           (set (conj (vals progress) chosen-space))
           starting-spaces))
+
+        ;; chosen space without element
         highlights
         (if chosen-space
           (let [[x y] (get locations chosen-space)]
@@ -180,6 +184,8 @@
                (fn [event]
                  (swap! introduction dissoc :chosen-space))}]))
           highlights)
+
+        ;; elements placed so far
         elements
         (map
          (fn [[type space]]
@@ -206,15 +212,120 @@
              (println "G after" g)
              g))
          progress)]
+
     (println "highlights" highlights elements)
     ^{:key "highlights"}
     [:g (concat highlights elements)]))
+
+(defn send-state!
+  [state complete]
+  (ws/send-transit-message!
+   {:type "game-state"
+    :game state
+    :complete complete}))
+
+(defn send-choice!
+  [choices match complete]
+  (let [choice (get-in choices [match :state])]
+    (if choice
+      (send-state! choice complete))))
+
+(defn circulate-from-highlights
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        highlight-color (board/brighten color 0.3)
+        locations (:locations board)
+        factor 0.93
+        radius (* (:radius board) factor)
+        fed-spaces (keys choices)
+
+        _ (println "FED SPACES" fed-spaces)
+
+        ;; spaces with food that can be circulated from
+        highlights
+        (mapv
+         (fn [space]
+           (let [[x y] (get locations space)
+                 next-state (get-in choices [space :state])]
+             ^{:key space}
+             [:circle
+              {:cx x :cy y
+               :r radius
+               :stroke highlight-color
+               :stroke-width (* 0.19 radius)
+               :fill-opacity 0.04
+               :fill "white"
+               :on-click
+               (fn [event]
+                 (println "circulate from" space)
+                 (send-choice! choices space false))}]))
+         fed-spaces)]
+
+    ^{:key "highlights"}
+    (into [] (concat [:g] highlights))))
+
+(defn circulate-to-highlights
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        highlight-color (board/brighten color 0.3)
+        locations (:locations board)
+        factor 0.93
+        radius (* (:radius board) factor)
+        circulate-from (game/get-action-field game :from)
+        open-spaces (keys choices)
+
+        _ (println "OPEN SPACES" open-spaces)
+        _ (println "CIRCULATE FROM" circulate-from)
+
+        ;; open spaces that can be circulated to
+        highlights
+        (mapv
+         (fn [space]
+           (let [[x y] (get locations space)
+                 next-state (get-in choices [space :state])]
+             ^{:key space}
+             [:circle
+              {:cx x :cy y
+               :r radius
+               :stroke highlight-color
+               :stroke-width (* 0.19 radius)
+               :fill-opacity 0.04
+               :fill "white"
+               :on-click
+               (fn [event]
+                 (println "circulate to" space)
+                 (send-choice! choices space true))}]))
+         open-spaces)
+
+        highlights
+        (let [[x y] (get locations circulate-from)]
+          (conj
+           highlights
+           ^{:key circulate-from}
+           [:circle
+            {:cx x :cy y
+             :r radius
+             :stroke (board/brighten color 0.5)
+             :stroke-width (* 0.21 radius)
+             :fill-opacity 0.8
+             :fill highlight-color
+             :on-click
+             (fn [event]
+               (let [game (choice/walk-back game)]
+                 (send-state! (:state game) true)))}]))]
+
+    ^{:key "highlights"}
+    (into [] (concat [:g] highlights))))
 
 (defn find-highlights
   [game board turn choices]
   (condp = turn
     :open []
     :introduce (introduce-highlights game board turn choices)
+    :circulate-from (circulate-from-highlights game board turn choices)
+    :circulate-to (circulate-to-highlights game board turn choices)
     []))
 
 (defn resolve-action
@@ -222,15 +333,6 @@
   [:span
    {:style {:color "hsl(0, 10%, 80%)"}}
    "resolve"])
-
-(defn send-choice!
-  [turn choices match complete]
-  (let [choice (choice/find-choice turn choices match)]
-    (if choice
-      (ws/send-transit-message!
-       {:type "game-state"
-        :game (:state choice)
-        :complete complete}))))
 
 (defn organism-board
   []
@@ -328,7 +430,7 @@
                                 (update :progress (fn [pro] (assoc pro type chosen-space))))))
                          (swap! introduction assoc :chosen-element type)))
                      :choose-action-type
-                     (send-choice! :choose-action-type choices type true)
+                     (send-choice! choices type true)
                      nil))))))]
 
        ;; CIRCULATE
@@ -338,14 +440,15 @@
           (cond
             (and
              (= turn :choose-action)
-             ((set (map (comp :type game/get-current-action) choices)) :circulate))
+             (:circulate choices))
             focus-color
             :else current-color)}
          :on-click
          (condp = turn
            :choose-action
            (fn [event]
-             (send-choice! :choose-action choices :circulate true))
+             (if (:circulate choices)
+               (send-choice! choices :circulate true)))
            (fn [event]))}
         "circulate"]
 
@@ -370,7 +473,7 @@
               :on-click
               (fn [event]
                 (reset! introduction {:progress {}})
-                (send-choice! turn choices progress true))}
+                (send-choice! choices progress true))}
              "confirm"]
             [resolve-action])
           [resolve-action])]

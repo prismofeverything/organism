@@ -10,6 +10,14 @@
    :grow
    :move])
 
+(defn partial-map
+  [f s]
+  (into
+   {}
+   (map
+    (juxt identity f)
+    s)))
+
 (defn introduce-choices
   [{:keys [state players] :as game}]
   (let [{:keys [player-turn]} state
@@ -29,13 +37,13 @@
               starting))
             :organism organism))
          orders)]
-    (mapv
+    (partial-map
      (partial game/introduce game player)
      introductions)))
 
 (defn choose-organism-choices
   [game organisms]
-  (mapv
+  (partial-map
    (partial game/choose-organism game)
    organisms))
 
@@ -46,7 +54,7 @@
         types (if (zero? food)
                 [:eat]
                 element-types)])
-  (mapv
+  (partial-map
    (partial game/choose-action-type game)
    element-types))
 
@@ -96,7 +104,7 @@
 
 (defn choose-action-choices
   [game action-type]
-  (mapv
+  (partial-map
    (partial game/choose-action game)
    (filter
     (partial action-filter game)
@@ -111,7 +119,7 @@
             (= :eat (:type element))
             (game/open? element)))
          elements)]
-    (mapv
+    (partial-map
      (comp
       game/complete-action
       (partial game/choose-action-field game :to)
@@ -132,7 +140,7 @@
             (count (get types type))
             grower-food))
          element-types)]
-    (mapv
+    (partial-map
      (partial game/choose-action-field game :element)
      available)))
 
@@ -173,7 +181,7 @@
         existing (count (get types element-choice))
         growers (get types :grow)
         contributions (food-contributions growers existing)]
-    (mapv
+    (partial-map
      (partial game/choose-action-field game :from)
      contributions)))
 
@@ -182,7 +190,7 @@
   (let [types (group-by :type elements)
         growers (get types :grow)
         growable (game/growable-spaces game (map :space growers))]
-    (mapv
+    (partial-map
      (comp
       game/complete-action
       (partial game/choose-action-field game :to))
@@ -194,7 +202,7 @@
         (filter
          (partial game/can-move? game)
          (map :space elements))]
-    (mapv
+    (partial-map
      (partial game/choose-action-field game :from)
      mobile-elements)))
 
@@ -202,7 +210,7 @@
   [game elements]
   (let [from (game/get-action-field game :from)
         open-spaces (game/available-spaces game from)]
-    (mapv
+    (partial-map
      (comp
       game/complete-action
       (partial game/choose-action-field game :to))
@@ -211,11 +219,9 @@
 (defn circulate-from-choices
   [game elements]
   (let [fed (filter game/fed-element? elements)]
-    (mapv
-     (comp
-      (partial game/choose-action-field game :from)
-      :space)
-     fed)))
+    (partial-map
+     (partial game/choose-action-field game :from)
+     (map :space fed))))
 
 (defn circulate-to-choices
   [game elements]
@@ -226,12 +232,11 @@
                  (game/open? element)
                  (not= (:space element) from)))
               elements)]
-    (mapv
+    (partial-map
      (comp
       game/complete-action
-      (partial game/choose-action-field game :to)
-      :space)
-     open)))
+      (partial game/choose-action-field game :to))
+     (map :space open))))
 
 (def action-choices
   {[:eat :to] eat-to-choices
@@ -276,10 +281,11 @@
             (let [choices (choose-action-choices game choice)]
               (if (empty? choices)
                 [:pass
-                 (-> game
-                     (game/choose-action :circulate)
-                     game/pass-action
-                     list)]
+                 {:pass
+                  (-> game
+                      (game/choose-action :circulate)
+                      game/pass-action
+                      list)}]
                 [:choose-action choices]))
 
             (< (count organism-turns) (count organisms))
@@ -306,80 +312,25 @@
                                (not (fields-present field)))
                              fields))
                 next-choices (get action-choices [type next-field])
-                choices (next-choices game elements)]
+                choices (next-choices game elements)
+                action-key (keyword (str (name type) "-" (name next-field)))]
             (if (empty? choices)
-              [:pass (list (game/pass-action game))]
-              [:action
-               {:type type
-                :field next-field
-                :choices choices}])))))))
+              [:pass {:pass (list (game/pass-action game))}]
+              [action-key choices])))))))
+
+(defn walk-back
+  [game]
+  (let [[turn choices] (find-state game)]
+    (condp = turn
+      :introduction (assoc-in game [game :state :player-turn :introduction {}])
+      :choose-organism (assoc-in game [game :state :player-turn :introduction {}])
+      :choose-action-type (assoc-in game [game :state :player-turn :introduction {}])
+      :choose-action (game/update-organism-turn game (fn [organism-turn] dissoc :choice))
+      (game/update-action game (fn [action] (assoc action :action {}))))))
 
 (defn find-choices
-  [{:keys [state] :as game}]
-  (let [{:keys [elements captures player-turn]} state
-        {:keys [player introduction organism-turns]} player-turn
-        organisms (game/player-organisms game player)]
-
-    (cond
-      (empty? organisms) (introduce-choices game)
-
-      (empty? organism-turns)
-      (let [game (game/award-center game player)]
-        (if (> (count organisms) 1)
-          (choose-organism-choices game (keys organisms))
-          (choose-action-type-choices
-           (game/choose-organism
-            game
-            (-> organisms keys first)))))
-
-      :else
-      (let [{:keys [organism choice num-actions actions] :as organism-turn} (last organism-turns)
-            elements (get organisms organism)
-            types (group-by :type elements)]
-
-        (cond
-          (nil? choice) (choose-action-type-choices game)
-
-          (every? game/complete-action? actions)
-          (cond
-            (< (count actions) num-actions)
-            (let [choices (choose-action-choices game choice)]
-              (if (empty? choices)
-                (-> game
-                    (game/choose-action :circulate)
-                    game/pass-action
-                    list)
-                choices))
-
-            (< (count organism-turns) (count organisms))
-            (let [acted (set (map :organism organism-turns))
-                  missing (remove acted (keys organisms))]
-              (if (> (count missing) 1)
-                (choose-organism-choices game missing)
-                (choose-action-type-choices
-                 (game/choose-organism
-                  game
-                  (first missing)))))
-
-            ;; move on to the next player
-            :else
-            (find-choices
-             (game/finish-turn game)))
-
-          :else
-          (let [{:keys [type action]} (last actions)
-                fields (get game/action-fields type)
-                fields-present (-> action keys set)
-                next-field (first
-                            (filter
-                             (fn [field]
-                               (not (fields-present field)))
-                             fields))
-                next-choices (get action-choices [type next-field])
-                choices (next-choices game elements)]
-            (if (empty? choices)
-              (list (game/pass-action game))
-              choices)))))))
+  [game]
+  (vals (last (find-state game))))
 
 (defn take-path
   [game path]
@@ -388,30 +339,6 @@
      (let [choices (find-choices game)]
        (nth choices choice)))
    game path))
-
-(defn find-conditions
-  [info]
-  {:introduce
-   (fn [game]
-     (let [introduction (get-in game [:state :player-turn :introduction])]
-       (every?
-        (fn [[type space]]
-          (= space (get introduction type)))
-        info)))
-   :choose-action-type
-   (fn [game]
-     (= info (game/get-action-type game)))
-   :choose-action
-   (fn [game]
-     (= info (:type (game/get-current-action game))))})
-
-(defn find-choice
-  [turn choices info]
-  (let [find-condition (get (find-conditions info) turn)]
-    (first
-     (filter
-      find-condition
-      choices))))
 
 ;; levels of challenge
 ;; * random walk
@@ -425,8 +352,7 @@
   (iterate
    (fn [game]
      (let [choices (find-choices game)
-           num-choices (count choices)
-           choice (rand-int num-choices)
+           choice (rand-int (count choices))
            chosen (nth choices choice)]
        (println "CHOICES")
        (pprint (map (comp :player-turn :state) choices))
