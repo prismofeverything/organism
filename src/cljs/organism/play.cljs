@@ -228,7 +228,8 @@
   [choices match complete]
   (let [choice (get-in choices [match :state])]
     (if choice
-      (send-state! choice complete))))
+      (send-state! choice complete)
+      (println "NO CHOICE MATCHING" match (keys choices)))))
 
 (defn circulate-from-highlights
   [game board turn choices]
@@ -473,7 +474,7 @@
               :on-click
               (fn [event]
                 (reset! introduction {:progress {}})
-                (send-choice! choices progress true))}
+                (send-choice! choices (assoc progress :organism 0) true))}
              "confirm"]
             [resolve-action])
           [resolve-action])]
