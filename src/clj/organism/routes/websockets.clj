@@ -1,5 +1,6 @@
 (ns organism.routes.websockets
   (:require
+   [clojure.pprint :refer (pprint)]
    [clojure.java.io :as io]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
@@ -37,7 +38,7 @@
 (defonce games
   (atom {:games {}}))
 
-(defrecord GameState [key game colors current working history chat channels])
+(defrecord GameState [key game colors history chat channels])
 
 (defn load-game
   [game-key channel]
@@ -49,8 +50,6 @@
      game-key
      game
      colors
-     state
-     state
      [state]
      []
      #{channel})))
@@ -113,32 +112,35 @@
    games
    update-in [:games game-key]
    (fn [game-state]
-     (let [game-state (assoc game-state :working game)]
+     (let [game-state (assoc-in game-state [:game :state] game)]
        (if complete
-         (-> game-state
-             (update :current game)
-             (update :history conj game)
-             (assoc-in [:game :state] game))
+         (update game-state :history conj game)
          game-state))))
+  (log/info "HISTORY")
+  (log/info (with-out-str (-> @games :games (get game-key) :history pprint)))
   (send-channels!
    (get-in @games [:games game-key :channels])
    message))
 
 (defn walk-history
   [game-key channel message]
-  (log/info "revert to game history")
   (let [{:keys [game history channels]} (get-in (deref games) [:games game-key])
         present (last history)
         previous (last (butlast history))
         previous (if (empty? previous) present previous)
         already-here? (= present (:game message))]
+    (log/info "previous" previous)
+    (log/info "present" present)
+    (log/info "already here?" already-here?)
     (if already-here?
       (swap!
        games
        (fn [games]
          (-> games
-             (update-in [game-key :history] butlast)
-             (assoc-in [game-key :game :state] previous)))))
+             (update-in [:games game-key :history] (comp vec butlast))
+             (assoc-in [:games game-key :game :state] previous)))))
+    (log/info "revert to game history")
+    (log/info (with-out-str (pprint history)))
     (send-channels!
      channels
      {:type "game-state"

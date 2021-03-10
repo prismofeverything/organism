@@ -127,11 +127,33 @@
              :message @value})
            (reset! value nil))}])))
 
+(defn highlight-circle
+  [x y radius color on-click]
+  (let [highlight-color (board/brighten color 0.2)]
+    [:circle
+     {:cx x :cy y
+      :r radius
+      :stroke highlight-color
+      :stroke-width (* 0.19 radius)
+      :fill-opacity 0.04
+      :fill "white"
+      :on-click on-click}]))
+
+(defn focus-circle
+  [x y radius color on-click]
+  [:circle
+   {:cx x :cy y
+    :r radius
+    :stroke (board/brighten color 0.3)
+    :stroke-width (* 0.21 radius)
+    :fill (board/brighten color 0.2)
+    :on-click on-click}])
+
 (defn introduce-highlights
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.3)
+        highlight-color (board/brighten color 0.2)
         locations (:locations board)
         factor 0.93
         radius (* (:radius board) factor)
@@ -145,24 +167,19 @@
          (fn [space]
            (let [[x y] (get locations space)]
              ^{:key space}
-             [:circle {:cx x :cy y
-                       :r radius
-                       :stroke highlight-color
-                       :stroke-width (* 0.19 radius)
-                       :fill-opacity 0.04
-                       :fill "white"
-                       :on-click
-                       (fn [event]
-                         (println "choosing" space event)
-                         (if chosen-element
-                           (swap!
-                            introduction
-                            (fn [intro]
-                              (-> intro
-                                  (assoc :chosen-space nil)
-                                  (assoc :chosen-element nil)
-                                  (update :progress assoc chosen-element space))))
-                           (swap! introduction assoc :chosen-space space)))}]))
+             (highlight-circle
+              x y radius color
+              (fn [event]
+                (println "choosing" space event)
+                (if chosen-element
+                  (swap!
+                   introduction
+                   (fn [intro]
+                     (-> intro
+                         (assoc :chosen-space nil)
+                         (assoc :chosen-element nil)
+                         (update :progress assoc chosen-element space))))
+                  (swap! introduction assoc :chosen-space space))))))
          (remove
           (set (conj (vals progress) chosen-space))
           starting-spaces))
@@ -174,15 +191,10 @@
             (conj
              highlights
              ^{:key chosen-space}
-             [:circle
-              {:cx x :cy y
-               :r radius
-               :stroke (board/brighten color 0.5)
-               :stroke-width (* 0.21 radius)
-               :fill highlight-color
-               :on-click
-               (fn [event]
-                 (swap! introduction dissoc :chosen-space))}]))
+             (focus-circle
+              x y radius color
+              (fn [event]
+                (swap! introduction dissoc :chosen-space)))))
           highlights)
 
         ;; elements placed so far
@@ -256,17 +268,11 @@
            (let [[x y] (get locations space)
                  next-state (get-in choices [space :state])]
              ^{:key space}
-             [:circle
-              {:cx x :cy y
-               :r radius
-               :stroke highlight-color
-               :stroke-width (* 0.19 radius)
-               :fill-opacity 0.04
-               :fill "white"
-               :on-click
-               (fn [event]
-                 (println "circulate from" space)
-                 (send-choice! choices space false))}]))
+             (highlight-circle
+              x y radius color
+              (fn [event]
+                (println "circulate from" space)
+                (send-choice! choices space false)))))
          fed-spaces)]
 
     ^{:key "highlights"}
@@ -293,17 +299,11 @@
            (let [[x y] (get locations space)
                  next-state (get-in choices [space :state])]
              ^{:key space}
-             [:circle
-              {:cx x :cy y
-               :r radius
-               :stroke highlight-color
-               :stroke-width (* 0.19 radius)
-               :fill-opacity 0.04
-               :fill "white"
-               :on-click
-               (fn [event]
-                 (println "circulate to" space)
-                 (send-choice! choices space true))}]))
+             (highlight-circle
+              x y radius color
+              (fn [event]
+                (println "circulate to" space)
+                (send-choice! choices space true)))))
          open-spaces)
 
         highlights
@@ -311,16 +311,10 @@
           (conj
            highlights
            ^{:key circulate-from}
-           [:circle
-            {:cx x :cy y
-             :r radius
-             :stroke (board/brighten color 0.5)
-             :stroke-width (* 0.21 radius)
-             :fill-opacity 0.8
-             :fill highlight-color
-             :on-click
-             (fn [event]
-               (send-reset! (:state game)))}]))]
+           (focus-circle
+            x y radius color
+            (fn [event]
+              (send-reset! (:state game))))))]
 
     ^{:key "highlights"}
     (into [] (concat [:g] highlights))))
