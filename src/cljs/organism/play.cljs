@@ -474,7 +474,6 @@
               {:color "hsl(100,50%,50%)"}
               :on-click
               (fn [event]
-                (reset! introduction {:progress {}})
                 (send-choice! choices (assoc progress :organism 0) true))}
              "confirm"]
             [resolve-action])
