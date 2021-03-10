@@ -432,7 +432,10 @@
                          (swap! introduction assoc :chosen-element type)))
                      :choose-action-type
                      (send-choice! choices type true)
-                     nil))))))]
+                     :choose-action
+                     (let [organism-turn (game/get-organism-turn game)]
+                       (if (= type (:choice organism-turn))
+                         (send-choice! choices type true)))))))))]
 
        ;; CIRCULATE
        [:h1
