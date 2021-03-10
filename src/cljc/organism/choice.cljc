@@ -122,9 +122,8 @@
     (partial-map
      (comp
       game/complete-action
-      (partial game/choose-action-field game :to)
-      :space)
-     open-eaters)))
+      (partial game/choose-action-field game :to))
+     (map :space open-eaters))))
 
 (defn grow-element-choices
   [game elements]

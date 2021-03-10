@@ -149,6 +149,16 @@
     :fill (board/brighten color 0.2)
     :on-click on-click}])
 
+(defn highlight-element
+  [type x y radius color on-click]
+  (let [g
+        (board/render-element
+         (board/brighten color 0.2) "white"
+         [x y]
+         radius
+         {:type type :food 1})]
+    (assoc-prop g :on-click on-click)))
+
 (defn introduce-highlights
   [game board turn choices]
   (let [player (game/current-player game)
@@ -201,28 +211,20 @@
         elements
         (map
          (fn [[type space]]
-           ^{:key space}
-           (let [g (board/render-element
-                    highlight-color "white"
-                    (get locations space)
-                    element-radius
-                    {:type type :food 1})
-                 _ (println "G before" g)
-                 g (assoc-prop
-                    g :on-click
-                    (fn [event]
-                      (println "choosing" space)
-                      (if chosen-element
-                        (swap!
-                         introduction
-                         (fn [intro]
-                           (-> intro
-                               (assoc :chosen-space nil)
-                               (assoc :chosen-element nil)
-                               (update :progress assoc chosen-element space))))
-                        (swap! introduction assoc :chosen-space space))))]
-             (println "G after" g)
-             g))
+           (let [[x y] (get locations space)]
+             ^{:key space}
+             (highlight-element
+              type x y element-radius color
+              (fn [event]
+                (if chosen-element
+                  (swap!
+                   introduction
+                   (fn [intro]
+                     (-> intro
+                         (assoc :chosen-space nil)
+                         (assoc :chosen-element nil)
+                         (update :progress assoc chosen-element space))))
+                  (swap! introduction assoc :chosen-space space))))))
          progress)]
 
     (println "highlights" highlights elements)
@@ -249,19 +251,15 @@
       (send-state! choice complete)
       (println "NO CHOICE MATCHING" match (keys choices)))))
 
-(defn circulate-from-highlights
+(defn choose-space-highlights
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.3)
         locations (:locations board)
         factor 0.93
         radius (* (:radius board) factor)
-        fed-spaces (keys choices)
+        spaces (keys choices)
 
-        _ (println "FED SPACES" fed-spaces)
-
-        ;; spaces with food that can be circulated from
         highlights
         (mapv
          (fn [space]
@@ -271,14 +269,14 @@
              (highlight-circle
               x y radius color
               (fn [event]
-                (println "circulate from" space)
-                (send-choice! choices space false)))))
-         fed-spaces)]
+                (println "CHOOSE SPACE" turn space)
+                (send-choice! choices space true)))))
+         spaces)]
 
     ^{:key "highlights"}
     (into [] (concat [:g] highlights))))
 
-(defn circulate-to-highlights
+(defn choose-target-highlights
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
@@ -286,13 +284,10 @@
         locations (:locations board)
         factor 0.93
         radius (* (:radius board) factor)
-        circulate-from (game/get-action-field game :from)
-        open-spaces (keys choices)
+        element-radius (* (:radius board) 1.0)
+        choose-from (game/get-action-field game :from)
+        spaces (keys choices)
 
-        _ (println "OPEN SPACES" open-spaces)
-        _ (println "CIRCULATE FROM" circulate-from)
-
-        ;; open spaces that can be circulated to
         highlights
         (mapv
          (fn [space]
@@ -302,17 +297,18 @@
              (highlight-circle
               x y radius color
               (fn [event]
-                (println "circulate to" space)
+                (println "choose to" turn space)
                 (send-choice! choices space true)))))
-         open-spaces)
+         spaces)
 
         highlights
-        (let [[x y] (get locations circulate-from)]
+        (let [[x y] (get locations choose-from)
+              type (-> game (game/get-element choose-from) :type)]
           (conj
            highlights
-           ^{:key circulate-from}
-           (focus-circle
-            x y radius color
+           ^{:key choose-from}
+           (highlight-element
+            type x y element-radius color
             (fn [event]
               (send-reset! (:state game))))))]
 
@@ -324,8 +320,11 @@
   (condp = turn
     :open []
     :introduce (introduce-highlights game board turn choices)
-    :circulate-from (circulate-from-highlights game board turn choices)
-    :circulate-to (circulate-to-highlights game board turn choices)
+    :eat-to (choose-space-highlights game board turn choices) ;; (eat-to-highlights game board turn choices)
+    :circulate-from (choose-space-highlights game board turn choices) ;; (circulate-from-highlights game board turn choices)
+    :circulate-to (choose-target-highlights game board turn choices)
+    :move-from (choose-space-highlights game board turn choices) ;; (move-from-highlights game board turn choices)
+    :move-to (choose-target-highlights game board turn choices)
     []))
 
 (defn resolve-action
