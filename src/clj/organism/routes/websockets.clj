@@ -101,6 +101,11 @@
    games
    (partial disconnect-game game-key channel)))
 
+(defn send-channels!
+  [channels message]
+  (doseq [ch channels]
+    (send! ch message)))
+
 (defn update-game-state
   [game-key channel {:keys [game complete] :as message}]
   (log/info "received game-state message" message)
@@ -115,8 +120,32 @@
              (update :history conj game)
              (assoc-in [:game :state] game))
          game-state))))
-  (doseq [ch (get-in @games [:games game-key :channels])]
-    (send! ch message)))
+  (send-channels!
+   (get-in @games [:games game-key :channels])
+   message))
+
+(defn walk-history
+  [game-key channel message]
+  (log/info "revert to game history")
+  (let [{:keys [game history channels]} (get-in (deref games) [:games game-key])
+        present (last history)
+        previous (last (butlast history))
+        previous (if (empty? previous) present previous)
+        already-here? (= present (:game message))]
+    (if already-here?
+      (swap!
+       games
+       (fn [games]
+         (-> games
+             (update-in [game-key :history] butlast)
+             (assoc-in [game-key :game :state] previous)))))
+    (send-channels!
+     channels
+     {:type "game-state"
+      :game
+      (if already-here?
+        previous
+        present)})))
 
 (defn timestamp
   []
@@ -147,6 +176,7 @@
     (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
       "game-state" (update-game-state game-key channel message)
+      "history" (walk-history game-key channel message)
       "chat" (update-chat game-key channel message)
       (log/error "unknown message!" message))))
 

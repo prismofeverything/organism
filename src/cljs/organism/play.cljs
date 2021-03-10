@@ -224,6 +224,12 @@
     :game state
     :complete complete}))
 
+(defn send-reset!
+  [state]
+  (ws/send-transit-message!
+   {:type "history"
+    :game state}))
+
 (defn send-choice!
   [choices match complete]
   (let [choice (get-in choices [match :state])]
@@ -314,8 +320,7 @@
              :fill highlight-color
              :on-click
              (fn [event]
-               (let [game (choice/walk-back game)]
-                 (send-state! (:state game) true)))}]))]
+               (send-reset! (:state game)))}]))]
 
     ^{:key "highlights"}
     (into [] (concat [:g] highlights))))
@@ -463,10 +468,7 @@
           {:color "hsl(0,50%,50%)"}
           :on-click
           (fn [event]
-            (let [before (last history)
-                  past (butlast history)]
-              (swap! game-state update :history butlast)
-              (send-state! before false)))}
+            (send-reset! (:state game)))}
          "reset"]
         "  |  "
 
@@ -516,7 +518,16 @@
     (do
       (swap! game-state initialize-game received)
       (swap! chat initialize-chat received))
-    "game-state" (swap! game-state update-game received)
+    "game-state"
+    (do
+      (swap! game-state update-game received)
+      (swap!
+       introduction
+       (fn [introduction]
+         (-> introduction
+             (assoc :progress (-> received :game :state :player-turn :introduction))
+             (assoc :chosen-element nil)
+             (assoc :chosen-space nil)))))
     "chat" (swap! chat update-chat received)))
 
 (defn mount-components
