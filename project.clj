@@ -18,6 +18,7 @@
                  [metosin/reitit "0.5.12"]
                  [metosin/ring-http-response "0.9.2"]
                  [mount "0.1.16"]
+                 [com.novemberain/monger "3.1.0"]
                  [nrepl "0.8.3"]
                  [org.clojure/clojure "1.10.2"]
                  [org.clojure/clojurescript "1.10.773" :scope "provided"]

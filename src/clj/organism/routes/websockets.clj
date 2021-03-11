@@ -116,8 +116,6 @@
        (if complete
          (update game-state :history conj game)
          game-state))))
-  (log/info "HISTORY")
-  (log/info (with-out-str (-> @games :games (get game-key) :history pprint)))
   (send-channels!
    (get-in @games [:games game-key :channels])
    message))
@@ -129,9 +127,6 @@
         previous (last (butlast history))
         previous (if (empty? previous) present previous)
         already-here? (= present (:game message))]
-    (log/info "previous" previous)
-    (log/info "present" present)
-    (log/info "already here?" already-here?)
     (if already-here?
       (swap!
        games
@@ -139,8 +134,6 @@
          (-> games
              (update-in [:games game-key :history] (comp vec butlast))
              (assoc-in [:games game-key :game :state] previous)))))
-    (log/info "revert to game history")
-    (log/info (with-out-str (pprint history)))
     (send-channels!
      channels
      {:type "game-state"
