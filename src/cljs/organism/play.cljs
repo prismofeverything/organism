@@ -601,7 +601,11 @@
 (defn init!
   []
   (println "intializing game" js/gameKey)
-  (ws/make-websocket!
-   (str "ws://" (.-host js/location) "/ws/" js/gameKey)
-   update-messages!)
-  (mount-components))
+  (let [protocol
+        (if (= (.-protocol js/location) "https")
+          "wss:"
+          "ws:")]
+    (ws/make-websocket!
+     (str protocol "//" (.-host js/location) "/ws/" js/gameKey)
+     update-messages!)
+    (mount-components)))

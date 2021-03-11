@@ -1,7 +1,7 @@
-(defproject organism "0.1.0-SNAPSHOT"
+(defproject organism "0.0.1"
 
-  :description "FIXME: write description"
-  :url "http://example.com/FIXME"
+  :description "a server for playing ORGANISM synchronously or asynchronously"
+  :url "https://github.com/prismofeverything/organism"
 
   :dependencies [[cljs-ajax "0.8.1"]
                  [clojure.java-time "0.3.2"]
@@ -59,7 +59,7 @@
 
   :profiles
   {:uberjar {:omit-source true
-             :prep-tasks ["compile" ["cljsbuild" "once" "min"]]
+             :prep-tasks ["compile" ["cljsbuild" "once"]]
              :cljsbuild
              {:builds
               {:app
