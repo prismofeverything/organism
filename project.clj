@@ -18,7 +18,8 @@
                  [metosin/reitit "0.5.12"]
                  [metosin/ring-http-response "0.9.2"]
                  [mount "0.1.16"]
-                 [com.novemberain/monger "3.1.0"]
+                 [com.novemberain/monger "3.5.0"
+                  :exclusions [com.google.guava/guava]]
                  [nrepl "0.8.3"]
                  [org.clojure/clojure "1.10.2"]
                  [org.clojure/clojurescript "1.10.773" :scope "provided"]
@@ -64,9 +65,9 @@
               {:app
                {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
                 :compiler
-                {:output-dir "target/cljsbuild/public/js"
-                 :output-to "target/cljsbuild/public/js/app.js"
-                 :source-map "target/cljsbuild/public/js/app.js.map"
+                {:output-dir "target/cljsbuild/public/js/app"
+                 :output-to "target/cljsbuild/public/js/app/app.js"
+                 :source-map "target/cljsbuild/public/js/app/app.js.map"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
@@ -76,9 +77,9 @@
                :organism
                {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
                 :compiler
-                {:output-dir "target/cljsbuild/public/js"
-                 :output-to "target/cljsbuild/public/js/organism.js"
-                 :source-map "target/cljsbuild/public/js/organism.js.map"
+                {:output-dir "target/cljsbuild/public/js/organism"
+                 :output-to "target/cljsbuild/public/js/organism/organism.js"
+                 :source-map "target/cljsbuild/public/js/organism/organism.js.map"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
@@ -114,9 +115,9 @@
                      :figwheel {:on-jsload "organism.core/mount-components"}
                      :compiler
                      {:main "organism.app"
-                      :asset-path "/js/app/out"
-                      :output-to "target/cljsbuild/public/js/app.js"
-                      :output-dir "target/cljsbuild/public/js/app/out"
+                      :asset-path "/js/app/app/out"
+                      :output-to "target/cljsbuild/public/js/app/app.js"
+                      :output-dir "target/cljsbuild/public/js/app/app/out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}
@@ -125,9 +126,9 @@
                      :figwheel {:on-jsload "organism.play/mount-components"}
                      :compiler
                      {:main "organism.organism"
-                      :asset-path "/js/organism/out"
-                      :output-to "target/cljsbuild/public/js/organism.js"
-                      :output-dir "target/cljsbuild/public/js/organism/out"
+                      :asset-path "/js/organism/organism/out"
+                      :output-to "target/cljsbuild/public/js/organism/organism.js"
+                      :output-dir "target/cljsbuild/public/js/organism/organism/out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}}}
