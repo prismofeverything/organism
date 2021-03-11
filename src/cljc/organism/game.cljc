@@ -168,7 +168,7 @@
 
 (defrecord Action [type action])
 (defrecord OrganismTurn [organism choice num-actions actions])
-(defrecord PlayerTurn [player introduction organism-turns])
+(defrecord PlayerTurn [player introduction organism-turns advance])
 
 (defrecord Player [name starting-spaces])
 (defrecord Element [player organism type space food captures])
@@ -203,7 +203,8 @@
          ;; PlayerTurn
          {:player first-player
           :introduction {}
-          :organism-turns []}}]
+          :organism-turns []
+          :advance nil}}]
     ;; Game
     {:rings rings
      :adjacencies adjacencies
@@ -426,7 +427,8 @@
        ;; PlayerTurn
        {:player player
         :introduction {}
-        :organism-turns []})
+        :organism-turns []
+        :advance nil})
       (award-center player)))
 
 (defn introduce
@@ -516,6 +518,10 @@
    :grow [:element :from :to]
    :move [:from :to]
    :circulate [:from :to]})
+
+(defn advance-player-turn
+  [game advance]
+  (assoc-in game [:state :player-turn :advance] advance))
 
 (defn get-organism-turn
   [game]
@@ -702,17 +708,19 @@
             (fn [up [from to]]
               (assoc up (:space to) from))
             {} conflicting-elements)
-        order (graph/kahn-sort conflicts)]
-    (reduce
-     (fn [game fall]
-       (let [rise (get up (:space fall))]
-         (if rise
-           (resolve-conflict
-            game
-            (get-element game (:space rise))
-            (get-element game (:space fall)))
-           game)))
-     game (reverse order))))
+        order (graph/kahn-sort conflicts)
+        resolved
+        (reduce
+         (fn [game fall]
+           (let [rise (get up (:space fall))]
+             (if rise
+               (resolve-conflict
+                game
+                (get-element game (:space rise))
+                (get-element game (:space fall)))
+               game)))
+         game (reverse order))]
+    (advance-player-turn resolved :resolve-conflicts)))
 
 ;; INTEGRITY -----------------------
 
@@ -802,24 +810,26 @@
 (defn check-integrity
   [game active-player]
   (let [game (find-organisms game)
-        organisms (group-organisms game)]
-    (reduce
-     (fn [game [[player organism] elements]]
-       (if (alive-elements? elements)
-         game
-         (let [spaces (map :space elements)
-               game
-               (if (= active-player player)
-                 (let [captures (players-captured elements)
-                       sacrifice (assoc (first elements) :type :sacrifice)]
-                   (reduce
-                    (fn [game player]
-                      (award-capture game player sacrifice))
-                    game captures))
-                 (let [capture (assoc (first elements) :type :integrity)]
-                   (award-capture game active-player capture)))]
-           (reduce remove-element game spaces))))
-     game organisms)))
+        organisms (group-organisms game)
+        integrity
+        (reduce
+         (fn [game [[player organism] elements]]
+           (if (alive-elements? elements)
+             game
+             (let [spaces (map :space elements)
+                   game
+                   (if (= active-player player)
+                     (let [captures (players-captured elements)
+                           sacrifice (assoc (first elements) :type :sacrifice)]
+                       (reduce
+                        (fn [game player]
+                          (award-capture game player sacrifice))
+                        game captures))
+                     (let [capture (assoc (first elements) :type :integrity)]
+                       (award-capture game active-player capture)))]
+               (reduce remove-element game spaces))))
+         game organisms)]
+    (advance-player-turn integrity :check-integrity)))
 
 (def action-map
   {:eat eat
@@ -857,6 +867,14 @@
         next-index (mod (inc index) (count turn-order))]
     [next-index (nth turn-order next-index)]))
 
+(defn start-next-turn
+  [game]
+  (let [[index next] (next-player game)
+        game (start-turn game next)]
+    (if (zero? index)
+      (update-in game [:state :round] inc)
+      game)))
+
 (defn finish-turn
   [{:keys [state turn-order] :as game}]
   (let [{:keys [player-turn]} state
@@ -866,10 +884,7 @@
         (-> game
             (resolve-conflicts player)
             (check-integrity player)
-            (start-turn next))]
-    (if (zero? index)
-      (update-in game [:state :round] inc)
-      game)))
+            (start-next-turn))]))
 
 (defn apply-turn
   [game {:keys [player introduction organism-turns] :as player-turn}]

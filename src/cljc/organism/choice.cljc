@@ -254,7 +254,10 @@
         organisms (game/player-organisms game player)]
 
     (cond
-      (empty? organisms) [:introduce (introduce-choices game)]
+      (empty? organisms)
+      (if (= :check-integrity (:advance player-turn))
+        [:check-integrity {:advance (game/start-next-turn game)}]
+        [:introduce (introduce-choices game)])
 
       (empty? organism-turns)
       (let [game (game/award-center game player)]
@@ -299,7 +302,13 @@
                    (first missing)))]))
 
             ;; actions have all been performed
-            :else [:actions-complete [game]])
+            (= (:advance player-turn) :check-integrity)
+            [:check-integrity {:advance (game/start-next-turn game)}]
+
+            (= (:advance player-turn) :resolve-conflicts)
+            [:resolve-conflicts {:advance (game/check-integrity game player)}]
+
+            :else [:actions-complete {:advance (game/resolve-conflicts game player)}])
 
           :else
           (let [{:keys [type action]} (last actions)

@@ -212,7 +212,6 @@
              (highlight-circle
               x y radius color
               (fn [event]
-                (println "choosing" space event)
                 (if chosen-element
                   (do
                     (swap!
@@ -262,8 +261,6 @@
                     (send-introduction! choices @introduction))
                   (swap! introduction assoc :chosen-space space))))))
          progress)]
-
-    (println "highlights" highlights elements)
     ^{:key "highlights"}
     [:g (concat highlights elements)]))
 
@@ -285,7 +282,6 @@
              (highlight-circle
               x y radius color
               (fn [event]
-                (println "CHOOSE SPACE" turn space)
                 (send-choice! choices space true)))))
          spaces)]
 
@@ -313,7 +309,6 @@
              (highlight-circle
               x y radius color
               (fn [event]
-                (println "choose to" turn space)
                 (send-choice! choices space true)))))
          spaces)
 
@@ -357,7 +352,6 @@
              (highlight-element
               :grow x y radius color
               (fn [event]
-                (println "FOOD SOURCE" turn space)
                 (choose-food-source! space)
                 (let [source @food-source]
                   (if (get choices source)
@@ -385,7 +379,7 @@
   []
   [:span
    {:style {:color "hsl(0, 10%, 80%)"}}
-   "resolve"])
+   "continue"])
 
 (defn organism-board
   []
@@ -524,7 +518,36 @@
           :on-click
           (fn [event]
             (send-reset! (:state game)))}
-         "reset"]]
+         "reset"]
+        " | "
+
+        ;; CONFIRM
+        (condp = turn
+          :actions-complete
+          [:span
+           {:style
+            {:color "hsl(100,50%,50%)"}
+            :on-click
+            (fn [event]
+              (send-state! (get-in choices [:advance :state]) true))}
+           "resolve conflicts"]
+          :resolve-conflicts
+          [:span
+           {:style
+            {:color "hsl(100,50%,50%)"}
+            :on-click
+            (fn [event]
+              (send-state! (get-in choices [:advance :state]) true))}
+           "check integrity"]
+          :check-integrity
+          [:span
+           {:style
+            {:color "hsl(100,50%,50%)"}
+            :on-click
+            (fn [event]
+              (send-state! (get-in choices [:advance :state]) true))}
+           "confirm turn"]
+          [resolve-action])]
 
        [:h2 (with-out-str (pprint (-> game :state :player-turn)))]])))
 
