@@ -58,7 +58,7 @@
 
 (defn initialize-game
   [game-state {:keys [game player history colors board] :as message}]
-  (let [board (board/build-board 6 40 2.1 colors (:turn-order game) true)
+  (let [board (board/build-board 5 40 2.1 colors (:turn-order game) true)
         [turn choices] (choice/find-state game)]
     (println "initializing game" game)
     (println "initializing board" board)

@@ -42,7 +42,7 @@
 
 (defn load-game
   [game-key channel]
-  (let [game (examples/six-player-game)
+  (let [game (examples/five-player-game)
         state (:state game)
         colors (board/generate-colors (:rings game))]
     (println "COLORS" colors)
