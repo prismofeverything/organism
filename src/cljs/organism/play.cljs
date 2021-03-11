@@ -26,14 +26,14 @@
     :chosen-element nil
     :progress {}}))
 
+(defonce food-source
+  (r/atom {}))
+
 (defn introduction-complete?
   [{:keys [progress]}]
   (and
    (= 3 (count (set (keys progress))))
    (= 3 (count (set (vals progress))))))
-
-(defonce food-source
-  (r/atom {}))
 
 (defn assoc-prop
   [el key value]
@@ -159,6 +159,34 @@
          {:type type :food 1})]
     (assoc-prop g :on-click on-click)))
 
+(defn send-state!
+  [state complete]
+  (ws/send-transit-message!
+   {:type "game-state"
+    :game state
+    :complete complete}))
+
+(defn send-reset!
+  [state]
+  (ws/send-transit-message!
+   {:type "history"
+    :game state}))
+
+(defn send-choice!
+  [choices match complete]
+  (let [choice (get-in choices [match :state])]
+    (if choice
+      (send-state! choice complete)
+      (println "NO CHOICE MATCHING" match (keys choices)))))
+
+(defn send-introduction!
+  [choices {:keys [progress] :as intro}]
+  (if (introduction-complete? intro)
+    (send-choice!
+     choices
+     (assoc progress :organism 0)
+     true)))
+
 (defn introduce-highlights
   [game board turn choices]
   (let [player (game/current-player game)
@@ -182,13 +210,15 @@
               (fn [event]
                 (println "choosing" space event)
                 (if chosen-element
-                  (swap!
-                   introduction
-                   (fn [intro]
-                     (-> intro
-                         (assoc :chosen-space nil)
-                         (assoc :chosen-element nil)
-                         (update :progress assoc chosen-element space))))
+                  (do
+                    (swap!
+                     introduction
+                     (fn [intro]
+                       (-> intro
+                           (assoc :chosen-space nil)
+                           (assoc :chosen-element nil)
+                           (update :progress assoc chosen-element space))))
+                    (send-introduction! choices @introduction))
                   (swap! introduction assoc :chosen-space space))))))
          (remove
           (set (conj (vals progress) chosen-space))
@@ -217,39 +247,21 @@
               type x y element-radius color
               (fn [event]
                 (if chosen-element
-                  (swap!
-                   introduction
-                   (fn [intro]
-                     (-> intro
-                         (assoc :chosen-space nil)
-                         (assoc :chosen-element nil)
-                         (update :progress assoc chosen-element space))))
+                  (do
+                    (swap!
+                     introduction
+                     (fn [intro]
+                       (-> intro
+                           (assoc :chosen-space nil)
+                           (assoc :chosen-element nil)
+                           (update :progress assoc chosen-element space))))
+                    (send-introduction! choices @introduction))
                   (swap! introduction assoc :chosen-space space))))))
          progress)]
 
     (println "highlights" highlights elements)
     ^{:key "highlights"}
     [:g (concat highlights elements)]))
-
-(defn send-state!
-  [state complete]
-  (ws/send-transit-message!
-   {:type "game-state"
-    :game state
-    :complete complete}))
-
-(defn send-reset!
-  [state]
-  (ws/send-transit-message!
-   {:type "history"
-    :game state}))
-
-(defn send-choice!
-  [choices match complete]
-  (let [choice (get-in choices [match :state])]
-    (if choice
-      (send-state! choice complete)
-      (println "NO CHOICE MATCHING" match (keys choices)))))
 
 (defn choose-space-highlights
   [game board turn choices]
@@ -420,13 +432,15 @@
                         dissoc
                         :chosen-element)
                        (if chosen-space
-                         (swap!
-                          introduction
-                          (fn [intro]
-                            (-> intro
-                                (dissoc :chosen-element)
-                                (dissoc :chosen-space)
-                                (update :progress (fn [pro] (assoc pro type chosen-space))))))
+                         (do
+                           (swap!
+                            introduction
+                            (fn [intro]
+                              (-> intro
+                                  (dissoc :chosen-element)
+                                  (dissoc :chosen-space)
+                                  (update :progress (fn [pro] (assoc pro type chosen-space))))))
+                           (send-introduction! choices @introduction))
                          (swap! introduction assoc :chosen-element type)))
                      :choose-action-type
                      (send-choice! choices type true)
@@ -462,22 +476,8 @@
           :on-click
           (fn [event]
             (send-reset! (:state game)))}
-         "reset"]
-        "  |  "
+         "reset"]]
 
-        ;; CONFIRM
-        (condp = turn
-          :introduce
-          (if (introduction-complete? introduce)
-            [:span
-             {:style
-              {:color "hsl(100,50%,50%)"}
-              :on-click
-              (fn [event]
-                (send-choice! choices (assoc progress :organism 0) true))}
-             "confirm"]
-            [resolve-action])
-          [resolve-action])]
        [:h2 (with-out-str (pprint (-> game :state :player-turn)))]])))
 
 (defn game-page
