@@ -29,6 +29,10 @@
 (defonce food-source
   (r/atom {}))
 
+(defn choose-food-source!
+  [space]
+  (swap! food-source update space inc))
+
 (defn introduction-complete?
   [{:keys [progress]}]
   (and
@@ -327,15 +331,53 @@
     ^{:key "highlights"}
     (into [] (concat [:g] highlights))))
 
+(defn grow-from-highlights
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        factor 0.93
+        radius (* (:radius board) factor)
+
+        source @food-source
+        elements (game/current-organism-elements game)
+        fed-growers (filter
+                     (fn [{:keys [type space food]}]
+                       (and
+                        (= :grow type)
+                        (< 0 (- food (get source space 0)))))
+                     elements)
+        spaces (map :space fed-growers)
+
+        highlights
+        (mapv
+         (fn [space]
+           (let [[x y] (get locations space)]
+             ^{:key space}
+             (highlight-element
+              :grow x y radius color
+              (fn [event]
+                (println "FOOD SOURCE" turn space)
+                (choose-food-source! space)
+                (let [source @food-source]
+                  (if (get choices source)
+                    (send-choice! choices source true)))))))
+         spaces)]
+
+    ^{:key "highlights"}
+    (into [] (concat [:g] highlights))))
+
 (defn find-highlights
   [game board turn choices]
   (condp = turn
     :open []
     :introduce (introduce-highlights game board turn choices)
-    :eat-to (choose-space-highlights game board turn choices) ;; (eat-to-highlights game board turn choices)
-    :circulate-from (choose-space-highlights game board turn choices) ;; (circulate-from-highlights game board turn choices)
+    :eat-to (choose-space-highlights game board turn choices)
+    :circulate-from (choose-space-highlights game board turn choices)
     :circulate-to (choose-target-highlights game board turn choices)
-    :move-from (choose-space-highlights game board turn choices) ;; (move-from-highlights game board turn choices)
+    :grow-from (grow-from-highlights game board turn choices)
+    :grow-to (choose-space-highlights game board turn choices)
+    :move-from (choose-space-highlights game board turn choices)
     :move-to (choose-target-highlights game board turn choices)
     []))
 
@@ -400,7 +442,10 @@
                    (and
                     (= turn :choose-action)
                     (let [organism-turn (game/get-organism-turn game)]
-                      (= type (:choice organism-turn)))))
+                      (= type (:choice organism-turn))))
+                   (and
+                    (= turn :grow-element)
+                    (get choices type)))
                   :focus
 
                   (and
@@ -447,7 +492,10 @@
                      :choose-action
                      (let [organism-turn (game/get-organism-turn game)]
                        (if (= type (:choice organism-turn))
-                         (send-choice! choices type true)))))))))]
+                         (send-choice! choices type true)))
+                     :grow-element
+                     (if-let [choice (get choices type)]
+                       (send-state! (:state choice) true))))))))]
 
        ;; CIRCULATE
        [:h1
@@ -488,7 +536,7 @@
      :display "flex"
      :flex-direction "row"}}
    [:aside
-    {:style {:width "25%"}}
+    {:style {:width "30%"}}
     [:div
      [player-list]]
     [:div
@@ -499,7 +547,7 @@
     {:style {:flex-grow 1}}
     [organism-board]]
    [:nav
-    {:style {:width "20%"}}
+    {:style {:width "30%"}}
     [organism-controls]]])
 
 (defn update-messages!
@@ -519,7 +567,8 @@
          (-> introduction
              (assoc :progress (-> received :game :state :player-turn :introduction))
              (assoc :chosen-element nil)
-             (assoc :chosen-space nil)))))
+             (assoc :chosen-space nil))))
+      (reset! food-source {}))
     "chat" (swap! chat update-chat received)))
 
 (defn mount-components
