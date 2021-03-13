@@ -17,6 +17,9 @@
 (defonce session (r/atom {:page :home}))
 (defonce chat (r/atom []))
 
+(defonce board-invocation
+  (r/atom {}))
+
 (defonce game-state
   (r/atom
    {:game {}
@@ -557,19 +560,58 @@
 
        [:h2 (with-out-str (pprint (-> game :state :player-turn)))]])))
 
-(defn game-page
-  []
+(defn flex-direction
+  [direction]
+  {:style
+   {:display "flex"
+    :flex-direction flex-direction}})
+
+(defn flex-grow
+  [direction grow]
+  (assoc-in
+   (flex-direction direction)
+   [:style :flex-grow]
+   grow))
+
+(defn game-layout
+  [inner]
   [:div
-   {:style
-    {:display "flex"
-     :flex-direction "column"}}
+   (flex-direction "column")
    [:header
     [:h1 "ORGANISM"]]
+   inner
+   [:footer
+    [:h2 "organism"]]])
+
+(defn player-count-input
+  [])
+
+(defn ring-count-input
+  [])
+
+(defn players-input
+  [])
+
+(defn create-page
+  []
+  (let [invocation @board-invocation]
+    (game-layout
+     [:main
+      (flex-grow "row" 1)
+      [:aside
+       {:style {:width "30%"}}
+       [:div
+        [:h2 (.toString invocation)]]
+       [:form
+        [player-count-input]
+        [ring-count-input]
+        [players-input]]]])))
+
+(defn game-page
+  []
+  (game-layout
    [:main
-    {:style
-     {:flex-grow 1
-      :display "flex"
-      :flex-direction "row"}}
+    (flex-grow "row" 1)
     [:aside
      {:style {:width "30%"}}
      [:div
@@ -583,9 +625,14 @@
      [organism-board]]
     [:nav
      {:style {:width "30%"}}
-     [organism-controls]]]
-   [:footer
-    [:h2 "organism"]]])
+     [organism-controls]]]))
+
+(defn page-container
+  []
+  (let [invocation @board-invocation]
+    (if-let [create (get invocation :create)]
+      [create-page]
+      [game-page])))
 
 (defn update-messages!
   [{:keys [type] :as received}]
@@ -595,6 +642,10 @@
     (do
       (swap! game-state initialize-game received)
       (swap! chat initialize-chat received))
+    "create"
+    (do
+      (swap! board-invocation merge received)
+      (swap! game-state assoc :chat (:chat received)))
     "game-state"
     (do
       (swap! game-state update-game received)
@@ -636,7 +687,7 @@
 (defn mount-components
   []
   (println "MOUNTING")
-  (rdom/render [#'game-page] (.getElementById js/document "organism")))
+  (rdom/render [#'page-container] (.getElementById js/document "organism")))
 
 (defn init!
   []

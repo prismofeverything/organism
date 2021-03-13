@@ -46,43 +46,74 @@
         state (:state game)
         colors (board/generate-colors (:rings game))]
     (println "COLORS" colors)
-    (GameState.
-     game-key
-     game
-     colors
-     [state]
-     []
-     #{channel})))
+    ;; GameState
+    {:key game-key
+     :game game
+     :colors colors
+     :history [state]
+     :chat []
+     :channels #{channel}}))
 
 (def player-cycle
-  (atom (cycle ["orb" "mass" "brone" "laam" "stuk" "faast"])))
+  (atom
+   (cycle
+    ["orb"
+     "mass"
+     "brone"
+     "laam"
+     "stuk"
+     "faast"])))
+
+(defn create-game
+  [game-key channel]
+  {:key game-key
+   :create {:key game-key}
+   :chat []
+   :channels #{channel}})
+
+(defn append-channel!
+  [game-key channel]
+  (swap!
+   games
+   update-in [:games game-key :channels]
+   conj channel))
 
 (defn connect!
   [{:keys [game-key]} channel]
   (log/info "channel open")
   (let [existing (get-in (deref games) [:games game-key])]
-    (if (empty? existing)
-      (swap!
-       games
-       (fn [games]
-         (assoc-in
-          games [:games game-key]
-          (load-game game-key channel))))
-      (swap!
-       games
-       update-in [:games game-key :channels]
-       conj channel))
-    (let [game-state (get-in (deref games) [:games game-key])
-          player (first @player-cycle)]
-      (swap! player-cycle rest)
+    (cond
+      (empty? existing)
+      (let [game (create-game game-key channel)]
+        (swap!
+         games
+         (fn [games]
+           (assoc-in games [:games game-key] game)))
+        (send!
+         channel
+         (-> game
+             (select-keys [:key :create :chat])
+             (assoc :type "create"))))
+      (:create existing)
       (send!
        channel
-       {:type "initialize"
-        :game (:game game-state)
-        :player player
-        :colors (:colors game-state)
-        :history (:history game-state)
-        :chat (:chat game-state)}))))
+       (-> existing
+           (select-keys [:key :create :chat])
+           (assoc :type "create")))
+
+      :else
+      (let [game-state (get-in (deref games) [:games game-key])
+            player (first @player-cycle)]
+        (append-channel! game-key channel)
+        (swap! player-cycle rest)
+        (send!
+         channel
+         {:type "initialize"
+          :game (:game game-state)
+          :player player
+          :colors (:colors game-state)
+          :history (:history game-state)
+          :chat (:chat game-state)})))))
 
 (defn disconnect-game
   [game-key channel games]
@@ -104,6 +135,9 @@
   [channels message]
   (doseq [ch channels]
     (send! ch message)))
+
+(defn update-create-game
+  [game-key channel message])
 
 (defn update-game-state
   [game-key channel {:keys [game complete] :as message}]
@@ -170,6 +204,7 @@
   (let [message (read-json raw)]
     (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
+      "create" (update-create-game game-key channel message)
       "game-state" (update-game-state game-key channel message)
       "history" (walk-history game-key channel message)
       "chat" (update-chat game-key channel message)
