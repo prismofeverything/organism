@@ -644,7 +644,7 @@
   (ajax/load-interceptors!)
   (hook-browser-navigation!)
   (let [protocol
-        (if (= (.-protocol js/location) "https")
+        (if (= (.-protocol js/location) "https:")
           "wss:"
           "ws:")]
     (ws/make-websocket!

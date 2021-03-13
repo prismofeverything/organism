@@ -1,8 +1,8 @@
 (ns organism.organism
   (:require
-    [organism.play :as play]
     [cljs.spec.alpha :as s]
-    [expound.alpha :as expound]))
+    [expound.alpha :as expound]
+    [organism.play :as play]))
 
 (extend-protocol IPrintWithWriter
   js/Symbol
@@ -13,25 +13,8 @@
 
 (enable-console-print!)
 
-
-
-
-
-;; ;;ignore println statements in prod
-;; (set! *print-fn* (fn [& _]))
+;;ignore println statements in prod
+(set! *print-fn* (fn [& _]))
 
 (play/init!)
 
-;; (defn initiate!
-;;   [tries]
-;;   (cond
-;;     (.getElementById js/document "organism")
-;;     (play/init!)
-
-;;     (> tries 0)
-;;     (.setTimeout js/window (partial initiate! (dec tries)))
-
-;;     :else
-;;     (println "FAILED TO MOUNT organism")))
-
-;; (initiate! 13)
