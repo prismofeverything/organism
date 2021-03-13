@@ -1,15 +1,21 @@
 (ns organism.play
   (:require
+   [clojure.string :as string]
    [cljs.pprint :refer (pprint)]
+   [goog.events :as events]
+   [goog.history.EventType :as HistoryEventType]
+   [reitit.core :as reitit]
    [reagent.core :as r]
    [reagent.dom :as rdom]
    [organism.game :as game]
    [organism.choice :as choice]
    [organism.board :as board]
-   [organism.websockets :as ws]))
+   [organism.ajax :as ajax]
+   [organism.websockets :as ws])
+  (:import goog.History))
 
-(defonce chat
-  (r/atom []))
+(defonce session (r/atom {:page :home}))
+(defonce chat (r/atom []))
 
 (defonce game-state
   (r/atom
@@ -602,6 +608,31 @@
       (reset! food-source {}))
     "chat" (swap! chat update-chat received)))
 
+;; -------------------------
+;; Routes
+
+(def router
+  (reitit/router
+    [["/" :home]
+     ["/about" :about]
+     ["/game/:game"]]))
+
+(defn match-route [uri]
+  (->> (or (not-empty (string/replace uri #"^.*#" "")) "/")
+       (reitit/match-by-path router)
+       :data
+       :name))
+;; -------------------------
+;; History
+;; must be called after routes have been defined
+(defn hook-browser-navigation! []
+  (doto (History.)
+    (events/listen
+      HistoryEventType/NAVIGATE
+      (fn [^js/Event.token event]
+        (swap! session assoc :page (match-route (.-token event)))))
+    (.setEnabled true)))
+
 (defn mount-components
   []
   (println "MOUNTING")
@@ -610,6 +641,8 @@
 (defn init!
   []
   (println "intializing game" js/gameKey)
+  (ajax/load-interceptors!)
+  (hook-browser-navigation!)
   (let [protocol
         (if (= (.-protocol js/location) "https")
           "wss:"
