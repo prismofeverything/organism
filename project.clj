@@ -59,7 +59,7 @@
 
   :profiles
   {:uberjar {:omit-source true
-             :prep-tasks ["compile" ["cljsbuild" "once"]]
+             :prep-tasks ["compile" ["cljsbuild" "once" "organism"]]
              :cljsbuild
              {:builds
               {:app

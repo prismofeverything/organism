@@ -553,25 +553,33 @@
 
 (defn game-page
   []
-  [:main
+  [:div
    {:style
-    {:flex-grow 1
-     :display "flex"
-     :flex-direction "row"}}
-   [:aside
-    {:style {:width "30%"}}
-    [:div
-     [player-list]]
-    [:div
-     [:h2 "discuss"]
-     [chat-list]
-     [chat-input]]]
-   [:article
-    {:style {:flex-grow 1}}
-    [organism-board]]
-   [:nav
-    {:style {:width "30%"}}
-    [organism-controls]]])
+    {:display "flex"
+     :flex-direction "column"}}
+   [:header
+    [:h1 "ORGANISM"]]
+   [:main
+    {:style
+     {:flex-grow 1
+      :display "flex"
+      :flex-direction "row"}}
+    [:aside
+     {:style {:width "30%"}}
+     [:div
+      [player-list]]
+     [:div
+      [:h2 "discuss"]
+      [chat-list]
+      [chat-input]]]
+    [:article
+     {:style {:flex-grow 1}}
+     [organism-board]]
+    [:nav
+     {:style {:width "30%"}}
+     [organism-controls]]]
+   [:footer
+    [:h2 "organism"]]])
 
 (defn update-messages!
   [{:keys [type] :as received}]
@@ -596,6 +604,7 @@
 
 (defn mount-components
   []
+  (println "MOUNTING")
   (rdom/render [#'game-page] (.getElementById js/document "organism")))
 
 (defn init!
@@ -609,3 +618,5 @@
      (str protocol "//" (.-host js/location) "/ws/" js/gameKey)
      update-messages!)
     (mount-components)))
+
+
