@@ -1,8 +1,8 @@
 # organism
 
-generated using Luminus version "3.97"
+A server for synchronous and asynchronous play of ORGANISM, the board game.  
 
-FIXME
+![SEROTINY](https://github.com/prismofeverything/organism/blob/master/resources/img/organism-five-player.png)
 
 ## Prerequisites
 
@@ -12,10 +12,10 @@ You will need [Leiningen][1] 2.0 or above installed.
 
 ## Running
 
-To start a web server for the application, run:
+To start the server, run:
 
-    lein run 
+    > lein run 
 
 ## License
 
-Copyright © 2021 FIXME
+Copyright © 2021 Ryan Spangler
