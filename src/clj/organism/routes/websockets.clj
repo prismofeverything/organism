@@ -38,7 +38,7 @@
 (defonce games
   (atom {:games {}}))
 
-(defrecord GameState [key game colors history chat channels])
+(defrecord GameState [key invocation created game history chat channels])
 
 (defn load-game
   [game-key channel]
@@ -48,26 +48,20 @@
     (println "COLORS" colors)
     ;; GameState
     {:key game-key
+     :invocation (board/empty-invocation)
+     :created (System/currentTimeMillis)
      :game game
-     :colors colors
      :history [state]
      :chat []
      :channels #{channel}}))
 
 (def player-cycle
-  (atom
-   (cycle
-    ["orb"
-     "mass"
-     "brone"
-     "laam"
-     "stuk"
-     "faast"])))
+  (atom (cycle board/default-player-order)))
 
 (defn create-game
   [game-key channel]
   {:key game-key
-   :create {:key game-key}
+   :invocation (board/empty-invocation)
    :chat []
    :channels #{channel}})
 
@@ -92,14 +86,16 @@
         (send!
          channel
          (-> game
-             (select-keys [:key :create :chat])
+             (select-keys [:key :invocation])
              (assoc :type "create"))))
-      (:create existing)
-      (send!
-       channel
-       (-> existing
-           (select-keys [:key :create :chat])
-           (assoc :type "create")))
+      (-> existing :created empty?)
+      (do
+        (append-channel! game-key channel)
+        (send!
+         channel
+         (-> existing
+             (select-keys [:key :invocation])
+             (assoc :type "create"))))
 
       :else
       (let [game-state (get-in (deref games) [:games game-key])
@@ -137,7 +133,14 @@
     (send! ch message)))
 
 (defn update-create-game
-  [game-key channel message])
+  [game-key channel message]
+  (swap!
+   games
+   assoc-in [:games game-key :invocation]
+   (:invocation message))
+  (send-channels!
+   (get-in @games [:games game-key :channels])
+   message))
 
 (defn update-game-state
   [game-key channel {:keys [game complete] :as message}]

@@ -43,6 +43,12 @@
       [[] (rand)]
       (map vector rings (range))))))
 
+(def total-rings
+  [:A :B :C :D :E :F :G :H :I :J :K :L :M])
+
+(def default-player-order
+  ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"])
+
 (def organism-colors
   [[:yellow "#fff88c"]
    [:red "#da6558"]
@@ -529,6 +535,15 @@
          organisms)
         svg (apply conj layout element-icons)]
     svg))
+
+(defn empty-invocation
+  []
+  {:player-count 1
+   :ring-count 3
+   :players (take 1 default-player-order)
+   :colors (generate-colors (take 3 total-rings))})
+
+
 
 #?(:clj
    (defn export

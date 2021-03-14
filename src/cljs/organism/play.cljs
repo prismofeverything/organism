@@ -19,18 +19,15 @@
 (defonce chat (r/atom []))
 
 (defonce player-order
-  (r/atom
-   ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"]))
+  (r/atom board/default-player-order))
 
 (defonce board-invocation
-  (r/atom
-   {:player-count 7
-    :ring-count 4
-    :players (take 7 @player-order)}))
+  (r/atom (board/empty-invocation)))
 
 (defonce game-state
   (r/atom
    {:game {}
+    :created false
     :player nil
     :history []
     :board {}
@@ -150,7 +147,7 @@
 
 (defn highlight-circle
   [x y radius color on-click]
-  (let [highlight-color (board/brighten color 0.1)]
+  (let [highlight-color (board/brighten color 0.2)]
     (println "HIGHLIGHT COLOR" highlight-color)
     [:circle
      {:cx x :cy y
@@ -166,9 +163,9 @@
   [:circle
    {:cx x :cy y
     :r radius
-    :stroke (board/brighten color 0.2)
+    :stroke (board/brighten color 0.3)
     :stroke-width (* 0.21 radius)
-    :fill (board/brighten color 0.2)
+    :fill (board/brighten color 0.1)
     :on-click on-click}])
 
 (defn highlight-element
@@ -208,6 +205,12 @@
      choices
      (assoc progress :organism 0)
      true)))
+
+(defn send-create!
+  [invocation]
+  (ws/send-transit-message!
+   {:type "create"
+    :invocation invocation}))
 
 (def highlight-factor 0.93)
 
@@ -468,17 +471,13 @@
          (range 3))])
      players)))
 
-(def total-rings
-  [:A :B :C :D :E :F :G :H :I :J :K :L :M])
-
 (defn generate-game-state
-  [{:keys [ring-count player-count players] :as invocation}]
+  [{:keys [ring-count player-count players colors] :as invocation}]
   (let [symmetry (player-symmetry player-count)
         radius (ring-radius ring-count)
         radius (if (= symmetry 7) (* 0.9 radius) radius)
         buffer (if (= symmetry 7) 2.4 2.1)
-        ring-names (take ring-count total-rings)
-        colors (board/generate-colors ring-names)
+        ring-names (take ring-count board/total-rings)
         notches?
         (and
          (> ring-count 4)
@@ -500,9 +499,13 @@
 
 (defn apply-invocation!
   [invocation]
-  (reset!
-   game-state
-   (generate-game-state invocation)))
+  (println "INVOCATION" invocation)
+  (println "GAME" (get @game-state :game))
+  (let [generated (generate-game-state invocation)]
+    (println "GENERATED" generated)
+    (reset!
+     game-state
+     generated)))
 
 (defn organism-controls
   []
@@ -690,42 +693,54 @@
 
 (defn ring-count-input
   []
-  [:div
-   [:h2 "ring count"]
-   [:select
-    {:name "ring-count"
-     :on-change
-     (fn [event]
-       (let [value (-> event .-target .-value js/parseInt)]
-         (swap! board-invocation assoc :ring-count value)
-         (apply-invocation! @board-invocation)))}
-    (map
-     (fn [n]
-       ^{:key n}
-       [:option
-        {:value n}
-        n])
-     (range 3 14))]])
+  (let [invocation @board-invocation]
+    [:div
+     [:h2 "ring count"]
+     [:select
+      {:name "ring-count"
+       :value (:ring-count invocation)
+       :on-change
+       (fn [event]
+         (let [value (-> event .-target .-value js/parseInt)
+               invocation @board-invocation
+               rings (take value board/total-rings)]
+           (-> invocation
+               (assoc :ring-count value)
+               (assoc :colors (board/generate-colors rings))
+               send-create!)))}
+      (map
+       (fn [n]
+         ^{:key n}
+         [:option
+          {:value n}
+          n])
+       (range 3 14))]]))
 
 (defn player-count-input
   []
-  [:div
-   [:h2 "player count"]
-   [:select
-    {:name "player-count"
-     :on-change
-     (fn [event]
-       (let [value (-> event .-target .-value js/parseInt)
-             order @player-order]
-         (swap! board-invocation assoc :player-count value :players (take value order))
-         (apply-invocation! @board-invocation)))}
-    (map
-     (fn [n]
-       ^{:key n}
-       [:option
-        {:value n}
-        n])
-     (range 1 8))]])
+  (let [invocation @board-invocation]
+    [:div
+     [:h2 "player count"]
+     [:select
+      {:name "player-count"
+       :value (:player-count invocation)
+       :on-change
+       (fn [event]
+         (let [value (-> event .-target .-value js/parseInt)
+               order @player-order
+               rings (take (:ring-count invocation) board/total-rings)]
+           (-> invocation
+               (assoc :colors (board/generate-colors rings))
+               (assoc :player-count value)
+               (assoc :players (take value order))
+               send-create!)))}
+      (map
+       (fn [n]
+         ^{:key n}
+         [:option
+          {:value n}
+          n])
+       (range 1 8))]]))
 
 (defn players-input
   [])
@@ -774,9 +789,9 @@
 (defn page-container
   []
   (let [invocation @board-invocation]
-    (if-let [create (get invocation :create)]
-      [create-page]
-      [game-page])))
+    (if (:created invocation)
+      [game-page]
+      [create-page])))
 
 (defn update-messages!
   [{:keys [type] :as received}]
@@ -788,8 +803,8 @@
       (swap! chat initialize-chat received))
     "create"
     (do
-      (swap! board-invocation merge received)
-      (swap! game-state assoc :chat (:chat received)))
+      (reset! board-invocation (:invocation received))
+      (apply-invocation! @board-invocation))
     "game-state"
     (do
       (swap! game-state update-game received)
