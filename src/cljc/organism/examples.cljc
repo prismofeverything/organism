@@ -38,7 +38,7 @@
 (defn seven-player-game
   []
   (game/create-game
-   5
+   7
    [:A :B :C :D :E :F :G]
    [["orb" [[:G 2] [:G 3] [:G 4]]]
     ["mass" [[:G 8] [:G 9] [:G 10]]]

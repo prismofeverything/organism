@@ -18,7 +18,9 @@
 (defonce chat (r/atom []))
 
 (defonce board-invocation
-  (r/atom {}))
+  (r/atom
+   {:player-count 1
+    :ring-count 3}))
 
 (defonce game-state
   (r/atom
@@ -399,6 +401,72 @@
       svg
       (conj svg highlights))))
 
+(defn player-symmetry
+  [player-count]
+  (cond
+    (< player-count 5) 6
+    (= player-count 5) 5
+    (= player-count 7) 7
+    :else 6))
+
+(defn ring-radius
+  [ring-count]
+  (let [total (dec (* 2 ring-count))
+        field 500]
+    (quot field total)))
+
+(defn find-starting-spaces
+  [symmetry rings players]
+  (let [starting-ring (last rings)
+        ring-count (count rings)
+        player-count (count players)
+        total (* (dec ring-count) symmetry)
+        interval (/ total player-count)
+        difference (- (dec ring-count) 3)
+        offset (quot difference 2)]
+    (map-indexed
+     (fn [player-index player]
+       [player
+        (mapv
+         (fn [element-index]
+           [starting-ring
+            (+ (* player-index interval)
+               element-index
+               offset)])
+         (range 3))])
+     players)))
+
+(def total-rings
+  [:A :B :C :D :E :F :G :H :I :J :K :L :M])
+
+(defn generate-game-state
+  [{:keys [ring-count player-count players] :as invocation}]
+  (let [symmetry (player-symmetry player-count)
+        radius (ring-radius ring-count)
+        ring-names (take ring-count total-rings)
+        colors (board/generate-colors ring-names)
+        notches? (> ring-count 4)
+        starting (find-starting-spaces symmetry ring-names players)
+        game-players (game/initial-players starting)
+        game
+        {:players game-players}
+        board
+        (board/build-board
+         symmetry radius 2.1
+         colors players notches?)]
+    {:game game
+     :player (first players)
+     :history []
+     :board board
+     :turn :create
+     :choices []}))
+
+(defn apply-invocation!
+  [invocation]
+  (reset!
+   game-state
+   (generate-game-state invocation)))
+
 (defn organism-controls
   []
   (let [{:keys [game board turn choices history]} @game-state
@@ -583,11 +651,43 @@
    [:footer
     [:h2 "organism"]]])
 
-(defn player-count-input
-  [])
-
 (defn ring-count-input
-  [])
+  []
+  [:div
+   [:h2 "ring count"]
+   [:select
+    {:name "ring-count"
+     :on-change
+     (fn [event]
+       (let [value (-> event .-target .-value js/parseInt)]
+         (swap! board-invocation assoc :ring-count value)
+         (apply-invocation! @board-invocation)))}
+    (map
+     (fn [n]
+       ^{:key n}
+       [:option
+        {:value n}
+        n])
+     (range 3 14))]])
+
+(defn player-count-input
+  []
+  [:div
+   [:h2 "player count"]
+   [:select
+    {:name "player-count"
+     :on-change
+     (fn [event]
+       (let [value (-> event .-target .-value js/parseInt)]
+         (swap! board-invocation assoc :player-count value)
+         (apply-invocation! @board-invocation)))}
+    (map
+     (fn [n]
+       ^{:key n}
+       [:option
+        {:value n}
+        n])
+     (range 1 8))]])
 
 (defn players-input
   [])
@@ -603,9 +703,15 @@
        [:div
         [:h2 (.toString invocation)]]
        [:form
-        [player-count-input]
         [ring-count-input]
-        [players-input]]]])))
+        [player-count-input]
+        [players-input]]]
+      [:article
+       {:style {:flex-grow 1}}
+       [organism-board]]
+      [:nav
+       {:style {:width "30%"}}
+       [:div]]])))
 
 (defn game-page
   []
@@ -694,6 +800,7 @@
   (println "intializing game" js/gameKey)
   (ajax/load-interceptors!)
   (hook-browser-navigation!)
+  (apply-invocation! @board-invocation)
   (let [protocol
         (if (= (.-protocol js/location) "https:")
           "wss:"
