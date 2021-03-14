@@ -7,6 +7,7 @@
    [reitit.core :as reitit]
    [reagent.core :as r]
    [reagent.dom :as rdom]
+   [organism.base :as base]
    [organism.game :as game]
    [organism.choice :as choice]
    [organism.board :as board]
@@ -17,10 +18,15 @@
 (defonce session (r/atom {:page :home}))
 (defonce chat (r/atom []))
 
+(defonce player-order
+  (r/atom
+   ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"]))
+
 (defonce board-invocation
   (r/atom
-   {:player-count 1
-    :ring-count 3}))
+   {:player-count 7
+    :ring-count 4
+    :players (take 7 @player-order)}))
 
 (defonce game-state
   (r/atom
@@ -144,7 +150,8 @@
 
 (defn highlight-circle
   [x y radius color on-click]
-  (let [highlight-color (board/brighten color 0.2)]
+  (let [highlight-color (board/brighten color 0.1)]
+    (println "HIGHLIGHT COLOR" highlight-color)
     [:circle
      {:cx x :cy y
       :r radius
@@ -159,7 +166,7 @@
   [:circle
    {:cx x :cy y
     :r radius
-    :stroke (board/brighten color 0.3)
+    :stroke (board/brighten color 0.2)
     :stroke-width (* 0.21 radius)
     :fill (board/brighten color 0.2)
     :on-click on-click}])
@@ -168,7 +175,7 @@
   [type x y radius color on-click]
   (let [g
         (board/render-element
-         (board/brighten color 0.2) "white"
+         (board/brighten color 0.1) "white"
          [x y]
          radius
          {:type type :food 1})]
@@ -202,14 +209,35 @@
      (assoc progress :organism 0)
      true)))
 
+(def highlight-factor 0.93)
+
+(defn create-highlights
+  [game board turn choices]
+  (let [players (:players game)
+        colors (:player-colors board)
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        highlights
+        (base/map-cat
+         (fn [[player {:keys [starting-spaces]}]]
+           (map
+            (fn [space]
+              (let [[x y] (get locations space)
+                    color (get colors player)]
+                (highlight-circle
+                 x y radius color
+                 (fn [event]))))
+            starting-spaces))
+         players)]
+    (into [] (concat [:g] highlights))))
+
 (defn introduce-highlights
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.2)
+        highlight-color (board/brighten color 0.1)
         locations (:locations board)
-        factor 0.93
-        radius (* (:radius board) factor)
+        radius (* (:radius board) highlight-factor)
         element-radius (* (:radius board) 1)
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space chosen-element progress]} (deref introduction)
@@ -280,8 +308,7 @@
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
         locations (:locations board)
-        factor 0.93
-        radius (* (:radius board) factor)
+        radius (* (:radius board) highlight-factor)
         spaces (keys choices)
 
         highlights
@@ -303,10 +330,9 @@
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.3)
+        highlight-color (board/brighten color 0.1)
         locations (:locations board)
-        factor 0.93
-        radius (* (:radius board) factor)
+        radius (* (:radius board) highlight-factor)
         element-radius (* (:radius board) 1.0)
         choose-from (game/get-action-field game :from)
         spaces (keys choices)
@@ -342,8 +368,7 @@
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
         locations (:locations board)
-        factor 0.93
-        radius (* (:radius board) factor)
+        radius (* (:radius board) highlight-factor)
 
         source @food-source
         elements (game/current-organism-elements game)
@@ -376,6 +401,7 @@
   [game board turn choices]
   (condp = turn
     :open []
+    :create (create-highlights game board turn choices)
     :introduce (introduce-highlights game board turn choices)
     :eat-to (choose-space-highlights game board turn choices)
     :circulate-from (choose-space-highlights game board turn choices)
@@ -423,16 +449,22 @@
         total (* (dec ring-count) symmetry)
         interval (/ total player-count)
         difference (- (dec ring-count) 3)
-        offset (quot difference 2)]
+        offset (Math/ceil (/ difference 2))
+        offset
+        (if (= 4 player-count)
+          (inc offset)
+          offset)]
+    (println "STARTING" starting-ring ring-count player-count total interval difference offset)
     (map-indexed
      (fn [player-index player]
        [player
         (mapv
          (fn [element-index]
            [starting-ring
-            (+ (* player-index interval)
-               element-index
-               offset)])
+            (Math/ceil
+             (+ (* player-index interval)
+                element-index
+                offset))])
          (range 3))])
      players)))
 
@@ -443,16 +475,21 @@
   [{:keys [ring-count player-count players] :as invocation}]
   (let [symmetry (player-symmetry player-count)
         radius (ring-radius ring-count)
+        radius (if (= symmetry 7) (* 0.9 radius) radius)
+        buffer (if (= symmetry 7) 2.4 2.1)
         ring-names (take ring-count total-rings)
         colors (board/generate-colors ring-names)
-        notches? (> ring-count 4)
+        notches?
+        (and
+         (> ring-count 4)
+         (not= 4 player-count))
         starting (find-starting-spaces symmetry ring-names players)
         game-players (game/initial-players starting)
         game
         {:players game-players}
         board
         (board/build-board
-         symmetry radius 2.1
+         symmetry radius buffer
          colors players notches?)]
     {:game game
      :player (first players)
@@ -473,8 +510,8 @@
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
-        highlight-color (board/brighten current-color 0.2)
-        focus-color (board/brighten current-color 0.4)
+        highlight-color (board/brighten current-color 0.1)
+        focus-color (board/brighten current-color 0.2)
 
         element-radius (* (:radius board) 1)
         element-controls
@@ -678,8 +715,9 @@
     {:name "player-count"
      :on-change
      (fn [event]
-       (let [value (-> event .-target .-value js/parseInt)]
-         (swap! board-invocation assoc :player-count value)
+       (let [value (-> event .-target .-value js/parseInt)
+             order @player-order]
+         (swap! board-invocation assoc :player-count value :players (take value order))
          (apply-invocation! @board-invocation)))}
     (map
      (fn [n]

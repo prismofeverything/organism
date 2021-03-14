@@ -8,6 +8,16 @@
 
 (def tau (* 2 Math/PI))
 
+(defn random-color
+  [n]
+  (-> (color/hsla
+       (rand)
+       (rand)
+       (rand)
+       1.0)
+      color/as-css
+      :col))
+
 (defn generate-colors
   [rings]
   (let [num-rings (count rings)
@@ -209,7 +219,26 @@
                        (dissoc locations notch))
                      locations
                      notches)
-                    locations)]
+                    locations)
+        board-colors
+        (reverse
+         (rest
+          (map last colors)))
+           ;; (str "url(#" (name color-key) "-element)")
+        missing-colors (- (count players) (count board-colors))
+        more-colors
+        (if (> missing-colors 0)
+          (map
+           random-color
+           (range missing-colors)))
+        all-colors (concat board-colors more-colors)
+        player-colors
+        (into
+         {}
+         (map
+          vector
+          players
+          all-colors))]
     (Board.
      symmetry
      radius
@@ -217,18 +246,7 @@
      colors
      (board-layout symmetry radius buffer colors notches?)
      locations
-     (into
-      {}
-      (map
-       vector
-       players
-       (reverse
-        (rest
-         (map
-          (fn [[color-key color-str]]
-            color-str)
-          ;; (str "url(#" (name color-key) "-element)")
-          colors))))))))
+     player-colors)))
 
 (defn get-ring
   [board color]
@@ -437,6 +455,21 @@
       (partial render-single-food color radius)
       points)]))
 
+(defn sanify
+  [color]
+  (let [sane
+        (map
+         (fn [key]
+           (let [v (get color key)]
+             (cond
+               (< v 0) (* v -1)
+               (> v 1) (- 1 (- v 1))
+               :else v)))
+         [:h :s :v :a])]
+    (apply
+     color/hsla
+     sane)))
+
 (defn brighten
   [color-str factor]
   (if color-str
@@ -445,6 +478,7 @@
         color/as-hsva
         (update :v + factor)
         (update :s - 0.1)
+        (sanify)
         color/as-css
         :col)))
 
