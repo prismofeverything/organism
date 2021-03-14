@@ -2,7 +2,7 @@
 
 A server for synchronous and asynchronous play of ORGANISM, the board game.  
 
-![SEROTINY](https://github.com/prismofeverything/organism/blob/master/resources/img/organism-five-player.png)
+![ORGANISM](https://github.com/prismofeverything/organism/blob/master/resources/public/img/organism-five-player.png)
 
 ## Prerequisites
 
