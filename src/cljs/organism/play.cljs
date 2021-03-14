@@ -760,7 +760,7 @@
         [:div
          [:h2 "player" (inc index)]
          [:input
-          {:value player
+          {:value (get-in @board-invocation [:players index])
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value)]
