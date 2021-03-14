@@ -147,7 +147,7 @@
 
 (defn highlight-circle
   [x y radius color on-click]
-  (let [highlight-color (board/brighten color 0.2)]
+  (let [highlight-color (board/brighten color 0.1)]
     (println "HIGHLIGHT COLOR" highlight-color)
     [:circle
      {:cx x :cy y
@@ -163,7 +163,7 @@
   [:circle
    {:cx x :cy y
     :r radius
-    :stroke (board/brighten color 0.3)
+    :stroke (board/brighten color 0.2)
     :stroke-width (* 0.21 radius)
     :fill (board/brighten color 0.1)
     :on-click on-click}])
@@ -742,8 +742,31 @@
           n])
        (range 1 8))]]))
 
+(defn send-player-name!
+  [index player-name]
+  (ws/send-transit-message!
+   {:type "player-name"
+    :index index
+    :player player-name}))
+
 (defn players-input
-  [])
+  []
+  (let [{:keys [player-count]} @board-invocation
+        order @player-order]
+    [:div
+     (map-indexed
+      (fn [index player]
+        ^{:key index}
+        [:div
+         [:h2 "player" (inc index)]
+         [:input
+          {:value player
+           :on-change
+           (fn [event]
+             (let [value (-> event .-target .-value)]
+               (println "VALUE" value)
+               (send-player-name! index value)))}]])
+      (take player-count order))]))
 
 (defn create-page
   []
@@ -805,6 +828,10 @@
     (do
       (reset! board-invocation (:invocation received))
       (apply-invocation! @board-invocation))
+    "player-name"
+    (let [{:keys [index player]} received]
+      (swap! player-order assoc index player)
+      (swap! board-invocation update :players (fn [players] (assoc (vec players) index player))))
     "game-state"
     (do
       (swap! game-state update-game received)

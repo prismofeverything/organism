@@ -142,6 +142,18 @@
    (get-in @games [:games game-key :channels])
    message))
 
+(defn update-player-name
+  [game-key channel {:keys [index player] :as message}]
+  (swap!
+   games
+   update-in
+   [:games game-key :invocation]
+   (fn [invocation]
+     (update invocation :players (fn [invoke] (assoc (vec invoke) index player)))))
+  (send-channels!
+   (get-in @games [:games game-key :channels])
+   message))
+
 (defn update-game-state
   [game-key channel {:keys [game complete] :as message}]
   (log/info "received game-state message" message)
@@ -208,6 +220,7 @@
     (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
       "create" (update-create-game game-key channel message)
+      "player-name" (update-player-name game-key channel message)
       "game-state" (update-game-state game-key channel message)
       "history" (walk-history game-key channel message)
       "chat" (update-chat game-key channel message)
