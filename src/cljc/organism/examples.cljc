@@ -8,6 +8,7 @@
    [:yellow :red :blue :orange]
    [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
     ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
+   3
    false))
 
 (defn six-player-game
@@ -21,6 +22,7 @@
     ["laam" [[:G 20] [:G 21] [:G 22]]]
     ["stuk" [[:G 26] [:G 27] [:G 28]]]
     ["faast" [[:G 32] [:G 33] [:G 34]]]]
+   3
    true))
 
 (defn five-player-game
@@ -33,6 +35,7 @@
     ["brone" [[:G 14] [:G 15] [:G 16]]]
     ["laam" [[:G 20] [:G 21] [:G 22]]]
     ["stuk" [[:G 26] [:G 27] [:G 28]]]]
+   3
    true))
 
 (defn seven-player-game
@@ -47,4 +50,5 @@
     ["stuk" [[:G 26] [:G 27] [:G 28]]]
     ["faast" [[:G 32] [:G 33] [:G 34]]]
     ["lelon" [[:G 38] [:G 39] [:G 40]]]]
+   3
    true))

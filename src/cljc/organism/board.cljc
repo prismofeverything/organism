@@ -544,6 +544,70 @@
    :players (vec (take 1 default-player-order))
    :colors (generate-colors (take 3 total-rings))})
 
+(defn player-symmetry
+  [player-count]
+  (cond
+    (< player-count 5) 6
+    (= player-count 5) 5
+    (= player-count 7) 7
+    :else 6))
+
+(defn ring-radius
+  [ring-count]
+  (let [total (dec (* 2 ring-count))
+        field 500]
+    (quot field total)))
+
+(defn cut-notches?
+  [ring-count player-count]
+  (and
+   (> ring-count 4)
+   (not= 4 player-count)))
+
+(defn find-starting-spaces
+  [symmetry rings players]
+  (let [starting-ring (last rings)
+        ring-count (count rings)
+        player-count (count players)
+        total (* (dec ring-count) symmetry)
+        interval (/ total player-count)
+        difference (- (dec ring-count) 3)
+        offset (Math/ceil (/ difference 2))
+        offset
+        (if (= 4 player-count)
+          (inc offset)
+          offset)]
+    (println "STARTING" starting-ring ring-count player-count total interval difference offset)
+    (map-indexed
+     (fn [player-index player]
+       [player
+        (mapv
+         (fn [element-index]
+           [starting-ring
+            (Math/ceil
+             (+ (* player-index interval)
+                element-index
+                offset))])
+         (range 3))])
+     players)))
+
+(defn starting-spaces
+  [ring-count player-count players total-rings]
+  (let [symmetry (player-symmetry player-count)
+        rings (take ring-count total-rings)]
+    (find-starting-spaces symmetry rings players)))
+
+(defn generate-board
+  [ring-count player-count players colors total-rings]
+  (let [symmetry (player-symmetry player-count)
+        radius (ring-radius ring-count)
+        radius (if (= symmetry 7) (* 0.9 radius) radius)
+        buffer (if (= symmetry 7) 2.4 2.1)
+        ring-names (take ring-count total-rings)
+        notches? (cut-notches? ring-count player-count)]
+    (build-board
+     symmetry radius buffer
+     colors players notches?)))
 
 
 #?(:clj

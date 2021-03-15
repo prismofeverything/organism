@@ -430,66 +430,24 @@
       svg
       (conj svg highlights))))
 
-(defn player-symmetry
-  [player-count]
-  (cond
-    (< player-count 5) 6
-    (= player-count 5) 5
-    (= player-count 7) 7
-    :else 6))
-
-(defn ring-radius
-  [ring-count]
-  (let [total (dec (* 2 ring-count))
-        field 500]
-    (quot field total)))
-
-(defn find-starting-spaces
-  [symmetry rings players]
-  (let [starting-ring (last rings)
-        ring-count (count rings)
-        player-count (count players)
-        total (* (dec ring-count) symmetry)
-        interval (/ total player-count)
-        difference (- (dec ring-count) 3)
-        offset (Math/ceil (/ difference 2))
-        offset
-        (if (= 4 player-count)
-          (inc offset)
-          offset)]
-    (println "STARTING" starting-ring ring-count player-count total interval difference offset)
-    (map-indexed
-     (fn [player-index player]
-       [player
-        (mapv
-         (fn [element-index]
-           [starting-ring
-            (Math/ceil
-             (+ (* player-index interval)
-                element-index
-                offset))])
-         (range 3))])
-     players)))
-
 (defn generate-game-state
   [{:keys [ring-count player-count players colors] :as invocation}]
-  (let [symmetry (player-symmetry player-count)
-        radius (ring-radius ring-count)
-        radius (if (= symmetry 7) (* 0.9 radius) radius)
-        buffer (if (= symmetry 7) 2.4 2.1)
+  (let [symmetry (board/player-symmetry player-count)
+        ;; radius (ring-radius ring-count)
+        ;; radius (if (= symmetry 7) (* 0.9 radius) radius)
+        ;; buffer (if (= symmetry 7) 2.4 2.1)
         ring-names (take ring-count board/total-rings)
-        notches?
-        (and
-         (> ring-count 4)
-         (not= 4 player-count))
-        starting (find-starting-spaces symmetry ring-names players)
+        ;; notches? (board/cut-notches? ring-count player-count)
+        starting (board/find-starting-spaces symmetry ring-names players)
         game-players (game/initial-players starting)
         game
         {:players game-players}
+        ;; (board/build-board
+        ;;  symmetry radius buffer
+        ;;  colors players notches?)
         board
-        (board/build-board
-         symmetry radius buffer
-         colors players notches?)]
+        (board/generate-board
+         ring-count player-count players colors board/total-rings)]
     {:game game
      :player (first players)
      :history []
@@ -789,6 +747,15 @@
                (send-player-name! index value)))}]])
       (take player-count order))]))
 
+(defn create-button
+  []
+  [:input
+   {:type :button
+    :value "create!"
+    :on-click
+    (fn [event]
+      )}])
+
 (defn create-page
   []
   (let [invocation @board-invocation]
@@ -809,7 +776,8 @@
       [:nav
        {:style {:width "30%"}}
        [:div
-        [:h2 (.toString invocation)]]
+        [:h2 (.toString invocation)]
+        [create-button]]
        [:form
         [ring-count-input]
         [player-count-input]

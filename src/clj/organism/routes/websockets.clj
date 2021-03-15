@@ -41,19 +41,7 @@
 (defrecord GameState [key invocation created game history chat channels])
 
 (defn load-game
-  [game-key channel]
-  (let [game (examples/five-player-game)
-        state (:state game)
-        colors (board/generate-colors (:rings game))]
-    (println "COLORS" colors)
-    ;; GameState
-    {:key game-key
-     :invocation (board/empty-invocation)
-     :created (System/currentTimeMillis)
-     :game game
-     :history [state]
-     :chat []
-     :channels #{channel}}))
+  [game-key channel])
 
 (def player-cycle
   (atom (cycle board/default-player-order)))
@@ -144,6 +132,32 @@
    (get-in @games [:games game-key :channels])
    message))
 
+(defn trigger-creation
+  [game-key channel message]
+  (let [{:keys [invocation game channels history chat]} (-> @games :games game-key)
+        {:keys [ring-count player-count players colors organism-victory]} invocation
+        symmetry (board/player-symmetry player-count)
+        starting (board/starting-spaces ring-count player-count players board/total-rings)
+        notches? (board/cut-notches? ring-count player-count)
+        create (game/create-game symmetry colors starting organism-victory notches?)
+        completed (System/currentTimeMillis)]
+    (swap!
+     games
+     (fn [game-state]
+       (-> game-state
+           (assoc-in [:games game-key :invocation :created] completed)
+           (assoc-in [:games game-key :game] create))))
+    (send-channels!
+     channel
+     {:type "initialize"
+      :invocation invocation
+      :game game
+      :player (-> starting first first)
+      :colors (:colors create)
+      :history history
+      :chat chat
+      :completed completed})))
+
 (defn update-player-name
   [game-key channel {:keys [index player] :as message}]
   (swap!
@@ -222,6 +236,7 @@
     (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
       "create" (update-create-game game-key channel message)
+      "trigger-creation" (trigger-creation game-key channel message)
       "player-name" (update-player-name game-key channel message)
       "game-state" (update-game-state game-key channel message)
       "history" (walk-history game-key channel message)

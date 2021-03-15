@@ -915,12 +915,14 @@
    (count (get-in game [:state :captures player]))
    (:capture-limit game)))
 
-(defn three-organisms?
+(defn organism-victory?
   [game player]
-  (>= (count (player-organisms game player)) 3))
+  (let [organism-victory (:organism-victory game)
+        organism-count (count (player-organisms game player))]
+    (>= organism-count organism-victory)))
 
 (defn player-wins?
   [game player]
   (or
    (enough-captures? game player)
-   (three-organisms? game player)))
+   (organism-victory? game player)))
