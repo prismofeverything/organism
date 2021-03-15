@@ -4,6 +4,8 @@ A server for synchronous and asynchronous play of ORGANISM, the board game.
 
 ![ORGANISM](https://github.com/prismofeverything/organism/blob/master/resources/public/img/organism-five-player.png)
 
+An instance is currently running at https://playorganism.io/
+
 ## Prerequisites
 
 You will need [Leiningen][1] 2.0 or above installed.

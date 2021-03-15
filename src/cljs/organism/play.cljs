@@ -758,9 +758,9 @@
       (fn [index player]
         ^{:key index}
         [:div
-         [:h2 "player" (inc index)]
+         [:h2 "player " (inc index)]
          [:input
-          {:value (get-in @board-invocation [:players index])
+          {:value player ;; (get-in @board-invocation [:players index])
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value)]
@@ -777,17 +777,22 @@
       [:aside
        {:style {:width "30%"}}
        [:div
-        [:h2 (.toString invocation)]]
-       [:form
-        [ring-count-input]
-        [player-count-input]
-        [players-input]]]
+        [player-list]]
+       [:div
+        [:h2 "discuss"]
+        [chat-list]
+        [chat-input]]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board]]
       [:nav
        {:style {:width "30%"}}
-       [:div]]])))
+       [:div
+        [:h2 (.toString invocation)]]
+       [:form
+        [ring-count-input]
+        [player-count-input]
+        [players-input]]]])))
 
 (defn game-page
   []
