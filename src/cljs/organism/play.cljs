@@ -75,14 +75,16 @@
   (:chat message))
 
 (defn initialize-game
-  [game-state {:keys [game player history colors board] :as message}]
-  (let [board (board/build-board 5 40 2.1 colors (:turn-order game) true)
+  [game-state {:keys [game invocation player history board] :as message}]
+  (let [{:keys [ring-count player-count players colors]} invocation
+        board (board/generate-board ring-count player-count players colors board/total-rings)
         [turn choices] (choice/find-state game)]
     (println "initializing game" game)
     (println "initializing board" board)
     (println "turn" turn)
     (println "choices" (count choices))
     {:game game
+     :invocation invocation
      :player player
      :history history
      :board board
@@ -433,18 +435,10 @@
 (defn generate-game-state
   [{:keys [ring-count player-count players colors] :as invocation}]
   (let [symmetry (board/player-symmetry player-count)
-        ;; radius (ring-radius ring-count)
-        ;; radius (if (= symmetry 7) (* 0.9 radius) radius)
-        ;; buffer (if (= symmetry 7) 2.4 2.1)
         ring-names (take ring-count board/total-rings)
-        ;; notches? (board/cut-notches? ring-count player-count)
         starting (board/find-starting-spaces symmetry ring-names players)
         game-players (game/initial-players starting)
-        game
-        {:players game-players}
-        ;; (board/build-board
-        ;;  symmetry radius buffer
-        ;;  colors players notches?)
+        game {:players game-players}
         board
         (board/generate-board
          ring-count player-count players colors board/total-rings)]
@@ -754,7 +748,8 @@
     :value "create!"
     :on-click
     (fn [event]
-      )}])
+      (ws/send-transit-message!
+       {:type "trigger-creation"}))}])
 
 (defn create-page
   []
@@ -818,6 +813,7 @@
     "initialize"
     (do
       (swap! game-state initialize-game received)
+      (reset! board-invocation (:invocation received))
       (swap! chat initialize-chat received))
     "create"
     (do

@@ -95,9 +95,9 @@
         (send!
          channel
          {:type "initialize"
+          :invocation (:invocation game-state)
           :game (:game game-state)
           :player player
-          :colors (:colors game-state)
           :history (:history game-state)
           :chat (:chat game-state)})))))
 
@@ -134,29 +134,28 @@
 
 (defn trigger-creation
   [game-key channel message]
-  (let [{:keys [invocation game channels history chat]} (-> @games :games game-key)
+  (let [{:keys [invocation game channels history chat]} (get-in @games [:games game-key])
         {:keys [ring-count player-count players colors organism-victory]} invocation
         symmetry (board/player-symmetry player-count)
         starting (board/starting-spaces ring-count player-count players board/total-rings)
         notches? (board/cut-notches? ring-count player-count)
-        create (game/create-game symmetry colors starting organism-victory notches?)
-        completed (System/currentTimeMillis)]
+        rings (take ring-count board/total-rings)
+        create (game/create-game symmetry rings starting organism-victory notches?)
+        created (System/currentTimeMillis)]
     (swap!
      games
      (fn [game-state]
        (-> game-state
-           (assoc-in [:games game-key :invocation :created] completed)
+           (assoc-in [:games game-key :invocation :created] created)
            (assoc-in [:games game-key :game] create))))
     (send-channels!
-     channel
+     channels
      {:type "initialize"
-      :invocation invocation
-      :game game
+      :invocation (assoc invocation :created created)
+      :game create
       :player (-> starting first first)
-      :colors (:colors create)
       :history history
-      :chat chat
-      :completed completed})))
+      :chat chat})))
 
 (defn update-player-name
   [game-key channel {:keys [index player] :as message}]
