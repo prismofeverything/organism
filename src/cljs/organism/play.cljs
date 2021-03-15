@@ -149,7 +149,7 @@
 
 (defn highlight-circle
   [x y radius color on-click]
-  (let [highlight-color (board/brighten color 0.1)]
+  (let [highlight-color (board/brighten color 0.3)]
     (println "HIGHLIGHT COLOR" highlight-color)
     [:circle
      {:cx x :cy y
@@ -172,12 +172,21 @@
 
 (defn highlight-element
   [type x y radius color on-click]
-  (let [g
-        (board/render-element
-         (board/brighten color 0.1) "white"
-         [x y]
-         radius
-         {:type type :food 1})]
+  (let [g (board/render-element
+           (board/brighten color 0.1) "white"
+           [x y]
+           radius
+           {:type type :food 1})]
+    (assoc-prop g :on-click on-click)))
+
+(defn render-element
+  [type x y radius color food-color on-click]
+  (let [g (board/render-element
+           color
+           food-color
+           [x y]
+           radius
+           {:type type :food 1})]
     (assoc-prop g :on-click on-click)))
 
 (defn send-state!
@@ -240,12 +249,14 @@
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.1)
+        food-color (-> board :colors first last)
         locations (:locations board)
         radius (* (:radius board) highlight-factor)
         element-radius (* (:radius board) 1)
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space chosen-element progress]} (deref introduction)
+
+        _ (println "BOARD" board)
 
         ;; unchosen starting spaces
         highlights
@@ -290,8 +301,8 @@
          (fn [[type space]]
            (let [[x y] (get locations space)]
              ^{:key space}
-             (highlight-element
-              type x y element-radius color
+             (render-element
+              type x y element-radius color food-color
               (fn [event]
                 (if chosen-element
                   (do
@@ -463,10 +474,10 @@
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
-        highlight-color (board/brighten current-color 0.1)
+        dormant-color (board/brighten current-color -0.2)
         focus-color (board/brighten current-color 0.2)
 
-        element-radius (* (:radius board) 1)
+        element-radius 45
         element-controls
         (map
          vector
@@ -498,28 +509,28 @@
                   (or
                    (and
                     (= turn :introduce)
-                    (= chosen-element type))
-                   (= turn :choose-action-type)
+                    (= chosen-element type)))
+                  :focus
+
+                  (or
                    (and
                     (= turn :choose-action)
                     (let [organism-turn (game/get-organism-turn game)]
-                      (= type (:choice organism-turn))))
+                      (not= type (:choice organism-turn))))
                    (and
                     (= turn :grow-element)
-                    (get choices type)))
-                  :focus
-
-                  (and
-                   (= turn :introduce)
-                   (not (get progress type)))
-                  :highlight
+                    (not (get choices type)))
+                   (and
+                    (= turn :introduce)
+                    (get progress type)))
+                  :dormant
 
                   :else :neutral)
                 
                 color
                 (condp = element-state
                   :focus focus-color
-                  :highlight highlight-color
+                  :dormant dormant-color
                   :neutral current-color)]
 
             (-> (board/render-element
@@ -566,8 +577,8 @@
             (and
              (= turn :choose-action)
              (:circulate choices))
-            focus-color
-            :else current-color)}
+            current-color
+            :else dormant-color)}
          :on-click
          (condp = turn
            :choose-action

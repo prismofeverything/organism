@@ -473,17 +473,33 @@
                :else v)))
          [:h :s :v :a])]
     (apply
-     color/hsla
+     color/hsva
      sane)))
+
+(defn zeno
+  "magnitude is a number between zero and one, which is approached by portion"
+  [magnitude portion]
+  (let [remaining (- 1.0 magnitude)
+        advance (* portion remaining)]
+    (println "ZENO" magnitude portion remaining advance)
+    (+ magnitude advance)))
+
+(defn fade
+  "magnitude is a number between zero and one, which is approached by portion"
+  [magnitude portion]
+  (let [reduction (- 1.0 portion)]
+    (* magnitude reduction)))
 
 (defn brighten
   [color-str factor]
+  (println "BRIGHTEN" color-str factor)
   (if color-str
     (-> color-str
         color/css
         color/as-hsva
-        (update :v + factor)
-        (update :s - 0.1)
+        ;; (update :v + factor)
+        (update :v zeno factor)
+        (update :s fade factor)
         (sanify)
         color/as-css
         :col)))

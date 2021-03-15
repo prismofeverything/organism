@@ -51,6 +51,7 @@
   {:key game-key
    :invocation (board/empty-invocation)
    :chat []
+   :history []
    :channels #{channel}})
 
 (defn append-channel!
@@ -78,7 +79,7 @@
              (select-keys [:key :invocation])
              (assoc :type "create"))))
 
-      (-> existing :created empty?)
+      (-> existing :invocation :created nil?)
       (do
         (append-channel! game-key channel)
         (send!
