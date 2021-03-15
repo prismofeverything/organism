@@ -500,9 +500,7 @@
 (defn apply-invocation!
   [invocation]
   (println "INVOCATION" invocation)
-  (println "GAME" (get @game-state :game))
   (let [generated (generate-game-state invocation)]
-    (println "GENERATED" generated)
     (reset!
      game-state
      generated)))
@@ -742,6 +740,30 @@
           n])
        (range 1 8))]]))
 
+(defn organism-victory-input
+  []
+  (let [invocation @board-invocation]
+    [:div
+     [:h2 "organisms for victory"]
+     [:select
+      {:name "organism-victory"
+       :value (:organism-victory invocation)
+       :on-change
+       (fn [event]
+         (let [value (-> event .-target .-value js/parseInt)
+               order @player-order
+               rings (take (:ring-count invocation) board/total-rings)]
+           (-> invocation
+               (assoc :organism-victory value)
+               (send-create!))))}
+      (map
+       (fn [n]
+         ^{:key n}
+         [:option
+          {:value n}
+          n])
+       (range 3 9))]]))
+
 (defn send-player-name!
   [index player-name]
   (ws/send-transit-message!
@@ -760,11 +782,10 @@
         [:div
          [:h2 "player " (inc index)]
          [:input
-          {:value player ;; (get-in @board-invocation [:players index])
+          {:value player
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value)]
-               (println "VALUE" value)
                (send-player-name! index value)))}]])
       (take player-count order))]))
 
@@ -792,6 +813,7 @@
        [:form
         [ring-count-input]
         [player-count-input]
+        [organism-victory-input]
         [players-input]]]])))
 
 (defn game-page

@@ -77,6 +77,7 @@
   (log/info "channel open")
   (let [existing (get-in (deref games) [:games game-key])]
     (cond
+
       (empty? existing)
       (let [game (create-game game-key channel)]
         (swap!
@@ -88,6 +89,7 @@
          (-> game
              (select-keys [:key :invocation])
              (assoc :type "create"))))
+
       (-> existing :created empty?)
       (do
         (append-channel! game-key channel)

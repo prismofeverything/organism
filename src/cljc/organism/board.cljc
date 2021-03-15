@@ -540,6 +540,7 @@
   []
   {:player-count 1
    :ring-count 3
+   :organism-victory 3
    :players (vec (take 1 default-player-order))
    :colors (generate-colors (take 3 total-rings))})
 

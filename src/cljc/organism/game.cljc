@@ -175,7 +175,7 @@
 (defrecord State [round elements captures player-turn])
 (defrecord Game
     [rings adjacencies center capture-limit
-     players turn-order
+     players turn-order organism-victory
      state])
 
 (defn initial-players
@@ -190,7 +190,7 @@
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
-  [rings adjacencies center player-info]
+  [rings adjacencies center player-info organism-victory]
   (let [capture-limit 5
         players (initial-players player-info)
         turn-order (mapv first players)
@@ -215,12 +215,13 @@
      :capture-limit capture-limit
      :players (into {} players)
      :turn-order turn-order
+     :organism-victory organism-victory
      :state state}))
 
 (defn create-game
   "generate adjacencies for a given symmetry with a ring for each color,
    and the given players"
-  [symmetry colors player-info remove-notches?]
+  [symmetry colors player-info organism-victory remove-notches?]
   (let [rings (build-rings symmetry colors)
         adjacencies (find-adjacencies rings)
         adjacencies (if remove-notches?
@@ -229,7 +230,10 @@
                        (last colors)
                        symmetry)
                       adjacencies)]
-    (initial-state colors adjacencies (-> rings first last last) player-info)))
+    (initial-state
+     colors adjacencies
+     (-> rings first last last)
+     player-info organism-victory)))
 
 (defn adjacent-to
   [game space]
