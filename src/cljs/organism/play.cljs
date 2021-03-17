@@ -256,8 +256,6 @@
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space chosen-element progress]} (deref introduction)
 
-        _ (println "BOARD" board)
-
         ;; unchosen starting spaces
         highlights
         (mapv
@@ -319,6 +317,30 @@
     ^{:key "highlights"}
     [:g (concat highlights elements)]))
 
+(defn choose-organism-highlights
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        organisms (game/player-organisms game player)
+        available (keys choices)
+        elements (base/map-cat organisms available)
+
+        highlights
+        (mapv
+         (fn [{:keys [space organism] :as element}]
+           (let [[x y] (get locations space)]
+             ^{:key space}
+             (highlight-circle
+              x y radius color
+              (fn [event]
+                (send-choice! choices organism true)))))
+         elements)]
+
+    ^{:key "highlights"}
+    (into [] (concat [:g] highlights))))
+
 (defn choose-space-highlights
   [game board turn choices]
   (let [player (game/current-player game)
@@ -346,7 +368,7 @@
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.1)
+        highlight-color (board/brighten color 0.2)
         locations (:locations board)
         radius (* (:radius board) highlight-factor)
         element-radius (* (:radius board) 1.0)
@@ -372,7 +394,7 @@
            highlights
            ^{:key choose-from}
            (highlight-element
-            type x y element-radius color
+            type x y element-radius highlight-color
             (fn [event]
               (send-reset! (:state game))))))]
 
@@ -419,6 +441,7 @@
     :open []
     :create (create-highlights game board turn choices)
     :introduce (introduce-highlights game board turn choices)
+    :choose-organism (choose-organism-highlights game board turn choices)
     :eat-to (choose-space-highlights game board turn choices)
     :circulate-from (choose-space-highlights game board turn choices)
     :circulate-to (choose-target-highlights game board turn choices)
@@ -474,8 +497,8 @@
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
-        dormant-color (board/brighten current-color -0.2)
-        focus-color (board/brighten current-color 0.2)
+        dormant-color (board/brighten current-color -0.7)
+        focus-color (board/brighten current-color 0.4)
 
         element-radius 45
         element-controls
@@ -601,6 +624,14 @@
 
         ;; CONFIRM
         (condp = turn
+          :pass
+          [:span
+           {:style
+            {:color "hsl(100,50%,50%)"}
+            :on-click
+            (fn [event]
+              (send-state! (get-in choices [:pass :state]) true))}
+           "pass"]
           :actions-complete
           [:span
            {:style

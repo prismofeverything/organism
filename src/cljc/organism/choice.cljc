@@ -254,6 +254,12 @@
         organisms (game/player-organisms game player)]
 
     (cond
+      (= (:advance player-turn) :resolve-conflicts)
+      [:resolve-conflicts {:advance (game/check-integrity game player)}]
+
+      (= (:advance player-turn) :check-integrity)
+      [:check-integrity {:advance (game/start-next-turn game)}]
+
       (empty? organisms)
       (if (= :check-integrity (:advance player-turn))
         [:check-integrity {:advance (game/start-next-turn game)}]
@@ -301,13 +307,6 @@
                    game
                    (first missing)))]))
 
-            ;; actions have all been performed
-            (= (:advance player-turn) :check-integrity)
-            [:check-integrity {:advance (game/start-next-turn game)}]
-
-            (= (:advance player-turn) :resolve-conflicts)
-            [:resolve-conflicts {:advance (game/check-integrity game player)}]
-
             :else [:actions-complete {:advance (game/resolve-conflicts game player)}])
 
           :else
@@ -325,33 +324,6 @@
             (if (empty? choices)
               [:pass {:pass (list (game/pass-action game))}]
               [action-key choices])))))))
-
-(defn walk-back
-  [game]
-  (let [[turn choices] (find-state game)]
-    (condp = turn
-      :introduction (assoc-in game [:state :player-turn :introduction] {})
-      :choose-organism
-      (-> game
-          (assoc-in [:state :player-turn :introduction] {})
-          (assoc-in [:state :player-turn :organism-turns] []))
-      :choose-action-type
-      (-> game
-          (update-in [:state :player-turn :organism-turns] butlast))
-      :choose-action
-      (game/update-organism-turn
-       game
-       (fn [organism-turn]
-         (-> organism-turn
-             (dissoc :choice)
-             (assoc :actions []))))
-      (game/update-organism-turn
-       game
-       (fn [organism-turn]
-         (let [organism-turn (update organism-turn :actions butlast)]
-           (if (empty? :actions)
-             (dissoc organism-turn :choice)
-             organism-turn)))))))
 
 (defn find-choices
   [game]

@@ -52,7 +52,7 @@
           adjacencies (find-adjacencies rings)
           player-info [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
                        ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
-          initial (initial-state colors adjacencies [:yellow 0] player-info)]
+          initial (initial-state colors adjacencies [:yellow 0] player-info 3)]
       (println initial))))
 
 (deftest find-corners-test
@@ -71,6 +71,7 @@
                 5
                 [:yellow :red :blue]
                 [["alone" [[:red 1] [:red 2] [:red 3]]]]
+                3
                 true)]
       (is (not (some #{[:blue 0]} (-> game :adjacencies keys))))
       (is (= 11 (count (get game :adjacencies)))))))
@@ -86,6 +87,7 @@
                  ["laam" [[:G 19] [:G 20] [:G 21]]]
                  ["stuk" [[:G 25] [:G 26] [:G 27]]]
                  ["faast" [[:G 31] [:G 32] [:G 33]]]]
+                3
                 true)]
       (mapv
        (fn [[key value]]

@@ -886,12 +886,11 @@
   [{:keys [state turn-order] :as game}]
   (let [{:keys [player-turn]} state
         {:keys [player]} player-turn
-        [index next] (next-player game)
-        game
-        (-> game
-            (resolve-conflicts player)
-            (check-integrity player)
-            (start-next-turn))]))
+        [index next] (next-player game)]
+    (-> game
+        (resolve-conflicts player)
+        (check-integrity player)
+        (start-next-turn))))
 
 (defn apply-turn
   [game {:keys [player introduction organism-turns] :as player-turn}]
