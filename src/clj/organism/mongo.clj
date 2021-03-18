@@ -4,6 +4,7 @@
    [clojure.tools.cli :as cli]
    [monger.core :as core]
    [monger.db :as db]
+   [monger.query :as query]
    [monger.conversion :as convert]
    [monger.collection :as mongo]
    [monger.util :as util])
@@ -26,16 +27,16 @@
   (mongo/insert db (name collection) what))
 
 (defn merge!
-  [db collection what]
-  (mongo/update db (name collection) {:gid (:gid what)} {:$set what} {:upsert true}))
+  [db collection where what]
+  (mongo/update db (name collection) where {:$set what} {:upsert true}))
 
 (defn upsert!
-  [db collection where values]
-  (mongo/update db (name collection) where values {:upsert true}))
+  [db collection where what]
+  (mongo/update db (name collection) where what {:upsert true}))
 
 (defn one
-  [db collection gid]
-  (mongo/find-one-as-map db (name collection) {:gid gid}))
+  [db collection where]
+  (mongo/find-one-as-map db (name collection) where))
 
 (defn query
   [db collection where]
@@ -44,6 +45,15 @@
 (defn find-all
   [db collection]
   (mongo/find-maps db (name collection)))
+
+(defn find-last
+  [db collection where]
+  (first
+   (query/with-collection
+     db (name collection)
+     (query/find where)
+     (query/sort (array-map :$natural -1))
+     (query/limit 1))))
 
 (defn number
   ([db collection] (number db collection {}))
@@ -63,6 +73,10 @@
       (fn [collection]
         [collection (number db collection)])
       all))))
+
+(defn delete!
+  [db collection where]
+  (mongo/remove db (name collection) where))
 
 (defn purge!
   ([db]

@@ -7,6 +7,7 @@
    [immutant.web.async :as async]
    [organism.game :as game]
    [organism.board :as board]
+   [organism.persist :as persist]
    [organism.examples :as examples])
   (:import
    [java.io ByteArrayOutputStream]))
@@ -38,18 +39,17 @@
 (defonce games
   (atom {:games {}}))
 
-(defrecord GameState [key invocation created game history chat channels])
-
-(defn load-game
-  [game-key channel])
+(defrecord GameState [key invocation created game chat history channels])
 
 (def player-cycle
   (atom (cycle board/default-player-order)))
 
-(defn create-game
+(defn empty-game
   [game-key channel]
   {:key game-key
    :invocation (board/empty-invocation)
+   :created nil
+   :game nil
    :chat []
    :history []
    :channels #{channel}})
@@ -61,37 +61,35 @@
    update-in [:games game-key :channels]
    conj channel))
 
-(defn connect!
-  [{:keys [game-key]} channel]
-  (log/info "channel open")
+(defn load-game
+  [db game-key channel]
+  (if-let [game-state (persist/load-game db game-key)]
+    (assoc game-state :channels #{channel})
+    (empty-game game-key channel)))
+
+(defn load-game!
+  [db game-key channel]
+  (let [game-state (load-game db game-key channel)]
+    (swap!
+     games
+     assoc-in [:games game-key]
+     game-state)))
+
+(defn find-game!
+  [db game-key channel]
   (let [existing (get-in (deref games) [:games game-key])]
-    (cond
-
-      (empty? existing)
-      (let [game (create-game game-key channel)]
-        (swap!
-         games
-         (fn [games]
-           (assoc-in games [:games game-key] game)))
-        (send!
-         channel
-         (-> game
-             (select-keys [:key :invocation])
-             (assoc :type "create"))))
-
-      (-> existing :invocation :created nil?)
+    (if (empty? existing)
+      (load-game! db game-key channel)
       (do
         (append-channel! game-key channel)
-        (send!
-         channel
-         (-> existing
-             (select-keys [:key :invocation])
-             (assoc :type "create"))))
+        (update existing :channels conj channel)))))
 
-      :else
-      (let [game-state (get-in (deref games) [:games game-key])
-            player (first @player-cycle)]
-        (append-channel! game-key channel)
+(defn connect!
+  [{:keys [db game-key]} channel]
+  (log/info "channel open")
+  (let [game-state (find-game! db game-key channel)]
+    (if (:created game-state)
+      (let [player (first @player-cycle)]
         (swap! player-cycle rest)
         (send!
          channel
@@ -100,7 +98,56 @@
           :game (:game game-state)
           :player player
           :history (:history game-state)
-          :chat (:chat game-state)})))))
+          :chat (:chat game-state)}))
+      (send!
+       channel
+       (-> game-state
+           (select-keys [:key :invocation])
+           (assoc :type "create"))))))
+
+
+    ;; (cond
+
+    ;;   (empty? existing)
+    ;;   (let [game (load-game db game-key channel)]
+    ;;     (swap!
+    ;;      games
+    ;;      (fn [games]
+    ;;        (assoc-in games [:games game-key] game)))
+    ;;     (if (:created game)
+    ;;       (do
+    ;;         (println "FOUND GAME" game)
+    ;;         )
+    ;;       (do
+    ;;         (println "NEW GAME" game)
+    ;;         (send!
+    ;;          channel
+    ;;          (-> game
+    ;;              (select-keys [:key :invocation])
+    ;;              (assoc :type "create"))))))
+
+    ;;   (-> existing :invocation :created nil?)
+    ;;   (do
+    ;;     (append-channel! game-key channel)
+    ;;     (send!
+    ;;      channel
+    ;;      (-> existing
+    ;;          (select-keys [:key :invocation])
+    ;;          (assoc :type "create"))))
+
+    ;;   :else
+    ;;   (let [game-state (get-in (deref games) [:games game-key])
+    ;;         player (first @player-cycle)]
+    ;;     (append-channel! game-key channel)
+    ;;     (swap! player-cycle rest)
+    ;;     (send!
+    ;;      channel
+    ;;      {:type "initialize"
+    ;;       :invocation (:invocation game-state)
+    ;;       :game (:game game-state)
+    ;;       :player player
+    ;;       :history (:history game-state)
+    ;;       :chat (:chat game-state)})))
 
 (defn disconnect-game
   [game-key channel games]
@@ -124,7 +171,7 @@
     (send! ch message)))
 
 (defn update-create-game
-  [game-key channel message]
+  [db game-key channel message]
   (swap!
    games
    assoc-in [:games game-key :invocation]
@@ -133,33 +180,8 @@
    (get-in @games [:games game-key :channels])
    message))
 
-(defn trigger-creation
-  [game-key channel message]
-  (let [{:keys [invocation game channels history chat]} (get-in @games [:games game-key])
-        {:keys [ring-count player-count players colors organism-victory]} invocation
-        symmetry (board/player-symmetry player-count)
-        starting (board/starting-spaces ring-count player-count players board/total-rings)
-        notches? (board/cut-notches? ring-count player-count)
-        rings (take ring-count board/total-rings)
-        create (game/create-game symmetry rings starting organism-victory notches?)
-        created (System/currentTimeMillis)]
-    (swap!
-     games
-     (fn [game-state]
-       (-> game-state
-           (assoc-in [:games game-key :invocation :created] created)
-           (assoc-in [:games game-key :game] create))))
-    (send-channels!
-     channels
-     {:type "initialize"
-      :invocation (assoc invocation :created created)
-      :game create
-      :player (-> starting first first)
-      :history history
-      :chat chat})))
-
 (defn update-player-name
-  [game-key channel {:keys [index player] :as message}]
+  [db game-key channel {:keys [index player] :as message}]
   (swap!
    games
    update-in
@@ -170,8 +192,39 @@
    (get-in @games [:games game-key :channels])
    message))
 
+(defn trigger-creation
+  [db game-key channel message]
+  (let [{:keys [invocation game channels history chat] :as game-state}
+        (get-in @games [:games game-key])
+        {:keys [ring-count player-count players colors organism-victory]} invocation
+        symmetry (board/player-symmetry player-count)
+        starting (board/starting-spaces ring-count player-count players board/total-rings)
+        notches? (board/cut-notches? ring-count player-count)
+        rings (take ring-count board/total-rings)
+        create (game/create-game symmetry rings starting organism-victory notches?)
+        created (System/currentTimeMillis)
+
+        game-state
+        (-> game-state
+            (assoc-in [:invocation :created] created)
+            (assoc :game create))]
+    (swap!
+     games
+     assoc-in
+     [:games game-key]
+     game-state)
+    (send-channels!
+     channels
+     {:type "initialize"
+      :invocation (assoc invocation :created created)
+      :game create
+      :player (-> starting first first)
+      :history history
+      :chat chat})
+    (persist/create-game! db create)))
+
 (defn update-game-state
-  [game-key channel {:keys [game complete] :as message}]
+  [db game-key channel {:keys [game complete] :as message}]
   (log/info "received game-state message" message)
   (swap!
    games
@@ -183,36 +236,39 @@
          game-state))))
   (send-channels!
    (get-in @games [:games game-key :channels])
-   message))
+   message)
+  (persist/update-state! db game-key game))
 
 (defn walk-history
-  [game-key channel message]
+  [db game-key channel message]
   (let [{:keys [game history channels]} (get-in (deref games) [:games game-key])
         present (last history)
         previous (last (butlast history))
         previous (if (empty? previous) present previous)
         already-here? (= present (:game message))]
-    (if already-here?
-      (swap!
-       games
-       (fn [games]
-         (-> games
-             (update-in [:games game-key :history] (comp vec butlast))
-             (assoc-in [:games game-key :game :state] previous)))))
     (send-channels!
      channels
      {:type "game-state"
       :game
       (if already-here?
         previous
-        present)})))
+        present)})
+    (if already-here?
+      (do
+        (swap!
+         games
+         (fn [games]
+           (-> games
+               (update-in [:games game-key :history] (comp vec butlast))
+               (assoc-in [:games game-key :game :state] previous))))
+        (persist/reset-state! db game-key)))))
 
 (defn timestamp
   []
   (quot (System/currentTimeMillis) 1000))
 
 (defn update-chat
-  [game-key channel {:keys [player message] :as received}]
+  [db game-key channel {:keys [player message] :as received}]
   (log/info "received chat message" received)
   (let [chat-message
         {:type "chat"
@@ -231,30 +287,30 @@
       (send! ch chat-message))))
 
 (defn notify-clients!
-  [{:keys [game-key player]} channel raw]
+  [{:keys [db game-key]} channel raw]
   (let [message (read-json raw)]
     (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
-      "create" (update-create-game game-key channel message)
-      "trigger-creation" (trigger-creation game-key channel message)
-      "player-name" (update-player-name game-key channel message)
-      "game-state" (update-game-state game-key channel message)
-      "history" (walk-history game-key channel message)
-      "chat" (update-chat game-key channel message)
+      "create" (update-create-game db game-key channel message)
+      "trigger-creation" (trigger-creation db game-key channel message)
+      "player-name" (update-player-name db game-key channel message)
+      "game-state" (update-game-state db game-key channel message)
+      "history" (walk-history db game-key channel message)
+      "chat" (update-chat db game-key channel message)
       (log/error "unknown message!" message))))
 
 (defn websocket-callbacks
-  [game-key]
-  (let [config {:game-key game-key}]
+  [db game-key]
+  (let [config {:db db :game-key game-key}]
     {:on-open (partial connect! config)
      :on-close (partial disconnect! config)
      :on-message (partial notify-clients! config)}))
 
 (defn ws-handler
-  [{:keys [path-params] :as request}]
+  [db {:keys [path-params] :as request}]
   (let [{:keys [game]} path-params]
-    (async/as-channel request (websocket-callbacks game))))
+    (async/as-channel request (websocket-callbacks db game))))
 
 (defn websocket-routes
-  []
-  [["/ws/:game" ws-handler]])
+  [db]
+  [["/ws/:game" (partial ws-handler db)]])
