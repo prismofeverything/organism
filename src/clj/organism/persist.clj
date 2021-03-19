@@ -21,13 +21,20 @@
   (let [recent (db/find-last db :history {:key key})]
     (db/delete! db :history {:_id (:_id recent)})))
 
+(defn load-history
+  [db key]
+  (mapv
+   (fn [result]
+     (dissoc result :_id))
+   (db/query db :history {:key key})))
+
 (defn load-game
   [db key]
   (if-let [game-state (db/one db :games {:key key})]
     (let [current-state (:current-state game-state)
-          history (db/query db :history {:key key})]
+          history (load-history db key)]
       (-> game-state
           (assoc-in [:game :state] current-state)
           (assoc :history history)
           (update-in [:game :adjacencies] read-string)
-          (select-keys [:key :invocation :created :game :chat :history])))))
+          (select-keys [:key :invocation :game :chat :history])))))

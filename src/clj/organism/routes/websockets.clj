@@ -39,7 +39,7 @@
 (defonce games
   (atom {:games {}}))
 
-(defrecord GameState [key invocation created game chat history channels])
+(defrecord GameState [key invocation game chat history channels])
 
 (def player-cycle
   (atom (cycle board/default-player-order)))
@@ -48,7 +48,6 @@
   [game-key channel]
   {:key game-key
    :invocation (board/empty-invocation)
-   :created nil
    :game nil
    :chat []
    :history []
@@ -92,7 +91,7 @@
   (log/info "channel open")
   (let [game-state (find-game! db game-key channel)]
     (println "GAME STATE" game-state)
-    (if (:created game-state)
+    (if (get-in game-state [:invocation :created])
       (let [player (first @player-cycle)]
         (swap! player-cycle rest)
         (send!
@@ -108,50 +107,6 @@
        (-> game-state
            (select-keys [:key :invocation])
            (assoc :type "create"))))))
-
-
-    ;; (cond
-
-    ;;   (empty? existing)
-    ;;   (let [game (load-game db game-key channel)]
-    ;;     (swap!
-    ;;      games
-    ;;      (fn [games]
-    ;;        (assoc-in games [:games game-key] game)))
-    ;;     (if (:created game)
-    ;;       (do
-    ;;         (println "FOUND GAME" game)
-    ;;         )
-    ;;       (do
-    ;;         (println "NEW GAME" game)
-    ;;         (send!
-    ;;          channel
-    ;;          (-> game
-    ;;              (select-keys [:key :invocation])
-    ;;              (assoc :type "create"))))))
-
-    ;;   (-> existing :invocation :created nil?)
-    ;;   (do
-    ;;     (append-channel! game-key channel)
-    ;;     (send!
-    ;;      channel
-    ;;      (-> existing
-    ;;          (select-keys [:key :invocation])
-    ;;          (assoc :type "create"))))
-
-    ;;   :else
-    ;;   (let [game-state (get-in (deref games) [:games game-key])
-    ;;         player (first @player-cycle)]
-    ;;     (append-channel! game-key channel)
-    ;;     (swap! player-cycle rest)
-    ;;     (send!
-    ;;      channel
-    ;;      {:type "initialize"
-    ;;       :invocation (:invocation game-state)
-    ;;       :game (:game game-state)
-    ;;       :player player
-    ;;       :history (:history game-state)
-    ;;       :chat (:chat game-state)})))
 
 (defn disconnect-game
   [game-key channel games]
@@ -211,21 +166,7 @@
 
 (defn trigger-creation
   [db game-key channel message]
-  (let [;; {:keys [invocation game channels history chat] :as game-state}
-        ;; {:keys [ring-count player-count players colors organism-victory]} invocation
-        ;; symmetry (board/player-symmetry player-count)
-        ;; starting (board/starting-spaces ring-count player-count players board/total-rings)
-        ;; notches? (board/cut-notches? ring-count player-count)
-        ;; rings (vec (take ring-count board/total-rings))
-        ;; create (game/create-game symmetry rings starting organism-victory notches?)
-        ;; created (System/currentTimeMillis)
-
-        ;; game-state
-        ;; (-> game-state
-        ;;     (assoc-in [:invocation :created] created)
-        ;;     (assoc :game create))
-
-        game-state (get-in @games [:games game-key])
+  (let [game-state (get-in @games [:games game-key])
         {:keys [invocation game channels history chat] :as game-state}
         (complete-game-state game-state)]
     (swap!
