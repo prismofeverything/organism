@@ -30,7 +30,7 @@
     <logger name="io.undertow.request" level="warn" />
     <logger name="io.undertow.session" level="warn" />
     <logger name="io.undertow.request" level="warn" />
-    <root level="DEBUG">
+    <root level="INFO">
         <appender-ref ref="STDOUT" />
         <appender-ref ref="FILE" />
     </root>

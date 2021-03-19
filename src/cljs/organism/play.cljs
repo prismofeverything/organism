@@ -724,7 +724,7 @@
            (-> invocation
                (assoc :colors (board/generate-colors rings))
                (assoc :player-count value)
-               (assoc :players (take value order))
+               (assoc :players (vec (take value order)))
                send-create!)))}
       (map
        (fn [n]

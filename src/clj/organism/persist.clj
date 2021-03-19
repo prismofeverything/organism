@@ -5,9 +5,11 @@
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
   (let [initial-state (:state game)
-        game-state (assoc game-state :current-state initial-state)]
-    (db/insert! :games game-state)
-    (db/insert! :history {:key key :state initial-state})))
+        game-state (assoc game-state :current-state initial-state)
+        game-state (update-in game-state [:game :adjacencies] pr-str)]
+    (println "CREATING GAME" game-state)
+    (db/insert! db :games game-state)
+    (db/insert! db :history {:key key :state initial-state})))
 
 (defn update-state!
   [db key state]
@@ -21,12 +23,11 @@
 
 (defn load-game
   [db key]
-  (let [game-state (db/one db :games {:key key})
-        current-state (:current-state game-state)
-        history (db/query db :history {:key key})
-        game-state (assoc-in game-state [:game :state] current-state)
-        game-state (assoc game-state :history history)]
-    (-> game-state
-        (assoc-in [:game :state] current-state)
-        (assoc :history history)
-        (select-keys [:key :invocation :created :game :chat :history]))))
+  (if-let [game-state (db/one db :games {:key key})]
+    (let [current-state (:current-state game-state)
+          history (db/query db :history {:key key})]
+      (-> game-state
+          (assoc-in [:game :state] current-state)
+          (assoc :history history)
+          (update-in [:game :adjacencies] read-string)
+          (select-keys [:key :invocation :created :game :chat :history])))))

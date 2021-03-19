@@ -22,7 +22,7 @@
   [rings]
   (let [num-rings (count rings)
         base 0.1
-        max 0.9
+        max 0.8
         factor (/ (- max base) num-rings)
         jump-base 0.2
         jump-factor 0.6]
@@ -600,10 +600,11 @@
         (mapv
          (fn [element-index]
            [starting-ring
-            (Math/ceil
-             (+ (* player-index interval)
-                element-index
-                offset))])
+            (int
+             (Math/ceil
+              (+ (* player-index interval)
+                 element-index
+                 offset)))])
          (range 3))])
      players)))
 
