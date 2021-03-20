@@ -2,9 +2,23 @@
   (:require
    [organism.mongo :as db]))
 
+(defn serialize-state
+  [state]
+  (-> state
+      (update :elements pr-str)
+      (update-in [:player-turn :organism-turns] pr-str)))
+
+(defn deserialize-state
+  [state]
+  (println "DESERIALIZE" state)
+  (-> state
+      (dissoc :_id)
+      (update :elements read-string)
+      (update-in [:player-turn :organism-turns] read-string)))
+
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
-  (let [initial-state (:state game)
+  (let [initial-state (serialize-state (:state game))
         game-state (assoc game-state :current-state initial-state)
         game-state (update-in game-state [:game :adjacencies] pr-str)]
     (println "CREATING GAME" game-state)
@@ -13,8 +27,9 @@
 
 (defn update-state!
   [db key state]
-  (db/upsert! db :games {:key key} {:$set {:current-state state}})
-  (db/insert! db :history {:key key :state state}))
+  (let [serial (serialize-state state)]
+    (db/upsert! db :games {:key key} {:$set {:current-state serial}})
+    (db/insert! db :history {:key key :state serial})))
 
 (defn reset-state!
   [db key]
@@ -23,15 +38,15 @@
 
 (defn load-history
   [db key]
-  (mapv
-   (fn [result]
-     (dissoc result :_id))
-   (db/query db :history {:key key})))
+  (let [records (db/query db :history {:key key})]
+    (mapv
+     (comp deserialize-state :state)
+     records)))
 
 (defn load-game
   [db key]
   (if-let [game-state (db/one db :games {:key key})]
-    (let [current-state (:current-state game-state)
+    (let [current-state (-> game-state :current-state deserialize-state)
           history (load-history db key)]
       (-> game-state
           (assoc-in [:game :state] current-state)

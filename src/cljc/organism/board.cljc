@@ -44,7 +44,7 @@
       (map vector rings (range))))))
 
 (def total-rings
-  [:A :B :C :D :E :F :G :H :I :J :K :L :M])
+  ["A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M"])
 
 (def default-player-order
   ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"])
