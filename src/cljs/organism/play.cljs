@@ -255,8 +255,6 @@
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space chosen-element progress]} (deref introduction)
 
-        _ (println "STARTING SPACES" player (:players game) starting-spaces)
-
         ;; unchosen starting spaces
         highlights
         (mapv
@@ -691,9 +689,7 @@
              [:br] "current action - " (count (:actions organism-turn))])
           (if (not= turn :choose-action)
             [:span
-             [:br] "action choice - " (:type (last (:actions organism-turn)))])])
-
-       [:h3 (with-out-str (pprint (-> game :state :player-turn)))]])))
+             [:br] "action choice - " (:type (last (:actions organism-turn)))])])])))
 
 (defn flex-direction
   [direction]
@@ -802,31 +798,50 @@
 
 (defn players-input
   []
-  (let [{:keys [player-count]} @board-invocation
+  (let [{:keys [player-count colors]} @board-invocation
         order @player-order]
     [:div
      (map-indexed
       (fn [index player]
-        ^{:key index}
-        [:div
-         [:h3 "player " (inc index)]
-         [:input
-          {:value player
-           :on-change
-           (fn [event]
-             (let [value (-> event .-target .-value)]
-               (send-player-name! index value)))}]])
+        (let [color (last (nth (reverse colors) index))]
+          ^{:key index}
+          [:div
+           [:h3 "player " (inc index)]
+           [:input
+            {:value player
+             :style
+             {:border-radius "50px"
+              :color "#fff"
+              :background color
+              :border "3px solid"
+              :font-size "2em"
+              :letter-spacing "8px"
+              :margin "0px 0px"
+              :padding "10px 40px"}
+             :on-change
+             (fn [event]
+               (let [value (-> event .-target .-value)]
+                 (send-player-name! index value)))}]]))
       (take player-count order))]))
 
 (defn create-button
-  []
+  [color]
   [:input
    {:type :button
-    :value "create!"
+    :value "CREATE"
+    :style
+    {:border-radius "50px"
+     :color "#fff"
+     :background color
+     :border "3px solid"
+     :font-size "2em"
+     :letter-spacing "8px"
+     :margin "20px 0px"
+     :padding "25px 60px"}
     :on-click
-    (fn [event]
-      (ws/send-transit-message!
-       {:type "trigger-creation"}))}])
+     (fn [event]
+       (ws/send-transit-message!
+        {:type "trigger-creation"}))}])
 
 (defn create-page
   []
@@ -845,11 +860,11 @@
       [:article
        {:style {:flex-grow 1}}
        [organism-board]]
+      (println "INVOCATION" invocation)
       [:nav
        {:style {:width "30%"}}
        [:div
-        [:h3 (.toString invocation)]
-        [create-button]]
+        [create-button (-> invocation :colors rest first last)]]
        [:form
         [ring-count-input]
         [player-count-input]
