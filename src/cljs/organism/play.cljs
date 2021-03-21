@@ -150,7 +150,6 @@
 (defn highlight-circle
   [x y radius color on-click]
   (let [highlight-color (board/brighten color 0.3)]
-    (println "HIGHLIGHT COLOR" highlight-color)
     [:circle
      {:cx x :cy y
       :r radius
@@ -255,6 +254,8 @@
         element-radius (* (:radius board) 1)
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space chosen-element progress]} (deref introduction)
+
+        _ (println "STARTING SPACES" player (:players game) starting-spaces)
 
         ;; unchosen starting spaces
         highlights
@@ -543,6 +544,9 @@
                     (= turn :introduce)
                     (= chosen-element type))
                    (and
+                    (= turn :grow-element)
+                    (get choices type))
+                   (and
                     (= turn :choose-action)
                     (let [organism-turn (game/get-organism-turn game)]
                       (= type (:choice organism-turn)))))
@@ -684,7 +688,9 @@
              [:br] "total actions - " (:num-actions organism-turn)])
           (if (not (empty? (:actions organism-turn)))
             [:span
-             [:br] "current action - " (count (:actions organism-turn))
+             [:br] "current action - " (count (:actions organism-turn))])
+          (if (not= turn :choose-action)
+            [:span
              [:br] "action choice - " (:type (last (:actions organism-turn)))])])
 
        [:h3 (with-out-str (pprint (-> game :state :player-turn)))]])))
@@ -914,7 +920,8 @@
   (reitit/router
     [["/" :home]
      ["/about" :about]
-     ["/game/:game"]]))
+     ["/player/:player"]
+     ["/player/:player/game/:game"]]))
 
 (defn match-route [uri]
   (->> (or (not-empty (string/replace uri #"^.*#" "")) "/")

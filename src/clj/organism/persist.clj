@@ -34,7 +34,8 @@
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
   (let [initial-state (serialize-state (:state game))
-        game-state (update-in game-state [:game :adjacencies] pr-str)]
+        game-state (update-in game-state [:game :adjacencies] pr-str)
+        game-state (update-in game-state [:game :players] pr-str)]
     (println "CREATING GAME" game-state)
     (db/index! db :games [:key] {:unique true})
     (db/insert! db :games game-state)
@@ -77,5 +78,6 @@
           (assoc-in [:game :state] (last history))
           (assoc :history history)
           (assoc :chat chat)
+          (update-in [:game :players] conditional-string)
           (update-in [:game :adjacencies] read-string)
           (select-keys [:key :invocation :game :chat :history])))))

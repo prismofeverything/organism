@@ -69,7 +69,6 @@
 (defn load-game!
   [db game-key channel]
   (let [game-state (load-game db game-key channel)]
-    (println "LOAD GAME" game-state)
     (swap!
      games
      assoc-in [:games game-key]
@@ -82,23 +81,23 @@
     (if (empty? existing)
       (load-game! db game-key channel)
       (do
-        (println "NOT EMPTY EXISTING" existing)
         (append-channel! game-key channel)
         (update existing :channels conj channel)))))
 
 (defn connect!
   [{:keys [db player game-key]} channel]
-  (log/info "channel open")
   (let [game-state (find-game! db game-key channel)]
     (if (get-in game-state [:invocation :created])
-      (send!
-       channel
-       {:type "initialize"
-        :invocation (:invocation game-state)
-        :game (:game game-state)
-        :player player
-        :history (:history game-state)
-        :chat (:chat game-state)})
+      (do
+        (println "CONNECTING" player game-key (get-in game-state [:game :state]))
+        (send!
+         channel
+         {:type "initialize"
+          :invocation (:invocation game-state)
+          :game (:game game-state)
+          :player player
+          :history (:history game-state)
+          :chat (:chat game-state)}))
       (send!
        channel
        (-> game-state
@@ -182,7 +181,6 @@
 
 (defn update-game-state
   [db player game-key channel {:keys [game complete] :as message}]
-  (log/info "received game-state message" message)
   (let [game-state (get-in @games [:games game-key])]
     (when (= player (game/current-player (:game game-state)))
       (swap!
@@ -228,7 +226,6 @@
 
 (defn update-chat
   [db player-key game-key channel {:keys [player message] :as received}]
-  (log/info "received chat message" received)
   (let [chat-message
         {:type "chat"
          :player player
@@ -242,7 +239,6 @@
          chat-message)
         channels (get-in @games [:games game-key :channels])]
     (doseq [ch channels]
-      (log/info "sending" chat-message)
       (send! ch chat-message))
     (persist/update-chat! db game-key chat-message)))
 
@@ -257,7 +253,7 @@
       "game-state" (update-game-state db player game-key channel message)
       "history" (walk-history db player game-key channel message)
       "chat" (update-chat db player game-key channel message)
-      (log/error "unknown message!" message))))
+      (log/error "unknown message type!" (:type message)))))
 
 (defn websocket-callbacks
   [db player game-key]
