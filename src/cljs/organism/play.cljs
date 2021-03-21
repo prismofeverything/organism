@@ -428,7 +428,7 @@
            (let [[x y] (get locations space)]
              ^{:key space}
              (highlight-element
-              :grow x y radius color
+              :grow x y radius (board/brighten color 0.4)
               (fn [event]
                 (choose-food-source! space)
                 (let [source @food-source]
@@ -812,11 +812,11 @@
 (defn players-input
   []
   (let [{:keys [player-count colors]} @board-invocation
-        ;; order @player-order
+        order @player-order
         player-colors (get-in @game-state [:board :player-colors])]
     [:div
-     (map-indexed
-      (fn [index [player color]]
+     (map
+      (fn [index [player-name color] player]
         ^{:key index}
         [:div
          [:h3 "player " (inc index)]
@@ -835,7 +835,9 @@
            (fn [event]
              (let [value (-> event .-target .-value)]
                (send-player-name! index value)))}]])
-      player-colors)]))
+      (range)
+      player-colors
+      order)]))
 
 (defn create-button
   [color]
