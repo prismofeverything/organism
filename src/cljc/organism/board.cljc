@@ -7,6 +7,7 @@
    [organism.base :as base]))
 
 (def tau (* 2 Math/PI))
+(def total-board-radius 440)
 
 (defn random-color
   [n]
@@ -181,6 +182,7 @@
        concat
        (map
         (fn [[color-key color] index]
+          ^{:key color-key}
           [[:radialGradient {:id color-key}
             [:stop {:offset "0%" :stop-color "black"}]
             [:stop {:offset "100%" :stop-color color}]]
@@ -195,6 +197,7 @@
        [(make-circle (* field 0.93) "black" center)]
        (map
         (fn [[color-key color] index]
+          ^{:key color}
           (circle
            [field field
             (* 1.85 (- (+ num-rings 1) index) (+ radius buffer))
@@ -209,7 +212,11 @@
      (concat
       [:g]
       (build-background radius buffer colors)
-      [(map circle (find-rings symmetry radius buffer (map last colors) notches?))])]))
+      [(map-indexed
+        (fn [i spec]
+          ^{:key i}
+          (circle spec))
+        (find-rings symmetry radius buffer (map last colors) notches?))])]))
 
 (defrecord Board [symmetry radius buffer colors layout locations player-colors])
 
@@ -570,9 +577,8 @@
 
 (defn ring-radius
   [ring-count]
-  (let [total (dec (* 2 ring-count))
-        field 500]
-    (quot field total)))
+  (let [total (dec (* 2 ring-count))]
+    (quot total-board-radius total)))
 
 (defn cut-notches?
   [ring-count player-count]
