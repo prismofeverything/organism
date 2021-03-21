@@ -292,8 +292,7 @@
                  {:pass
                   (-> game
                       (game/choose-action :circulate)
-                      game/pass-action
-                      list)}]
+                      game/pass-action)}]
                 [:choose-action choices]))
 
             (< (count organism-turns) (count organisms))

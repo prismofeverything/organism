@@ -6,13 +6,21 @@
   [state]
   (-> state
       (update :elements pr-str)
+      (update :captures pr-str)
       (update-in [:player-turn :organism-turns] pr-str)))
+
+(defn conditional-string
+  [s]
+  (if (string? s)
+    (read-string s)
+    s))
 
 (defn deserialize-state
   [state]
   (-> state
       (dissoc :_id)
       (update :elements read-string)
+      (update :captures conditional-string) ;; TODO: remove this once migrated
       (update-in [:player-turn :organism-turns] read-string)))
 
 (defn history-key

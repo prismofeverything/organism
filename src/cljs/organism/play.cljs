@@ -123,9 +123,9 @@
   [:ul
    (let [player-colors (get-in @game-state [:board :player-colors])]
      (for [[i message] (map-indexed vector @chat)]
-       ^{:key i}
        (let [player (:player message)
              color (get player-colors player)]
+         ^{:key i}
          [:li
           {:style {:color color}}
           player ": " (:message message)])))])
