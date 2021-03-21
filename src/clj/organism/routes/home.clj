@@ -19,10 +19,16 @@
   [starting-game]
   {:colors
    (board/generate-colors
-    [:A :B :C :D :E :F :G])
+    ["A" "B" "C" "D" "E" "F" "G"])
    :games
    (choice/random-walk
     starting-game)})
+
+(defn home-page [request]
+  (layout/render request "home.html"))
+
+(defn player-page [request]
+  (layout/render request "home.html"))
 
 (defn eternal-page [request]
   (response/content-type
@@ -38,12 +44,14 @@
         (up/html (board/render-game board game)))))
    "text/html; charset=utf-8"))
 
-(defn home-page [request]
-  (layout/render request "home.html"))
-
 (defn game-page [request]
   (println "KEYS" (keys request))
-  (layout/render request "game.html" {:game (get-in request [:path-params :game])}))
+  (layout/render
+   request
+   "game.html"
+   (select-keys
+    (:path-params request)
+    [:player :game])))
 
 (defn home-routes []
   [""
@@ -51,8 +59,5 @@
                  middleware/wrap-formats]}
    ["/" {:get home-page}]
    ["/eternal" {:get eternal-page}]
-   ["/game/:game" {:get game-page}]
-   ["/docs" {:get (fn [_]
-                    (-> (response/ok (-> "docs/docs.md" io/resource slurp))
-                        (response/header "Content-Type" "text/plain; charset=utf-8")))}]])
-
+   ["/player/:player" {:get player-page}]
+   ["/player/:player/game/:game" {:get game-page}]])

@@ -27,6 +27,10 @@
   [key]
   (str "history-" key))
 
+(defn chat-key
+  [key]
+  (str "chat-" key))
+
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
   (let [initial-state (serialize-state (:state game))
@@ -41,6 +45,10 @@
   (let [serial (serialize-state state)]
     (db/insert! db (history-key key) serial)))
 
+(defn update-chat!
+  [db key line]
+  (db/insert! db (chat-key key) line))
+
 (defn reset-state!
   [db key]
   (let [history (history-key key)
@@ -52,12 +60,22 @@
   (let [records (db/query db (history-key key) {})]
     (mapv deserialize-state records)))
 
+(defn load-chat
+  [db key]
+  (let [records (db/query db (chat-key key) {})]
+    (mapv
+     (fn [record]
+       (select-keys record [:type :player :time :message]))
+     records)))
+
 (defn load-game
   [db key]
   (if-let [game-state (db/one db :games {:key key})]
-    (let [history (load-history db key)]
+    (let [history (load-history db key)
+          chat (load-chat db key)]
       (-> game-state
           (assoc-in [:game :state] (last history))
           (assoc :history history)
+          (assoc :chat chat)
           (update-in [:game :adjacencies] read-string)
           (select-keys [:key :invocation :game :chat :history])))))

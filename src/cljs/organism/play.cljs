@@ -28,7 +28,7 @@
   (r/atom
    {:game {}
     :created false
-    :player nil
+    :player js/playerKey
     :history []
     :board {}
     :turn :open
@@ -110,7 +110,7 @@
         {:keys [state turn-order]} game
         {:keys [player-colors]} board]
     [:div
-     [:h2 "score"]
+     [:h3 "score"]
      [:ul
       (for [player turn-order]
         ^{:key player}
@@ -143,7 +143,7 @@
         #(when (= (.-keyCode %) 13)
            (ws/send-transit-message!
             {:type "chat"
-             :player (:player @game-state)
+             :player js/playerKey
              :message @value})
            (reset! value nil))}])))
 
@@ -477,7 +477,7 @@
         (board/generate-board
          ring-count player-count players colors board/total-rings)]
     {:game game
-     :player (first players)
+     :player js/playerKey
      :history []
      :board board
      :turn :create
@@ -494,6 +494,11 @@
 (defn organism-controls
   []
   (let [{:keys [game board turn choices history]} @game-state
+        player-turn (game/get-player-turn game)
+        organism-turn (game/get-organism-turn game)
+        action-type (:choice organism-turn)
+        current-action (last (:actions organism-turn))
+
         player-colors (:player-colors board)
         current-player (game/current-player game)
         current-color (get player-colors current-player)
@@ -511,8 +516,12 @@
     (if current-player
       [:div
        [:h1
+        {:style
+         {:color current-color}}
+        current-player]
+       [:h3
         {:style {:color current-color}}
-        "> " current-player " - " (name turn)]
+        "phase - " (name turn)]
        [:svg
         {:width 200 :height 180}
 
@@ -597,7 +606,7 @@
                        (send-state! (:state choice) true))))))))]
 
        ;; CIRCULATE
-       [:h1
+       [:h2
         {:style
          {:color
           (cond
@@ -616,7 +625,7 @@
         "circulate"]
 
        ;; RESET
-       [:h2
+       [:h3
         [:span
          {:style
           {:color "hsl(0,50%,50%)"}
@@ -660,9 +669,25 @@
             (fn [event]
               (send-state! (get-in choices [:advance :state]) true))}
            "confirm turn"]
-          [resolve-action])]
+          [:div])]
 
-       [:h2 (with-out-str (pprint (-> game :state :player-turn)))]])))
+       (if (and
+            organism-turn
+            (nil? (:advance player-turn))
+            (not= turn :actions-complete))
+         [:h3
+          {:style {:color current-color}}
+          "organism - " (:organism organism-turn)
+          (if-let [choice (:choice organism-turn)]
+            [:span
+             [:br] "element action - " choice
+             [:br] "total actions - " (:num-actions organism-turn)])
+          (if (not (empty? (:actions organism-turn)))
+            [:span
+             [:br] "current action - " (count (:actions organism-turn))
+             [:br] "action choice - " (:type (last (:actions organism-turn)))])])
+
+       [:h3 (with-out-str (pprint (-> game :state :player-turn)))]])))
 
 (defn flex-direction
   [direction]
@@ -685,13 +710,13 @@
     [:h1 "ORGANISM"]]
    inner
    [:footer
-    [:h2 "organism"]]])
+    [:h3 "organism"]]])
 
 (defn ring-count-input
   []
   (let [invocation @board-invocation]
     [:div
-     [:h2 "ring count"]
+     [:h3 "ring count"]
      [:select
       {:name "ring-count"
        :value (:ring-count invocation)
@@ -716,7 +741,7 @@
   []
   (let [invocation @board-invocation]
     [:div
-     [:h2 "player count"]
+     [:h3 "player count"]
      [:select
       {:name "player-count"
        :value (:player-count invocation)
@@ -742,7 +767,7 @@
   []
   (let [invocation @board-invocation]
     [:div
-     [:h2 "organisms for victory"]
+     [:h3 "organisms for victory"]
      [:select
       {:name "organism-victory"
        :value (:organism-victory invocation)
@@ -778,7 +803,7 @@
       (fn [index player]
         ^{:key index}
         [:div
-         [:h2 "player " (inc index)]
+         [:h3 "player " (inc index)]
          [:input
           {:value player
            :on-change
@@ -808,7 +833,7 @@
        [:div
         [player-list]]
        [:div
-        [:h2 "discuss"]
+        [:h3 "discuss"]
         [chat-list]
         [chat-input]]]
       [:article
@@ -817,7 +842,7 @@
       [:nav
        {:style {:width "30%"}}
        [:div
-        [:h2 (.toString invocation)]
+        [:h3 (.toString invocation)]
         [create-button]]
        [:form
         [ring-count-input]
@@ -835,7 +860,7 @@
      [:div
       [player-list]]
      [:div
-      [:h2 "discuss"]
+      [:h3 "discuss"]
       [chat-list]
       [chat-input]]]
     [:article
@@ -923,6 +948,6 @@
           "wss:"
           "ws:")]
     (ws/make-websocket!
-     (str protocol "//" (.-host js/location) "/ws/" js/gameKey)
+     (str protocol "//" (.-host js/location) "/ws/player/" js/playerKey "/game/" js/gameKey)
      update-messages!)
     (mount-components)))

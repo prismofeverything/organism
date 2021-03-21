@@ -17,7 +17,9 @@
 
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{player}}";
       var gameKey = "{{game}}";
+      console.log("player key: " + playerKey);
       console.log("game key: " + gameKey);
     </script>
     {% script "/js/organism.js" %}

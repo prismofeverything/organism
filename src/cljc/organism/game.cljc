@@ -239,6 +239,10 @@
   [game space]
   (get-in game [:adjacencies space]))
 
+(defn get-player-turn
+  [game]
+  (get-in game [:state :player-turn]))
+
 (defn current-player
   [{:keys [state] :as game}]
   (get-in state [:player-turn :player]))
