@@ -90,7 +90,6 @@
   [{:keys [db game-key]} channel]
   (log/info "channel open")
   (let [game-state (find-game! db game-key channel)]
-    (println "GAME STATE" game-state)
     (if (get-in game-state [:invocation :created])
       (let [player (first @player-cycle)]
         (swap! player-cycle rest)

@@ -532,7 +532,11 @@
                   (or
                    (and
                     (= turn :introduce)
-                    (= chosen-element type)))
+                    (= chosen-element type))
+                   (and
+                    (= turn :choose-action)
+                    (let [organism-turn (game/get-organism-turn game)]
+                      (= type (:choice organism-turn)))))
                   :focus
 
                   (or
@@ -600,7 +604,7 @@
             (and
              (= turn :choose-action)
              (:circulate choices))
-            current-color
+            focus-color
             :else dormant-color)}
          :on-click
          (condp = turn
@@ -922,5 +926,3 @@
      (str protocol "//" (.-host js/location) "/ws/" js/gameKey)
      update-messages!)
     (mount-components)))
-
-
