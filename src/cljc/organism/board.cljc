@@ -44,6 +44,22 @@
       [[] (rand)]
       (map vector rings (range))))))
 
+(defn generate-random-colors
+  [labels]
+  (map
+   (fn [label]
+     [label
+      (random-color label)])
+   labels))
+
+(defn generate-colors-buffer
+  [all-rings num-rings total]
+  (let [ring-colors (generate-colors (take num-rings all-rings))
+        buffer (- total num-rings)
+        buffer-labels (take buffer (drop num-rings all-rings))
+        extra (generate-random-colors buffer-labels)]
+    (vec (concat ring-colors extra))))
+
 (def total-rings
   ["A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M"])
 
@@ -221,8 +237,9 @@
 (defrecord Board [symmetry radius buffer colors layout locations player-colors])
 
 (defn build-board
-  [symmetry radius buffer colors players notches?]
-  (let [num-rings (count colors)
+  [symmetry radius buffer all-colors rings players notches?]
+  (let [num-rings (count rings)
+        colors (take num-rings all-colors)
         outer-color (-> colors last first)
         notches (map (fn [n] [outer-color (* n (dec num-rings))]) (range symmetry))
         locations (board-locations symmetry radius buffer colors)
@@ -233,25 +250,17 @@
                      locations
                      notches)
                     locations)
-        board-colors
-        (reverse
-         (rest
-          (map last colors)))
-           ;; (str "url(#" (name color-key) "-element)")
-        missing-colors (- (count players) (count board-colors))
-        more-colors
-        (if (> missing-colors 0)
-          (map
-           random-color
-           (range missing-colors)))
-        all-colors (concat board-colors more-colors)
+        difference (- (count all-colors) (count players))
         player-colors
         (into
          {}
          (map
-          vector
+          (fn [player [ring color]]
+            [player color])
           players
-          all-colors))]
+          (drop
+           difference
+           (reverse all-colors))))]
     (Board.
      symmetry
      radius
@@ -621,16 +630,22 @@
     (find-starting-spaces symmetry rings players)))
 
 (defn generate-board
-  [ring-count player-count players colors total-rings]
-  (let [symmetry (player-symmetry player-count)
+  [colors players rings]
+  (let [player-count (count players)
+        ring-count (count rings)
+        symmetry (player-symmetry player-count)
         radius (ring-radius ring-count)
         radius (if (= symmetry 7) (* 0.9 radius) radius)
         buffer (if (= symmetry 7) 2.4 2.1)
-        ring-names (take ring-count total-rings)
         notches? (cut-notches? ring-count player-count)]
     (build-board
-     symmetry radius buffer
-     colors players notches?)))
+     symmetry
+     radius
+     buffer
+     colors
+     rings
+     players
+     notches?)))
 
 
 #?(:clj

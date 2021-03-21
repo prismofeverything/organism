@@ -15,14 +15,13 @@
 (def home-game
   (atom {}))
 
+(def all-rings
+  ["A" "B" "C" "D" "E" "F" "G"])
+
 (defn empty-game
   [starting-game]
-  {:colors
-   (board/generate-colors
-    ["A" "B" "C" "D" "E" "F" "G"])
-   :games
-   (choice/random-walk
-    starting-game)})
+  {:colors (board/generate-colors all-rings)
+   :games (choice/random-walk starting-game)})
 
 (defn home-page [request]
   (layout/render request "home.html"))
@@ -39,7 +38,7 @@
       (let [home (deref home-game)
             {:keys [games colors]} home
             game (first games)
-            board (board/build-board 6 50 2.1 colors (:turn-order game) true)]
+            board (board/build-board 6 50 2.1 colors all-rings (:turn-order game) true)]
         (swap! home-game update :games rest)
         (up/html (board/render-game board game)))))
    "text/html; charset=utf-8"))

@@ -43,6 +43,8 @@
 (defonce food-source
   (r/atom {}))
 
+(def max-players 7)
+
 (defn choose-food-source!
   [space]
   (swap! food-source update space inc))
@@ -77,7 +79,10 @@
 (defn initialize-game
   [game-state {:keys [game invocation player history board] :as message}]
   (let [{:keys [ring-count player-count players colors]} invocation
-        board (board/generate-board ring-count player-count players colors board/total-rings)
+        board (board/generate-board
+               colors
+               players
+               (take ring-count board/total-rings))
         [turn choices] (choice/find-state game)]
     (println "initializing game" game)
     (println "initializing board" board)
@@ -468,13 +473,15 @@
 (defn generate-game-state
   [{:keys [ring-count player-count players colors] :as invocation}]
   (let [symmetry (board/player-symmetry player-count)
-        ring-names (take ring-count board/total-rings)
-        starting (board/find-starting-spaces symmetry ring-names players)
+        rings (take ring-count board/total-rings)
+        starting (board/find-starting-spaces symmetry rings players)
         game-players (game/initial-players starting)
         game {:players game-players}
         board
         (board/generate-board
-         ring-count player-count players colors board/total-rings)]
+         colors
+         players
+         rings)]
     {:game game
      :player js/playerKey
      :history []
@@ -726,10 +733,13 @@
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
                invocation @board-invocation
-               rings (take value board/total-rings)]
+               colors (board/generate-colors-buffer
+                       board/total-rings
+                       value
+                       max-players)]
            (-> invocation
                (assoc :ring-count value)
-               (assoc :colors (board/generate-colors rings))
+               (assoc :colors colors)
                send-create!)))}
       (map
        (fn [n]
@@ -751,9 +761,12 @@
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
                order @player-order
-               rings (take (:ring-count invocation) board/total-rings)]
+               colors (board/generate-colors-buffer
+                       board/total-rings
+                       (:ring-count invocation)
+                       max-players)]
            (-> invocation
-               (assoc :colors (board/generate-colors rings))
+               (assoc :colors colors)
                (assoc :player-count value)
                (assoc :players (vec (take value order)))
                send-create!)))}
@@ -799,30 +812,30 @@
 (defn players-input
   []
   (let [{:keys [player-count colors]} @board-invocation
-        order @player-order]
+        ;; order @player-order
+        player-colors (get-in @game-state [:board :player-colors])]
     [:div
      (map-indexed
-      (fn [index player]
-        (let [color (last (nth (reverse colors) index))]
-          ^{:key index}
-          [:div
-           [:h3 "player " (inc index)]
-           [:input
-            {:value player
-             :style
-             {:border-radius "50px"
-              :color "#fff"
-              :background color
-              :border "3px solid"
-              :font-size "2em"
-              :letter-spacing "8px"
-              :margin "0px 0px"
-              :padding "10px 40px"}
-             :on-change
-             (fn [event]
-               (let [value (-> event .-target .-value)]
-                 (send-player-name! index value)))}]]))
-      (take player-count order))]))
+      (fn [index [player color]]
+        ^{:key index}
+        [:div
+         [:h3 "player " (inc index)]
+         [:input
+          {:value player
+           :style
+           {:border-radius "50px"
+            :color "#fff"
+            :background color
+            :border "3px solid"
+            :font-size "2em"
+            :letter-spacing "8px"
+            :margin "0px 0px"
+            :padding "10px 40px"}
+           :on-change
+           (fn [event]
+             (let [value (-> event .-target .-value)]
+               (send-player-name! index value)))}]])
+      player-colors)]))
 
 (defn create-button
   [color]
@@ -832,6 +845,7 @@
     :style
     {:border-radius "50px"
      :color "#fff"
+     :cursor "pointer"
      :background color
      :border "3px solid"
      :font-size "2em"

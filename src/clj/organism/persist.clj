@@ -37,6 +37,7 @@
         game-state (update-in game-state [:game :adjacencies] pr-str)
         game-state (update-in game-state [:game :players] pr-str)]
     (println "CREATING GAME" game-state)
+    ;; TODO: add player-games-* collection for each player containing their games
     (db/index! db :games [:key] {:unique true})
     (db/insert! db :games game-state)
     (db/insert! db (history-key key) initial-state)))
