@@ -109,31 +109,41 @@
         (assoc :turn turn)
         (assoc :choices choices))))
 
-(defn player-list
-  []
-  (let [{:keys [game board] :as game-state} @game-state
-        {:keys [state turn-order]} game
-        {:keys [player-colors]} board]
-    [:div
-     [:h3 "score"]
-     [:ul
-      (for [player turn-order]
-        ^{:key player}
-        [:li
-         {:style {:color (get player-colors player)}}
-         player " - " (count (get-in state [:captures player]))])]]))
+(defn round-banner
+  [color round]
+  [:div
+   {:style
+    {:color "#fff"
+     :border-radius "50px"
+     :cursor "pointer"
+     :background color
+     :letter-spacing "8px"
+     :margin "20px 0px"
+     :padding "25px 60px"}}
+   [:h1 "ORGANISM"]
+   [:h2 js/gameKey " - round " (inc round)]])
+
+(defn scoreboard
+  [turn-order player-colors state]
+  [:div
+   [:h3 "score"]
+   [:ul
+    (for [player turn-order]
+      ^{:key player}
+      [:li
+       {:style {:color (get player-colors player)}}
+       player " - " (count (get-in state [:captures player]))])]])
 
 (defn chat-list
-  []
+  [player-colors chat]
   [:ul
-   (let [player-colors (get-in @game-state [:board :player-colors])]
-     (for [[i message] (map-indexed vector @chat)]
-       (let [player (:player message)
-             color (get player-colors player)]
-         ^{:key i}
-         [:li
-          {:style {:color color}}
-          player ": " (:message message)])))])
+   (for [[i message] (map-indexed vector chat)]
+     (let [player (:player message)
+           color (get player-colors player)]
+       ^{:key i}
+       [:li
+        {:style {:color color}}
+        player ": " (:message message)]))])
 
 (defn chat-input
   []
@@ -258,7 +268,7 @@
         radius (* (:radius board) highlight-factor)
         element-radius (* (:radius board) 1)
         starting-spaces (get-in game [:players player :starting-spaces])
-        {:keys [chosen-space chosen-element progress]} (deref introduction)
+        {:keys [chosen-space chosen-element progress]} @introduction
 
         ;; unchosen starting spaces
         highlights
@@ -462,9 +472,8 @@
    "continue"])
 
 (defn organism-board
-  []
-  (let [{:keys [game board turn choices]} @game-state
-        svg (board/render-game board game)
+  [game board turn choices]
+  (let [svg (board/render-game board game)
         highlights (find-highlights game board turn choices)]
     (if (empty? highlights)
       svg
@@ -497,6 +506,92 @@
      game-state
      generated)))
 
+(defn current-player-banner
+  [player color turn]
+  [:h1
+   {:style
+    {:color "#fff"
+     :border-radius "50px"
+     :cursor "pointer"
+     :background color
+     :letter-spacing "8px"
+     :margin "20px 0px"
+     :padding "25px 60px"}}
+   player
+   [:span
+    {:style
+     {:font-size "0.5em"
+      :letter-spacing "5px"
+      :margin-left "20px"}}
+    " "
+    (string/join " " (string/split (name turn) #"-"))]])
+
+(defn circulate-control
+  [turn choices color]
+  [:div
+   {:style
+    {:margin "20px 10px 50px 10px"}}
+   [:span
+    {:style
+     {:color "#fff"
+      :border-radius "20px"
+      :cursor "pointer"
+      :background color
+      :font-size "1.5em"
+      :letter-spacing "7px"
+      :padding "5px 20px"}
+     :on-click
+     (condp = turn
+       :choose-action
+       (fn [event]
+         (if (:circulate choices)
+           (send-choice! choices :circulate true)))
+       (fn [event]))}
+    "circulate"]])
+
+(def turn-descriptions
+  {:pass "pass"
+   :actions-complete "resolve conflicts"
+   :resolve-conflicts "check integrity"
+   :check-integrity "confirm turn"})
+
+(defn progress-control
+  [turn choices advance]
+  (if-let [description (get turn-descriptions turn)]
+    [:span
+     {:style
+      {:color "#fff"
+       :cursor "pointer"
+       :border-radius "20px"
+       :background "hsl(100,50%,50%)"
+       :font-size "1.2em"
+       :letter-spacing "4px"
+       :margin "10px 10px"
+       :padding "5px 20px"}
+      :on-click
+      (fn [event]
+        (send-state! (get-in choices [advance :state]) true))}
+     description]))
+
+(defn reset-control
+  [turn choices state]
+  [:div
+   [:span
+    {:style
+     {:color "#fff"
+      :border-radius "10px"
+      :background "hsl(0,50%,50%)"
+      :font-size "1.2em"
+      :letter-spacing "4px"
+      :margin "10px 10px"
+      :padding "5px 20px"}
+     :on-click
+     (fn [event]
+       (send-reset! state))}
+    "reset"]
+
+   [progress-control turn choices (if (= turn :pass) :pass :advance)]])
+
 (defn organism-controls
   []
   (let [{:keys [game board turn choices history]} @game-state
@@ -521,13 +616,7 @@
 
     (if current-player
       [:div
-       [:h1
-        {:style
-         {:color current-color}}
-        current-player]
-       [:h3
-        {:style {:color current-color}}
-        "phase - " (name turn)]
+       [current-player-banner current-player current-color turn]
        [:svg
         {:width 200 :height 180}
 
@@ -614,78 +703,29 @@
                      (if-let [choice (get choices type)]
                        (send-state! (:state choice) true))))))))]
 
-       ;; CIRCULATE
-       [:h2
-        {:style
-         {:color
-          (cond
-            (and
-             (= turn :choose-action)
-             (:circulate choices))
-            focus-color
-            :else dormant-color)}
-         :on-click
-         (condp = turn
-           :choose-action
-           (fn [event]
-             (if (:circulate choices)
-               (send-choice! choices :circulate true)))
-           (fn [event]))}
-        "circulate"]
+       [:br]
 
-       ;; RESET
-       [:h3
-        [:span
-         {:style
-          {:color "hsl(0,50%,50%)"}
-          :on-click
-          (fn [event]
-            (send-reset! (:state game)))}
-         "reset"]
-        " | "
+       [circulate-control
+        turn
+        choices
+        (cond
+          (and
+           (= turn :choose-action)
+           (:circulate choices))
+          focus-color
+          :else dormant-color)]
 
-        ;; CONFIRM
-        (condp = turn
-          :pass
-          [:span
-           {:style
-            {:color "hsl(100,50%,50%)"}
-            :on-click
-            (fn [event]
-              (send-state! (get-in choices [:pass :state]) true))}
-           "pass"]
-          :actions-complete
-          [:span
-           {:style
-            {:color "hsl(100,50%,50%)"}
-            :on-click
-            (fn [event]
-              (send-state! (get-in choices [:advance :state]) true))}
-           "resolve conflicts"]
-          :resolve-conflicts
-          [:span
-           {:style
-            {:color "hsl(100,50%,50%)"}
-            :on-click
-            (fn [event]
-              (send-state! (get-in choices [:advance :state]) true))}
-           "check integrity"]
-          :check-integrity
-          [:span
-           {:style
-            {:color "hsl(100,50%,50%)"}
-            :on-click
-            (fn [event]
-              (send-state! (get-in choices [:advance :state]) true))}
-           "confirm turn"]
-          [:div])]
+       [reset-control turn choices (:state game)]
 
        (if (and
             organism-turn
             (nil? (:advance player-turn))
             (not= turn :actions-complete))
          [:h3
-          {:style {:color current-color}}
+          {:style
+           {:color current-color
+            :font-size "1.2em"
+            :padding "50px 20px"}}
           "organism - " (:organism organism-turn)
           (if-let [choice (:choice organism-turn)]
             [:span
@@ -715,11 +755,7 @@
   [inner]
   [:div
    (flex-direction "column")
-   [:header
-    [:h1 "ORGANISM"]]
-   inner
-   [:footer
-    [:h3 "organism"]]])
+   inner])
 
 (defn ring-count-input
   []
@@ -859,23 +895,38 @@
        (ws/send-transit-message!
         {:type "trigger-creation"}))}])
 
+(defn chat-panel
+  [turn-order player-colors state chat]
+  [:div
+   {:style
+    {:margin "20px"}}
+   [round-banner (get player-colors (-> state :player-turn :player)) (:round state)]
+   [:div
+    {:style
+     {:margin "20px 50px"}}
+    [scoreboard turn-order player-colors state]
+    [:br]
+    [:h3 "discussion"]
+    [chat-list player-colors chat]
+    [:br]
+    [chat-input]]])
+
 (defn create-page
   []
-  (let [invocation @board-invocation]
+  (let [invocation @board-invocation
+        {:keys [game board turn choices]} @game-state
+        {:keys [state turn-order]} game
+        {:keys [player-colors]} board]
     (game-layout
      [:main
       (flex-grow "row" 1)
       [:aside
-       {:style {:width "30%"}}
-       [:div
-        [player-list]]
-       [:div
-        [:h3 "discuss"]
-        [chat-list]
-        [chat-input]]]
+       {:style
+        {:width "30%"}}
+       [chat-panel turn-order player-colors state @chat]]
       [:article
        {:style {:flex-grow 1}}
-       [organism-board]]
+       [organism-board game board turn choices]]
       (println "INVOCATION" invocation)
       [:nav
        {:style {:width "30%"}}
@@ -889,23 +940,23 @@
 
 (defn game-page
   []
-  (game-layout
-   [:main
-    (flex-grow "row" 1)
-    [:aside
-     {:style {:width "30%"}}
-     [:div
-      [player-list]]
-     [:div
-      [:h3 "discuss"]
-      [chat-list]
-      [chat-input]]]
-    [:article
-     {:style {:flex-grow 1}}
-     [organism-board]]
-    [:nav
-     {:style {:width "30%"}}
-     [organism-controls]]]))
+  (let [invocation @board-invocation
+        {:keys [game board turn choices]} @game-state
+        {:keys [state turn-order]} game
+        {:keys [player-colors]} board]
+    (game-layout
+     [:main
+      (flex-grow "row" 1)
+      [:aside
+       {:style
+        {:width "30%"}}
+       [chat-panel turn-order player-colors state @chat]]
+      [:article
+       {:style {:flex-grow 1}}
+       [organism-board game board turn choices]]
+      [:nav
+       {:style {:width "30%"}}
+       [organism-controls]]])))
 
 (defn page-container
   []
