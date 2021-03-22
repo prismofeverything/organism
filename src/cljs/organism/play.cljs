@@ -1053,6 +1053,7 @@
         {:keys [state turn-order]} game
         state (if cursor (nth history cursor) state)
         game (assoc game :state state)
+        [turn choices] (if cursor (choice/find-state game) [turn choices])
         {:keys [player-colors]} board]
     (game-layout
      [:main
