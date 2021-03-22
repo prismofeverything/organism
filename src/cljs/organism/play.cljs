@@ -71,6 +71,40 @@
        {key value})
       (first el)))))
 
+(defn send-state!
+  [state complete]
+  (ws/send-transit-message!
+   {:type "game-state"
+    :game state
+    :complete complete}))
+
+(defn send-reset!
+  [state]
+  (ws/send-transit-message!
+   {:type "history"
+    :game state}))
+
+(defn send-choice!
+  [choices match complete]
+  (let [choice (get-in choices [match :state])]
+    (if choice
+      (send-state! choice complete)
+      (println "NO CHOICE MATCHING" match (keys choices)))))
+
+(defn send-introduction!
+  [choices {:keys [progress] :as intro}]
+  (if (introduction-complete? intro)
+    (send-choice!
+     choices
+     (assoc progress :organism 0)
+     true)))
+
+(defn send-create!
+  [invocation]
+  (ws/send-transit-message!
+   {:type "create"
+    :invocation invocation}))
+
 (defn initialize-chat
   [chat message]
   (println "initializing chat" (:chat message))
@@ -162,6 +196,24 @@
              :message @value})
            (reset! value nil))}])))
 
+(defn chat-panel
+  [turn-order player-colors state chat]
+  [:div
+   {:style
+    {:margin "20px"}}
+   [round-banner
+    (get player-colors (-> state :player-turn :player) (first (vals player-colors)))
+    (:round state)]
+   [:div
+    {:style
+     {:margin "20px 50px"}}
+    [scoreboard turn-order player-colors state]
+    [:br]
+    [:h3 "discussion"]
+    [chat-list player-colors chat]
+    [:br]
+    [chat-input]]])
+
 (defn highlight-circle
   [x y radius color on-click]
   (let [highlight-color (board/brighten color 0.3)]
@@ -202,40 +254,6 @@
            radius
            {:type type :food 1})]
     (assoc-prop g :on-click on-click)))
-
-(defn send-state!
-  [state complete]
-  (ws/send-transit-message!
-   {:type "game-state"
-    :game state
-    :complete complete}))
-
-(defn send-reset!
-  [state]
-  (ws/send-transit-message!
-   {:type "history"
-    :game state}))
-
-(defn send-choice!
-  [choices match complete]
-  (let [choice (get-in choices [match :state])]
-    (if choice
-      (send-state! choice complete)
-      (println "NO CHOICE MATCHING" match (keys choices)))))
-
-(defn send-introduction!
-  [choices {:keys [progress] :as intro}]
-  (if (introduction-complete? intro)
-    (send-choice!
-     choices
-     (assoc progress :organism 0)
-     true)))
-
-(defn send-create!
-  [invocation]
-  (ws/send-transit-message!
-   {:type "create"
-    :invocation invocation}))
 
 (def highlight-factor 0.93)
 
@@ -465,12 +483,6 @@
     :move-to (choose-target-highlights game board turn choices)
     []))
 
-(defn resolve-action
-  []
-  [:span
-   {:style {:color "hsl(0, 10%, 80%)"}}
-   "continue"])
-
 (defn organism-board
   [game board turn choices]
   (let [svg (board/render-game board game)
@@ -672,6 +684,7 @@
                  location
                  element-radius
                  {:type type :food 0})
+                (assoc-prop :style {:cursor "pointer"})
                 (assoc-prop
                  :on-click
                  (fn [event]
@@ -920,24 +933,6 @@
        (ws/send-transit-message!
         {:type "trigger-creation"}))}])
 
-(defn chat-panel
-  [turn-order player-colors state chat]
-  [:div
-   {:style
-    {:margin "20px"}}
-   [round-banner
-    (get player-colors (-> state :player-turn :player) (first (vals player-colors)))
-    (:round state)]
-   [:div
-    {:style
-     {:margin "20px 50px"}}
-    [scoreboard turn-order player-colors state]
-    [:br]
-    [:h3 "discussion"]
-    [chat-list player-colors chat]
-    [:br]
-    [chat-input]]])
-
 (defn create-page
   []
   (let [invocation @board-invocation
@@ -1069,7 +1064,8 @@
         (if (= (.-protocol js/location) "https:")
           "wss:"
           "ws:")]
-    (ws/make-websocket!
-     (str protocol "//" (.-host js/location) "/ws/player/" js/playerKey "/game/" js/gameKey)
-     update-messages!)
+    (when (and js/playerKey js/gameKey)
+      (ws/make-websocket!
+       (str protocol "//" (.-host js/location) "/ws/player/" js/playerKey "/game/" js/gameKey)
+       update-messages!))
     (mount-components)))

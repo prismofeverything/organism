@@ -19,12 +19,40 @@
       color/as-css
       :col))
 
+;; (defn generate-colors
+;;   [rings]
+;;   (let [num-rings (count rings)
+;;         base 0.1
+;;         saturation-base 0.1
+;;         max 0.8
+;;         factor (/ (- max base) num-rings)
+;;         jump-base 0.2
+;;         jump-factor 0.6]
+;;     (first
+;;      (reduce
+;;       (fn [[colors hue] [ring index]]
+;;         [(conj
+;;           colors
+;;           [ring
+;;            (-> (color/hsla
+;;                 hue
+;;                 (- max (+ saturation-base (rand (- max saturation-base))))
+;;                 (- max (* index factor))
+;;                 1.0)
+;;                color/as-css
+;;                :col)])
+;;          (mod (+ hue (+ jump-base (- (rand (* 2 jump-factor)) jump-factor))) 1.0)])
+;;       [[] (rand)]
+;;       (map vector rings (range))))))
+
 (defn generate-colors
   [rings]
   (let [num-rings (count rings)
-        base 0.1
-        max 0.8
-        factor (/ (- max base) num-rings)
+        saturation-base 0.3
+        saturation-max 0.9
+        lightness-base 0.1
+        lightness-max 0.8
+        factor (/ (- lightness-max lightness-base) num-rings)
         jump-base 0.2
         jump-factor 0.6]
     (first
@@ -35,14 +63,14 @@
           [ring
            (-> (color/hsla
                 hue
-                (- max (+ base (rand (- max base))))
-                (- max (* index factor))
+                (+ saturation-base (rand (- saturation-max saturation-base)))
+                (+ lightness-base (* index factor) (rand factor))
                 1.0)
                color/as-css
                :col)])
          (mod (+ hue (+ jump-base (- (rand (* 2 jump-factor)) jump-factor))) 1.0)])
       [[] (rand)]
-      (map vector rings (range))))))
+      (map vector rings (reverse (range (count rings))))))))
 
 (defn generate-random-colors
   [labels]
