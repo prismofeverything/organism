@@ -187,11 +187,19 @@
   [radius color [cx cy]]
   (circle [cx cy radius color]))
 
+(defn symmetry-background
+  [symmetry]
+  (cond
+    (= symmetry 5) [1.85 1.9] ;; [1.65 1.7]
+    (= symmetry 7) [1.9 1.5]
+    :else [1.7 1.6]))
+
 (defn build-background
-  [radius buffer colors]
+  [symmetry radius buffer colors]
   (let [num-rings (count colors)
         field (* radius buffer num-rings)
-        center [field field]]
+        center [field field]
+        [pull tie] (symmetry-background symmetry)]
     [(concat
       [:defs]
       (apply
@@ -216,10 +224,10 @@
           ^{:key color}
           (circle
            [field field
-            (* 1.85 (- (+ num-rings 1) index) (+ radius buffer))
+            (* pull (- (+ num-rings 1) index) (+ radius buffer))
             (str "url(#" (name color-key) ")")]))
         (reverse (rest colors))
-        (map (partial + 1.9) (range))))]]))
+        (map (partial + tie) (range))))]]))
 
 (defn board-layout
   [symmetry radius buffer colors notches?]
@@ -227,7 +235,7 @@
     [:svg {:width field :height field}
      (concat
       [:g]
-      (build-background radius buffer colors)
+      (build-background symmetry radius buffer colors)
       [(map-indexed
         (fn [i spec]
           ^{:key i}
