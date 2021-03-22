@@ -158,19 +158,37 @@
    [:h1 "ORGANISM"]
    [:h2 js/gameKey " - round " (inc round)]])
 
+(defn boundary-inc
+  [total n]
+  (cond
+    (nil? n) nil
+    (= n (dec total)) nil
+    :else (inc n)))
+
+(defn boundary-dec
+  [total n]
+  (cond
+    (nil? n) (dec total)
+    (zero? n) 0
+    :else (dec n)))
+
 (defn history-beginning-control
   []
   [:polygon
    {:points "0,5 10,5 10,25 50,0 50,50 10,25 10,45 0,45"
-    :style
-    {:fill "hsl(100, 20%, 20%)"}}])
+    :style {:fill "hsl(100, 20%, 20%)"}
+    :on-click
+    (fn [event]
+      (swap! game-state assoc :cursor 0))}])
 
 (defn history-back-control
-  []
+  [cursor total]
   [:polygon
    {:points "70,25 100,5 100,45"
-    :style
-    {:fill "hsl(100, 20%, 20%)"}}])
+    :style {:fill "hsl(100, 20%, 20%)"}
+    :on-click
+    (fn [event]
+      (swap! game-state update :cursor (partial boundary-dec total)))}])
 
 (defn history-status-display
   [cursor total]
@@ -178,40 +196,47 @@
    {:x (if cursor "110" "140")
     :y "35"
     :width "80"
-    :text-anchor "middle"
-    :font-size "1.5em"}
+    :font-size "1.5em"
+    :on-click
+    (fn [event]
+      (swap! game-state assoc :cursor nil))}
    (if cursor
-     (str cursor " / " total)
+     (str (inc cursor) " / " total)
      total)])
 
 (defn history-forward-control
-  []
+  [total]
   [:polygon
    {:points "200,5 230,25 200,45"
-    :style
-    {:fill "hsl(100, 20%, 20%)"}}])
+    :style {:fill "hsl(100, 20%, 20%)"}
+    :on-click
+    (fn [event]
+      (swap! game-state update :cursor (partial boundary-inc total)))}])
 
 (defn history-end-control
-  []
+  [total]
   [:polygon
    {:points "300,5 290,5 290,25 250,0 250,50 290,25 290,45 300,45"
-    :style
-    {:fill "hsl(100, 20%, 20%)"}}])
+    :style {:fill "hsl(100, 20%, 20%)"}
+    :on-click
+    (fn [event]
+      (swap! game-state assoc :cursor (dec total)))}])
 
 (defn history-controls
   [history cursor]
-  [:svg
-   {:width 300
-    :height 50
-    :style
-    {:margin "40px 0px 0px 0px"}}
-   [:g
-    {:transform "scale(0.6)"}
-    [history-beginning-control]
-    [history-back-control]
-    [history-status-display cursor (count history)]
-    [history-forward-control]
-    [history-end-control]]])
+  (let [total (count history)]
+    [:svg
+     {:width 300
+      :height 50
+      :style
+      {:margin "40px 0px 0px 0px"}}
+     [:g
+      {:transform "scale(0.6)"}
+      [history-beginning-control]
+      [history-back-control cursor total]
+      [history-status-display cursor total]
+      [history-forward-control total]
+      [history-end-control total]]]))
 
 (defn scoreboard
   [turn-order player-colors state]
@@ -662,9 +687,8 @@
    [progress-control turn choices (if (= turn :pass) :pass :advance)]])
 
 (defn organism-controls
-  []
-  (let [{:keys [game board turn choices history]} @game-state
-        player-turn (game/get-player-turn game)
+  [game board turn choices history]
+  (let [player-turn (game/get-player-turn game)
         organism-turn (game/get-organism-turn game)
         action-type (:choice organism-turn)
         current-action (last (:actions organism-turn))
@@ -1027,6 +1051,8 @@
   (let [invocation @board-invocation
         {:keys [game board turn choices history cursor]} @game-state
         {:keys [state turn-order]} game
+        state (if cursor (nth history cursor) state)
+        game (assoc game :state state)
         {:keys [player-colors]} board]
     (game-layout
      [:main
@@ -1040,7 +1066,7 @@
        [organism-board game board turn choices]]
       [:nav
        {:style {:width "30%"}}
-       [organism-controls]]])))
+       [organism-controls game board turn choices history]]])))
 
 (defn page-container
   []
