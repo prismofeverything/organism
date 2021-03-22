@@ -30,6 +30,7 @@
     :created false
     :player js/playerKey
     :history []
+    :cursor nil
     :board {}
     :turn :open
     :choices []}))
@@ -157,6 +158,61 @@
    [:h1 "ORGANISM"]
    [:h2 js/gameKey " - round " (inc round)]])
 
+(defn history-beginning-control
+  []
+  [:polygon
+   {:points "0,5 10,5 10,25 50,0 50,50 10,25 10,45 0,45"
+    :style
+    {:fill "hsl(100, 20%, 20%)"}}])
+
+(defn history-back-control
+  []
+  [:polygon
+   {:points "70,25 100,5 100,45"
+    :style
+    {:fill "hsl(100, 20%, 20%)"}}])
+
+(defn history-status-display
+  [cursor total]
+  [:text
+   {:x (if cursor "110" "140")
+    :y "35"
+    :width "80"
+    :text-anchor "middle"
+    :font-size "1.5em"}
+   (if cursor
+     (str cursor " / " total)
+     total)])
+
+(defn history-forward-control
+  []
+  [:polygon
+   {:points "200,5 230,25 200,45"
+    :style
+    {:fill "hsl(100, 20%, 20%)"}}])
+
+(defn history-end-control
+  []
+  [:polygon
+   {:points "300,5 290,5 290,25 250,0 250,50 290,25 290,45 300,45"
+    :style
+    {:fill "hsl(100, 20%, 20%)"}}])
+
+(defn history-controls
+  [history cursor]
+  [:svg
+   {:width 300
+    :height 50
+    :style
+    {:margin "40px 0px 0px 0px"}}
+   [:g
+    {:transform "scale(0.6)"}
+    [history-beginning-control]
+    [history-back-control]
+    [history-status-display cursor (count history)]
+    [history-forward-control]
+    [history-end-control]]])
+
 (defn scoreboard
   [turn-order player-colors state]
   [:div
@@ -197,7 +253,7 @@
            (reset! value nil))}])))
 
 (defn chat-panel
-  [turn-order player-colors state chat]
+  [turn-order player-colors state history cursor chat]
   [:div
    {:style
     {:margin "20px"}}
@@ -208,6 +264,7 @@
     {:style
      {:margin "20px 50px"}}
     [scoreboard turn-order player-colors state]
+    [history-controls history cursor]
     [:br]
     [:h3 "discussion"]
     [chat-list player-colors chat]
@@ -888,22 +945,21 @@
      [:h3
       {:style
        {:margin "20px 0px 0px 0px"}}
-      "players"]
+      "players:"]
      (map
       (fn [index [player-name color] player]
         ^{:key index}
         [:div
-         ;; [:h3 "player " (inc index)]
          [:input
           {:value player
            :style
-           {:border-radius "50px"
+           {:border-radius "25px"
             :color "#fff"
             :background color
             :border "3px solid"
             :font-size "2em"
             :letter-spacing "8px"
-            :margin "0px 0px"
+            :margin "2px 0px"
             :padding "10px 40px"}
            :on-change
            (fn [event]
@@ -948,7 +1004,7 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order player-colors state @chat]]
+       [chat-panel turn-order player-colors state [] nil @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board turn choices]]
@@ -969,7 +1025,7 @@
 (defn game-page
   []
   (let [invocation @board-invocation
-        {:keys [game board turn choices]} @game-state
+        {:keys [game board turn choices history cursor]} @game-state
         {:keys [state turn-order]} game
         {:keys [player-colors]} board]
     (game-layout
@@ -978,7 +1034,7 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order player-colors state @chat]]
+       [chat-panel turn-order player-colors state history cursor @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board turn choices]]
