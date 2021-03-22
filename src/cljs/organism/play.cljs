@@ -758,13 +758,20 @@
    inner])
 
 (defn ring-count-input
-  []
+  [color]
   (let [invocation @board-invocation]
     [:div
-     [:h3 "ring count"]
+     [:label
+      {:for "ring-count"
+       :style
+       {:font-size "1.5em"}}
+      "ring count: "]
      [:select
-      {:name "ring-count"
+      {:id "ring-count"
+       :name "ring-count"
        :value (:ring-count invocation)
+       :style
+       {:background-color color}
        :on-change
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
@@ -786,13 +793,20 @@
        (range 3 14))]]))
 
 (defn player-count-input
-  []
+  [color]
   (let [invocation @board-invocation]
     [:div
-     [:h3 "player count"]
+     [:label
+      {:for "player-count"
+       :style
+       {:font-size "1.5em"}}
+      "player count: "]
      [:select
-      {:name "player-count"
+      {:id "player-count"
+       :name "player-count"
        :value (:player-count invocation)
+       :style
+       {:background-color color}
        :on-change
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
@@ -815,13 +829,20 @@
        (range 1 8))]]))
 
 (defn organism-victory-input
-  []
+  [color]
   (let [invocation @board-invocation]
     [:div
-     [:h3 "organisms for victory"]
+     [:label
+      {:for "organism-victory"
+       :style
+       {:font-size "1.5em"}}
+      "organisms for victory: "]
      [:select
-      {:name "organism-victory"
+      {:id "organism-victory"
+       :name "organism-victory"
        :value (:organism-victory invocation)
+       :style
+       {:background-color color}
        :on-change
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
@@ -851,11 +872,15 @@
         order @player-order
         player-colors (get-in @game-state [:board :player-colors])]
     [:div
+     [:h3
+      {:style
+       {:margin "20px 0px 0px 0px"}}
+      "players"]
      (map
       (fn [index [player-name color] player]
         ^{:key index}
         [:div
-         [:h3 "player " (inc index)]
+         ;; [:h3 "player " (inc index)]
          [:input
           {:value player
            :style
@@ -900,7 +925,9 @@
   [:div
    {:style
     {:margin "20px"}}
-   [round-banner (get player-colors (-> state :player-turn :player)) (:round state)]
+   [round-banner
+    (get player-colors (-> state :player-turn :player) (first (vals player-colors)))
+    (:round state)]
    [:div
     {:style
      {:margin "20px 50px"}}
@@ -916,7 +943,10 @@
   (let [invocation @board-invocation
         {:keys [game board turn choices]} @game-state
         {:keys [state turn-order]} game
-        {:keys [player-colors]} board]
+        turn-order (or turn-order (:players invocation))
+        {:keys [player-colors]} board
+        create-color (-> invocation :colors rest first last)
+        select-color (-> invocation :colors first last)]
     (game-layout
      [:main
       (flex-grow "row" 1)
@@ -929,13 +959,16 @@
        [organism-board game board turn choices]]
       (println "INVOCATION" invocation)
       [:nav
-       {:style {:width "30%"}}
+       {:style
+        {:width "30%"}}
        [:div
-        [create-button (-> invocation :colors rest first last)]]
+        [create-button create-color]]
        [:form
-        [ring-count-input]
-        [player-count-input]
-        [organism-victory-input]
+        {:style
+         {:margin "40px 40px"}}
+        [ring-count-input select-color]
+        [player-count-input select-color]
+        [organism-victory-input select-color]
         [players-input]]]])))
 
 (defn game-page
