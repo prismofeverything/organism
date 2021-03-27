@@ -181,8 +181,10 @@
 
 (defn update-game-state
   [db player game-key channel {:keys [game complete] :as message}]
-  (let [game-state (get-in @games [:games game-key])]
-    (when (= player (game/current-player (:game game-state)))
+  (let [game-state (get-in @games [:games game-key])
+        current-player (game/current-player (:game game-state))
+        invocation (:invocation game-state)]
+    (when (= player current-player)
       (swap!
        games
        update-in [:games game-key]
@@ -194,7 +196,12 @@
       (send-channels!
        (get-in @games [:games game-key :channels])
        message)
-      (persist/update-state! db game-key game))))
+      (persist/update-state! db game-key game)
+      (let [next-player (-> game :player-turn :player)]
+        (when-not (= current-player next-player)
+          (persist/update-player-games!
+           db (:players invocation)
+           game-key game))))))
 
 (defn walk-history
   [db player game-key channel message]

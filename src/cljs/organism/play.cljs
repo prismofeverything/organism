@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as string]
    [cljs.pprint :refer (pprint)]
+   [cljs.reader :as reader]
    [goog.events :as events]
    [goog.history.EventType :as HistoryEventType]
    [reitit.core :as reitit]
@@ -42,6 +43,9 @@
     :progress {}}))
 
 (defonce food-source
+  (r/atom {}))
+
+(defonce player-games
   (r/atom {}))
 
 (def max-players 7)
@@ -249,16 +253,20 @@
        {:style {:color (get player-colors player)}}
        player " - " (count (get-in state [:captures player]))])]])
 
+(def chat-window 15)
+
 (defn chat-list
   [player-colors chat]
   [:ul
-   (for [[i message] (map-indexed vector chat)]
-     (let [player (:player message)
-           color (get player-colors player)]
-       ^{:key i}
-       [:li
-        {:style {:color color}}
-        player ": " (:message message)]))])
+   (let [total (count chat)
+         visible (drop (- total chat-window) chat)]
+     (for [[i message] (map-indexed vector visible)]
+       (let [player (:player message)
+             color (get player-colors player)]
+         ^{:key i}
+         [:li
+          {:style {:color color}}
+          player ": " (:message message)])))])
 
 (defn chat-input
   []
@@ -455,6 +463,30 @@
     ^{:key "highlights"}
     (into [] (concat [:g] highlights))))
 
+(defn choose-action-type-highlights
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        organisms (game/player-organisms game player)
+        available (keys choices)
+        elements (base/map-cat organisms available)
+
+        highlights
+        (mapv
+         (fn [{:keys [space organism] :as element}]
+           (let [[x y] (get locations space)]
+             ^{:key space}
+             (highlight-circle
+              x y radius color
+              (fn [event]
+                (send-choice! choices organism true)))))
+         elements)]
+
+    ^{:key "highlights"}
+    (into [] (concat [:g] highlights))))
+
 (defn choose-space-highlights
   [game board turn choices]
   (let [player (game/current-player game)
@@ -537,8 +569,8 @@
          (fn [space]
            (let [[x y] (get locations space)]
              ^{:key space}
-             (highlight-element
-              :grow x y radius (board/brighten color 0.4)
+             (highlight-circle
+              x y radius (board/brighten color 0.2)
               (fn [event]
                 (choose-food-source! space)
                 (let [source @food-source]
@@ -556,6 +588,7 @@
     :create (create-highlights game board turn choices)
     :introduce (introduce-highlights game board turn choices)
     :choose-organism (choose-organism-highlights game board turn choices)
+    :choose-action-type (choose-action-type-highlights game board turn choices)
     :eat-to (choose-space-highlights game board turn choices)
     :circulate-from (choose-space-highlights game board turn choices)
     :circulate-to (choose-target-highlights game board turn choices)
@@ -1069,12 +1102,50 @@
        {:style {:width "30%"}}
        [organism-controls game board turn choices history]]])))
 
+(def player-game-states
+  ["active" "current" "winner" "complete"])
+
+(defn player-games-section
+  [player state games]
+  [:div
+   {:style
+    {:margin "0px 40px"}}
+   [:h2 state]
+   (for [{:keys [game]} games]
+     ^{:key game}
+     [:div
+      {:style
+       {:margin "0px 20px"}}
+      [:a
+       {:href (str "/player/" player "/game/" game)}
+       game]])])
+
+(defn player-page
+  [player]
+  (let [games @player-games]
+    [:div
+     {:style
+      {:margin "20px"}}
+     [current-player-banner player (board/random-color 1) "games"]
+     (for [state player-game-states]
+       ^{:key state}
+       [player-games-section player state (get games state)])]))
+
+(defn home-page
+  []
+  [:div
+   [:h1 "welcome to ORGANISM"]])
+
 (defn page-container
   []
-  (let [invocation @board-invocation]
-    (if (:created invocation)
-      [game-page]
-      [create-page])))
+  (if js/playerKey
+    (if js/gameKey
+      (let [invocation @board-invocation]
+        (if (:created invocation)
+          [game-page]
+          [create-page]))
+      [player-page js/playerKey])
+    [home-page]))
 
 (defn update-messages!
   [{:keys [type] :as received}]
@@ -1139,16 +1210,20 @@
 
 (defn init!
   []
-  (println "intializing game" js/gameKey)
-  (ajax/load-interceptors!)
-  (hook-browser-navigation!)
-  (apply-invocation! @board-invocation)
-  (let [protocol
-        (if (= (.-protocol js/location) "https:")
-          "wss:"
-          "ws:")]
-    (when (and js/playerKey js/gameKey)
-      (ws/make-websocket!
-       (str protocol "//" (.-host js/location) "/ws/player/" js/playerKey "/game/" js/gameKey)
-       update-messages!))
-    (mount-components)))
+  (let [game? (and js/playerKey js/gameKey)
+        player-games? (and js/playerKey (not game?))]
+    (println "intializing game" js/gameKey)
+    (ajax/load-interceptors!)
+    (hook-browser-navigation!)
+    (let [protocol
+          (if (= (.-protocol js/location) "https:")
+            "wss:"
+            "ws:")]
+      (when js/playerGames
+        (reset! player-games (reader/read-string js/playerGames)))
+      (when game?
+        ;; (apply-invocation! @board-invocation)
+        (ws/make-websocket!
+         (str protocol "//" (.-host js/location) "/ws/player/" js/playerKey "/game/" js/gameKey)
+         update-messages!))
+      (mount-components))))

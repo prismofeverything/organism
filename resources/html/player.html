@@ -18,10 +18,10 @@
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
       var playerKey = "{{player}}";
-      var playerGames = null;
-      var gameKey = "{{game}}";
+      var playerGames = "{{player-games|addslashes|safe}}"
+      var gameKey = null;
       console.log("player key: " + playerKey);
-      console.log("game key: " + gameKey);
+      console.log("player games: " + playerGames);
     </script>
     {% script "/js/organism.js" %}
   </body>

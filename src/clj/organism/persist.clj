@@ -31,6 +31,39 @@
   [key]
   (str "chat-" key))
 
+(defn player-key
+  [key]
+  (str "player-games-" key))
+
+(defn update-player-game!
+  [db player game-key state]
+  (let [current-player (-> state :player-turn :player)
+        round (:round state)]
+    (println "updating" player game-key status)
+    (db/upsert!
+     db (player-key player)
+     {:game game}
+     {:game game
+      :round round
+      :status status
+      :current-player current-player})))
+
+(defn complete-player-game!
+  [db player game-key state]
+  (println "completing" player game-key status)
+  (db/upsert!
+   db (player-key player)
+   {:game game}
+   {:game game
+    :round round
+    :status status
+    :winner winner}))
+
+(defn update-player-games!
+  [db players game-key state]
+  (doseq [player (reverse players)]
+    (update-player-game! db player game-key state)))
+
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
   (let [initial-state (serialize-state (:state game))
@@ -40,7 +73,12 @@
     ;; TODO: add player-games-* collection for each player containing their games
     (db/index! db :games [:key] {:unique true})
     (db/insert! db :games game-state)
-    (db/insert! db (history-key key) initial-state)))
+    (db/insert! db (history-key key) initial-state)
+    (doseq [player (reverse (:players invocation))]
+      (db/index! db (player-key player) [:game] {:unique true})
+      (update-player-game!
+       db (player-key player) key
+       (:state game)))))
 
 (defn update-state!
   [db key state]
@@ -51,11 +89,25 @@
   [db key line]
   (db/insert! db (chat-key key) line))
 
+(defn load-game-state
+  [db key]
+  (db/find-last db (history-key key) {}))
+
 (defn reset-state!
   [db key]
   (let [history (history-key key)
         recent (db/find-last db history {})]
     (db/delete! db history {:_id (:_id recent)})))
+
+(defn complete-game!
+  [db game-key winner]
+  (let [game (db/one db :games {:key game-key})
+        players (-> game :invocation :players)]
+    (for [player (reverse players)]
+      (complete-player-game!
+       db player game-key
+       winner))
+    (db/upsert! db :games {:key game-key} {:winner winner})))
 
 (defn load-history
   [db key]
@@ -69,6 +121,13 @@
      (fn [record]
        (select-keys record [:type :player :time :message]))
      records)))
+
+(defn load-player-games
+  [db player]
+  (let [records (db/query db (player-key player) {})
+        records (map #(select-keys % [:game :state]) records)
+        states (group-by :state records)]
+    states))
 
 (defn load-game
   [db key]

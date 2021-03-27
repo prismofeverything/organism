@@ -4,6 +4,7 @@
    [organism.middleware :as middleware]
    [organism.layout :refer [error-page]]
    [organism.routes.home :refer [home-routes]]
+   ;; [organism.routes.api :refer [api-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
    [ring.middleware.content-type :refer [wrap-content-type]]
@@ -24,9 +25,10 @@
   :start
   (ring/ring-handler
    (ring/router
-    [(home-routes)
-     (let [db (db/connect! mongo-connection)]
-       (websocket-routes db))])
+    (let [db (db/connect! mongo-connection)]
+      [(home-routes db)
+       ;; (api-routes)
+       (websocket-routes db)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})
