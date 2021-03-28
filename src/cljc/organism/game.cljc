@@ -5,6 +5,7 @@
    [organism.graph :as graph]))
 
 (def ^:dynamic *food-limit* 3)
+(def observer-key "--observer--")
 
 ;; BOARD ----------------------
 

@@ -163,7 +163,10 @@
     [:a
      {:style
       {:color "#fff"}
-      :href (str "/player/" js/playerKey)}
+      :href
+      (if js/playerKey
+        (str "/player/" js/playerKey)
+        "/")}
      "ORGANISM"]]
    [:h2 js/gameKey " - round " (inc round)]])
 
@@ -275,20 +278,22 @@
 
 (defn chat-input
   []
-  (let [value (r/atom nil)]
-    (fn []
-      [:input.form-control
-       {:type :text
-        :placeholder "respond"
-        :value @value
-        :on-change #(reset! value (-> % .-target .-value))
-        :on-key-down
-        #(when (= (.-keyCode %) 13)
-           (ws/send-transit-message!
-            {:type "chat"
-             :player js/playerKey
-             :message @value})
-           (reset! value nil))}])))
+  (if js/playerKey
+    (let [value (r/atom nil)]
+      (fn []
+        [:input.form-control
+         {:type :text
+          :placeholder "respond"
+          :value @value
+          :on-change #(reset! value (-> % .-target .-value))
+          :on-key-down
+          #(when (= (.-keyCode %) 13)
+             (ws/send-transit-message!
+              {:type "chat"
+               :player js/playerKey
+               :message @value})
+             (reset! value nil))}]))
+    []))
 
 (defn chat-panel
   [turn-order player-colors state history cursor chat]
@@ -1177,7 +1182,16 @@
 (defn home-page
   []
   [:div
-   [:h1 "welcome to ORGANISM"]])
+   {:style
+    {:color "#fff"
+     :border-radius "50px"
+     :cursor "pointer"
+     :background (board/random-color 1)
+     :letter-spacing "8px"
+     :margin "20px 20px"
+     :padding "25px 60px"}}
+   [:h1 "ORGANISM"]
+   [:h2 "welcome"]])
 
 (defn page-container
   []
@@ -1253,8 +1267,11 @@
 
 (defn init!
   []
-  (let [game? (and js/playerKey js/gameKey)
-        player-games? (and js/playerKey (not game?))]
+  (let [player? (not (empty? js/playerKey))
+        game? (not (empty? js/gameKey))
+        player-games? (and player? (not game?))
+        observer? (and game? (not player?))
+        player (if player? js/playerKey game/observer-key)]
     (println "intializing game" js/gameKey)
     (ajax/load-interceptors!)
     (hook-browser-navigation!)
@@ -1265,8 +1282,7 @@
       (when js/playerGames
         (reset! player-games (reader/read-string js/playerGames)))
       (when game?
-        ;; (apply-invocation! @board-invocation)
         (ws/make-websocket!
-         (str protocol "//" (.-host js/location) "/ws/player/" js/playerKey "/game/" js/gameKey)
+         (str protocol "//" (.-host js/location) "/ws/player/" player "/game/" js/gameKey)
          update-messages!))
       (mount-components))))

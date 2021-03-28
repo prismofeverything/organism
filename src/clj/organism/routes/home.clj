@@ -54,7 +54,7 @@
    "text/html; charset=utf-8"))
 
 (defn game-page
-  [request]
+  [db request]
   (layout/render
    request
    "game.html"
@@ -69,5 +69,6 @@
                  middleware/wrap-formats]}
    ["/" {:get home-page}]
    ["/eternal" {:get eternal-page}]
+   ["/game/:game" {:get (partial game-page db)}]
    ["/player/:player" {:get (partial player-page db)}]
-   ["/player/:player/game/:game" {:get game-page}]])
+   ["/player/:player/game/:game" {:get (partial game-page db)}]])

@@ -23,7 +23,10 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-        var csrfToken = "{{csrf-token}}";
+      var playerKey = null;
+      var gameKey = null;
+      var playerGames = null;
+      var csrfToken = "{{csrf-token}}";
     </script>
     {% script "/js/organism.js" %}
   </body>
