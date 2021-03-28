@@ -332,12 +332,12 @@
     :on-click on-click}])
 
 (defn highlight-element
-  [type x y radius color on-click]
+  [type x y radius color food on-click]
   (let [g (board/render-element
            (board/brighten color 0.1) "white"
            [x y]
            radius
-           {:type type :food 1})]
+           {:type type :food food})]
     (assoc-prop g :on-click on-click)))
 
 (defn render-element
@@ -540,12 +540,12 @@
 
         highlights
         (let [[x y] (get locations choose-from)
-              type (-> game (game/get-element choose-from) :type)]
+              {:keys [type food]} (game/get-element game choose-from)]
           (conj
            highlights
            ^{:key choose-from}
            (highlight-element
-            type x y element-radius highlight-color
+            type x y element-radius highlight-color food
             (fn [event]
               (send-reset! (:state game))))))]
 
