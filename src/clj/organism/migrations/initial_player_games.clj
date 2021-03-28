@@ -9,10 +9,9 @@
   (let [games (db/find-all db :games)]
     (doseq [game games]
       (let [game-key (:key game)
-            players (-> game :invocation :players)
-            colors (map last (-> game :invocation :colors))
+            invocation (:invocation game)
             game-state (persist/load-game-state db game-key)]
-        (persist/update-player-games! db game-key players colors game-state)))))
+        (persist/create-player-games! db game-key invocation game-state)))))
 
 (defn purge-player-games!
   [db]

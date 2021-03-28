@@ -1121,38 +1121,51 @@
    {:style
     {:margin "0px 40px"}}
    [:h2 "ACTIVE"]
-   (for [{:keys [game round player-color current-player current-color]} games]
-     ^{:key game}
-     [:div
-      {:style
-       (if (= player current-player)
-         {:background player-color
-          :margin "10px 20px"
-          :padding "10px 0px"
-          :border-radius "10px"}
-         {:margin "20px 20px"})}
-      [:span
-       [:a
-        {:href (str "/player/" player "/game/" game)
-         :style
-         {:color "#fff"
-          :border-radius "15px"
-          :background player-color
-          :padding "10px 20px"}}
-        game]]
-      [:span
-       {:style
-        {:margin "0px 20px"}}
-       " round " round]
-      [:span
-       [:a
-        {:href (str "/player/" current-player)
-         :style
-         {:color "#fff"
-          :border-radius "20px"
-          :background current-color
-          :padding "7px 20px"}}
-        current-player]]])])
+   (for [{:keys [game round players player-colors current-player]} games]
+     (let [player-color (get player-colors player)]
+       ^{:key game}
+       [:div
+        {:style
+         (if (= player current-player)
+           {:background player-color
+            :margin "10px 20px"
+            :padding "10px 0px"
+            :border-radius "10px"}
+           {:margin "20px 20px"})}
+        [:span
+         [:a
+          {:href (str "/player/" player "/game/" game)
+           :style
+           {:color "#fff"
+            :border-radius "15px"
+            :background player-color
+            :padding "10px 20px"}}
+          game]]
+        [:span
+         {:style
+          {:margin "0px 20px"}}
+         " round " round]
+        (for [game-player players]
+          (let [current-color (get player-colors game-player)]
+            ^{:key game-player}
+            [:span
+             [:a
+              {:href (str "/player/" current-player)
+               :style
+               (if (= game-player current-player)
+                 {:color "#fff"
+                  :border-radius "20px"
+                  :background current-color
+                  :margin "0px 10px"
+                  :padding "7px 20px"}
+                 {:padding "5px 10px"
+                  :margin "0px 10px"
+                  :border-style "solid"
+                  :border-width "2px"
+                  :border-color current-color
+                  :border-radius "5px"
+                  :color current-color})}
+              game-player]]))]))])
 
 (defn complete-games-section
   [player games]

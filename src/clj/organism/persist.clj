@@ -1,5 +1,6 @@
 (ns organism.persist
   (:require
+   [clojure.walk :as walk]
    [organism.board :as board]
    [organism.mongo :as db]))
 
@@ -42,42 +43,60 @@
    (:players invocation)
    (map last (:colors invocation))))
 
-(defn update-player-game!
-  [db game-key player color-map state]
-  (let [current-player (-> state :player-turn :player)
-        round (:round state)]
-    (println "updating" player game-key)
-    (db/upsert!
+(defn create-player-game!
+  [db game-key invocation player state]
+  (let [round 0
+        players (:players invocation)
+        current-player (-> state :player-turn :player)
+        player-colors (invocation-colors invocation)]
+    (println "creating" player game-key)
+    (db/insert!
      db (player-key player)
-     {:game game-key}
      {:game game-key
       :round round
       :status "active"
-      :player-color (get color-map player)
+      :player-colors player-colors
+      :players players
       :current-player current-player
-      :current-color (get color-map current-player)
       :winner nil})))
 
-(defn update-player-games!
-  [db game-key players colors state]
-  (println "players" players)
-  (println "colors" colors)
-  (let [player-colors (board/find-player-colors players colors)]
-    (println "player colors for game" game-key player-colors)
+(defn create-player-games!
+  [db game-key invocation state]
+  (let [players (:players invocation)]
     (doseq [player (reverse players)]
-      (update-player-game! db game-key player player-colors state))))
+      (create-player-game! db game-key invocation player state))))
+
+(defn update-player-game!
+  [db game-key player state]
+  (let [current-player (-> state :player-turn :player)
+        round (:round state)]
+    (println "updating" player game-key current-player)
+    (db/merge!
+     db (player-key player)
+     {:game game-key}
+     {:round round
+      :current-player current-player})))
+
+(defn update-player-games!
+  [db game-key players state]
+  (doseq [player (reverse players)]
+    (update-player-game! db game-key player state)))
 
 (defn complete-player-game!
   [db game-key player winner state]
   (println "completing" player game-key)
   (let [round (:round state)]
-    (db/upsert!
+    (db/merge!
      db (player-key player)
      {:game game-key}
-     {:game game-key
-      :round round
+     {:round round
       :status "complete"
       :winner winner})))
+
+(defn complete-player-games!
+  [db game-key players winner state]
+  (doseq [player (reverse players)]
+    (complete-player-game! db game-key player winner state)))
 
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
@@ -90,11 +109,8 @@
     (db/insert! db :games game-state)
     (db/insert! db (history-key key) initial-state)
     (doseq [player (reverse (:players invocation))]
-      (db/index! db (player-key player) [:game] {:unique true})
-      (update-player-game!
-       db key
-       player player-colors
-       (:state game)))))
+      (db/index! db (player-key player) [:game] {:unique true}))
+    (create-player-games! db key invocation initial-state)))
 
 (defn update-state!
   [db key state]
@@ -120,16 +136,24 @@
   (let [game (db/one db :games {:key game-key})
         state (load-game-state db game-key)
         players (-> game :invocation :players)]
-    (for [player (reverse players)]
-      (complete-player-game!
-       db player game-key
-       winner state))
-    (db/upsert! db :games {:key game-key} {:winner winner})))
+    (db/upsert!
+     db :games
+     {:key game-key}
+     {:$set {:winner winner}})
+    (complete-player-games!
+     db game-key players
+     winner state)))
+
+(defn deserialize-player-game
+  [player-game]
+  (-> player-game
+      (dissoc :_id)
+      (update :player-colors walk/stringify-keys)))
 
 (defn load-player-games
   [db player]
   (let [records (db/query db (player-key player) {})
-        records (map #(dissoc % :_id) records)
+        records (map deserialize-player-game records)
         states (group-by :status records)]
     states))
 

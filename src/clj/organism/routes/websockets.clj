@@ -202,7 +202,6 @@
           (persist/update-player-games!
            db game-key
            (:players invocation)
-           (map last (:colors invocation))
            game))))))
 
 (defn walk-history
@@ -232,7 +231,6 @@
           (persist/update-player-games!
            db game-key
            (:players invocation)
-           (map last (:colors invocation))
            previous))))))
 
 (defn timestamp
