@@ -298,18 +298,6 @@
                      locations
                      notches)
                     locations)
-
-        ;; difference (- (count all-colors) (count players))
-        ;; (into
-        ;;  {}
-        ;;  (map
-        ;;   (fn [player [ring color]]
-        ;;     [player color])
-        ;;   players
-        ;;   (drop
-        ;;    difference
-        ;;    (reverse all-colors))))
-
         player-colors
         (find-player-colors players (map last all-colors))]
     (Board.

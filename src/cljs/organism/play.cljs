@@ -1120,22 +1120,34 @@
      ^{:key game}
      [:div
       {:style
-       {:margin "0px 20px"}}
+       (if (= player current-player)
+         {:background player-color
+          :margin "10px 20px"
+          :padding "10px 0px"
+          :border-radius "10px"}
+         {:margin "20px 20px"})}
       [:span
-       {:style
-        {:color "#fff"
-         :border-radius "20px"
-         :background player-color}}
        [:a
-        {:href (str "/player/" player "/game/" game)}
+        {:href (str "/player/" player "/game/" game)
+         :style
+         {:color "#fff"
+          :border-radius "15px"
+          :background player-color
+          :padding "10px 20px"}}
         game]]
-      [:span " - round " round " | "]
       [:span
        {:style
-        {:color "#fff"
-         :border-radius "20px"
-         :background current-color}}
-       "current player: " current-player]])])
+        {:margin "0px 20px"}}
+       " round " round]
+      [:span
+       [:a
+        {:href (str "/player/" current-player)
+         :style
+         {:color "#fff"
+          :border-radius "20px"
+          :background current-color
+          :padding "7px 20px"}}
+        current-player]]])])
 
 (defn complete-games-section
   [player games]
