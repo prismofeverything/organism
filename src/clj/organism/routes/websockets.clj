@@ -136,13 +136,25 @@
    message))
 
 (defn update-player-name
-  [db player game-key channel {:keys [index player] :as message}]
+  [db page-player game-key channel {:keys [index player] :as message}]
   (swap!
    games
    update-in
    [:games game-key :invocation]
    (fn [invocation]
-     (update invocation :players (fn [invoke] (assoc (vec invoke) index player)))))
+     (let [previous-name (nth (:players invocation) index)]
+       (-> invocation
+           (update
+            :players
+            (fn [invoke]
+              (assoc (vec invoke) index player)))
+           (update
+            :player-organisms
+            (fn [organisms]
+              (-> organisms
+                  (assoc player (get organisms previous-name))
+                  (dissoc previous-name))))))))
+  (println "player name updated" player "invocation" (-> @games :games (get game-key) :invocation))
   (send-channels!
    (get-in @games [:games game-key :channels])
    message))

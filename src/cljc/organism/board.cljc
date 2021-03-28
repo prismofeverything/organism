@@ -94,6 +94,8 @@
 (def default-player-order
   ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"])
 
+(def default-player-organisms 5)
+
 (def organism-colors
   [[:yellow "#fff88c"]
    [:red "#da6558"]
@@ -609,11 +611,20 @@
 
 (defn empty-invocation
   []
-  {:player-count 1
-   :ring-count 3
-   :organism-victory 3
-   :players (vec (take 1 default-player-order))
-   :colors (generate-colors (take 3 total-rings))})
+  (let [players (vec (take 1 default-player-order))
+        player-organisms
+        (into
+         {}
+         (map
+          vector
+          players
+          (repeat 5)))]
+    {:player-count 1
+     :ring-count 3
+     :organism-victory 3
+     :players players
+     :player-organisms player-organisms
+     :colors (generate-colors (take 3 total-rings))}))
 
 (defn player-symmetry
   [player-count]

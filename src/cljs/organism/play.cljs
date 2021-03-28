@@ -25,6 +25,13 @@
 (defonce player-order
   (r/atom board/default-player-order))
 
+(defonce player-organisms-order
+  (r/atom
+   (vec
+    (repeat
+     (count board/default-player-order)
+     board/default-player-organisms))))
+
 (defonce board-invocation
   (r/atom (board/empty-invocation)))
 
@@ -956,14 +963,26 @@
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
                order @player-order
+               organisms-order @player-organisms-order
                colors (board/generate-colors-buffer
                        board/total-rings
                        (:ring-count invocation)
-                       max-players)]
+                       max-players)
+               players (vec (take value order))
+               organisms
+               (into
+                {}
+                (take
+                 value
+                 (map
+                  vector
+                  order
+                  organisms-order)))]
            (-> invocation
                (assoc :colors colors)
                (assoc :player-count value)
-               (assoc :players (vec (take value order)))
+               (assoc :players players)
+               (assoc :player-organisms organisms)
                send-create!)))}
       (map
        (fn [n]
@@ -990,9 +1009,7 @@
        {:background-color color}
        :on-change
        (fn [event]
-         (let [value (-> event .-target .-value js/parseInt)
-               order @player-order
-               rings (take (:ring-count invocation) board/total-rings)]
+         (let [value (-> event .-target .-value js/parseInt)]
            (-> invocation
                (assoc :organism-victory value)
                (send-create!))))}
@@ -1013,7 +1030,7 @@
 
 (defn players-input
   []
-  (let [{:keys [player-count colors]} @board-invocation
+  (let [{:keys [player-count colors player-organisms] :as invocation} @board-invocation
         order @player-order
         player-colors (get-in @game-state [:board :player-colors])]
     [:div
@@ -1039,7 +1056,36 @@
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value)]
-               (send-player-name! index value)))}]])
+               (send-player-name! index value)))}]
+         [:select
+          {:value (get player-organisms player)
+           :style
+           {:background-color color}
+           :on-change
+           (fn [event]
+             (let [value (-> event .-target .-value js/parseInt)]
+               (swap!
+                player-organisms-order
+                assoc index value)
+               (-> invocation
+                   (assoc
+                    :player-organisms
+                    (into
+                     {}
+                     (take
+                      player-count
+                      (map
+                       vector
+                       order
+                       @player-organisms-order))))
+                   (send-create!))))}
+          (map
+           (fn [n]
+             ^{:key n}
+             [:option
+              {:value n}
+              n])
+           (range 1 14))]])
       (range)
       player-colors
       order)]))
@@ -1167,7 +1213,7 @@
             :margin "10px 20px"
             :padding "10px 0px"
             :border-radius "10px"}
-           {:margin "5px 20px"
+           {:margin "10px 20px"
             :padding "10px 0px"})}
         [:span
          [:a
