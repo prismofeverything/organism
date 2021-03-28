@@ -16,6 +16,9 @@
    [organism.websockets :as ws])
   (:import goog.History))
 
+(def font-choice
+  "BlinkMacSystemFont,-apple-system,\"Segoe UI\",Roboto,Oxygen,Ubuntu,Cantarell,\"Fira Sans\",\"Droid Sans\",\"Helvetica Neue\",Helvetica,Arial,sans-serif")
+
 (defonce session (r/atom {:page :home}))
 (defonce chat (r/atom []))
 
@@ -157,6 +160,7 @@
      :cursor "pointer"
      :background color
      :letter-spacing "8px"
+     :font-family font-choice
      :margin "20px 0px"
      :padding "25px 60px"}}
    [:h1
@@ -652,6 +656,7 @@
      :cursor "pointer"
      :background color
      :letter-spacing "8px"
+     :font-family font-choice
      :margin "20px 0px"
      :padding "25px 60px"}}
    player
@@ -667,7 +672,8 @@
   [turn choices color]
   [:div
    {:style
-    {:margin "20px 10px 50px 10px"}}
+    {:margin "20px 10px 50px 10px"
+     :font-family font-choice}}
    [:span
     {:style
      {:color "#fff"
@@ -713,6 +719,8 @@
 (defn reset-control
   [turn choices state]
   [:div
+   {:style
+    {:font-family font-choice}}
    [:span
     {:style
      {:color "#fff"
@@ -1112,8 +1120,36 @@
        {:style {:width "30%"}}
        [organism-controls game board turn choices history]]])))
 
-(def player-game-states
-  ["active" "current" "winner" "complete"])
+(defn create-game-input
+  [player color]
+  (let [game-key (r/atom "")]
+    (fn []
+      [:div
+       {:style
+        {:margin "30px 40px"}}
+       [:h2
+        "CREATE"]
+       [:input
+        {:value @game-key
+         :style
+         {:border-radius "25px"
+          :color "#fff"
+          :background color
+          :border "3px solid"
+          :font-size "2em"
+          :letter-spacing "8px"
+          :margin "0px 20px"
+          :padding "10px 40px"}
+         :on-change
+         (fn [event]
+           (let [value (-> event .-target .-value)]
+             (reset! game-key value)))
+         :on-key-up
+         (fn [event]
+           (if (= (.-key event) "Enter")
+             (set!
+              (-> js/window .-location .-pathname)
+              (str "/player/" player "/game/" @game-key))))}]])))
 
 (defn active-games-section
   [player games]
@@ -1131,7 +1167,8 @@
             :margin "10px 20px"
             :padding "10px 0px"
             :border-radius "10px"}
-           {:margin "20px 20px"})}
+           {:margin "5px 20px"
+            :padding "10px 0px"})}
         [:span
          [:a
           {:href (str "/player/" player "/game/" game)
@@ -1139,7 +1176,10 @@
            {:color "#fff"
             :border-radius "15px"
             :background player-color
-            :padding "10px 20px"}}
+            :padding "10px 20px"
+            :letter-spacing "5px"
+            :font-family font-choice
+            :font-size "1.3em"}}
           game]]
         [:span
          {:style
@@ -1184,11 +1224,13 @@
 
 (defn player-page
   [player]
-  (let [games @player-games]
+  (let [games @player-games
+        color (board/random-color 1)]
     [:div
      {:style
       {:margin "20px"}}
-     [current-player-banner player (board/random-color 1) "games"]
+     [current-player-banner player color "games"]
+     [create-game-input player color]
      [active-games-section player (get games "active")]
      [complete-games-section player (get games "complete")]]))
 
