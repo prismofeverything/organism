@@ -57,3 +57,8 @@ select {
     color: #fff;
     background-image: none;
 }
+
+a:link, a:visited {
+    text-decoration: "none";
+    color: "#fff";
+}

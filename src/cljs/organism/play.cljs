@@ -159,7 +159,12 @@
      :letter-spacing "8px"
      :margin "20px 0px"
      :padding "25px 60px"}}
-   [:h1 "ORGANISM"]
+   [:h1
+    [:a
+     {:style
+      {:color "#fff"}
+      :href (str "/player/" js/playerKey)}
+     "ORGANISM"]]
    [:h2 js/gameKey " - round " (inc round)]])
 
 (defn boundary-inc
@@ -1105,13 +1110,40 @@
 (def player-game-states
   ["active" "current" "winner" "complete"])
 
-(defn player-games-section
-  [player state games]
+(defn active-games-section
+  [player games]
   [:div
    {:style
     {:margin "0px 40px"}}
-   [:h2 state]
-   (for [{:keys [game]} games]
+   [:h2 "ACTIVE"]
+   (for [{:keys [game round player-color current-player current-color]} games]
+     ^{:key game}
+     [:div
+      {:style
+       {:margin "0px 20px"}}
+      [:span
+       {:style
+        {:color "#fff"
+         :border-radius "20px"
+         :background player-color}}
+       [:a
+        {:href (str "/player/" player "/game/" game)}
+        game]]
+      [:span " - round " round " | "]
+      [:span
+       {:style
+        {:color "#fff"
+         :border-radius "20px"
+         :background current-color}}
+       "current player: " current-player]])])
+
+(defn complete-games-section
+  [player games]
+  [:div
+   {:style
+    {:margin "0px 40px"}}
+   [:h2 "COMPLETE"]
+   (for [{:keys [game round winner]} games]
      ^{:key game}
      [:div
       {:style
@@ -1127,9 +1159,8 @@
      {:style
       {:margin "20px"}}
      [current-player-banner player (board/random-color 1) "games"]
-     (for [state player-game-states]
-       ^{:key state}
-       [player-games-section player state (get games state)])]))
+     [active-games-section player (get games "active")]
+     [complete-games-section player (get games "complete")]]))
 
 (defn home-page
   []

@@ -200,12 +200,14 @@
       (let [next-player (-> game :player-turn :player)]
         (when-not (= current-player next-player)
           (persist/update-player-games!
-           db (:players invocation)
-           game-key game))))))
+           db game-key
+           (:players invocation)
+           (map last (:colors invocation))
+           game))))))
 
 (defn walk-history
   [db player game-key channel message]
-  (let [{:keys [game history channels]} (get-in (deref games) [:games game-key])
+  (let [{:keys [game history channels invocation]} (get-in (deref games) [:games game-key])
         present (last history)
         previous (last (butlast history))
         previous (if (empty? previous) present previous)
@@ -225,7 +227,13 @@
            (-> games
                (update-in [:games game-key :history] (comp vec butlast))
                (assoc-in [:games game-key :game :state] previous))))
-        (persist/reset-state! db game-key)))))
+        (persist/reset-state! db game-key)
+        (when-not (= player (-> previous :player-turn :player))
+          (persist/update-player-games!
+           db game-key
+           (:players invocation)
+           (map last (:colors invocation))
+           previous))))))
 
 (defn timestamp
   []

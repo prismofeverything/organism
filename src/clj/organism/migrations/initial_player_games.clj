@@ -10,14 +10,9 @@
     (doseq [game games]
       (let [game-key (:key game)
             players (-> game :invocation :players)
-            game-state (persist/load-game-state db game-key)
-            current-player (-> game-state :player-turn :player)]
-        (println "migrating game" game-key)
-        (doseq [player players]
-          (println "migrating player" player)
-          (let [state (if (= player current-player) "active" "current")]
-            (println "state is" state)
-            (persist/store-player-game! db player game-key state)))))))
+            colors (map last (-> game :invocation :colors))
+            game-state (persist/load-game-state db game-key)]
+        (persist/update-player-games! db game-key players colors game-state)))))
 
 (defn purge-player-games!
   [db]

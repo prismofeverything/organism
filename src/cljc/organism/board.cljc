@@ -272,6 +272,18 @@
 
 (defrecord Board [symmetry radius buffer colors layout locations player-colors])
 
+(defn find-player-colors
+  [players colors]
+  (let [difference (- (count colors) (count players))]
+    (into
+     {}
+     (map
+      vector
+      players
+      (drop
+       difference
+       (reverse colors))))))
+
 (defn build-board
   [symmetry radius buffer all-colors rings players notches?]
   (let [num-rings (count rings)
@@ -286,17 +298,20 @@
                      locations
                      notches)
                     locations)
-        difference (- (count all-colors) (count players))
+
+        ;; difference (- (count all-colors) (count players))
+        ;; (into
+        ;;  {}
+        ;;  (map
+        ;;   (fn [player [ring color]]
+        ;;     [player color])
+        ;;   players
+        ;;   (drop
+        ;;    difference
+        ;;    (reverse all-colors))))
+
         player-colors
-        (into
-         {}
-         (map
-          (fn [player [ring color]]
-            [player color])
-          players
-          (drop
-           difference
-           (reverse all-colors))))]
+        (find-player-colors players (map last all-colors))]
     (Board.
      symmetry
      radius
