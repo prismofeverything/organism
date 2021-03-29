@@ -180,21 +180,20 @@
      state])
 
 (defn initial-players
-  [player-info]
+  [starting-spaces player-captures]
   (mapv
-   (fn [[player-name starting-spaces]]
-     [player-name
-      ;; Player
-      {:name player-name
-       :starting-spaces starting-spaces}])
-   player-info))
+   (fn [[player spaces]]
+     [player
+      {:starting-spaces spaces
+       :capture-limit (get player-captures player)}])
+   starting-spaces))
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"
   [rings adjacencies center player-info organism-victory]
   (let [capture-limit 5
-        players (initial-players player-info)
-        turn-order (mapv first players)
+        players (into {} player-info)
+        turn-order (mapv first player-info)
         empty-captures
         (into {} (mapv vector turn-order (repeat [])))
         first-player (first turn-order)
@@ -214,7 +213,7 @@
      :adjacencies adjacencies
      :center center
      :capture-limit capture-limit
-     :players (into {} players)
+     :players players
      :turn-order turn-order
      :organism-victory organism-victory
      :state state}))

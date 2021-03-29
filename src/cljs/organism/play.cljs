@@ -25,12 +25,12 @@
 (defonce player-order
   (r/atom board/default-player-order))
 
-(defonce player-organisms-order
+(defonce player-captures-order
   (r/atom
    (vec
     (repeat
      (count board/default-player-order)
-     board/default-player-organisms))))
+     board/default-player-captures))))
 
 (defonce board-invocation
   (r/atom (board/empty-invocation)))
@@ -262,7 +262,7 @@
       [history-end-control total]]]))
 
 (defn scoreboard
-  [turn-order player-colors state]
+  [turn-order player-colors player-captures state]
   [:div
    [:h3 "score"]
    [:ul
@@ -270,7 +270,9 @@
       ^{:key player}
       [:li
        {:style {:color (get player-colors player)}}
-       player " - " (count (get-in state [:captures player]))])]])
+       player " - "
+       (count (get-in state [:captures player])) " / "
+       (get player-captures player 5)])]])
 
 (def chat-window 15)
 
@@ -307,7 +309,7 @@
     []))
 
 (defn chat-panel
-  [turn-order player-colors state history cursor chat]
+  [turn-order player-colors player-captures state history cursor chat]
   [:div
    {:style
     {:margin "20px"}}
@@ -317,7 +319,7 @@
    [:div
     {:style
      {:margin "20px 50px"}}
-    [scoreboard turn-order player-colors state]
+    [scoreboard turn-order player-colors player-captures state]
     [history-controls history cursor]
     [:br]
     [:h3 "discussion"]
@@ -628,11 +630,11 @@
       (conj svg highlights))))
 
 (defn generate-game-state
-  [{:keys [ring-count player-count players colors] :as invocation}]
+  [{:keys [ring-count player-count players colors player-captures] :as invocation}]
   (let [symmetry (board/player-symmetry player-count)
         rings (take ring-count board/total-rings)
         starting (board/find-starting-spaces symmetry rings players)
-        game-players (game/initial-players starting)
+        game-players (game/initial-players starting player-captures)
         game {:players game-players}
         board
         (board/generate-board
@@ -963,7 +965,7 @@
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
                order @player-order
-               organisms-order @player-organisms-order
+               organisms-order @player-captures-order
                colors (board/generate-colors-buffer
                        board/total-rings
                        (:ring-count invocation)
@@ -982,7 +984,7 @@
                (assoc :colors colors)
                (assoc :player-count value)
                (assoc :players players)
-               (assoc :player-organisms organisms)
+               (assoc :player-captures organisms)
                send-create!)))}
       (map
        (fn [n]
@@ -1030,7 +1032,7 @@
 
 (defn players-input
   []
-  (let [{:keys [player-count colors player-organisms] :as invocation} @board-invocation
+  (let [{:keys [player-count colors player-captures] :as invocation} @board-invocation
         order @player-order
         player-colors (get-in @game-state [:board :player-colors])]
     [:div
@@ -1058,18 +1060,18 @@
              (let [value (-> event .-target .-value)]
                (send-player-name! index value)))}]
          [:select
-          {:value (get player-organisms player)
+          {:value (get player-captures player)
            :style
            {:background-color color}
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value js/parseInt)]
                (swap!
-                player-organisms-order
+                player-captures-order
                 assoc index value)
                (-> invocation
                    (assoc
-                    :player-organisms
+                    :player-captures
                     (into
                      {}
                      (take
@@ -1077,7 +1079,7 @@
                       (map
                        vector
                        order
-                       @player-organisms-order))))
+                       @player-captures-order))))
                    (send-create!))))}
           (map
            (fn [n]
@@ -1116,6 +1118,7 @@
         {:keys [game board turn choices]} @game-state
         {:keys [state turn-order]} game
         turn-order (or turn-order (:players invocation))
+        player-captures (:player-captures invocation)
         {:keys [player-colors]} board
         create-color (-> invocation :colors rest first last)
         select-color (-> invocation :colors first last)]
@@ -1125,7 +1128,7 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order player-colors state [] nil @chat]]
+       [chat-panel turn-order player-colors player-captures state [] nil @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board turn choices]]
@@ -1150,6 +1153,7 @@
         {:keys [state turn-order]} game
         state (if cursor (nth history cursor) state)
         game (assoc game :state state)
+        player-captures (:player-captures invocation)
         [turn choices] (if cursor (choice/find-state game) [turn choices])
         {:keys [player-colors]} board]
     (game-layout
@@ -1158,7 +1162,7 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order player-colors state history cursor @chat]]
+       [chat-panel turn-order player-colors player-captures state history cursor @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board turn choices]]
@@ -1201,7 +1205,7 @@
   [player games]
   [:div
    {:style
-    {:margin "0px 40px"}}
+    {:margin "20px 40px"}}
    [:h2 "ACTIVE"]
    (for [{:keys [game round players player-colors current-player]} games]
      (let [player-color (get player-colors player)]

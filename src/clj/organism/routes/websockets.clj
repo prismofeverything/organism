@@ -149,7 +149,7 @@
             (fn [invoke]
               (assoc (vec invoke) index player)))
            (update
-            :player-organisms
+            :player-captures
             (fn [organisms]
               (-> organisms
                   (assoc player (get organisms previous-name))
@@ -161,12 +161,13 @@
 
 (defn complete-game-state
   [{:keys [invocation game channels history chat] :as game-state}]
-  (let [{:keys [ring-count player-count players colors organism-victory]} invocation
+  (let [{:keys [ring-count player-count players colors organism-victory player-captures]} invocation
         symmetry (board/player-symmetry player-count)
         starting (board/starting-spaces ring-count player-count players board/total-rings)
+        player-info (game/initial-players starting player-captures)
         notches? (board/cut-notches? ring-count player-count)
         rings (vec (take ring-count board/total-rings))
-        create (game/create-game symmetry rings starting organism-victory notches?)
+        create (game/create-game symmetry rings player-info organism-victory notches?)
         created (System/currentTimeMillis)]
     (-> game-state
         (assoc-in [:invocation :created] created)

@@ -94,7 +94,7 @@
 (def default-player-order
   ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"])
 
-(def default-player-organisms 5)
+(def default-player-captures 5)
 
 (def organism-colors
   [[:yellow "#fff88c"]
@@ -538,7 +538,6 @@
   [magnitude portion]
   (let [remaining (- 1.0 magnitude)
         advance (* portion remaining)]
-    (println "ZENO" magnitude portion remaining advance)
     (+ magnitude advance)))
 
 (defn fade
@@ -549,7 +548,6 @@
 
 (defn brighten
   [color-str factor]
-  (println "BRIGHTEN" color-str factor)
   (if color-str
     (-> color-str
         color/css
@@ -612,18 +610,18 @@
 (defn empty-invocation
   []
   (let [players (vec (take 1 default-player-order))
-        player-organisms
+        player-captures
         (into
          {}
          (map
           vector
           players
-          (repeat 5)))]
+          (repeat default-player-captures)))]
     {:player-count 1
      :ring-count 3
      :organism-victory 3
      :players players
-     :player-organisms player-organisms
+     :player-captures player-captures
      :colors (generate-colors (take 3 total-rings))}))
 
 (defn player-symmetry
