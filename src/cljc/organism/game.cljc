@@ -916,7 +916,7 @@
   [game player]
   (>=
    (count (get-in game [:state :captures player]))
-   (:capture-limit game)))
+   (-> game :players (get player) :capture-limit)))
 
 (defn organism-victory?
   [game player]
