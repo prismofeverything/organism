@@ -705,6 +705,7 @@
   {:pass "pass"
    :actions-complete "resolve conflicts"
    :resolve-conflicts "check integrity"
+   :player-victory "declare victory!"
    :check-integrity "confirm turn"})
 
 (defn progress-control
@@ -869,7 +870,8 @@
           focus-color
           :else dormant-color)]
 
-       [reset-control turn choices (:state game)]
+       (if-not (-> game :state :winner)
+         [reset-control turn choices (:state game)])
 
        (if (and
             organism-turn
@@ -1261,16 +1263,57 @@
   [player games]
   [:div
    {:style
-    {:margin "0px 40px"}}
+    {:margin "20px 40px"}}
    [:h2 "COMPLETE"]
-   (for [{:keys [game round winner]} games]
-     ^{:key game}
-     [:div
-      {:style
-       {:margin "0px 20px"}}
-      [:a
-       {:href (str "/player/" player "/game/" game)}
-       game]])])
+   (for [{:keys [game round players player-colors winner]} games]
+     (let [player-color (get player-colors player)]
+       ^{:key game}
+       [:div
+        {:style
+         (if (= player winner)
+           {:background player-color
+            :margin "10px 20px"
+            :padding "10px 0px"
+            :border-radius "10px"}
+           {:margin "10px 20px"
+            :padding "10px 0px"})}
+        [:span
+         [:a
+          {:href (str "/player/" player "/game/" game)
+           :style
+           {:color "#fff"
+            :border-radius "15px"
+            :background player-color
+            :padding "10px 20px"
+            :letter-spacing "5px"
+            :font-family font-choice
+            :font-size "1.3em"}}
+          game]]
+        [:span
+         {:style
+          {:margin "0px 20px"}}
+         " round " round]
+        (for [game-player players]
+          (let [current-color (get player-colors game-player)]
+            ^{:key game-player}
+            [:span
+             [:a
+              {:href (str "/player/" game-player)
+               :style
+               (if (= game-player winner)
+                 {:color "#fff"
+                  :border-radius "20px"
+                  :background current-color
+                  :margin "0px 10px"
+                  :padding "7px 20px"}
+                 {:padding "5px 10px"
+                  :margin "0px 10px"
+                  :border-style "solid"
+                  :border-width "2px"
+                  :border-color current-color
+                  :border-radius "5px"
+                  :color current-color})}
+              game-player]]))]))])
 
 (defn player-page
   [player]
@@ -1304,7 +1347,10 @@
     (if js/gameKey
       (let [invocation @board-invocation]
         (if (:created invocation)
-          [game-page]
+          (let [game (:game @game-state)]
+            (if (get-in game [:state :winner])
+              [game-page]
+              [game-page]))
           [create-page]))
       [player-page js/playerKey])
     [home-page]))

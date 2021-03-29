@@ -251,19 +251,21 @@
   [{:keys [state] :as game}]
   (let [{:keys [elements captures player-turn]} state
         {:keys [player introduction organism-turns]} player-turn
-        organisms (game/player-organisms game player)]
+        organisms (game/player-organisms game player)
+        winner (game/victory? game)]
 
     (cond
       (= (:advance player-turn) :resolve-conflicts)
       [:resolve-conflicts {:advance (game/check-integrity game player)}]
 
+      winner
+      [:player-victory {:advance (game/declare-victory game winner)}]
+
       (= (:advance player-turn) :check-integrity)
       [:check-integrity {:advance (game/start-next-turn game)}]
 
       (empty? organisms)
-      (if (= :check-integrity (:advance player-turn))
-        [:check-integrity {:advance (game/start-next-turn game)}]
-        [:introduce (introduce-choices game)])
+      [:introduce (introduce-choices game)]
 
       (empty? organism-turns)
       (if (> (count organisms) 1)

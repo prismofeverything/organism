@@ -210,12 +210,14 @@
        (get-in @games [:games game-key :channels])
        message)
       (persist/update-state! db game-key game)
-      (let [next-player (-> game :player-turn :player)]
-        (when-not (= current-player next-player)
-          (persist/update-player-games!
-           db game-key
-           (:players invocation)
-           game))))))
+      (if (:winner game)
+        (persist/complete-game! db game-key game)
+        (let [next-player (-> game :player-turn :player)]
+          (when-not (= current-player next-player)
+            (persist/update-player-games!
+             db game-key
+             (:players invocation)
+             game)))))))
 
 (defn walk-history
   [db player game-key channel message]

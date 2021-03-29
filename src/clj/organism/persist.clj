@@ -132,14 +132,15 @@
     (db/delete! db history {:_id (:_id recent)})))
 
 (defn complete-game!
-  [db game-key winner]
-  (let [game (db/one db :games {:key game-key})
-        state (load-game-state db game-key)
-        players (-> game :invocation :players)]
-    (db/upsert!
+  [db game-key state]
+  (let [game-state (db/one db :games {:key game-key})
+        serialized (serialize-state state)
+        winner (:winner state)
+        players (-> game-state :invocation :players)]
+    (db/merge!
      db :games
      {:key game-key}
-     {:$set {:winner winner}})
+     {:game (assoc (:game game-state) :state serialized)})
     (complete-player-games!
      db game-key players
      winner state)))

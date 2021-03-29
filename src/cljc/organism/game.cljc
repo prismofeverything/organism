@@ -173,7 +173,7 @@
 
 (defrecord Player [name starting-spaces])
 (defrecord Element [player organism type space food captures])
-(defrecord State [round elements captures player-turn])
+(defrecord State [round elements captures player-turn winner])
 (defrecord Game
     [rings adjacencies center capture-limit
      players turn-order organism-victory
@@ -479,6 +479,20 @@
        (update
         organisms
         (:organism element)
+        conj element)
+       organisms))
+   {}
+   (-> game :state :elements vals)))
+
+(defn all-organisms
+  [game]
+  (reduce
+   (fn [organisms element]
+     (if element
+       (update-in
+        organisms
+        [(:player element)
+         (:organism element)]
         conj element)
        organisms))
    {}
@@ -912,13 +926,17 @@
          game organism-turns)]
     (finish-turn game)))
 
-(defn enough-captures?
+(defn relative-captures
   [game player]
-  (>=
+  (- 
    (count (get-in game [:state :captures player]))
-   (-> game :players (get player) :capture-limit)))
+   (-> game :players (get player) (get :capture-limit 5))))
 
-(defn organism-victory?
+(defn enough-player-captures?
+  [game player]
+  (>= (relative-captures game player) 0))
+
+(defn player-organism-victory?
   [game player]
   (let [organism-victory (:organism-victory game)
         organism-count (count (player-organisms game player))]
@@ -927,5 +945,72 @@
 (defn player-wins?
   [game player]
   (or
-   (enough-captures? game player)
-   (organism-victory? game player)))
+   (enough-player-captures? game player)
+   (player-organism-victory? game player)))
+
+(defn all-relative-captures
+  [game]
+  (let [players (:turn-order game)]
+    (into
+     {}
+     (map
+      (juxt
+       identity
+       (partial relative-captures game))
+      players))))
+
+(defn find-leader
+  [score-map]
+  (let [largest-lead (apply max (map last score-map))
+        lead-map (group-by last score-map)
+        leaders (get lead-map largest-lead)]
+    (when (= 1 (count leaders))
+      (-> leaders first first))))
+
+(defn capture-victory?
+  [game]
+  (let [player-captures (all-relative-captures game)
+        enough
+        (filter
+         (fn [[player captures]]
+           (>= captures 0))
+         player-captures)]
+    (when-not (empty? enough)
+      (find-leader enough))))
+
+(defn organism-victory?
+  [game]
+  (let [organism-victory (:organism-victory game)
+        organisms (all-organisms game)
+        organism-counts
+        (map
+         (fn [[player organisms]]
+           [player (count organisms)])
+         organisms)
+        enough
+        (filter
+         (fn [[player organism-count]]
+           (>= organism-count organism-victory))
+         organism-counts)]
+    (when-not (empty? enough)
+      (find-leader enough))))
+
+(defn victory?
+  [game]
+  (or
+   (organism-victory? game)
+   (capture-victory? game)))
+
+(defn declare-victory
+  [game winner]
+  (assoc-in
+   game
+   [:state :winner]
+   winner))
+
+(defn check-victory
+  [game]
+  (if-let [winner (victory? game)]
+    (declare-victory game winner)
+    game))
+
