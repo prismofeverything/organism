@@ -1240,7 +1240,7 @@
             ^{:key game-player}
             [:span
              [:a
-              {:href (str "/player/" current-player)
+              {:href (str "/player/" game-player)
                :style
                (if (= game-player current-player)
                  {:color "#fff"

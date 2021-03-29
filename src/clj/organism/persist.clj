@@ -45,7 +45,7 @@
 
 (defn create-player-game!
   [db game-key invocation player state]
-  (let [round 0
+  (let [round (:round state)
         players (:players invocation)
         current-player (-> state :player-turn :player)
         player-colors (invocation-colors invocation)]
