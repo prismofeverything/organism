@@ -1236,7 +1236,7 @@
         [:span
          {:style
           {:margin "0px 20px"}}
-         " round " round]
+         " round " (inc round)]
         (for [game-player players]
           (let [current-color (get player-colors game-player)]
             ^{:key game-player}
