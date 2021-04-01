@@ -182,11 +182,12 @@
 (defn initial-players
   [starting-spaces player-captures]
   (mapv
-   (fn [[player spaces]]
+   (fn [[player spaces] captures]
      [player
       {:starting-spaces spaces
-       :capture-limit (get player-captures player)}])
-   starting-spaces))
+       :capture-limit captures}])
+   starting-spaces
+   player-captures))
 
 (defn initial-state
   "create the initial state for the game from the given adjacencies and player info"

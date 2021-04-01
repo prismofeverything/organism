@@ -266,13 +266,14 @@
   [:div
    [:h3 "score"]
    [:ul
-    (for [player turn-order]
-      ^{:key player}
-      [:li
-       {:style {:color (get player-colors player)}}
-       player " - "
-       (count (get-in state [:captures player])) " / "
-       (get player-captures player 5)])]])
+    (let [player-captures (if player-captures player-captures (repeat board/default-player-captures))]
+      (for [[player captures] (map vector turn-order player-captures)]
+        ^{:key player}
+        [:li
+         {:style {:color (get player-colors player)}}
+         player " - "
+         (count (get-in state [:captures player])) " / "
+         captures]))]])
 
 (def chat-window 15)
 
@@ -641,6 +642,7 @@
          colors
          players
          rings)]
+    (println "game players" game-players)
     {:game game
      :player js/playerKey
      :history []
@@ -652,6 +654,14 @@
   [invocation]
   (println "INVOCATION" invocation)
   (let [generated (generate-game-state invocation)]
+    (swap!
+     player-captures-order
+     (fn [captures-order]
+       (reduce
+        (fn [order [index captures]]
+          (assoc order index captures))
+        captures-order
+        (map vector (range) (:player-captures invocation)))))
     (reset!
      game-state
      generated)))
@@ -967,26 +977,18 @@
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
                order @player-order
-               organisms-order @player-captures-order
+               captures-order @player-captures-order
                colors (board/generate-colors-buffer
                        board/total-rings
                        (:ring-count invocation)
                        max-players)
                players (vec (take value order))
-               organisms
-               (into
-                {}
-                (take
-                 value
-                 (map
-                  vector
-                  order
-                  organisms-order)))]
+               captures (vec (take value captures-order))]
            (-> invocation
                (assoc :colors colors)
                (assoc :player-count value)
                (assoc :players players)
-               (assoc :player-captures organisms)
+               (assoc :player-captures captures)
                send-create!)))}
       (map
        (fn [n]
@@ -1036,6 +1038,7 @@
   []
   (let [{:keys [player-count colors player-captures] :as invocation} @board-invocation
         order @player-order
+        captures-order @player-captures-order
         player-colors (get-in @game-state [:board :player-colors])]
     [:div
      [:h3
@@ -1043,7 +1046,7 @@
        {:margin "20px 0px 0px 0px"}}
       "players:"]
      (map
-      (fn [index [player-name color] player]
+      (fn [index [player-name color] player captures]
         ^{:key index}
         [:div
          [:input
@@ -1062,7 +1065,7 @@
              (let [value (-> event .-target .-value)]
                (send-player-name! index value)))}]
          [:select
-          {:value (get player-captures player)
+          {:value captures
            :style
            {:background-color color}
            :on-change
@@ -1074,14 +1077,10 @@
                (-> invocation
                    (assoc
                     :player-captures
-                    (into
-                     {}
+                    (vec
                      (take
                       player-count
-                      (map
-                       vector
-                       order
-                       @player-captures-order))))
+                      @player-captures-order)))
                    (send-create!))))}
           (map
            (fn [n]
@@ -1092,7 +1091,8 @@
            (range 1 14))]])
       (range)
       player-colors
-      order)]))
+      order
+      player-captures)]))
 
 (defn create-button
   [color]

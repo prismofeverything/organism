@@ -610,13 +610,7 @@
 (defn empty-invocation
   []
   (let [players (vec (take 1 default-player-order))
-        player-captures
-        (into
-         {}
-         (map
-          vector
-          players
-          (repeat default-player-captures)))]
+        player-captures (take (count players) (repeat default-player-captures))]
     {:player-count 1
      :ring-count 3
      :organism-victory 3

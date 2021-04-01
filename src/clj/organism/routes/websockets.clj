@@ -147,13 +147,14 @@
            (update
             :players
             (fn [invoke]
-              (assoc (vec invoke) index player)))
-           (update
-            :player-captures
-            (fn [organisms]
-              (-> organisms
-                  (assoc player (get organisms previous-name))
-                  (dissoc previous-name))))))))
+              (assoc (vec invoke) index player)))))))
+           ;; (update
+           ;;  :player-captures
+           ;;  (fn [organisms]
+           ;;    (-> organisms
+           ;;        (assoc player (get organisms previous-name))
+           ;;        (dissoc previous-name))))
+
   (println "player name updated" player "invocation" (-> @games :games (get game-key) :invocation))
   (send-channels!
    (get-in @games [:games game-key :channels])
