@@ -378,23 +378,21 @@
 (def highlight-factor 0.93)
 
 (defn create-highlights
-  [game board turn choices]
+  [game board colors turn choices]
   (let [players (:players game)
-        colors (:player-colors board)
         locations (:locations board)
         radius (* (:radius board) highlight-factor)
         highlights
         (base/map-cat
-         (fn [[player {:keys [starting-spaces]}]]
+         (fn [[[player {:keys [starting-spaces]}] color]]
            (map
             (fn [space]
-              (let [[x y] (get locations space)
-                    color (get colors player)]
+              (let [[x y] (get locations space)]
                 (highlight-circle
                  x y radius color
                  (fn [event]))))
             starting-spaces))
-         players)]
+         (map vector players colors))]
     (into [] (concat [:g] highlights))))
 
 (defn introduce-highlights
@@ -612,10 +610,10 @@
     (into [] (concat [:g] highlights))))
 
 (defn find-highlights
-  [game board turn choices]
+  [game board colors turn choices]
   (condp = turn
     :open []
-    :create (create-highlights game board turn choices)
+    :create (create-highlights game board colors turn choices)
     :introduce (introduce-highlights game board turn choices)
     :choose-organism (choose-organism-highlights game board turn choices)
     :choose-action-type (choose-action-type-highlights game board turn choices)
@@ -629,9 +627,9 @@
     []))
 
 (defn organism-board
-  [game board turn choices]
+  [game board colors turn choices]
   (let [svg (board/render-game board game)
-        highlights (find-highlights game board turn choices)]
+        highlights (find-highlights game board colors turn choices)]
     (if (empty? highlights)
       svg
       (conj svg highlights))))
@@ -1172,7 +1170,7 @@
        [chat-panel turn-order invocation-colors player-colors player-captures state [] nil @chat]]
       [:article
        {:style {:flex-grow 1}}
-       [organism-board game board turn choices]]
+       [organism-board game board invocation-colors turn choices]]
       (println "INVOCATION" invocation)
       [:nav
        {:style
