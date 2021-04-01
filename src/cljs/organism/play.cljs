@@ -120,6 +120,12 @@
    {:type "create"
     :invocation invocation}))
 
+(defn send-open-game!
+  [invocation]
+  (ws/send-transit-message!
+   {:type "open-game"
+    :invocation invocation}))
+
 (defn initialize-chat
   [chat message]
   (println "initializing chat" (:chat message))
@@ -662,6 +668,14 @@
           (assoc order index captures))
         captures-order
         (map vector (range) (:player-captures invocation)))))
+    (swap!
+     player-order
+     (fn [order]
+       (reduce
+        (fn [order [index player]]
+          (assoc order index player))
+        order
+        (map vector (range) (:players invocation)))))
     (reset!
      game-state
      generated)))
@@ -1035,7 +1049,7 @@
     :player player-name}))
 
 (defn players-input
-  []
+  [page-player]
   (let [{:keys [player-count colors player-captures] :as invocation} @board-invocation
         order @player-order
         captures-order @player-captures-order
@@ -1048,6 +1062,7 @@
      (map
       (fn [index [player-name color] player captures]
         ^{:key index}
+
         [:div
          [:input
           {:value player
@@ -1060,10 +1075,23 @@
             :letter-spacing "8px"
             :margin "2px 0px"
             :padding "10px 40px"}
+           :on-focus
+           (fn [event]
+             (println "FOCUS IN!" index player-name color player captures)
+             (when (empty? player)
+               (send-player-name! index page-player)
+               (send-open-game!
+                (update invocation :players assoc index page-player))))
+           :on-blur
+           (fn [event]
+             (println "FOCUS OUT!" index player-name color player captures)
+             (if (empty? player)
+               (send-open-game! invocation)))
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value)]
                (send-player-name! index value)))}]
+
          [:select
           {:value captures
            :style
@@ -1082,6 +1110,7 @@
                       player-count
                       @player-captures-order)))
                    (send-create!))))}
+
           (map
            (fn [n]
              ^{:key n}
@@ -1146,7 +1175,7 @@
         [ring-count-input select-color]
         [player-count-input select-color]
         [organism-victory-input select-color]
-        [players-input]]]])))
+        [players-input js/playerKey]]]])))
 
 (defn game-page
   []
@@ -1202,6 +1231,58 @@
              (set!
               (-> js/window .-location .-pathname)
               (str "/player/" player "/game/" @game-key))))}]])))
+
+(defn open-games-section
+  [player games]
+  [:div
+   {:style
+    {:margin "20px 40px"}}
+   [:h2 "OPEN"]
+   (for [{:keys [key invocation]} games]
+     (let [{:keys [players colors ring-count]} invocation
+           colors (map last colors)
+           player-color (first colors)]
+       ^{:key key}
+       [:div
+        {:style
+         {:margin "10px 20px"
+          :padding "10px 0px"}}
+        [:span
+         [:a
+          {:href (str "/player/" player "/game/" key)
+           :style
+           {:color "#fff"
+            :border-radius "15px"
+            :background player-color
+            :padding "10px 20px"
+            :letter-spacing "5px"
+            :font-family font-choice
+            :font-size "1.3em"}}
+          key]]
+        [:span
+         {:style
+          {:margin "0px 20px"}}
+         " " ring-count " rings "]
+        (for [[game-player color] (map vector players colors)]
+          ^{:key game-player}
+          [:span
+           [:a
+            {:href (str "/player/" player "/game/" key)
+             :style
+             (if (= game-player player)
+               {:color "#fff"
+                :border-radius "20px"
+                :background color
+                :margin "0px 10px"
+                :padding "7px 20px"}
+               {:padding "5px 10px"
+                :margin "0px 10px"
+                :border-style "solid"
+                :border-width "2px"
+                :border-color color
+                :border-radius "5px"
+                :color color})}
+            game-player]])]))])
 
 (defn active-games-section
   [player games]
@@ -1325,6 +1406,7 @@
      [current-player-banner player color "games"]
      [create-game-input player color]
      [active-games-section player (get games "active")]
+     [open-games-section player (get games "open")]
      [complete-games-section player (get games "complete")]]))
 
 (defn home-page

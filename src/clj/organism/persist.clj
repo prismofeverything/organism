@@ -37,6 +37,22 @@
   [key]
   (str "player-games-" key))
 
+(defn create-open-game!
+  [db game-key invocation]
+  (println "creating open game!" game-key)
+  (db/index! db :open-games [:key] {:unique true})
+  (db/merge!
+   db :open-games
+   {:key game-key}
+   {:invocation invocation}))
+
+(defn remove-open-game!
+  [db game-key]
+  (println "removing open game!" game-key)
+  (db/delete!
+   db :open-games
+   {:key game-key}))
+
 (defn invocation-colors
   [invocation]
   (board/find-player-colors
@@ -151,12 +167,19 @@
       (dissoc :_id)
       (update :player-colors walk/stringify-keys)))
 
+(defn load-open-games
+  [db]
+  (let [records (db/query db :open-games {})
+        records (map #(dissoc % :_id) records)]
+    records))
+
 (defn load-player-games
   [db player]
   (let [records (db/query db (player-key player) {})
         records (map deserialize-player-game records)
-        states (group-by :status records)]
-    states))
+        states (group-by :status records)
+        open (load-open-games db)]
+    (assoc states "open" open)))
 
 (defn load-history
   [db key]

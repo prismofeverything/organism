@@ -148,11 +148,18 @@
             :players
             (fn [invoke]
               (assoc (vec invoke) index player)))))))
-
   (println "player name updated" player "invocation" (-> @games :games (get game-key) :invocation))
   (send-channels!
    (get-in @games [:games game-key :channels])
    message))
+
+(defn update-open-game
+  [db player game-key channel {:keys [invocation] :as message}]
+  (let [players (:players invocation)]
+    (println "OPEN GAME" game-key players)
+    (if (every? (comp not empty?) players)
+      (persist/remove-open-game! db game-key)
+      (persist/create-open-game! db game-key invocation))))
 
 (defn complete-game-state
   [{:keys [invocation game channels history chat] :as game-state}]
@@ -271,8 +278,9 @@
     (log/info "MESSAGE RECEIVED -" message)
     (condp = (:type message)
       "create" (update-create-game db player game-key channel message)
-      "trigger-creation" (trigger-creation db player game-key channel message)
       "player-name" (update-player-name db player game-key channel message)
+      "open-game" (update-open-game db player game-key channel message)
+      "trigger-creation" (trigger-creation db player game-key channel message)
       "game-state" (update-game-state db player game-key channel message)
       "history" (walk-history db player game-key channel message)
       "chat" (update-chat db player game-key channel message)

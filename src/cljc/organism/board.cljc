@@ -618,6 +618,14 @@
      :player-captures player-captures
      :colors (generate-colors (take 3 total-rings))}))
 
+(defn valid-invocation?
+  [invocation]
+  (let [players (:players invocation)
+        players-set (set players)]
+    (and
+     (every? (comp not empty?) players)
+     (= (count players) (count players-set)))))
+
 (defn player-symmetry
   [player-count]
   (cond
