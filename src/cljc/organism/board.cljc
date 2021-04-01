@@ -622,6 +622,7 @@
   [invocation]
   (let [players (:players invocation)
         players-set (set players)]
+    (println "valid invocation?" players players-set      (every? (comp not empty?) players)      (= (count players) (count players-set)))
     (and
      (every? (comp not empty?) players)
      (= (count players) (count players-set)))))

@@ -268,15 +268,15 @@
       [history-end-control total]]]))
 
 (defn scoreboard
-  [turn-order player-colors player-captures state]
+  [turn-order colors player-captures state]
   [:div
    [:h3 "score"]
    [:ul
     (let [player-captures (if player-captures player-captures (repeat board/default-player-captures))]
-      (for [[player captures] (map vector turn-order player-captures)]
-        ^{:key player}
+      (for [[player captures color] (map vector turn-order player-captures colors)]
+        ^{:key (str player color)}
         [:li
-         {:style {:color (get player-colors player)}}
+         {:style {:color color}}
          player " - "
          (count (get-in state [:captures player])) " / "
          captures]))]])
@@ -290,7 +290,7 @@
          visible (drop (- total chat-window) chat)]
      (for [[i message] (map-indexed vector visible)]
        (let [player (:player message)
-             color (get player-colors player)]
+             color (get player-colors player "black")]
          ^{:key i}
          [:li
           {:style {:color color}}
@@ -316,17 +316,17 @@
     []))
 
 (defn chat-panel
-  [turn-order player-colors player-captures state history cursor chat]
+  [turn-order colors player-colors player-captures state history cursor chat]
   [:div
    {:style
     {:margin "20px"}}
    [round-banner
-    (get player-colors (-> state :player-turn :player) (first (vals player-colors)))
+    (get player-colors (-> state :player-turn :player) (first colors))
     (:round state)]
    [:div
     {:style
      {:margin "20px 50px"}}
-    [scoreboard turn-order player-colors player-captures state]
+    [scoreboard turn-order colors player-captures state]
     [history-controls history cursor]
     [:br]
     [:h3 "discussion"]
@@ -1049,18 +1049,17 @@
     :player player-name}))
 
 (defn players-input
-  [page-player]
-  (let [{:keys [player-count colors player-captures] :as invocation} @board-invocation
+  [page-player invocation]
+  (let [{:keys [player-count colors player-captures]} invocation
         order @player-order
-        captures-order @player-captures-order
-        player-colors (get-in @game-state [:board :player-colors])]
+        captures-order @player-captures-order]
     [:div
      [:h3
       {:style
        {:margin "20px 0px 0px 0px"}}
       "players:"]
      (map
-      (fn [index [player-name color] player captures]
+      (fn [index color player captures]
         ^{:key index}
 
         [:div
@@ -1077,14 +1076,12 @@
             :padding "10px 40px"}
            :on-focus
            (fn [event]
-             (println "FOCUS IN!" index player-name color player captures)
              (when (empty? player)
                (send-player-name! index page-player)
                (send-open-game!
                 (update invocation :players assoc index page-player))))
            :on-blur
            (fn [event]
-             (println "FOCUS OUT!" index player-name color player captures)
              (if (empty? player)
                (send-open-game! invocation)))
            :on-change
@@ -1119,47 +1116,60 @@
               n])
            (range 1 14))]])
       (range)
-      player-colors
+      (reverse (take player-count (map last colors)))
       order
       player-captures)]))
 
 (defn create-button
-  [color]
-  [:input
-   {:type :button
-    :value "CREATE"
-    :style
-    {:border-radius "50px"
-     :color "#fff"
-     :cursor "pointer"
-     :background color
-     :border "3px solid"
-     :font-size "2em"
-     :letter-spacing "8px"
-     :margin "20px 0px"
-     :padding "25px 60px"}
-    :on-click
-     (fn [event]
-       (ws/send-transit-message!
-        {:type "trigger-creation"}))}])
+  [active-color inactive-color invocation]
+  (let [valid? (board/valid-invocation? invocation)]
+    [:input
+     {:type :button
+      :value (if valid? "CREATE" "incomplete")
+      :style
+      {:border-radius (if valid? "50px" "10px")
+       :color "#fff"
+       :cursor "pointer"
+       :background (if valid? active-color inactive-color)
+       :border "3px solid"
+       :font-size "2em"
+       :letter-spacing "8px"
+       :margin "20px 0px"
+       :padding "25px 60px"}
+      :on-click
+      (fn [event]
+        (when valid?
+          (ws/send-transit-message!
+           {:type "trigger-creation"})))}]))
+
+(defn invocation-player-colors
+  [number invocation]
+  (reverse
+   (take
+    number
+    (map
+     last
+     (:colors invocation)))))
 
 (defn create-page
   []
   (let [invocation @board-invocation
         {:keys [game board turn choices]} @game-state
         {:keys [state turn-order]} game
-        turn-order (or turn-order (:players invocation))
+        turn-order (:players invocation)
         player-captures (:player-captures invocation)
-        {:keys [player-colors]} board
+        invocation-colors (invocation-player-colors (count turn-order) invocation)
+        player-colors (into {} (map vector turn-order invocation-colors))
         create-color (-> invocation :colors rest first last)
-        select-color (-> invocation :colors first last)]
+        select-color (-> invocation :colors first last)
+        inactive-color (-> invocation :colors last last)]
     (game-layout
      [:main
       (flex-grow "row" 1)
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order player-colors player-captures state [] nil @chat]]
+       [chat-panel turn-order invocation-colors player-colors player-captures state [] nil @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board turn choices]]
@@ -1168,14 +1178,14 @@
        {:style
         {:width "30%"}}
        [:div
-        [create-button create-color]]
+        [create-button create-color inactive-color invocation]]
        [:form
         {:style
          {:margin "40px 40px"}}
         [ring-count-input select-color]
         [player-count-input select-color]
         [organism-victory-input select-color]
-        [players-input js/playerKey]]]])))
+        [players-input js/playerKey invocation]]]])))
 
 (defn game-page
   []
@@ -1184,6 +1194,7 @@
         {:keys [state turn-order]} game
         state (if cursor (nth history cursor) state)
         game (assoc game :state state)
+        invocation-colors (invocation-player-colors (count turn-order) invocation)
         player-captures (:player-captures invocation)
         [turn choices] (if cursor (choice/find-state game) [turn choices])
         {:keys [player-colors]} board]
@@ -1193,7 +1204,7 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order player-colors player-captures state history cursor @chat]]
+       [chat-panel turn-order invocation-colors player-colors player-captures state history cursor @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board turn choices]]
@@ -1234,167 +1245,170 @@
 
 (defn open-games-section
   [player games]
-  [:div
-   {:style
-    {:margin "20px 40px"}}
-   [:h2 "OPEN"]
-   (for [{:keys [key invocation]} games]
-     (let [{:keys [players colors ring-count]} invocation
-           colors (map last colors)
-           player-color (first colors)]
-       ^{:key key}
-       [:div
-        {:style
-         {:margin "10px 20px"
-          :padding "10px 0px"}}
-        [:span
-         [:a
-          {:href (str "/player/" player "/game/" key)
-           :style
-           {:color "#fff"
-            :border-radius "15px"
-            :background player-color
-            :padding "10px 20px"
-            :letter-spacing "5px"
-            :font-family font-choice
-            :font-size "1.3em"}}
-          key]]
-        [:span
-         {:style
-          {:margin "0px 20px"}}
-         " " ring-count " rings "]
-        (for [[game-player color] (map vector players colors)]
-          ^{:key game-player}
+  (when-not (empty? games)
+    [:div
+     {:style
+      {:margin "20px 40px"}}
+     [:h2 "OPEN"]
+     (for [{:keys [key invocation]} games]
+       (let [{:keys [players colors ring-count]} invocation
+             colors (map last colors)
+             player-color (first colors)]
+         ^{:key key}
+         [:div
+          {:style
+           {:margin "10px 20px"
+            :padding "10px 0px"}}
           [:span
            [:a
             {:href (str "/player/" player "/game/" key)
              :style
-             (if (= game-player player)
-               {:color "#fff"
-                :border-radius "20px"
-                :background color
-                :margin "0px 10px"
-                :padding "7px 20px"}
-               {:padding "5px 10px"
-                :margin "0px 10px"
-                :border-style "solid"
-                :border-width "2px"
-                :border-color color
-                :border-radius "5px"
-                :color color})}
-            game-player]])]))])
+             {:color "#fff"
+              :border-radius "15px"
+              :background player-color
+              :padding "10px 20px"
+              :letter-spacing "5px"
+              :font-family font-choice
+              :font-size "1.3em"}}
+            key]]
+          [:span
+           {:style
+            {:margin "0px 20px"}}
+           " " ring-count " rings "]
+          (for [[game-player color] (map vector players colors)]
+            ^{:key game-player}
+            [:span
+             [:a
+              {:href (str "/player/" player "/game/" key)
+               :style
+               (if (= game-player player)
+                 {:color "#fff"
+                  :border-radius "20px"
+                  :background color
+                  :margin "0px 10px"
+                  :padding "7px 20px"}
+                 {:padding "5px 10px"
+                  :margin "0px 10px"
+                  :border-style "solid"
+                  :border-width "2px"
+                  :border-color color
+                  :border-radius "5px"
+                  :color color})}
+              game-player]])]))]))
 
 (defn active-games-section
   [player games]
-  [:div
-   {:style
-    {:margin "20px 40px"}}
-   [:h2 "ACTIVE"]
-   (for [{:keys [game round players player-colors current-player]} games]
-     (let [player-color (get player-colors player)]
-       ^{:key game}
-       [:div
-        {:style
-         (if (= player current-player)
-           {:background player-color
-            :margin "10px 20px"
-            :padding "10px 0px"
-            :border-radius "10px"}
-           {:margin "10px 20px"
-            :padding "10px 0px"})}
-        [:span
-         [:a
-          {:href (str "/player/" player "/game/" game)
-           :style
-           {:color "#fff"
-            :border-radius "15px"
-            :background player-color
-            :padding "10px 20px"
-            :letter-spacing "5px"
-            :font-family font-choice
-            :font-size "1.3em"}}
-          game]]
-        [:span
-         {:style
-          {:margin "0px 20px"}}
-         " round " (inc round)]
-        (for [game-player players]
-          (let [current-color (get player-colors game-player)]
-            ^{:key game-player}
-            [:span
-             [:a
-              {:href (str "/player/" game-player)
-               :style
-               (if (= game-player current-player)
-                 {:color "#fff"
-                  :border-radius "20px"
-                  :background current-color
-                  :margin "0px 10px"
-                  :padding "7px 20px"}
-                 {:padding "5px 10px"
-                  :margin "0px 10px"
-                  :border-style "solid"
-                  :border-width "2px"
-                  :border-color current-color
-                  :border-radius "5px"
-                  :color current-color})}
-              game-player]]))]))])
+  (when-not (empty? games)
+    [:div
+     {:style
+      {:margin "20px 40px"}}
+     [:h2 "ACTIVE"]
+     (for [{:keys [game round players player-colors current-player]} games]
+       (let [player-color (get player-colors player)]
+         ^{:key game}
+         [:div
+          {:style
+           (if (= player current-player)
+             {:background player-color
+              :margin "10px 20px"
+              :padding "10px 0px"
+              :border-radius "10px"}
+             {:margin "10px 20px"
+              :padding "10px 0px"})}
+          [:span
+           [:a
+            {:href (str "/player/" player "/game/" game)
+             :style
+             {:color "#fff"
+              :border-radius "15px"
+              :background player-color
+              :padding "10px 20px"
+              :letter-spacing "5px"
+              :font-family font-choice
+              :font-size "1.3em"}}
+            game]]
+          [:span
+           {:style
+            {:margin "0px 20px"}}
+           " round " (inc round)]
+          (for [game-player players]
+            (let [current-color (get player-colors game-player)]
+              ^{:key game-player}
+              [:span
+               [:a
+                {:href (str "/player/" game-player)
+                 :style
+                 (if (= game-player current-player)
+                   {:color "#fff"
+                    :border-radius "20px"
+                    :background current-color
+                    :margin "0px 10px"
+                    :padding "7px 20px"}
+                   {:padding "5px 10px"
+                    :margin "0px 10px"
+                    :border-style "solid"
+                    :border-width "2px"
+                    :border-color current-color
+                    :border-radius "5px"
+                    :color current-color})}
+                game-player]]))]))]))
 
 (defn complete-games-section
   [player games]
-  [:div
-   {:style
-    {:margin "20px 40px"}}
-   [:h2 "COMPLETE"]
-   (for [{:keys [game round players player-colors winner]} games]
-     (let [player-color (get player-colors player)]
-       ^{:key game}
-       [:div
-        {:style
-         (if (= player winner)
-           {:background player-color
-            :margin "10px 20px"
-            :padding "10px 0px"
-            :border-radius "10px"}
-           {:margin "10px 20px"
-            :padding "10px 0px"})}
-        [:span
-         [:a
-          {:href (str "/player/" player "/game/" game)
-           :style
-           {:color "#fff"
-            :border-radius "15px"
-            :background player-color
-            :padding "10px 20px"
-            :letter-spacing "5px"
-            :font-family font-choice
-            :font-size "1.3em"}}
-          game]]
-        [:span
-         {:style
-          {:margin "0px 20px"}}
-         " round " round]
-        (for [game-player players]
-          (let [current-color (get player-colors game-player)]
-            ^{:key game-player}
-            [:span
-             [:a
-              {:href (str "/player/" game-player)
-               :style
-               (if (= game-player winner)
-                 {:color "#fff"
-                  :border-radius "20px"
-                  :background current-color
-                  :margin "0px 10px"
-                  :padding "7px 20px"}
-                 {:padding "5px 10px"
-                  :margin "0px 10px"
-                  :border-style "solid"
-                  :border-width "2px"
-                  :border-color current-color
-                  :border-radius "5px"
-                  :color current-color})}
-              game-player]]))]))])
+  (when-not (empty? games)
+    [:div
+     {:style
+      {:margin "20px 40px"}}
+     [:h2 "COMPLETE"]
+     (for [{:keys [game round players player-colors winner]} games]
+       (let [player-color (get player-colors player)]
+         ^{:key game}
+         [:div
+          {:style
+           (if (= player winner)
+             {:background player-color
+              :margin "10px 20px"
+              :padding "10px 0px"
+              :border-radius "10px"}
+             {:margin "10px 20px"
+              :padding "10px 0px"})}
+          [:span
+           [:a
+            {:href (str "/player/" player "/game/" game)
+             :style
+             {:color "#fff"
+              :border-radius "15px"
+              :background player-color
+              :padding "10px 20px"
+              :letter-spacing "5px"
+              :font-family font-choice
+              :font-size "1.3em"}}
+            game]]
+          [:span
+           {:style
+            {:margin "0px 20px"}}
+           " round " round]
+          (for [game-player players]
+            (let [current-color (get player-colors game-player)]
+              ^{:key game-player}
+              [:span
+               [:a
+                {:href (str "/player/" game-player)
+                 :style
+                 (if (= game-player winner)
+                   {:color "#fff"
+                    :border-radius "20px"
+                    :background current-color
+                    :margin "0px 10px"
+                    :padding "7px 20px"}
+                   {:padding "5px 10px"
+                    :margin "0px 10px"
+                    :border-style "solid"
+                    :border-width "2px"
+                    :border-color current-color
+                    :border-radius "5px"
+                    :color current-color})}
+                game-player]]))]))]))
 
 (defn player-page
   [player]
