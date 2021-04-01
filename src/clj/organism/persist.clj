@@ -167,6 +167,12 @@
       (dissoc :_id)
       (update :player-colors walk/stringify-keys)))
 
+(defn find-open-game
+  [db key]
+  (dissoc
+   (db/one db :open-games {:key key})
+   :_id))
+
 (defn load-open-games
   [db]
   (let [records (db/query db :open-games {})

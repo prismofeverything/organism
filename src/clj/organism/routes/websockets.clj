@@ -64,7 +64,10 @@
   [db game-key channel]
   (if-let [game-state (persist/load-game db game-key)]
     (assoc game-state :channels #{channel})
-    (empty-game game-key channel)))
+    (let [game (empty-game game-key channel)]
+      (if-let [game-state (persist/find-open-game db game-key)]
+        (merge game game-state)
+        game))))
 
 (defn load-game!
   [db game-key channel]

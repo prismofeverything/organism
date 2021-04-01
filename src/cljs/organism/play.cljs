@@ -1419,8 +1419,8 @@
       {:margin "20px"}}
      [current-player-banner player color "games"]
      [create-game-input player color]
-     [active-games-section player (get games "active")]
      [open-games-section player (get games "open")]
+     [active-games-section player (get games "active")]
      [complete-games-section player (get games "complete")]]))
 
 (defn home-page
