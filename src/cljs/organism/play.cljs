@@ -1245,28 +1245,7 @@
        [action-controls board-colors turn choices current-color organism-turn]
 
        (if-not (-> game :state :winner)
-         [reset-control turn choices (:state game)])
-
-       (if (and
-            organism-turn
-            (nil? (:advance player-turn))
-            (not= turn :actions-complete))
-         [:h3
-          {:style
-           {:color current-color
-            :font-size "1.2em"
-            :padding "50px 20px"}}
-          "organism - " (:organism organism-turn)
-          (if-let [choice (:choice organism-turn)]
-            [:span
-             [:br] "element action - " choice
-             [:br] "total actions - " (:num-actions organism-turn)])
-          (if (not (empty? (:actions organism-turn)))
-            [:span
-             [:br] "current action - " (count (:actions organism-turn))])
-          (if (not= turn :choose-action)
-            [:span
-             [:br] "action choice - " (:type (last (:actions organism-turn)))])])])))
+         [reset-control turn choices (:state game)])])))
 
 (defn flex-direction
   [direction]
