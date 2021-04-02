@@ -230,25 +230,28 @@
         field (* radius buffer num-rings)
         center [field field]
         [pull tie] (symmetry-background symmetry)]
-    [(concat
-      [:defs]
-      (apply
-       concat
-       (map
-        (fn [[color-key color] index]
-          ^{:key color-key}
-          [[:radialGradient {:id color-key}
-            [:stop {:offset "0%" :stop-color "black"}]
-            [:stop {:offset "100%" :stop-color color}]]
-           [:radialGradient {:id (str (name color-key) "-element")}
-            [:stop {:offset "0%" :stop-color color}]
-            [:stop {:offset "50%" :stop-color color}]
-            [:stop {:offset "100%" :stop-color "black"}]]])
-        (rest colors)
-        (map (comp inc inc) (range)))))
-     [:g
+    [:g
+     (vec
       (concat
-       [(make-circle (* field 0.93) "black" center)]
+       [:defs]
+       (apply
+        concat
+        (map
+         (fn [[color-key color] index]
+           ^{:key color-key}
+           [[:radialGradient {:id color-key}
+             ^{:key (str color-key "black")} [:stop {:offset "0%" :stop-color "black"}]
+             ^{:key (str color-key "color")} [:stop {:offset "100%" :stop-color color}]]])
+         ;; [:radialGradient {:id (str (name color-key) "-element")}
+         ;;  [:stop {:offset "0%" :stop-color color}]
+         ;;  [:stop {:offset "50%" :stop-color color}]
+         ;;  [:stop {:offset "100%" :stop-color "black"}]]
+         (rest colors)
+         (map (comp inc inc) (range))))))
+     (vec
+      (concat
+       [:g
+        (make-circle (* field 0.93) "black" center)]
        (map
         (fn [[color-key color] index]
           ^{:key color}
@@ -257,20 +260,21 @@
             (* pull (- (+ num-rings 1) index) (+ radius buffer))
             (str "url(#" (name color-key) ")")]))
         (reverse (rest colors))
-        (map (partial + tie) (range))))]]))
+        (map (partial + tie) (range)))))]))
 
 (defn board-layout
   [symmetry radius buffer colors notches?]
   (let [field (* 2 radius buffer (count colors))]
     [:svg {:width field :height field}
-     (concat
-      [:g]
-      (build-background symmetry radius buffer colors)
-      [(map-indexed
-        (fn [i spec]
-          ^{:key i}
-          (circle spec))
-        (find-rings symmetry radius buffer (map last colors) notches?))])]))
+     (vec
+      (concat
+       (build-background symmetry radius buffer colors)
+       (vec
+        (map-indexed
+         (fn [i spec]
+           ^{:key i}
+           (circle spec))
+         (find-rings symmetry radius buffer (map last colors) notches?)))))]))
 
 (defrecord Board [symmetry radius buffer colors layout locations player-colors])
 
@@ -496,6 +500,7 @@
 
 (defn render-single-food
   [color radius [x y]]
+  ^{:key [x y]}
   [:circle
    {:cx x
     :cy y
@@ -513,10 +518,11 @@
           (partial add-vector position)
           (partial radial-axis symmetry beam (* tau -0.25)))
          (range food))]
-    [:g
-     (map
-      (partial render-single-food color radius)
-      points)]))
+    (when-not (zero? food)
+      [:g
+       (map
+        (partial render-single-food color radius)
+        points)])))
 
 (defn sanify
   [color]
@@ -577,15 +583,21 @@
             :stroke "#333"
             :stroke-width (* radius stroke-ratio)}])
         food (render-food [x y] (* radius 0.3) (* radius 0.2) food-color (:food element))]
-    [:g icon food]))
+    (if food
+      [:g icon food]
+      [:g icon])))
 
 (defn render-organism
   [locations color food-color radius elements]
-  (map
-   (fn [{:keys [space] :as element}]
-     (let [location (get locations space)]
-       (render-element color food-color location radius element)))
-   elements))
+  (vec
+   (concat
+    [:g]
+    (map
+     (fn [{:keys [space] :as element}]
+       (let [location (get locations space)]
+         ^{:key space}
+         (render-element color food-color location radius element)))
+     elements))))
 
 (defn render-game
   [{:keys [colors radius layout background locations player-colors] :as board} game]
@@ -600,9 +612,8 @@
         (mapv
          (fn [[[player organism] elements]]
            ^{:key [player organism]}
-           [:g
-            (let [color (get player-colors player)]
-              (render-organism locations color food-color radius elements))])
+           (let [color (get player-colors player)]
+             (render-organism locations color food-color radius elements)))
          organisms)
         svg (apply conj layout element-icons)]
     svg))

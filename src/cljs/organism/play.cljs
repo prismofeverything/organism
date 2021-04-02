@@ -799,88 +799,91 @@
         {:width 200 :height 180}
 
         ;; ELEMENT CONTROLS
-        (for [[location type] element-controls]
-          ^{:key type}
-          (let [type->location
-                (into
-                 {}
-                 (map
-                  (fn [[location type]]
-                    [type location])
-                  element-controls))
+        (vec
+         (concat
+          [:g]
+          (for [[location type] element-controls]
+            (let [type->location
+                  (into
+                   {}
+                   (map
+                    (fn [[location type]]
+                      [type location])
+                    element-controls))
 
-                element-state
-                (cond
-                  (or
-                   (and
-                    (= turn :introduce)
-                    (= chosen-element type))
-                   (and
-                    (= turn :grow-element)
-                    (get choices type))
-                   (and
-                    (= turn :choose-action)
-                    (let [organism-turn (game/get-organism-turn game)]
-                      (= type (:choice organism-turn)))))
-                  :focus
+                  element-state
+                  (cond
+                    (or
+                     (and
+                      (= turn :introduce)
+                      (= chosen-element type))
+                     (and
+                      (= turn :grow-element)
+                      (get choices type))
+                     (and
+                      (= turn :choose-action)
+                      (let [organism-turn (game/get-organism-turn game)]
+                        (= type (:choice organism-turn)))))
+                    :focus
 
-                  (or
-                   (and
-                    (= turn :choose-action)
-                    (let [organism-turn (game/get-organism-turn game)]
-                      (not= type (:choice organism-turn))))
-                   (and
-                    (= turn :grow-element)
-                    (not (get choices type)))
-                   (and
-                    (= turn :introduce)
-                    (get progress type)))
-                  :dormant
+                    (or
+                     (and
+                      (= turn :choose-action)
+                      (let [organism-turn (game/get-organism-turn game)]
+                        (not= type (:choice organism-turn))))
+                     (and
+                      (= turn :grow-element)
+                      (not (get choices type)))
+                     (and
+                      (= turn :introduce)
+                      (get progress type)))
+                    :dormant
 
-                  :else :neutral)
-                
-                color
-                (condp = element-state
-                  :focus focus-color
-                  :dormant dormant-color
-                  :neutral current-color)]
+                    :else :neutral)
+                  
+                  color
+                  (condp = element-state
+                    :focus focus-color
+                    :dormant dormant-color
+                    :neutral current-color)]
 
-            (-> (board/render-element
-                 color color
-                 location
-                 element-radius
-                 {:type type :food 0})
-                (assoc-prop :style {:cursor "pointer"})
-                (assoc-prop
-                 :on-click
-                 (fn [event]
-                   (condp = turn
-                     :introduce
-                     (if (= type chosen-element)
-                       (swap!
-                        introduction
-                        dissoc
-                        :chosen-element)
-                       (if chosen-space
-                         (do
-                           (swap!
-                            introduction
-                            (fn [intro]
-                              (-> intro
-                                  (dissoc :chosen-element)
-                                  (dissoc :chosen-space)
-                                  (update :progress (fn [pro] (assoc pro type chosen-space))))))
-                           (send-introduction! choices @introduction))
-                         (swap! introduction assoc :chosen-element type)))
-                     :choose-action-type
-                     (send-choice! choices type true)
-                     :choose-action
-                     (let [organism-turn (game/get-organism-turn game)]
-                       (if (= type (:choice organism-turn))
-                         (send-choice! choices type true)))
-                     :grow-element
-                     (if-let [choice (get choices type)]
-                       (send-state! (:state choice) true))))))))]
+              ^{:key type}
+              (-> (board/render-element
+                   color color
+                   location
+                   element-radius
+                   {:type type :food 0})
+                  (assoc-prop :style {:cursor "pointer"})
+                  (assoc-prop
+                   :on-click
+                   (fn [event]
+                     (condp = turn
+                       :introduce
+                       (if (= type chosen-element)
+                         (swap!
+                          introduction
+                          dissoc
+                          :chosen-element)
+                         (if chosen-space
+                           (do
+                             (swap!
+                              introduction
+                              (fn [intro]
+                                (-> intro
+                                    (dissoc :chosen-element)
+                                    (dissoc :chosen-space)
+                                    (update :progress (fn [pro] (assoc pro type chosen-space))))))
+                             (send-introduction! choices @introduction))
+                           (swap! introduction assoc :chosen-element type)))
+                       :choose-action-type
+                       (send-choice! choices type true)
+                       :choose-action
+                       (let [organism-turn (game/get-organism-turn game)]
+                         (if (= type (:choice organism-turn))
+                           (send-choice! choices type true)))
+                       :grow-element
+                       (if-let [choice (get choices type)]
+                         (send-state! (:state choice) true))))))))))]
 
        [:br]
 
