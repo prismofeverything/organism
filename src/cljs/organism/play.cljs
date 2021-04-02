@@ -1251,8 +1251,8 @@
       {:margin "20px 40px"}}
      [:h2 "OPEN"]
      (for [{:keys [key invocation]} games]
-       (let [{:keys [players colors ring-count]} invocation
-             colors (map last colors)
+       (let [{:keys [player-count players colors ring-count]} invocation
+             colors (invocation-player-colors player-count invocation)
              player-color (first colors)]
          ^{:key key}
          [:div
