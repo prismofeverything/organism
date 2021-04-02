@@ -517,6 +517,7 @@
 
 (defn choose-space-highlights
   [game board turn choices]
+  (println "choose space" turn choices)
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
         locations (:locations board)
@@ -628,6 +629,7 @@
 
 (defn organism-board
   [game board colors turn choices]
+  (println "organism board" colors turn choices board game)
   (let [svg (board/render-game board game)
         highlights (find-highlights game board colors turn choices)]
     (if (empty? highlights)
@@ -1205,7 +1207,7 @@
        [chat-panel turn-order invocation-colors player-colors player-captures state history cursor @chat]]
       [:article
        {:style {:flex-grow 1}}
-       [organism-board game board turn choices]]
+       [organism-board game board invocation-colors turn choices]]
       [:nav
        {:style {:width "30%"}}
        [organism-controls game board turn choices history]]])))
@@ -1411,7 +1413,7 @@
 (defn player-page
   [player]
   (let [games @player-games
-        color (board/random-color 1)]
+        color (board/random-color 0.1 0.9)]
     [:div
      {:style
       {:margin "20px"}}
@@ -1423,17 +1425,53 @@
 
 (defn home-page
   []
-  [:div
-   {:style
-    {:color "#fff"
-     :border-radius "50px"
-     :cursor "pointer"
-     :background (board/random-color 1)
-     :letter-spacing "8px"
-     :margin "20px 20px"
-     :padding "25px 60px"}}
-   [:h1 "ORGANISM"]
-   [:h2 "welcome"]])
+  (let [color (board/random-color 0.1 0.9)]
+    [:div
+     [:div
+      {:style
+       {:color "#fff"
+        :border-radius "50px"
+        :cursor "pointer"
+        :background color
+        :letter-spacing "8px"
+        :font-size "1.2em"
+        :margin "20px 20px"
+        :padding "25px 60px"}}
+      [:h1 "ORGANISM"]
+      [:h2 "welcome"]]
+     [:div
+      {:style
+       {:margin "20px 20px"
+        :padding "25px 60px"}}
+      [:p "Welcome to ORGANISM!"]
+      [:p "To play, choose a player name:"]
+      [:input
+       {:type :text
+        :style
+        {:border-radius "25px"
+         :color "#fff"
+         :background color
+         :border "3px solid"
+         :font-size "2em"
+         :letter-spacing "8px"
+         :margin "20px 20px"
+         :padding "10px 40px"}
+        :on-key-down
+        (fn [event]
+          (if (= (.-key event) "Enter")
+            (set!
+             (-> js/window .-location .-pathname)
+             (str "/player/" (-> event .-target .-value)))))}]
+      [:p "This will lead to your player page. You can bookmark that page, it will be your starting point from then on."]
+      [:p "One thing to know is that anyone can become any player, so if there are already games present in the list, please find another player name for your games."]
+      [:p "(if this doesn't work out we can add user accounts/registration/login, but I was trying to avoid yet another password in our lives, let's see!)"]
+      [:p "Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."]
+      [:p "You can create a new game from your player page by entering any letters in the CREATE box and hitting enter."]
+      [:p "From the create page, you can choose the number of rings and number of players, as well as the number of organisms required for victory."]
+      [:p "You can also choose which other players will be in the game, as well as their personal capture limit required for victory (this defaults to 5)."]
+      [:p "If you want to leave some player spots open for others to join, just leave them blank. It will show up in everyone's player page under OPEN."]
+      [:p "To join an open game, simply click on the empty player slot and it will fill in your player name."]      
+      [:p "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]]]))
 
 (defn page-container
   []

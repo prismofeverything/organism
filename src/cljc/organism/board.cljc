@@ -10,11 +10,11 @@
 (def total-board-radius 440)
 
 (defn random-color
-  [n]
+  [low high]
   (-> (color/hsla
        (rand)
        (rand)
-       (rand)
+       (+ low (rand (- high low)))
        1.0)
       color/as-css
       :col))
@@ -73,11 +73,11 @@
       (map vector rings (reverse (range (count rings))))))))
 
 (defn generate-random-colors
-  [labels]
+  [labels low high]
   (map
    (fn [label]
      [label
-      (random-color label)])
+      (random-color low high)])
    labels))
 
 (defn generate-colors-buffer
@@ -85,7 +85,7 @@
   (let [ring-colors (generate-colors (take num-rings all-rings))
         buffer (- total num-rings)
         buffer-labels (take buffer (drop num-rings all-rings))
-        extra (generate-random-colors buffer-labels)]
+        extra (generate-random-colors buffer-labels 0.1 0.9)]
     (vec (concat ring-colors extra))))
 
 (def total-rings
