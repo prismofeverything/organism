@@ -701,30 +701,6 @@
     " "
     (string/join " " (string/split (name turn) #"-"))]])
 
-(defn circulate-control
-  [turn choices color]
-  [:div
-   {:style
-    {:margin "20px 10px 50px 10px"
-     :font-family font-choice}}
-   [:span
-    {:style
-     {:color "#fff"
-      :border-radius "20px"
-      :cursor "pointer"
-      :background color
-      :font-size "1.5em"
-      :letter-spacing "7px"
-      :padding "5px 20px"}
-     :on-click
-     (condp = turn
-       :choose-action
-       (fn [event]
-         (if (:circulate choices)
-           (send-choice! choices :circulate true)))
-       (fn [event]))}
-    "circulate"]])
-
 (def turn-descriptions
   {:pass "pass"
    :actions-complete "resolve conflicts"
@@ -750,11 +726,409 @@
         (send-state! (get-in choices [advance :state]) true))}
      description]))
 
+(defn current-action-index
+  [num-actions actions]
+  (cond
+    (empty? actions) 0
+
+    (game/complete-action? (last actions))
+    (when (not= (count actions) num-actions)
+      (count actions))
+
+    :else (dec (count actions))))
+
+(defn eat-action-control
+  [board-colors turn choices color action action-index]
+  (let [complete? (game/complete-action? action)]
+    [:div
+     {:style
+      {:margin "20px 0px"}}
+     [:span
+      {:style
+       (if complete?
+         {:margin "0px 5px"
+          :color color
+          :border-style "solid"
+          :border-width "2px"
+          :border-radius "10px"
+          :background "#fff"
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"}
+         {:margin "0px 5px"
+          :color "#fff"
+          :border-width "2px"
+          :border-radius "15px"
+          :background color
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"})}
+      "eat"]
+     [:span
+      {:style
+       {:margin "0px 5px"}}
+      (if-let [to (-> action :action :to)]
+        (list
+         " to "
+         [:span
+          {:style
+           {:background (get board-colors (first to))
+            :color "#fff"
+            :font-family font-choice
+            :margin "0px 5px"
+            :padding "5px 5px"
+            :border-radius "5px"}}
+          (string/join " " to)]))]]))
+
+(defn grow-action-control
+  [board-colors turn choices color action action-index]
+  (let [complete? (game/complete-action? action)]
+    (println "GROW ACTION CONTROL" action (keys choices))
+    [:div
+     {:style
+      {:margin "20px 0px"}}
+     [:span
+      {:style
+       (if complete?
+         {:margin "0px 5px"
+          :color color
+          :border-style "solid"
+          :border-width "2px"
+          :border-radius "10px"
+          :background "#fff"
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"}
+         {:margin "0px 5px"
+          :color "#fff"
+          :border-width "2px"
+          :border-radius "15px"
+          :background color
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"})}
+      "grow"]
+     (if-let [element (-> action :action :element)]
+       [:span
+        {:style
+         {:margin "0px 20px"
+          :color color
+          :border-style "solid"
+          :border-width "2px"
+          :border-radius "5px"
+          :background "#fff"
+          :font-size "1.0em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "2px 10px"}}
+        element]
+       [:span
+        {:style
+         {:margin "0px 10px"}}
+        (map-indexed
+         (fn [index element-choice]
+           ^{:key element-choice}
+           [:span
+            [:span
+             {:style
+              {:margin "0px 10px"
+               :color "#fff"
+               :border-width "2px"
+               :border-radius "5px"
+               :background color
+               :font-size "1.0em"
+               :letter-spacing "7px"
+               :font-family font-choice
+               :padding "2px 10px"}
+              :on-click
+              (fn [event]
+                (if-let [choice (get choices element-choice)]
+                  (send-state! (:state choice) true)))}
+             element-choice]
+            (if (not= index (dec (count choices)))
+              " / ")])
+         (keys choices))])
+     [:span
+      (if-let [from (-> action :action :from)]
+        (concat
+         (list " from ")
+         (map
+          (fn [[[ring space] food]]
+            ^{:key [ring space]}
+            [:span
+             {:style
+              {:background (get board-colors ring)
+               :color "#fff"
+               :margin "0px 5px"
+               :font-family font-choice
+               :padding "5px 5px"
+               :border-radius "5px"}}
+             (str " " ring " " space " : " food " ")])
+          from)))
+      (if-let [to (-> action :action :to)]
+        (list
+         " to "
+         [:span
+          {:style
+           {:background (get board-colors (first to))
+            :color "#fff"
+            :font-family font-choice
+            :margin "0px 5px"
+            :padding "5px 5px"
+            :border-radius "5px"}}
+          (string/join " " to)]))]]))
+
+(defn move-action-control
+  [board-colors turn choices color action action-index]
+  (let [complete? (game/complete-action? action)]
+    [:div
+     {:style
+      {:margin "20px 0px"}}
+     [:span
+      {:style
+       (if complete?
+         {:margin "0px 5px"
+          :color color
+          :border-style "solid"
+          :border-width "2px"
+          :border-radius "10px"
+          :background "#fff"
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"}
+         {:margin "0px 5px"
+          :color "#fff"
+          :border-width "2px"
+          :border-radius "15px"
+          :background color
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"})}
+      "move"]
+     [:span
+      {:style
+       {:margin "0px 5px"}}
+      (if-let [from (-> action :action :from)]
+        (list
+         " from "
+         [:span
+          {:style
+           {:background (get board-colors (first from))
+            :color "#fff"
+            :font-family font-choice
+            :padding "5px 5px"
+            :border-radius "5px"}}
+          (string/join " " from)]))
+      (if-let [to (-> action :action :to)]
+        (list
+         " to "
+         [:span
+          {:style
+           {:background (get board-colors (first to))
+            :color "#fff"
+            :font-family font-choice
+            :margin "0px 5px"
+            :padding "5px 5px"
+            :border-radius "5px"}}
+          (string/join " " to)]))]]))
+
+(defn circulate-action-control
+  [board-colors turn choices color action action-index]
+  (let [complete? (game/complete-action? action)]
+    [:div
+     {:style
+      {:margin "20px 0px"}}
+     [:span
+      {:style
+       (if complete?
+         {:margin "0px 5px"
+          :color color
+          :border-style "solid"
+          :border-width "2px"
+          :border-radius "10px"
+          :background "#fff"
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"}
+         {:margin "0px 5px"
+          :color "#fff"
+          :border-width "2px"
+          :border-radius "15px"
+          :background color
+          :font-size "1.2em"
+          :letter-spacing "7px"
+          :font-family font-choice
+          :padding "5px 20px"})}
+      "circulate"]
+     [:span
+      {:style
+       {:margin "0px 5px"}}
+      (if-let [from (-> action :action :from)]
+        (list
+         " from "
+         [:span
+          {:style
+           {:background (get board-colors (first from))
+            :color "#fff"
+            :font-family font-choice
+            :padding "5px 5px"
+            :border-radius "5px"}}
+          (string/join " " from)]))
+      (if-let [to (-> action :action :to)]
+        (list
+         " to "
+         [:span
+          {:style
+           {:background (get board-colors (first to))
+            :color "#fff"
+            :font-family font-choice
+            :margin "0px 5px"
+            :padding "5px 5px"
+            :border-radius "5px"}}
+          (string/join " " to)]))]]))
+
+(defn pass-action-control
+  [board-colors turn choices color action action-index])
+
+(def action-control-map
+  {:eat eat-action-control
+   :grow grow-action-control
+   :move move-action-control
+   :circulate circulate-action-control
+   :pass pass-action-control})
+
+(defn past-action-control
+  [board-colors turn choices color choice action action-index]
+  [:div
+   [(get action-control-map (:type action)) board-colors turn choices color action action-index]])
+
+(defn choose-action-control
+  [turn choices color choice]
+  [:span
+   {:style
+    {:color "#fff"
+     :border-radius "20px"
+     :margin "20px 5px"
+     :cursor "pointer"
+     :background color
+     :font-size "1.2em"
+     :letter-spacing "7px"
+     :font-family font-choice
+     :padding "5px 20px"}
+    :on-click
+    (condp = turn
+      :choose-action
+      (fn [event]
+        (if (get choices choice)
+          (send-choice! choices choice true)))
+      (fn [event]))}
+   choice])
+
+(defn circulate-control
+  [turn choices color]
+  [:span
+   {:style
+    {:color "#fff"
+     :border-radius "20px"
+     :margin "20px 5px"
+     :cursor "pointer"
+     :background color
+     :font-size "1.2em"
+     :letter-spacing "7px"
+     :font-family font-choice
+     :padding "5px 20px"}
+    :on-click
+    (condp = turn
+      :choose-action
+      (fn [event]
+        (if (:circulate choices)
+          (send-choice! choices :circulate true)))
+      (fn [event]))}
+   "circulate"])
+
+(defn current-action-control
+  [board-colors turn choices color choice action action-index]
+  (if-let [type (:type action)]
+    [:div
+     [(get action-control-map type) board-colors turn choices color action action-index]]
+    [:div
+     {:style
+      {:margin "20px 0px"}}
+     (if (get choices choice)
+       [choose-action-control turn choices color choice])
+     (if (:circulate choices)
+       [:span
+        " / "
+        [circulate-control turn choices color]])]))
+
+(defn future-control
+  [color choice]
+  [:span
+   {:style
+    {:color color
+     :border-style "solid"
+     :border-width "2px"
+     :border-radius "10px"
+     :margin "20px 5px"
+     :background "#fff"
+     :font-size "1.0em"
+     :letter-spacing "7px"
+     :font-family font-choice
+     :padding "5px 20px"}}
+   choice])
+
+(defn future-action-control
+  [board-colors turn choices color choice action action-index]
+  [:div
+   {:style
+    {:margin "20px 0px"}}
+   [future-control color choice]
+   " / "
+   [future-control color "circulate"]])
+
+(defn action-controls
+  [board-colors turn choices color {:keys [choice num-actions actions] :as organism-turn}]
+  (if choice
+    (let [current-action (current-action-index num-actions actions)]
+      (println "action controls" current-action turn (count choices) color organism-turn)
+      [:div
+       (map
+        (fn [action-index]
+          (let [action
+                (if (< action-index (count actions))
+                  (nth actions action-index)
+                  {})]
+            ^{:key action-index}
+            (cond
+
+              (nil? current-action)
+              [past-action-control board-colors turn choices color choice action action-index]
+
+              (> action-index current-action)
+              [future-action-control board-colors turn choices color choice action action-index]
+
+              (= action-index current-action)
+              [current-action-control board-colors turn choices color choice action action-index]
+
+              :else
+              [past-action-control board-colors turn choices color choice action action-index])))
+
+        (range num-actions))])
+    [:div]))
+
 (defn reset-control
   [turn choices state]
   [:div
    {:style
-    {:font-family font-choice}}
+    {:font-family font-choice
+     :margin "20px 0px"}}
    [:span
     {:style
      {:color "#fff"
@@ -762,7 +1136,7 @@
       :background "hsl(0,50%,50%)"
       :font-size "1.2em"
       :letter-spacing "4px"
-      :margin "10px 10px"
+      :margin "0px 10px"
       :padding "5px 20px"}
      :on-click
      (fn [event]
@@ -783,6 +1157,7 @@
         current-color (get player-colors current-player)
         dormant-color (board/brighten current-color -0.7)
         focus-color (board/brighten current-color 0.4)
+        board-colors (into {} (:colors board))
 
         element-radius 45
         element-controls
@@ -812,33 +1187,20 @@
                     element-controls))
 
                   element-state
-                  (cond
+                  (cond 
                     (or
                      (and
                       (= turn :introduce)
                       (= chosen-element type))
-                     (and
-                      (= turn :grow-element)
-                      (get choices type))
-                     (and
-                      (= turn :choose-action)
-                      (let [organism-turn (game/get-organism-turn game)]
-                        (= type (:choice organism-turn)))))
+                     (= type action-type))
                     :focus
 
                     (or
                      (and
-                      (= turn :choose-action)
-                      (let [organism-turn (game/get-organism-turn game)]
-                        (not= type (:choice organism-turn))))
-                     (and
-                      (= turn :grow-element)
-                      (not (get choices type)))
-                     (and
                       (= turn :introduce)
-                      (get progress type)))
+                      (get progress type))
+                     (not (nil? action-type)))
                     :dormant
-
                     :else :neutral)
                   
                   color
@@ -876,26 +1238,11 @@
                              (send-introduction! choices @introduction))
                            (swap! introduction assoc :chosen-element type)))
                        :choose-action-type
-                       (send-choice! choices type true)
-                       :choose-action
-                       (let [organism-turn (game/get-organism-turn game)]
-                         (if (= type (:choice organism-turn))
-                           (send-choice! choices type true)))
-                       :grow-element
-                       (if-let [choice (get choices type)]
-                         (send-state! (:state choice) true))))))))))]
+                       (send-choice! choices type true)))))))))]
 
        [:br]
 
-       [circulate-control
-        turn
-        choices
-        (cond
-          (and
-           (= turn :choose-action)
-           (:circulate choices))
-          focus-color
-          :else dormant-color)]
+       [action-controls board-colors turn choices current-color organism-turn]
 
        (if-not (-> game :state :winner)
          [reset-control turn choices (:state game)])
