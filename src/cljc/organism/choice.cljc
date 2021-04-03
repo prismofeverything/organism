@@ -322,7 +322,7 @@
                 choices (next-choices game elements)
                 action-key (keyword (str (name type) "-" (name next-field)))]
             (if (empty? choices)
-              [:pass {:pass (list (game/pass-action game))}]
+              [:pass {:pass (game/pass-action game)}]
               [action-key choices])))))))
 
 (defn find-choices

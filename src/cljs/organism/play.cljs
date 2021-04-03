@@ -517,7 +517,6 @@
 
 (defn choose-space-highlights
   [game board turn choices]
-  (println "choose space" turn choices)
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
         locations (:locations board)
