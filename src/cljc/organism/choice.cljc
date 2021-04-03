@@ -72,8 +72,11 @@
         growers (get types :grow)
         food (reduce + 0 (map :food growers))
         existing (map count (vals types))
-        least (apply min existing)]
-    (>= food least)))
+        least (apply min existing)
+        growable (game/growable-spaces game (map :space growers))]
+    (and
+     (>= food least)
+     (not (empty? growable)))))
 
 (defn move-filter
   [game]
