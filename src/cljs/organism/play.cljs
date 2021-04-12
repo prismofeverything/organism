@@ -1285,6 +1285,7 @@
               ^{:key type}
               (-> (board/render-element
                    color color
+                   {:ratio 0.02 :color "#ccc"}
                    location
                    element-radius
                    {:type type :food 0})

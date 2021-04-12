@@ -573,7 +573,7 @@
 
 (def default-stroke
   {:ratio 0.02
-   :color "#333"})
+   :color "#555"})
 
 (defn render-element
   ([color food-color [x y] radius element]
