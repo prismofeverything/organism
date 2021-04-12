@@ -1410,8 +1410,7 @@
                 (update invocation :players assoc index page-player))))
            :on-blur
            (fn [event]
-             (if (empty? player)
-               (send-open-game! invocation)))
+             (send-open-game! invocation))
            :on-change
            (fn [event]
              (let [value (-> event .-target .-value)]

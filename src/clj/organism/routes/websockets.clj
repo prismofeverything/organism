@@ -92,7 +92,7 @@
   (let [game-state (find-game! db game-key channel)]
     (if (get-in game-state [:invocation :created])
       (do
-        (println "CONNECTING" player game-key (get-in game-state [:game :state]))
+        (log/info "CONNECTING" player game-key (get-in game-state [:game :state]))
         (send!
          channel
          {:type "initialize"
@@ -151,7 +151,7 @@
             :players
             (fn [invoke]
               (assoc (vec invoke) index player)))))))
-  (println "player name updated" player "invocation" (-> @games :games (get game-key) :invocation))
+  (log/info "player name updated" player "invocation" (-> @games :games (get game-key) :invocation))
   (send-channels!
    (get-in @games [:games game-key :channels])
    message))
@@ -159,10 +159,8 @@
 (defn update-open-game
   [db player game-key channel {:keys [invocation] :as message}]
   (let [players (:players invocation)]
-    (println "OPEN GAME" game-key players)
-    (if (every? (comp not empty?) players)
-      (persist/remove-open-game! db game-key)
-      (persist/create-open-game! db game-key invocation))))
+    (log/info "OPEN GAME" game-key players)
+    (persist/create-open-game! db game-key invocation)))
 
 (defn complete-game-state
   [{:keys [invocation game channels history chat] :as game-state}]
@@ -195,6 +193,7 @@
       :game game
       :history history
       :chat chat})
+    (persist/remove-open-game! db game-key)
     (persist/create-game! db (dissoc game-state :channels))))
 
 (defn update-game-state
