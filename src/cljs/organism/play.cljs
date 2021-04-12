@@ -60,7 +60,7 @@
 
 (def max-players 7)
 
-(def highlight-element-stroke {:ratio 0.08 :color "#fff"})
+(def highlight-element-stroke {:ratio 0.04 :color "#ccc"})
 
 (defn choose-food-source!
   [space]
@@ -157,12 +157,22 @@
   [chat message]
   (conj chat message))
 
+(defn find-next-choices
+  [game]
+  (loop [game game]
+    (let [[turn choices] (choice/find-state game)]
+      (if (or (= turn :confirm-turn) (< 1 (count choices)))
+        [game turn choices]
+        (recur (first (vals choices)))))))
+
 (defn update-game
   [game-state message]
   (let [game-state (assoc-in game-state [:game :state] (:game message))
+        ;; [game turn choices] (find-next-choices (:game game-state))
         [turn choices] (choice/find-state (:game game-state))]
     (-> game-state
         (update :history conj (:game message))
+        ;; (assoc :game game)
         (assoc :turn turn)
         (assoc :choices choices))))
 

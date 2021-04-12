@@ -572,7 +572,7 @@
         :col)))
 
 (def default-stroke
-  {:ratio 0.007
+  {:ratio 0.02
    :color "#333"})
 
 (defn render-element
