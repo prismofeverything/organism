@@ -565,10 +565,14 @@
         actions (get organism-turn :actions)]
     (last actions)))
 
+(defn current-organism
+  [game]
+  (:organism (get-organism-turn game)))
+
 (defn current-organism-elements
   [game]
   (let [player (current-player game)
-        {:keys [organism] :as organism-turn} (get-organism-turn game)
+        organism (current-organism game)
         organisms (player-organisms game player)]
     (get organisms organism)))
 

@@ -60,6 +60,8 @@
 
 (def max-players 7)
 
+(def highlight-element-stroke {:ratio 0.08 :color "#fff"})
+
 (defn choose-food-source!
   [space]
   (swap! food-source update space inc))
@@ -357,9 +359,11 @@
     :on-click on-click}])
 
 (defn highlight-element
-  [type x y radius color food on-click]
+  [type food x y radius color stroke on-click]
   (let [g (board/render-element
-           (board/brighten color 0.1) "white"
+           (board/brighten color 0.1)
+           "white"
+           stroke
            [x y]
            radius
            {:type type :food food})]
@@ -376,6 +380,7 @@
     (assoc-prop g :on-click on-click)))
 
 (def highlight-factor 0.93)
+(def element-highlight-factor 1.0)
 
 (defn create-highlights
   [game board colors turn choices]
@@ -467,113 +472,130 @@
     ^{:key "highlights"}
     [:g (concat highlights elements)]))
 
+(defn chosen-organism-highlights
+  [game board on-click turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) element-highlight-factor)
+        elements (game/current-organism-elements game)
+        element-stroke highlight-element-stroke
+
+        highlights
+        (mapv
+         (fn [{:keys [space organism type food] :as element}]
+           (let [[x y] (get locations space)]
+             ^{:key space}
+             (highlight-element
+              type food
+              x y radius
+              color element-stroke
+              (partial on-click element))))
+         elements)]
+    highlights))
+
+(defn space-highlights
+  [game board turn choices spaces on-click]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+
+        space-highlights
+        (mapv
+         (fn [space]
+           (let [[x y] (get locations space)
+                 next-state (get-in choices [space :state])]
+             ^{:key space}
+             (highlight-circle
+              x y radius color
+              (partial on-click space))))
+         spaces)]
+    space-highlights))
+
 (defn choose-organism-highlights
   [game board turn choices]
   (let [player (game/current-player game)
-        color (get-in board [:player-colors player])
-        locations (:locations board)
-        radius (* (:radius board) highlight-factor)
         organisms (game/player-organisms game player)
         available (keys choices)
         elements (base/map-cat organisms available)
+        spaces (map :space elements)
+        space-organisms
+        (into
+         {}
+         (map
+          (juxt :space :organism)
+          elements))
 
         highlights
-        (mapv
-         (fn [{:keys [space organism] :as element}]
-           (let [[x y] (get locations space)]
-             ^{:key space}
-             (highlight-circle
-              x y radius color
-              (fn [event]
-                (send-choice! choices organism true)))))
-         elements)]
-
-    ^{:key "highlights"}
-    (into [] (concat [:g] highlights))))
+        (space-highlights
+         game board turn choices
+         spaces
+         (fn [space event]
+           (let [organism (get space-organisms space)]
+             (send-choice! choices organism true))))]
+    
+    highlights))
 
 (defn choose-action-type-highlights
   [game board turn choices]
-  (let [player (game/current-player game)
-        color (get-in board [:player-colors player])
-        locations (:locations board)
-        radius (* (:radius board) highlight-factor)
-        organisms (game/player-organisms game player)
-        available (keys choices)
-        elements (base/map-cat organisms available)
-
-        highlights
-        (mapv
-         (fn [{:keys [space organism] :as element}]
-           (let [[x y] (get locations space)]
-             ^{:key space}
-             (highlight-circle
-              x y radius color
-              (fn [event]
-                (send-choice! choices organism true)))))
-         elements)]
-
-    ^{:key "highlights"}
-    (into [] (concat [:g] highlights))))
+  (chosen-organism-highlights
+   game board 
+   (fn [element event]
+     (send-choice! choices (:type element) true))
+   turn choices))
 
 (defn choose-space-highlights
   [game board turn choices]
-  (let [player (game/current-player game)
-        color (get-in board [:player-colors player])
-        locations (:locations board)
-        radius (* (:radius board) highlight-factor)
-        spaces (keys choices)
+  (let [spaces (keys choices)
+        elements (game/current-organism-elements game)
 
+        element-highlights
+        (chosen-organism-highlights
+         game board 
+         (fn [element event]
+           (if (get choices (:space element))
+             (send-choice! choices (:space element) true)))
+         turn choices)
+        
         highlights
-        (mapv
-         (fn [space]
-           (let [[x y] (get locations space)
-                 next-state (get-in choices [space :state])]
-             ^{:key space}
-             (highlight-circle
-              x y radius color
-              (fn [event]
-                (send-choice! choices space true)))))
-         spaces)]
-
-    ^{:key "highlights"}
-    (into [] (concat [:g] highlights))))
+        (space-highlights
+         game board turn choices
+         spaces
+         (fn [space event]
+           (send-choice! choices space true)))]
+    (concat highlights element-highlights)))
 
 (defn choose-target-highlights
   [game board turn choices]
-  (let [player (game/current-player game)
-        color (get-in board [:player-colors player])
-        highlight-color (board/brighten color 0.2)
-        locations (:locations board)
-        radius (* (:radius board) highlight-factor)
-        element-radius (* (:radius board) 1.0)
-        choose-from (game/get-action-field game :from)
+  (let [choose-from (game/get-action-field game :from)
         spaces (keys choices)
+        element-stroke highlight-element-stroke
 
+        element-highlights
+        (chosen-organism-highlights
+         game board 
+         (fn [element event]
+           (if (get choices (:space element))
+             (send-choice! choices (:space element) true)))
+         turn choices)
+        
         highlights
-        (mapv
-         (fn [space]
-           (let [[x y] (get locations space)
-                 next-state (get-in choices [space :state])]
-             ^{:key space}
-             (highlight-circle
-              x y radius color
-              (fn [event]
-                (send-choice! choices space true)))))
-         spaces)
+        (space-highlights
+         game board turn choices
+         spaces
+         (fn [space event]
+           (send-choice! choices space true)))]
 
-        highlights
-        (let [[x y] (get locations choose-from)
-              {:keys [type food]} (game/get-element game choose-from)]
-          (conj
-           highlights
-           ^{:key choose-from}
-           (highlight-element
-            type x y element-radius highlight-color food
-            (fn [event]
-              (send-reset! (:state game))))))]
+    (concat highlights element-highlights)))
 
-    ^{:key "highlights"}
-    (into [] (concat [:g] highlights))))
+(defn grow-element-highlights
+  [game board turn choices]
+  (chosen-organism-highlights
+   game board
+   (fn [element event]
+     (send-choice! choices (:type element) true))
+   turn choices))
 
 (defn grow-from-highlights
   [game board turn choices]
@@ -592,6 +614,17 @@
                      elements)
         spaces (map :space fed-growers)
 
+        element-highlights
+        (chosen-organism-highlights
+         game board 
+         (fn [{:keys [space] :as element} event]
+           (when ((set spaces) space)
+             (choose-food-source! space)
+             (let [source @food-source]
+               (if (get choices source)
+                 (send-choice! choices source true)))))
+         turn choices)
+        
         highlights
         (mapv
          (fn [space]
@@ -605,26 +638,31 @@
                   (if (get choices source)
                     (send-choice! choices source true)))))))
          spaces)]
-
-    ^{:key "highlights"}
-    (into [] (concat [:g] highlights))))
+    (concat highlights element-highlights)))
 
 (defn find-highlights
   [game board colors turn choices]
-  (condp = turn
-    :open []
-    :create (create-highlights game board colors turn choices)
-    :introduce (introduce-highlights game board turn choices)
-    :choose-organism (choose-organism-highlights game board turn choices)
-    :choose-action-type (choose-action-type-highlights game board turn choices)
-    :eat-to (choose-space-highlights game board turn choices)
-    :circulate-from (choose-space-highlights game board turn choices)
-    :circulate-to (choose-target-highlights game board turn choices)
-    :grow-from (grow-from-highlights game board turn choices)
-    :grow-to (choose-space-highlights game board turn choices)
-    :move-from (choose-space-highlights game board turn choices)
-    :move-to (choose-target-highlights game board turn choices)
-    []))
+  (let [highlights
+        (condp = turn
+          :open []
+          :create (create-highlights game board colors turn choices)
+          :introduce (introduce-highlights game board turn choices)
+          :choose-organism (choose-organism-highlights game board turn choices)
+          :choose-action-type (choose-action-type-highlights game board turn choices)
+          :choose-action (choose-action-type-highlights game board turn choices)
+          :eat-to (choose-space-highlights game board turn choices)
+          :circulate-from (choose-space-highlights game board turn choices)
+          :circulate-to (choose-target-highlights game board turn choices)
+          :grow-element (choose-action-type-highlights game board turn choices)
+          :grow-from (grow-from-highlights game board turn choices)
+          :grow-to (choose-space-highlights game board turn choices)
+          :move-from (choose-space-highlights game board turn choices)
+          :move-to (choose-target-highlights game board turn choices)
+          [])]
+    ^{:key "highlights"}
+    (if (empty? highlights)
+      []
+      (into [] (concat [:g] highlights)))))
 
 (defn organism-board
   [game board colors turn choices]
@@ -1187,11 +1225,13 @@
 
                   element-state
                   (cond 
-                    (or
-                     (and
-                      (= turn :introduce)
-                      (= chosen-element type))
-                     (= type action-type))
+                    (and
+                     (not (= turn :choose-organism))
+                     (or
+                      (and
+                       (= turn :introduce)
+                       (= chosen-element type))
+                      (= type action-type)))
                     :focus
 
                     (or
@@ -1241,7 +1281,8 @@
 
        [:br]
 
-       [action-controls board-colors turn choices current-color organism-turn]
+       (when-not (= turn :choose-organism)
+         [action-controls board-colors turn choices current-color organism-turn])
 
        (if-not (-> game :state :winner)
          [reset-control turn choices (:state game)])])))
@@ -1826,6 +1867,7 @@
     "create"
     (do
       (reset! board-invocation (:invocation received))
+      (reset! chat (:chat received))
       (apply-invocation! @board-invocation))
     "player-name"
     (let [{:keys [index player]} received]

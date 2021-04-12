@@ -302,13 +302,7 @@
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))
                   missing (remove acted (keys organisms))]
-              (if (> (count missing) 1)
-                [:choose-organism (choose-organism-choices game missing)]
-                [:choose-action-type
-                 (choose-action-type-choices
-                  (game/choose-organism
-                   game
-                   (first missing)))]))
+              [:choose-organism (choose-organism-choices game missing)])
 
             :else [:actions-complete {:advance (game/resolve-conflicts game player)}])
 

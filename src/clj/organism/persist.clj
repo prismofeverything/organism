@@ -167,12 +167,6 @@
       (dissoc :_id)
       (update :player-colors walk/stringify-keys)))
 
-(defn find-open-game
-  [db key]
-  (dissoc
-   (db/one db :open-games {:key key})
-   :_id))
-
 (defn load-open-games
   [db]
   (let [records (db/query db :open-games {})
@@ -199,6 +193,13 @@
      (fn [record]
        (select-keys record [:type :player :time :message]))
      records)))
+
+(defn find-open-game
+  [db key]
+  (->
+   (db/one db :open-games {:key key})
+   (dissoc :_id)
+   (assoc :chat (load-chat db key))))
 
 (defn load-game
   [db key]

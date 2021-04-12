@@ -104,7 +104,7 @@
       (send!
        channel
        (-> game-state
-           (select-keys [:key :invocation])
+           (select-keys [:key :invocation :chat])
            (assoc :type "create"))))))
 
 (defn disconnect-game

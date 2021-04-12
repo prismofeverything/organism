@@ -389,13 +389,15 @@
     [:g lines points]))
 
 (defn render-eat
-  [color stroke-ratio [x y] radius food]
+  [color stroke [x y] radius food]
   (let [symmetry 5
         half (/ 0.5 symmetry)
         outer-radius 1.00
         outer-arc 0.03
         inner-radius 0.5
         inner-arc 0.12
+        stroke-ratio (:ratio stroke)
+        stroke-color (:color stroke)
 
         oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius half)) (* tau -1 (- inner-arc half))) (range symmetry))
         oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
@@ -413,19 +415,21 @@
      (update
       path 1 merge
       {:fill color
-       :stroke "#333"
+       :stroke stroke-color
        :stroke-width (* radius stroke-ratio)})
      ;; controls
      ]))
 
 (defn render-grow
-  [color stroke-ratio [x y] radius food]
+  [color stroke [x y] radius food]
   (let [symmetry 4
         half (/ 0.5 symmetry)
         outer-radius 1.1
         outer-arc 0.07
         inner-radius 0.5
         inner-arc 0.23
+        stroke-ratio (:ratio stroke)
+        stroke-color (:color stroke)
 
         oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius 0.3)) (* tau -1 (- inner-arc half))) (range symmetry))
         oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
@@ -445,13 +449,13 @@
      (update
       path 1 merge
       {:fill color
-       :stroke "#333"
+       :stroke stroke-color
        :stroke-width (* radius stroke-ratio)})
      ;; controls
      ]))
 
 (defn render-move
-  [color stroke-ratio [x y] radius food]
+  [color stroke [x y] radius food]
   (let [symmetry 3
         half (/ 0.5 symmetry)
         outer-radius 1.1
@@ -462,6 +466,8 @@
         under-arc 0.13
         inner-radius 0.3
         inner-arc 0.3
+        stroke-ratio (:ratio stroke)
+        stroke-color (:color stroke)
 
         oc-start (map (partial radial-axis symmetry (* radius (+ inner-radius 0.4)) (* tau -1 1.1 (- inner-arc half))) (range symmetry))
         oc-end (map (partial radial-axis symmetry (* radius outer-radius) (* tau -1 outer-arc)) (range symmetry))
@@ -493,7 +499,7 @@
      (update
       path 1 merge
       {:fill color
-       :stroke "#333"
+       :stroke stroke-color
        :stroke-width (* radius stroke-ratio)})
      ;; controls
      ]))
@@ -565,27 +571,32 @@
         color/as-css
         :col)))
 
+(def default-stroke
+  {:ratio 0.007
+   :color "#333"})
+
 (defn render-element
-  [color food-color [x y] radius element]
-  (let [subradius (* 0.87 radius)
-        stroke-ratio 0.007
-        bright (brighten color 0.2)
-        icon
-        (condp = (:type element)
-          :eat (render-eat bright stroke-ratio [x y] subradius (:food element))
-          :grow (render-grow bright stroke-ratio [x y] subradius (:food element))
-          :move (render-move bright stroke-ratio [x y] subradius (:food element))
-          [:circle
-           {:cx x
-            :cy y
-            :r (* radius 0.8)
-            :fill bright
-            :stroke "#333"
-            :stroke-width (* radius stroke-ratio)}])
-        food (render-food [x y] (* radius 0.3) (* radius 0.2) food-color (:food element))]
-    (if food
-      [:g icon food]
-      [:g icon])))
+  ([color food-color [x y] radius element]
+   (render-element color food-color default-stroke [x y] radius element))
+  ([color food-color stroke [x y] radius element]
+   (let [subradius (* 0.87 radius)
+         bright (brighten color 0.2)
+         icon
+         (condp = (:type element)
+           :eat (render-eat bright stroke [x y] subradius (:food element))
+           :grow (render-grow bright stroke [x y] subradius (:food element))
+           :move (render-move bright stroke [x y] subradius (:food element))
+           [:circle
+            {:cx x
+             :cy y
+             :r (* radius 0.8)
+             :fill bright
+             :stroke (:color stroke)
+             :stroke-width (* radius (:ratio stroke))}])
+         food (render-food [x y] (* radius 0.3) (* radius 0.2) food-color (:food element))]
+     (if food
+       [:g icon food]
+       [:g icon]))))
 
 (defn render-organism
   [locations color food-color radius elements]
