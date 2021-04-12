@@ -341,10 +341,10 @@
   (let [highlight-color (board/brighten color 0.3)]
     [:circle
      {:cx x :cy y
-      :r radius
+      :r (* radius 1.1)
       :stroke highlight-color
       :stroke-width (* 0.19 radius)
-      :fill-opacity 0.04
+      :fill-opacity 0.1
       :fill "white"
       :on-click on-click}]))
 
@@ -480,6 +480,7 @@
         radius (* (:radius board) element-highlight-factor)
         elements (game/current-organism-elements game)
         element-stroke highlight-element-stroke
+        source @food-source
 
         highlights
         (mapv
@@ -487,7 +488,7 @@
            (let [[x y] (get locations space)]
              ^{:key space}
              (highlight-element
-              type food
+              type (- food (get source space 0))
               x y radius
               color element-stroke
               (partial on-click element))))
@@ -638,6 +639,28 @@
                   (if (get choices source)
                     (send-choice! choices source true)))))))
          spaces)]
+    (concat highlights element-highlights)))
+
+(defn grow-to-highlights
+  [game board turn choices]
+  (let [spaces (keys choices)
+        elements (game/current-organism-elements game)
+
+        element-highlights
+        (chosen-organism-highlights
+         game board 
+         (fn [element event]
+           (if (get choices (:space element))
+             (send-choice! choices (:space element) true)))
+         turn choices)
+        
+        highlights
+        (space-highlights
+         game board turn choices
+         spaces
+         (fn [space event]
+           (reset! food-source {})
+           (send-choice! choices space true)))]
     (concat highlights element-highlights)))
 
 (defn find-highlights
@@ -1177,6 +1200,7 @@
       :padding "5px 20px"}
      :on-click
      (fn [event]
+       (reset! food-source {})
        (send-reset! state))}
     "reset"]
 
@@ -1882,8 +1906,7 @@
          (-> introduction
              (assoc :progress (-> received :game :state :player-turn :introduction))
              (assoc :chosen-element nil)
-             (assoc :chosen-space nil))))
-      (reset! food-source {}))
+             (assoc :chosen-space nil)))))
     "chat" (swap! chat update-chat received)))
 
 ;; -------------------------
