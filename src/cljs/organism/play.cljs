@@ -669,7 +669,6 @@
          game board turn choices
          spaces
          (fn [space event]
-           (reset! food-source {})
            (send-choice! choices space true)))]
     (concat highlights element-highlights)))
 
@@ -1911,6 +1910,7 @@
     "game-state"
     (do
       (swap! game-state update-game received)
+      (reset! food-source {})
       (swap!
        introduction
        (fn [introduction]
