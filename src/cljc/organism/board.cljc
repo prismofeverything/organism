@@ -92,7 +92,7 @@
   ["A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M"])
 
 (def default-player-order
-  ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon"])
+  ["orb" "mass" "brone" "laam" "stuk" "faast" "lelon" "insim" "plun" "zdio" "maa" "ninon" "pana"])
 
 (def default-player-captures 5)
 
@@ -666,7 +666,8 @@
   [ring-count player-count]
   (and
    (> ring-count 4)
-   (not= 4 player-count)))
+   (not= 4 player-count)
+   (< player-count 8)))
 
 (defn find-starting-spaces
   [symmetry rings players]
@@ -688,11 +689,13 @@
         (mapv
          (fn [element-index]
            [starting-ring
-            (int
-             (Math/ceil
-              (+ (* player-index interval)
-                 element-index
-                 offset)))])
+            (mod
+             (int
+              (Math/ceil
+               (+ (* player-index interval)
+                  element-index
+                  offset)))
+             total)])
          (range 3))])
      players)))
 

@@ -1373,7 +1373,7 @@
          [:option
           {:value n}
           n])
-       (range 3 14))]]))
+       (range 3 12))]]))
 
 (defn player-count-input
   [color]
@@ -1413,7 +1413,7 @@
          [:option
           {:value n}
           n])
-       (range 1 8))]]))
+       (range 1 11))]]))
 
 (defn organism-victory-input
   [color]
