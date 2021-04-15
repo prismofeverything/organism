@@ -1405,8 +1405,8 @@
 (defn game-layout
   [inner]
   [:div
-   (-> (flex-direction "column")
-       (assoc-in [:style :overflow-x] "scroll"))
+   (flex-direction "column")
+   ;; (assoc-in [:style :overflow-x] "scroll")
    inner])
 
 (defn ring-count-input
