@@ -180,6 +180,14 @@
         (assoc :turn turn)
         (assoc :choices choices))))
 
+(def number->word
+  {3 "THREE"
+   4 "FOUR"
+   5 "FIVE"
+   6 "SIX"
+   7 "SEVEN"
+   8 "EIGHT"})
+
 (defn round-banner
   [color round]
   [:div
@@ -200,8 +208,8 @@
       (if js/playerKey
         (str "/player/" js/playerKey)
         "/")}
-     "ORGANISM"]]
-   [:h2 js/gameKey " - round " (inc round)]])
+     js/gameKey]]
+   [:h2 "round " round]])
 
 (defn boundary-inc
   [total n]
@@ -284,7 +292,7 @@
       [history-end-control total]]]))
 
 (defn scoreboard
-  [turn-order colors player-captures state]
+  [turn-order organism-victory colors player-captures state]
   [:div
    [:h3 "score"]
    [:ul
@@ -295,7 +303,18 @@
          {:style {:color color}}
          player " - "
          (count (get-in state [:captures player])) " / "
-         captures]))]])
+         captures]))]
+   [:h4
+    {:style
+     {:font-size "1.0em"
+      :margin "12px 0px 0px 0px"}}
+    (let [player (get-in state [:player-turn :player])
+          player-colors (into {} (map vector turn-order colors))]
+      [:span
+       {:style
+        {:color (get player-colors player)}}
+       (get number->word organism-victory organism-victory)])
+    " organisms to victory"]])
 
 (def chat-window 15)
 
@@ -332,7 +351,7 @@
     []))
 
 (defn chat-panel
-  [turn-order colors player-colors player-captures state history cursor chat]
+  [turn-order organism-victory colors player-colors player-captures state history cursor chat]
   [:div
    {:style
     {:margin "20px"}}
@@ -342,7 +361,7 @@
    [:div
     {:style
      {:margin "20px 50px"}}
-    [scoreboard turn-order colors player-captures state]
+    [scoreboard turn-order organism-victory colors player-captures state]
     [history-controls history cursor]
     [:br]
     [:h3 "discussion"]
@@ -765,7 +784,14 @@
      :font-family font-choice
      :margin "20px 0px"
      :padding "25px 60px"}}
-   player
+   [:a
+    {:style
+     {:color "#fff"}
+     :href
+     (if js/playerKey
+       (str "/player/" js/playerKey)
+       "/")}
+    player]
    [:span
     {:style
      {:font-size "0.5em"
@@ -1603,6 +1629,7 @@
         {:keys [state turn-order]} game
         turn-order (:players invocation)
         player-captures (:player-captures invocation)
+        organism-victory (:organism-victory invocation)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
         player-colors (into {} (map vector turn-order invocation-colors))
         create-color (-> invocation :colors rest first last)
@@ -1614,7 +1641,7 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order invocation-colors player-colors player-captures state [] nil @chat]]
+       [chat-panel turn-order organism-victory invocation-colors player-colors player-captures state [] nil @chat]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board invocation-colors turn choices]]
@@ -1641,6 +1668,7 @@
         game (assoc game :state state)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
         player-captures (:player-captures invocation)
+        organism-victory (:organism-victory invocation)
         [turn choices] (if cursor (choice/find-state game) [turn choices])
         {:keys [player-colors]} board]
     (game-layout
@@ -1655,7 +1683,7 @@
        [organism-board game board invocation-colors turn choices]]
       [:nav
        {:style {:width "30%"}}
-       [chat-panel turn-order invocation-colors player-colors player-captures state history cursor @chat]]])))
+       [chat-panel turn-order organism-victory invocation-colors player-colors player-captures state history cursor @chat]]])))
 
 (defn create-game-input
   [player color]
