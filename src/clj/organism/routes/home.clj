@@ -70,5 +70,8 @@
    ["/" {:get home-page}]
    ["/eternal" {:get eternal-page}]
    ["/game/:game" {:get (partial game-page db)}]
+   ["/game/:game/" {:get (partial game-page db)}]
    ["/player/:player" {:get (partial player-page db)}]
-   ["/player/:player/game/:game" {:get (partial game-page db)}]])
+   ["/player/:player/" {:get (partial player-page db)}]
+   ["/player/:player/game/:game" {:get (partial game-page db)}]
+   ["/player/:player/game/:game/" {:get (partial game-page db)}]])
