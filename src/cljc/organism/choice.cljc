@@ -348,7 +348,9 @@
           game-elements (get-in game [:state :elements])
           choice-elements (get-in (:advance choices) [:state :elements])]
       (if (or
+           (empty? choices)
            (= turn :check-integrity)
+           (= turn :player-victory)
            (< 1 (count choices))
            (and
             (or
