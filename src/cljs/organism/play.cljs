@@ -169,22 +169,14 @@
   [chat message]
   (conj chat message))
 
-(defn find-next-choices
-  [game]
-  (loop [game game]
-    (let [[turn choices] (choice/find-state game)]
-      (if (or (= turn :confirm-turn) (< 1 (count choices)))
-        [game turn choices]
-        (recur (first (vals choices)))))))
-
 (defn update-game
   [game-state message]
-  (let [game-state (assoc-in game-state [:game :state] (:game message))
-        ;; [game turn choices] (find-next-choices (:game game-state))
-        [turn choices] (choice/find-state (:game game-state))]
+  (let [state (:game message)
+        current-game (assoc (:game game-state) :state state)
+        [final-game turn choices] (choice/find-next-choices current-game)
+        game-state (assoc game-state :game final-game)]
     (-> game-state
-        (update :history conj (:game message))
-        ;; (assoc :game game)
+        (update :history conj (:state final-game))
         (assoc :turn turn)
         (assoc :choices choices))))
 
@@ -1042,6 +1034,7 @@
           :padding "5px 20px"}
          {:margin "0px 5px"
           :color "#fff"
+          :cursor "pointer"
           :border-width "2px"
           :border-radius "15px"
           :background color
@@ -1226,7 +1219,11 @@
       :padding "5px 20px"}
      :on-click
      (fn [event]
-       (send-clear!))}
+       (if (and
+            (= turn :introduce)
+            (not= @introduction empty-introduction))
+         (reset! introduction empty-introduction)
+         (send-clear!)))}
     "clear"]
 
    [:span

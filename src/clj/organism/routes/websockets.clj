@@ -261,9 +261,6 @@
               (let [player (game/current-player {:state state})]
                 (= player initial-player)))
             now-back))]
-      (println "initial state" initial-state)
-      (println "initial player" initial-player)
-      (println "beginning" beginning)
       (if (empty? beginning)
         initial-state
         beginning))))

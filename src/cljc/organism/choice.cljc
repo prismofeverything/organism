@@ -326,6 +326,38 @@
   [game]
   (vals (last (find-state game))))
 
+(defn ignore-organism-id
+  [elements]
+  (into
+   {}
+   (map
+    (fn [space element]
+      [space (dissoc element :organism)])
+    elements)))
+
+(defn elements=
+  [a b]
+  (=
+   (keys a)
+   (keys b)))
+
+(defn find-next-choices
+  [initial-game]
+  (loop [game initial-game]
+    (let [[turn choices] (find-state game)
+          game-elements (get-in game [:state :elements])
+          choice-elements (get-in (:advance choices) [:state :elements])]
+      (if (or
+           (= turn :check-integrity)
+           (< 1 (count choices))
+           (and
+            (or
+             (= turn :actions-complete)
+             (= turn :resolve-conflicts))
+            (not (elements= game-elements choice-elements))))
+        [game turn choices]
+        (recur (first (vals choices)))))))
+
 (defn take-path
   [game path]
   (reduce
