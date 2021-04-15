@@ -190,25 +190,33 @@
    player-captures))
 
 (defn initial-state
+  [turn-order]
+  (let [first-player (first turn-order)
+        empty-captures
+        (into
+         {}
+         (mapv
+          vector
+          turn-order
+          (repeat [])))]
+    ;; State
+    {:round 0
+     :elements {}
+     :captures empty-captures
+     :player-turn
+     ;; PlayerTurn
+     {:player first-player
+      :introduction {}
+      :organism-turns []
+      :advance nil}}))
+
+(defn initial-game
   "create the initial state for the game from the given adjacencies and player info"
   [rings adjacencies center player-info organism-victory]
   (let [capture-limit 5
         players (into {} player-info)
         turn-order (mapv first player-info)
-        empty-captures
-        (into {} (mapv vector turn-order (repeat [])))
-        first-player (first turn-order)
-        state
-        ;; State
-        {:round 0
-         :elements {}
-         :captures empty-captures
-         :player-turn
-         ;; PlayerTurn
-         {:player first-player
-          :introduction {}
-          :organism-turns []
-          :advance nil}}]
+        state (initial-state turn-order)]
     ;; Game
     {:rings rings
      :adjacencies adjacencies
@@ -231,7 +239,7 @@
                        (last colors)
                        symmetry)
                       adjacencies)]
-    (initial-state
+    (initial-game
      colors adjacencies
      (-> rings first last last)
      player-info organism-victory)))
@@ -259,6 +267,13 @@
 (defn get-captures
   [game player]
   (get-in game [:state :captures player]))
+
+(defn beginning-of-turn?
+  [{:keys [state] :as game}]
+  (let [{:keys [introduction organism-turns]} (:player-turn state)]
+    (and
+     (empty? introduction)
+     (empty? organism-turns))))
 
 (defn add-element
   [game player organism type space food]

@@ -129,14 +129,15 @@
     (send! ch message)))
 
 (defn update-create-game
-  [db player game-key channel message]
+  [db player game-key channel {:keys [invocation] :as message}]
   (swap!
    games
    assoc-in [:games game-key :invocation]
-   (:invocation message))
+   invocation)
   (send-channels!
    (get-in @games [:games game-key :channels])
-   message))
+   message)
+  (persist/create-open-game! db game-key invocation))
 
 (defn update-player-name
   [db page-player game-key channel {:keys [index player] :as message}]
@@ -228,29 +229,66 @@
   (let [{:keys [game history channels invocation]} (get-in (deref games) [:games game-key])
         present (last history)
         previous (last (butlast history))
-        previous (if (empty? previous) present previous)
-        already-here? (= present (:game message))]
+        previous (if (empty? previous) present previous)]
     (when (= player (get-in present [:player-turn :player]))
       (send-channels!
        channels
        {:type "game-state"
-        :game
-        (if already-here?
-          previous
-          present)})
-      (when already-here?
+        :game previous})
+      (swap!
+       games
+       (fn [games]
+         (-> games
+             (update-in [:games game-key :history] (comp vec butlast))
+             (assoc-in [:games game-key :game :state] previous))))
+      (persist/reset-state! db game-key)
+      (when (not= player (-> previous :player-turn :player))
+        (persist/update-player-games!
+         db game-key
+         (:players invocation)
+         previous)))))
+
+(defn find-beginning
+  [history]
+  (when-not (empty? history)
+    (let [initial-state (last history)
+          initial-player (game/current-player {:state initial-state})
+          now-back (reverse history)
+          beginning
+          (last
+           (take-while
+            (fn [state]
+              (let [player (game/current-player {:state state})]
+                (= player initial-player)))
+            now-back))]
+      (println "initial state" initial-state)
+      (println "initial player" initial-player)
+      (println "beginning" beginning)
+      (if (empty? beginning)
+        initial-state
+        beginning))))
+
+(defn clear-player-turn
+  [db player game-key channel message]
+  (let [{:keys [game history channels invocation]} (get-in (deref games) [:games game-key])
+        present (last history)
+        current-player (game/current-player {:state present})]
+    (when (and
+           (= player current-player)
+           (not (game/beginning-of-turn? game)))
+      (let [beginning (find-beginning history)]
         (swap!
          games
-         (fn [games]
-           (-> games
-               (update-in [:games game-key :history] (comp vec butlast))
-               (assoc-in [:games game-key :game :state] previous))))
-        (persist/reset-state! db game-key)
-        (when-not (= player (-> previous :player-turn :player))
-          (persist/update-player-games!
-           db game-key
-           (:players invocation)
-           previous))))))
+         update-in [:games game-key]
+         (fn [game-state]
+           (-> game-state
+               (assoc-in [:game :state] beginning)
+               (update :history conj beginning))))
+        (send-channels!
+         channels
+         {:type "game-state"
+          :game beginning})
+        (persist/update-state! db game-key beginning)))))
 
 (defn timestamp
   []
@@ -285,6 +323,7 @@
       "trigger-creation" (trigger-creation db player game-key channel message)
       "game-state" (update-game-state db player game-key channel message)
       "history" (walk-history db player game-key channel message)
+      "clear" (clear-player-turn db player game-key channel message)
       "chat" (update-chat db player game-key channel message)
       (log/error "unknown message type!" (:type message)))))
 

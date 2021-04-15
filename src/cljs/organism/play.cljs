@@ -35,22 +35,29 @@
 (defonce board-invocation
   (r/atom (board/empty-invocation)))
 
+(def empty-game-state
+  {:game {}
+   :created false
+   :player js/playerKey
+   :history []
+   :cursor nil
+   :board {}
+   :turn :open
+   :choices []})
+
 (defonce game-state
-  (r/atom
-   {:game {}
-    :created false
-    :player js/playerKey
-    :history []
-    :cursor nil
-    :board {}
-    :turn :open
-    :choices []}))
+  (r/atom empty-game-state))
+
+(defonce clear-state
+  (r/atom (game/initial-state board/default-player-order)))
+
+(def empty-introduction
+  {:chosen-space nil
+   :chosen-element nil
+   :progress {}})
 
 (defonce introduction
-  (r/atom
-   {:chosen-space nil
-    :chosen-element nil
-    :progress {}}))
+  (r/atom empty-introduction))
 
 (defonce food-source
   (r/atom {}))
@@ -100,6 +107,11 @@
   (ws/send-transit-message!
    {:type "history"
     :game state}))
+
+(defn send-clear!
+  []
+  (ws/send-transit-message!
+   {:type "clear"}))
 
 (defn send-choice!
   [choices match complete]
@@ -872,6 +884,7 @@
           :font-family font-choice
           :padding "5px 20px"}
          {:margin "0px 5px"
+          :cursor "pointer"
           :color "#fff"
           :border-width "2px"
           :border-radius "15px"
@@ -912,6 +925,7 @@
                :font-size "1.0em"
                :letter-spacing "7px"
                :font-family font-choice
+               :cursor "pointer"
                :padding "2px 10px"}
               :on-click
               (fn [event]
@@ -1192,15 +1206,34 @@
         (range num-actions))])
     [:div]))
 
-(defn reset-control
+(defn undo-control
   [turn choices state]
   [:div
    {:style
     {:font-family font-choice
-     :margin "20px 0px"}}
+     :margin "40px 0px"}}
+
    [:span
-    {:style
+    {:title "reset to the beginning of your turn"
+     :style
      {:color "#fff"
+      :cursor "pointer"
+      :border-radius "10px"
+      :background "hsl(200,50%,80%)"
+      :font-size "1.2em"
+      :letter-spacing "4px"
+      :margin "0px 10px"
+      :padding "5px 20px"}
+     :on-click
+     (fn [event]
+       (send-clear!))}
+    "clear"]
+
+   [:span
+    {:title "take one step back, potentially to previous player's turn"
+     :style
+     {:color "#fff"
+      :cursor "pointer"
       :border-radius "10px"
       :background "hsl(0,50%,50%)"
       :font-size "1.2em"
@@ -1209,9 +1242,14 @@
       :padding "5px 20px"}
      :on-click
      (fn [event]
-       (reset! food-source {})
-       (send-reset! state))}
-    "reset"]
+       (if (and
+            (= turn :introduce)
+            (not= @introduction empty-introduction))
+         (reset! introduction empty-introduction)
+         (do
+           (reset! food-source {})
+           (send-reset! state))))}
+    "undo"]
 
    [progress-control turn choices (if (= turn :pass) :pass :advance)]])
 
@@ -1289,6 +1327,8 @@
                    element-radius
                    {:type type :food 0})
                   (assoc-prop :style {:cursor "pointer"})
+                  (assoc-prop :title type)
+                       
                   (assoc-prop
                    :on-click
                    (fn [event]
@@ -1319,7 +1359,7 @@
          [action-controls board-colors turn choices current-color organism-turn])
 
        (if-not (-> game :state :winner)
-         [reset-control turn choices (:state game)])])))
+         [undo-control turn choices (:state game)])])))
 
 (defn flex-direction
   [direction]
@@ -1897,6 +1937,7 @@
     (do
       (swap! game-state initialize-game received)
       (reset! board-invocation (:invocation received))
+      (reset! clear-state (-> received :game :state))
       (swap! chat initialize-chat received))
     "create"
     (do
