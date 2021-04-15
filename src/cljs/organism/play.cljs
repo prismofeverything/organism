@@ -1274,89 +1274,94 @@
 
     (if current-player
       [:div
+       {:style
+        {:margin "20px 20px"}}
        [current-player-banner current-player current-color turn]
-       [:svg
-        {:width 200 :height 180}
+       [:div
+        {:style
+         {:margin "0px 40px"}}
+        [:svg
+         {:width 200 :height 180}
 
-        ;; ELEMENT CONTROLS
-        (vec
-         (concat
-          [:g]
-          (for [[location type] element-controls]
-            (let [type->location
-                  (into
-                   {}
-                   (map
-                    (fn [[location type]]
-                      [type location])
-                    element-controls))
+         ;; ELEMENT CONTROLS
+         (vec
+          (concat
+           [:g]
+           (for [[location type] element-controls]
+             (let [type->location
+                   (into
+                    {}
+                    (map
+                     (fn [[location type]]
+                       [type location])
+                     element-controls))
 
-                  element-state
-                  (cond 
-                    (and
-                     (not (= turn :choose-organism))
+                   element-state
+                   (cond 
+                     (and
+                      (not (= turn :choose-organism))
+                      (or
+                       (and
+                        (= turn :introduce)
+                        (= chosen-element type))
+                       (= type action-type)))
+                     :focus
+
                      (or
                       (and
                        (= turn :introduce)
-                       (= chosen-element type))
-                      (= type action-type)))
-                    :focus
+                       (get progress type))
+                      (not (nil? action-type)))
+                     :dormant
+                     :else :neutral)
+                   
+                   color
+                   (condp = element-state
+                     :focus focus-color
+                     :dormant dormant-color
+                     :neutral current-color)]
 
-                    (or
-                     (and
-                      (= turn :introduce)
-                      (get progress type))
-                     (not (nil? action-type)))
-                    :dormant
-                    :else :neutral)
-                  
-                  color
-                  (condp = element-state
-                    :focus focus-color
-                    :dormant dormant-color
-                    :neutral current-color)]
+               ^{:key type}
+               (-> (board/render-element
+                    color color
+                    {:ratio 0.02 :color "#ccc"}
+                    location
+                    element-radius
+                    {:type type :food 0})
+                   (assoc-prop :style {:cursor "pointer"})
+                   (assoc-prop :title type)
+                   
+                   (assoc-prop
+                    :on-click
+                    (fn [event]
+                      (condp = turn
+                        :introduce
+                        (if (= type chosen-element)
+                          (swap!
+                           introduction
+                           dissoc
+                           :chosen-element)
+                          (if chosen-space
+                            (do
+                              (swap!
+                               introduction
+                               (fn [intro]
+                                 (-> intro
+                                     (dissoc :chosen-element)
+                                     (dissoc :chosen-space)
+                                     (update :progress (fn [pro] (assoc pro type chosen-space))))))
+                              (send-introduction! choices @introduction))
+                            (swap! introduction assoc :chosen-element type)))
+                        :choose-action-type
+                        (send-choice! choices type true)))))))))]
 
-              ^{:key type}
-              (-> (board/render-element
-                   color color
-                   {:ratio 0.02 :color "#ccc"}
-                   location
-                   element-radius
-                   {:type type :food 0})
-                  (assoc-prop :style {:cursor "pointer"})
-                  (assoc-prop :title type)
-                       
-                  (assoc-prop
-                   :on-click
-                   (fn [event]
-                     (condp = turn
-                       :introduce
-                       (if (= type chosen-element)
-                         (swap!
-                          introduction
-                          dissoc
-                          :chosen-element)
-                         (if chosen-space
-                           (do
-                             (swap!
-                              introduction
-                              (fn [intro]
-                                (-> intro
-                                    (dissoc :chosen-element)
-                                    (dissoc :chosen-space)
-                                    (update :progress (fn [pro] (assoc pro type chosen-space))))))
-                             (send-introduction! choices @introduction))
-                           (swap! introduction assoc :chosen-element type)))
-                       :choose-action-type
-                       (send-choice! choices type true)))))))))]
+        [:br]
 
-       [:br]
+        (when-not (= turn :choose-organism)
+          [action-controls board-colors turn choices current-color organism-turn])
 
-       (when-not (= turn :choose-organism)
-         [action-controls board-colors turn choices current-color organism-turn])
-
-       (if-not (-> game :state :winner)
-         [undo-control turn choices (:state game)])])))
+        (if-not (-> game :state :winner)
+          [undo-control turn choices (:state game)])]])))
 
 (defn flex-direction
   [direction]
@@ -1374,7 +1379,8 @@
 (defn game-layout
   [inner]
   [:div
-   (flex-direction "column")
+   (-> (flex-direction "column")
+       (assoc-in [:style :overflow-x] "scroll"))
    inner])
 
 (defn ring-count-input
@@ -1643,13 +1649,13 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order invocation-colors player-colors player-captures state history cursor @chat]]
+       [organism-controls game board turn choices history]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board invocation-colors turn choices]]
       [:nav
        {:style {:width "30%"}}
-       [organism-controls game board turn choices history]]])))
+       [chat-panel turn-order invocation-colors player-colors player-captures state history cursor @chat]]])))
 
 (defn create-game-input
   [player color]
