@@ -12,6 +12,7 @@
    [organism.game :as game]
    [organism.choice :as choice]
    [organism.board :as board]
+   [organism.dom :as dom]
    [organism.ajax :as ajax]
    [organism.websockets :as ws])
   (:import goog.History))
@@ -1638,26 +1639,28 @@
     (game-layout
      [:main
       (flex-grow "row" 1)
-      [:aside
-       {:style
-        {:width "30%"}}
-       [chat-panel turn-order organism-victory invocation-colors player-colors player-captures state [] nil @chat]]
-      [:article
-       {:style {:flex-grow 1}}
-       [organism-board game board invocation-colors turn choices]]
-      (println "INVOCATION" invocation)
       [:nav
        {:style
         {:width "30%"}}
        [:div
+        {:style
+         {:margin "20px 20px"}}
         [create-button create-color inactive-color invocation]]
        [:form
         {:style
-         {:margin "40px 40px"}}
+         {:margin "40px 60px"}}
         [ring-count-input select-color]
         [player-count-input select-color]
         [organism-victory-input select-color]
-        [players-input js/playerKey invocation]]]])))
+        [players-input js/playerKey invocation]]]
+      [:article
+       {:style {:flex-grow 1}}
+       [organism-board game board invocation-colors turn choices]]
+      (println "INVOCATION" invocation)
+      [:aside
+       {:style
+        {:width "30%"}}
+       [chat-panel turn-order organism-victory invocation-colors player-colors player-captures state [] nil @chat]]])))
 
 (defn game-page
   []
@@ -1768,6 +1771,15 @@
                   :border-radius "5px"
                   :color color})}
               game-player]])]))]))
+
+(defn player-active?
+  [player games]
+  (let [active-games (get games "active")]
+    (some?
+     (some
+      (fn [game]
+        (= player (:current-player game)))
+      active-games))))
 
 (defn active-games-section
   [player games]
@@ -2023,6 +2035,10 @@
   (println "MOUNTING")
   (rdom/render [#'page-container] (.getElementById js/document "organism")))
 
+(def dormant-favicon "/favicon/dormant.ico")
+(def active-favicon "/favicon/active.ico")
+(def neutral-favicon "/favicon/neutral.ico")
+
 (defn init!
   []
   (let [player? (not (empty? js/playerKey))
@@ -2037,8 +2053,21 @@
           (if (= (.-protocol js/location) "https:")
             "wss:"
             "ws:")]
-      (when js/playerGames
-        (reset! player-games (reader/read-string js/playerGames)))
+      (if js/playerGames
+        (let [games (reader/read-string js/playerGames)
+              favicon-path
+              (if (player-active? player games)
+                active-favicon
+                dormant-favicon)]
+          (dom/change-favicon favicon-path)
+          (reset! player-games games)
+          (.setInterval
+           js/window
+           (fn []
+             (println "what")
+             (.reload js/location))
+           300000))
+        (dom/change-favicon neutral-favicon))
       (when game?
         (ws/make-websocket!
          (str protocol "//" (.-host js/location) "/ws/player/" player "/game/" js/gameKey)
