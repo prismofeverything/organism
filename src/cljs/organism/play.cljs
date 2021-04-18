@@ -24,7 +24,14 @@
 (defonce chat (r/atom []))
 
 (defonce player-order
-  (r/atom board/default-player-order))
+  (r/atom
+   (vec
+    (take
+     (count board/default-player-order)
+     (repeat "")))))
+
+;; (defonce player-order
+;;   (r/atom board/default-player-order))
 
 (defonce player-captures-order
   (r/atom
@@ -66,7 +73,7 @@
 (defonce player-games
   (r/atom {}))
 
-(def max-players 7)
+(def max-players 10)
 
 (def highlight-element-stroke {:ratio 0.04 :color "#ccc"})
 
@@ -775,7 +782,7 @@
 
 (defn current-player-banner
   [player color turn]
-  [:h1
+  [:div
    {:style
     {:color "#fff"
      :border-radius "50px"
@@ -785,20 +792,20 @@
      :font-family font-choice
      :margin "20px 0px"
      :padding "25px 60px"}}
-   [:a
+   [:h1
+    [:a
+     {:style
+      {:color "#fff"}
+      :href
+      (if js/playerKey
+        (str "/player/" js/playerKey)
+        "/")}
+     player]]
+   [:div
     {:style
-     {:color "#fff"}
-     :href
-     (if js/playerKey
-       (str "/player/" js/playerKey)
-       "/")}
-    player]
-   [:span
-    {:style
-     {:font-size "0.5em"
+     {:font-size "1.3em"
       :letter-spacing "5px"
-      :margin-left "20px"}}
-    " "
+      :margin "10px 0px"}}
     (string/join " " (string/split (name turn) #"-"))]])
 
 (def turn-descriptions
@@ -1414,11 +1421,6 @@
   [color]
   (let [invocation @board-invocation]
     [:div
-     [:label
-      {:for "ring-count"
-       :style
-       {:font-size "1.5em"}}
-      "ring count: "]
      [:select
       {:id "ring-count"
        :name "ring-count"
@@ -1443,17 +1445,17 @@
          [:option
           {:value n}
           n])
-       (range 3 12))]]))
+       (range 3 12))]
+     [:label
+      {:for "ring-count"
+       :style
+       {:font-size "1.5em"}}
+      "rings"]]))
 
 (defn player-count-input
   [color]
   (let [invocation @board-invocation]
     [:div
-     [:label
-      {:for "player-count"
-       :style
-       {:font-size "1.5em"}}
-      "player count: "]
      [:select
       {:id "player-count"
        :name "player-count"
@@ -1483,17 +1485,17 @@
          [:option
           {:value n}
           n])
-       (range 1 11))]]))
+       (range 1 11))]
+     [:label
+      {:for "player-count"
+       :style
+       {:font-size "1.5em"}}
+      "players"]]))
 
 (defn organism-victory-input
   [color]
   (let [invocation @board-invocation]
     [:div
-     [:label
-      {:for "organism-victory"
-       :style
-       {:font-size "1.5em"}}
-      "organisms for victory: "]
      [:select
       {:id "organism-victory"
        :name "organism-victory"
@@ -1512,7 +1514,12 @@
          [:option
           {:value n}
           n])
-       (range 3 9))]]))
+       (range 3 14))]
+     [:label
+      {:for "organism-victory"
+       :style
+       {:font-size "1.5em"}}
+      "organisms for victory"]]))
 
 (defn send-player-name!
   [index player-name]
@@ -1543,10 +1550,11 @@
             :color "#fff"
             :background color
             :border "3px solid"
-            :font-size "2em"
-            :letter-spacing "8px"
+            :font-size "1.5em"
+            :letter-spacing "6px"
             :margin "2px 0px"
-            :padding "10px 40px"}
+            :width "366px"
+            :padding "10px 30px"}
            :on-focus
            (fn [event]
              (when (empty? player)
@@ -1606,13 +1614,15 @@
        :border "3px solid"
        :font-size "2em"
        :letter-spacing "8px"
-       :margin "20px 0px"
+       :margin "20px 40px"
        :padding "25px 60px"}
       :on-click
       (fn [event]
-        (when valid?
+        (if valid?
           (ws/send-transit-message!
-           {:type "trigger-creation"})))}]))
+           {:type "trigger-creation"})
+          (dom/redirect!
+           (str "/player/" js/playerKey))))}]))
 
 (defn invocation-player-colors
   [number invocation]
@@ -1645,6 +1655,7 @@
        [:div
         {:style
          {:margin "20px 20px"}}
+        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game"]
         [create-button create-color inactive-color invocation]]
        [:form
         {:style
@@ -1845,7 +1856,7 @@
      {:style
       {:margin "20px 40px"}}
      [:h2 "COMPLETE"]
-     (for [{:keys [game round players player-colors winner]} games]
+     (for [{:keys [game round players player-colors winner]} (reverse games)]
        (let [player-color (get player-colors player)]
          ^{:key game}
          [:div
@@ -1908,9 +1919,26 @@
      [active-games-section player (get games "active")]
      [complete-games-section player (get games "complete")]]))
 
+(defn valid-player-name?
+  [players player]
+  (and
+   (not
+    (empty? player))
+   (not
+    (players player))))
+
+(defonce player-key
+  (r/atom ""))
+
+(defonce home-color
+  (r/atom (board/random-color 0.5 0.8)))
+
 (defn home-page
-  []
-  (let [color (board/random-color 0.1 0.9)]
+  [player-records]
+  (let [color @home-color
+        players (set (map :key player-records))
+        active-color "#3b5"
+        inactive-color "#444"]
     [:div
      [:div
       {:style
@@ -1927,9 +1955,11 @@
      [:div
       {:style
        {:margin "20px 20px"
-        :padding "25px 60px"}}
+        :padding "25px 60px"
+        :font-size "1.2em"
+        :font-family font-choice}}
       [:p "Welcome to ORGANISM!"]
-      [:p "To play, choose a player name:"]
+      [:p "To begin, choose a player name ->"]
       [:input
        {:type :text
         :style
@@ -1941,22 +1971,44 @@
          :letter-spacing "8px"
          :margin "20px 20px"
          :padding "10px 40px"}
-        :on-key-down
+        :on-key-up
         (fn [event]
-          (if (= (.-key event) "Enter")
-            (set!
-             (-> js/window .-location .-pathname)
-             (str "/player/" (-> event .-target .-value)))))}]
-      [:p "This will lead to your player page. You can bookmark that page, it will be your starting point from then on."]
-      [:p "One thing to know is that anyone can become any player, so if there are already games present in the list, please find another player name for your games."]
-      [:p "(if this doesn't work out we can add user accounts/registration/login, but I was trying to avoid yet another password in our lives, let's see!)"]
-      [:p "Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."]
-      [:p "You can create a new game from your player page by entering any letters in the CREATE box and hitting enter."]
-      [:p "From the create page, you can choose the number of rings and number of players, as well as the number of organisms required for victory."]
-      [:p "You can also choose which other players will be in the game, as well as their personal capture limit required for victory (this defaults to 5)."]
-      [:p "If you want to leave some player spots open for others to join, just leave them blank. It will show up in everyone's player page under OPEN."]
-      [:p "To join an open game, simply click on the empty player slot and it will fill in your player name."]      
-      [:p "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]]]))
+          (let [value (-> event .-target .-value)
+                key (-> event .-key)]
+            (reset! player-key value)
+            (let [valid? (valid-player-name? players @player-key)]
+              (if (and valid? (= key "Enter"))
+                (dom/redirect!
+                 (str "/player/" value))))))}]
+      [:div
+       (let [valid? (valid-player-name? players @player-key)]
+         [:input
+          {:type :button
+           :value (if valid? "PLAY" "name taken")
+           :style
+           {:border-radius (if valid? "50px" "10px")
+            :color "#fff"
+            :cursor "pointer"
+            :background (if valid? active-color inactive-color)
+            :border "3px solid"
+            :font-size "1.3em"
+            :letter-spacing "8px"
+            :margin "10px 30px"
+            :padding "10px 40px"}
+           :on-click
+           (fn [event]
+             (when (valid-player-name? players @player-key)
+               (dom/redirect!
+                (str "/player/" (-> event .-target .-value)))))}])]]]))
+
+(def create-explanation
+  [[:p "Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."]
+   [:p "You can create a new game from your player page by entering any letters in the CREATE box and hitting enter."]
+   [:p "From the create page, you can choose the number of rings and number of players, as well as the number of organisms required for victory."]
+   [:p "You can also choose which other players will be in the game, as well as their personal capture limit required for victory (this defaults to 5)."]
+   [:p "If you want to leave some player spots open for others to join, just leave them blank. It will show up in everyone's player page under OPEN."]
+   [:p "To join an open game, simply click on the empty player slot and it will fill in your player name."]      
+   [:p "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]])
 
 (defn page-container
   []
@@ -1970,7 +2022,7 @@
               [game-page]))
           [create-page]))
       [player-page js/playerKey])
-    [home-page]))
+    [home-page (reader/read-string js/players)]))
 
 (defn update-messages!
   [{:keys [type] :as received}]

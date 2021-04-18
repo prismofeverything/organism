@@ -21,3 +21,8 @@
       (.removeChild (.-head js/document) old-link))
     (.appendChild (.-head js/document) link)))
 
+(defn redirect!
+  [path]
+  (set!
+   (-> js/window .-location .-pathname)
+   path))

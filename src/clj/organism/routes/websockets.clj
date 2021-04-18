@@ -45,9 +45,9 @@
   (atom (cycle board/default-player-order)))
 
 (defn empty-game
-  [game-key channel]
+  [game-key player channel]
   {:key game-key
-   :invocation (board/empty-invocation)
+   :invocation (board/empty-invocation player)
    :game nil
    :chat []
    :history []
@@ -61,17 +61,17 @@
    conj channel))
 
 (defn load-game
-  [db game-key channel]
+  [db game-key player channel]
   (if-let [game-state (persist/load-game db game-key)]
     (assoc game-state :channels #{channel})
-    (let [game (empty-game game-key channel)]
+    (let [game (empty-game game-key player channel)]
       (if-let [game-state (persist/find-open-game db game-key)]
         (merge game game-state)
         game))))
 
 (defn load-game!
-  [db game-key channel]
-  (let [game-state (load-game db game-key channel)]
+  [db game-key player channel]
+  (let [game-state (load-game db game-key player channel)]
     (swap!
      games
      assoc-in [:games game-key]
@@ -79,17 +79,17 @@
     game-state))
 
 (defn find-game!
-  [db game-key channel]
+  [db game-key player channel]
   (let [existing (get-in (deref games) [:games game-key])]
     (if (empty? existing)
-      (load-game! db game-key channel)
+      (load-game! db game-key player channel)
       (do
         (append-channel! game-key channel)
         (update existing :channels conj channel)))))
 
 (defn connect!
-  [{:keys [db player game-key]} channel]
-  (let [game-state (find-game! db game-key channel)]
+  [{:keys [db game-key player]} channel]
+  (let [game-state (find-game! db game-key player channel)]
     (if (get-in game-state [:invocation :created])
       (do
         (log/info "CONNECTING" player game-key (get-in game-state [:game :state]))

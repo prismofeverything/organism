@@ -25,6 +25,13 @@
       (update :captures conditional-string) ;; TODO: remove this once migrated
       (update-in [:player-turn :organism-turns] read-string)))
 
+(defn filter-ids
+  [records]
+  (map
+   (fn [record]
+     (dissoc record :_id))
+   records))
+
 (defn history-key
   [key]
   (str "history-" key))
@@ -33,7 +40,7 @@
   [key]
   (str "chat-" key))
 
-(defn player-key
+(defn player-games-key
   [key]
   (str "player-games-" key))
 
@@ -67,7 +74,7 @@
         player-colors (invocation-colors invocation)]
     (println "creating" player game-key)
     (db/insert!
-     db (player-key player)
+     db (player-games-key player)
      {:game game-key
       :round round
       :status "active"
@@ -88,7 +95,7 @@
         round (:round state)]
     (println "updating" player game-key current-player)
     (db/merge!
-     db (player-key player)
+     db (player-games-key player)
      {:game game-key}
      {:round round
       :current-player current-player})))
@@ -103,7 +110,7 @@
   (println "completing" player game-key)
   (let [round (:round state)]
     (db/merge!
-     db (player-key player)
+     db (player-games-key player)
      {:game game-key}
      {:round round
       :status "complete"
@@ -119,13 +126,14 @@
   (let [initial-state (serialize-state (:state game))
         game-state (update-in game-state [:game :adjacencies] pr-str)
         game-state (update-in game-state [:game :players] pr-str)
-        player-colors (invocation-colors invocation)]
+        player-colors (board/invocation-player-colors invocation)]
     (println "CREATING GAME" game-state)
     (db/index! db :games [:key] {:unique true})
     (db/insert! db :games game-state)
     (db/insert! db (history-key key) initial-state)
     (doseq [player (reverse (:players invocation))]
-      (db/index! db (player-key player) [:game] {:unique true}))
+      (db/index! db (player-games-key player) [:game] {:unique true})
+      (db/merge! db :players {:key player} {:color (get player-colors player)}))
     (create-player-games! db key invocation initial-state)))
 
 (defn update-state!
@@ -169,13 +177,17 @@
 
 (defn load-open-games
   [db]
-  (let [records (db/query db :open-games {})
-        records (map #(dissoc % :_id) records)]
-    records))
+  (let [records (db/query db :open-games {})]
+    (filter-ids records)))
+
+(defn load-players
+  [db]
+  (filter-ids
+   (db/find-all db :players)))
 
 (defn load-player-games
   [db player]
-  (let [records (db/query db (player-key player) {})
+  (let [records (db/query db (player-games-key player) {})
         records (map deserialize-player-game records)
         states (group-by :status records)
         open (load-open-games db)]

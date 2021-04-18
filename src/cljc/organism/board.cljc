@@ -630,15 +630,26 @@
     svg))
 
 (defn empty-invocation
-  []
-  (let [players (vec (take 1 default-player-order))
-        player-captures (take (count players) (repeat default-player-captures))]
-    {:player-count 1
-     :ring-count 3
-     :organism-victory 3
-     :players players
-     :player-captures player-captures
-     :colors (generate-colors (take 3 total-rings))}))
+  ([] (empty-invocation "orb"))
+  ([player]
+   (let [players [player] ;; (vec (take 1 default-player-order))
+         player-captures (take (count players) (repeat default-player-captures))]
+     {:player-count 1
+      :ring-count 3
+      :organism-victory 3
+      :players players
+      :player-captures player-captures
+      :colors (generate-colors (take 3 total-rings))})))
+
+(defn invocation-player-colors
+  [invocation]
+  (into
+   {}
+   (map
+    (fn [player [ring color]]
+      [player color])
+    (:players invocation)
+    (:colors invocation))))
 
 (defn valid-invocation?
   [invocation]

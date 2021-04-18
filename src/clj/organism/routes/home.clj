@@ -25,8 +25,12 @@
    :games (choice/random-walk starting-game)})
 
 (defn home-page
-  [request]
-  (layout/render request "home.html"))
+  [db request]
+  (let [players (persist/load-players db)]
+    (layout/render
+     request
+     "home.html"
+     {:players (pr-str players)})))
 
 (defn player-page
   [db request]
@@ -67,7 +71,7 @@
   [""
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
-   ["/" {:get home-page}]
+   ["/" {:get (partial home-page db)}]
    ["/eternal" {:get eternal-page}]
    ["/game/:game" {:get (partial game-page db)}]
    ["/game/:game/" {:get (partial game-page db)}]
