@@ -322,7 +322,7 @@
        {:style
         {:color (get player-colors player)}}
        (get number->word organism-victory organism-victory)])
-    " organisms to victory"]])
+    " organisms for victory"]])
 
 (def chat-window 15)
 
@@ -1537,7 +1537,13 @@
      [:h3
       {:style
        {:margin "20px 0px 0px 0px"}}
-      "players:"]
+      [:span
+       {:title "click an empty field to join the game\nor modify to add other players"}
+       "players joined "]
+      [:span
+       {:title "how many captures each player is required to win"
+        :style {:font-size "0.8em"}}
+       " (capture limit)"]]
      (map
       (fn [index color player captures]
         ^{:key index}
@@ -1707,7 +1713,9 @@
        {:style
         {:margin "30px 40px"}}
        [:h2
-        "CREATE"]
+        [:span
+         {:title "You can create a new game by entering any letters in this box and hitting enter."}
+         "CREATE"]]
        [:input
         {:value @game-key
          :style
@@ -1736,7 +1744,10 @@
     [:div
      {:style
       {:margin "20px 40px"}}
-     [:h2 "OPEN"]
+     [:h2
+      [:span
+       {:title "To join, click on an empty player field inside the create page for this game"}
+       "OPEN"]]
      (for [{:keys [key invocation]} games]
        (let [{:keys [player-count players colors ring-count]} invocation
              colors (invocation-player-colors player-count invocation)
