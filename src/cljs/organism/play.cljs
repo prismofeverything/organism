@@ -1926,7 +1926,9 @@
        {:title "A solid color row indicates it is your turn in that game.\nThe icon on the tab for this page will turn green when it is your turn."}
        "ACTIVE"]]
      (for [{:keys [game round players player-colors current-player invocation]} games]
-       (let [player-color (get player-colors player)]
+       (let [player-color (get player-colors player)
+             ring-count (:ring-count invocation)
+             organism-victory (:organism-victory invocation)]
          ^{:key game}
          [:div
           {:style
@@ -1938,7 +1940,13 @@
              {:margin "10px 20px"
               :padding "10px 0px"})}
           [:span
-           {:title (:description invocation)}
+           {:title
+            (str
+             (when ring-count
+               (str ring-count " rings | "))
+             (when organism-victory
+               (str organism-victory " organisms for victory\n\n"))
+             (:description invocation))}
            [:a
             {:href (str "/player/" player "/game/" game)
              :style
@@ -1953,8 +1961,8 @@
           [:span
            {:style
             {:margin "0px 20px"}}
-           (when-let [rings (:ring-count invocation)]
-             [:span rings " rings / "])
+           ;; (when-let [rings (:ring-count invocation)]
+           ;;   [:span rings " rings / "])
            " round " (inc round)]
           (for [game-player players]
             (let [current-color (get player-colors game-player)]
