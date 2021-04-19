@@ -256,10 +256,11 @@
 
 (defn clear-history-advance!
   [advance]
-  (.clearInterval
-   js/window
-   advance)
-  (reset! history-advance nil))
+  (when advance
+    (.clearInterval
+     js/window
+     advance)
+    (reset! history-advance nil)))
 
 (defn history-status-display
   [cursor total]
@@ -272,15 +273,18 @@
     (fn [event]
       (if-let [advance @history-advance]
         (clear-history-advance! advance)
-        (reset!
-         history-advance
-         (.setInterval
-          js/window
-          (fn []
-            (if (= cursor (dec total))
-              (clear-history-advance! @history-advance)
-              (swap! game-state update :cursor (partial boundary-inc total))))
-          300))))}
+        (do
+          (when (nil? cursor)
+            (swap! game-state assoc :cursor 0))
+          (reset!
+           history-advance
+           (.setInterval
+            js/window
+            (fn []
+              (if (= cursor (dec total))
+                (clear-history-advance! @history-advance)
+                (swap! game-state update :cursor (partial boundary-inc total))))
+            300)))))}
    (if cursor
      (str (inc cursor) " / " total)
      total)])
@@ -301,6 +305,7 @@
     :style {:fill "hsl(100, 20%, 20%)"}
     :on-click
     (fn [event]
+      (clear-history-advance! @history-advance)
       (swap! game-state assoc :cursor nil))}])
 
 (defn history-controls
