@@ -21,7 +21,7 @@
             players (-> game :invocation :players)]
         (doseq [player players]
           (println "purging player games for" player)
-          (db/drop! db (persist/player-key player)))))))
+          (db/drop! db (persist/player-games-key player)))))))
 
 (defn -main
   []

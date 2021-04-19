@@ -1240,49 +1240,83 @@
     {:font-family font-choice
      :margin "40px 0px"}}
 
-   [:span
-    {:title "reset to the beginning of your turn"
-     :style
-     {:color "#fff"
-      :cursor "pointer"
-      :border-radius "10px"
-      :background "hsl(200,50%,80%)"
-      :font-size "1.2em"
-      :letter-spacing "4px"
-      :margin "0px 10px"
-      :padding "5px 20px"}
-     :on-click
-     (fn [event]
-       (if (and
-            (= turn :introduce)
-            (not= @introduction empty-introduction))
-         (reset! introduction empty-introduction)
-         (send-clear!)))}
-    "clear"]
+   (when (= turn :choose-action)
+     [:div
+      {:style
+       {:margin "15px 0px"}}
+      [:span
+       {:title "pass this action"
+        :style
+        {:color "#fff"
+         :cursor "pointer"
+         :border-radius "10px"
+         :background "hsl(100,50%,50%)"
+         :font-size "1.2em"
+         :letter-spacing "4px"
+         :margin "0px 10px"
+         :padding "5px 20px"}
+        :on-click
+        (fn [event]
+          (send-state!
+           (-> {:state state}
+               (game/choose-action :circulate)
+               (game/pass-action)
+               :state)
+           true))}
+       "pass"]])
 
-   [:span
-    {:title "take one step back, potentially to previous player's turn"
-     :style
-     {:color "#fff"
-      :cursor "pointer"
-      :border-radius "10px"
-      :background "hsl(0,50%,50%)"
-      :font-size "1.2em"
-      :letter-spacing "4px"
-      :margin "0px 10px"
-      :padding "5px 20px"}
-     :on-click
-     (fn [event]
-       (if (and
-            (= turn :introduce)
-            (not= @introduction empty-introduction))
-         (reset! introduction empty-introduction)
-         (do
-           (reset! food-source {})
-           (send-reset! state))))}
-    "undo"]
+   [:div
+    {:style
+     {:margin "15px 0px"}}
+    [:span
+     {:title "reset to the beginning of your turn"
+      :style
+      {:color "#fff"
+       :cursor "pointer"
+       :border-radius "10px"
+       :background "hsl(200,50%,80%)"
+       :font-size "1.2em"
+       :letter-spacing "4px"
+       :margin "0px 10px"
+       :padding "5px 20px"}
+      :on-click
+      (fn [event]
+        (if (and
+             (= turn :introduce)
+             (not= @introduction empty-introduction))
+          (reset! introduction empty-introduction)
+          (send-clear!)))}
+     "clear"]]
 
-   [progress-control turn choices (if (= turn :pass) :pass :advance)]])
+   [:div
+    {:style
+     {:margin "15px 0px"}}
+    [:span
+     {:title "take one step back, potentially to previous player's turn"
+      :style
+      {:color "#fff"
+       :cursor "pointer"
+       :border-radius "10px"
+       :background "hsl(0,50%,50%)"
+       :font-size "1.2em"
+       :letter-spacing "4px"
+       :margin "0px 10px"
+       :padding "5px 20px"}
+      :on-click
+      (fn [event]
+        (if (and
+             (= turn :introduce)
+             (not= @introduction empty-introduction))
+          (reset! introduction empty-introduction)
+          (do
+            (reset! food-source {})
+            (send-reset! state))))}
+     "undo"]]
+
+   [:div
+    {:style
+     {:margin "15px 0px"}}
+    [progress-control turn choices (if (= turn :pass) :pass :advance)]]])
 
 (defn organism-controls
   [game board turn choices history]
@@ -1809,7 +1843,10 @@
     [:div
      {:style
       {:margin "20px 40px"}}
-     [:h2 "ACTIVE"]
+     [:h2
+      [:span
+       {:title "A solid color row indicates it is your turn in that game.\nThe icon on the tab for this page will turn green when it is your turn."}
+       "ACTIVE"]]
      (for [{:keys [game round players player-colors current-player]} games]
        (let [player-color (get player-colors player)]
          ^{:key game}
