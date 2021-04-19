@@ -79,6 +79,7 @@
       :round round
       :status "active"
       :player-colors player-colors
+      :invocation invocation
       :players players
       :current-player current-player
       :winner nil})))

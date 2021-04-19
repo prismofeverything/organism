@@ -1849,50 +1849,57 @@
        {:title "To join, click on an empty player field inside the create page for this game"}
        "OPEN"]]
      (for [{:keys [key invocation]} games]
-       (let [{:keys [player-count players colors ring-count]} invocation
+       (let [{:keys [player-count players colors ring-count description]} invocation
              colors (invocation-player-colors player-count invocation)
              player-color (first colors)]
          ^{:key key}
          [:div
-          {:style
-           {:margin "10px 20px"
-            :padding "10px 0px"}}
-          [:span
-           [:a
-            {:href (str "/player/" player "/game/" key)
-             :style
-             {:color "#fff"
-              :border-radius "15px"
-              :background player-color
-              :padding "10px 20px"
-              :letter-spacing "5px"
-              :font-family font-choice
-              :font-size "1.3em"}}
-            key]]
-          [:span
+          [:div
            {:style
-            {:margin "0px 20px"}}
-           " " ring-count " rings "]
-          (for [[game-player color] (map vector players colors)]
-            ^{:key game-player}
-            [:span
-             [:a
-              {:href (str "/player/" player "/game/" key)
-               :style
-               (if (= game-player player)
-                 {:color "#fff"
-                  :border-radius "20px"
-                  :background color
-                  :margin "0px 10px"
-                  :padding "7px 20px"}
-                 {:padding "5px 10px"
-                  :margin "0px 10px"
-                  :border-style "solid"
-                  :border-width "2px"
-                  :border-color color
-                  :border-radius "5px"
-                  :color color})}
-              game-player]])]))]))
+            {:margin "10px 20px"
+             :padding "10px 0px"}}
+           [:span
+            [:a
+             {:href (str "/player/" player "/game/" key)
+              :style
+              {:color "#fff"
+               :border-radius "15px"
+               :background player-color
+               :padding "10px 20px"
+               :letter-spacing "5px"
+               :font-family font-choice
+               :font-size "1.3em"}}
+             key]]
+           [:span
+            {:style
+             {:margin "0px 20px"}}
+            " " ring-count " rings "]
+           (for [[game-player color] (map vector players colors)]
+             ^{:key game-player}
+             [:span
+              [:a
+               {:href (str "/player/" player "/game/" key)
+                :style
+                (if (= game-player player)
+                  {:color "#fff"
+                   :border-radius "20px"
+                   :background color
+                   :margin "0px 10px"
+                   :padding "7px 20px"}
+                  {:padding "5px 10px"
+                   :margin "0px 10px"
+                   :border-style "solid"
+                   :border-width "2px"
+                   :border-color color
+                   :border-radius "5px"
+                   :color color})}
+               game-player]])]
+          (when-not (empty? description)
+            [:div
+             {:style
+              {:margin "0px 40px"
+               :color player-color}}
+             description])]))]))
 
 (defn player-active?
   [player games]
@@ -1913,7 +1920,7 @@
       [:span
        {:title "A solid color row indicates it is your turn in that game.\nThe icon on the tab for this page will turn green when it is your turn."}
        "ACTIVE"]]
-     (for [{:keys [game round players player-colors current-player]} games]
+     (for [{:keys [game round players player-colors current-player invocation]} games]
        (let [player-color (get player-colors player)]
          ^{:key game}
          [:div
@@ -1926,6 +1933,7 @@
              {:margin "10px 20px"
               :padding "10px 0px"})}
           [:span
+           {:title (:description invocation)}
            [:a
             {:href (str "/player/" player "/game/" game)
              :style
@@ -1940,6 +1948,8 @@
           [:span
            {:style
             {:margin "0px 20px"}}
+           (when-let [rings (:ring-count invocation)]
+             [:span rings " rings / "])
            " round " (inc round)]
           (for [game-player players]
             (let [current-color (get player-colors game-player)]
