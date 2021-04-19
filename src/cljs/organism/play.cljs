@@ -1076,7 +1076,10 @@
           :letter-spacing "7px"
           :font-family font-choice
           :padding "5px 20px"})}
-      "circulate"]
+      (println "ACTION -" action)
+      (if (-> action :action :pass)
+        "pass"
+        "circulate")]
      [:span
       {:style
        {:margin "0px 5px"}}
@@ -1240,31 +1243,6 @@
     {:font-family font-choice
      :margin "40px 0px"}}
 
-   (when (= turn :choose-action)
-     [:div
-      {:style
-       {:margin "15px 0px"}}
-      [:span
-       {:title "pass this action"
-        :style
-        {:color "#fff"
-         :cursor "pointer"
-         :border-radius "10px"
-         :background "hsl(100,50%,50%)"
-         :font-size "1.2em"
-         :letter-spacing "4px"
-         :margin "0px 10px"
-         :padding "5px 20px"}
-        :on-click
-        (fn [event]
-          (send-state!
-           (-> {:state state}
-               (game/choose-action :circulate)
-               (game/pass-action)
-               :state)
-           true))}
-       "pass"]])
-
    [:div
     {:style
      {:margin "15px 0px"}}
@@ -1312,6 +1290,31 @@
             (reset! food-source {})
             (send-reset! state))))}
      "undo"]]
+
+   (when (= turn :choose-action)
+     [:div
+      {:style
+       {:margin "15px 0px"}}
+      [:span
+       {:title "pass this action"
+        :style
+        {:color "#fff"
+         :cursor "pointer"
+         :border-radius "10px"
+         :background "hsl(100,50%,50%)"
+         :font-size "1.2em"
+         :letter-spacing "4px"
+         :margin "0px 10px"
+         :padding "5px 20px"}
+        :on-click
+        (fn [event]
+          (send-state!
+           (-> {:state state}
+               (game/choose-action :circulate)
+               (game/pass-action)
+               :state)
+           true))}
+       "pass"]])
 
    [:div
     {:style
