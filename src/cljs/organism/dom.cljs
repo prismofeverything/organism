@@ -9,6 +9,17 @@
      js/document
      "head"))))
 
+(defn document-height
+  []
+  (let [body (.-body js/document)
+        html (.-documentElement js/document)]
+    (max
+     (.-scrollHeight body)
+     (.-offsetHeight body)
+     (.-clientHeight html)
+     (.-scrollHeight html)
+     (.-offsetHeight html))))
+
 (defn change-favicon
   [favicon-path]
   (let [favicon-id "dynamic-favicon"

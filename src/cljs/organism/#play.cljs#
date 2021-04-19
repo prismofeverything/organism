@@ -2247,8 +2247,6 @@
         body-height (.-scrollHeight (.-body js/document))]
     (println "WINDOW HEIGHT " window-height)
     (println "BODY HEIGHT " body-height)
-    (when (> window-height body-height)
-      (set! (.-height (.-style (.-body js/document))) window-height))
     (println "intializing game" js/gameKey)
     (ajax/load-interceptors!)
     (hook-browser-navigation!)

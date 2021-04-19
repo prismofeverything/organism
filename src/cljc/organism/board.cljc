@@ -251,7 +251,7 @@
      (vec
       (concat
        [:g
-        (make-circle (* field 0.93) "black" center)]
+        (make-circle (* field 0.93) "#111" center)]
        (map
         (fn [[color-key color] index]
           ^{:key color}
