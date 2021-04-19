@@ -639,6 +639,7 @@
       :organism-victory 3
       :players players
       :player-captures player-captures
+      :description ""
       :colors (generate-colors (take 3 total-rings))})))
 
 (defn invocation-player-colors

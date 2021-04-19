@@ -160,7 +160,7 @@
 (defn update-open-game
   [db player game-key channel {:keys [invocation] :as message}]
   (let [players (:players invocation)]
-    (log/info "OPEN GAME" game-key players)
+    (log/info "OPEN GAME" game-key players invocation)
     (persist/create-open-game! db game-key invocation)))
 
 (defn complete-game-state

@@ -358,24 +358,35 @@
              (reset! value nil))}]))
     []))
 
-(defn chat-panel
-  [turn-order organism-victory colors player-colors player-captures state history cursor chat]
+(defn description-panel
+  [player-color description]
   [:div
-   {:style
-    {:margin "20px"}}
-   [round-banner
-    (get player-colors (-> state :player-turn :player) (first colors))
-    (:round state)]
-   [:div
+   [:h4
     {:style
-     {:margin "20px 50px"}}
-    [scoreboard turn-order organism-victory colors player-captures state]
-    [history-controls history cursor]
-    [:br]
-    [:h3 "discussion"]
-    [chat-list player-colors chat]
-    [:br]
-    [chat-input]]])
+     {:color player-color}}
+    description]])
+
+(defn chat-panel
+  [description turn-order organism-victory colors player-colors player-captures
+   state history cursor chat]
+  (let [player-color (get player-colors (-> state :player-turn :player) (first colors))]
+    [:div
+     {:style
+      {:margin "20px"}}
+     [round-banner
+      player-color
+      (:round state)]
+     [:div
+      {:style
+       {:margin "20px 50px"}}
+      [description-panel player-color description]
+      [scoreboard turn-order organism-victory colors player-captures state]
+      [history-controls history cursor]
+      [:br]
+      [:h3 "discussion"]
+      [chat-list player-colors chat]
+      [:br]
+      [chat-input]]]))
 
 (defn highlight-circle
   [x y radius color on-click]
@@ -1076,7 +1087,6 @@
           :letter-spacing "7px"
           :font-family font-choice
           :padding "5px 20px"})}
-      (println "ACTION -" action)
       (if (-> action :action :pass)
         "pass"
         "circulate")]
@@ -1667,6 +1677,38 @@
           (dom/redirect!
            (str "/player/" js/playerKey))))}]))
 
+(defn description-input
+  [{:keys [description] :as invocation} foreground-color background-color]
+  [:div
+   [:h3
+    {:style
+     {:margin "20px 0px 0px 0px"}}
+    [:span
+     {:title "explain a bit about the game you are creating for potential players"}
+     "description"]]
+   [:textarea
+    {:value (or description "")
+     :rows (inc (quot (count description) 49))
+     :style
+     {:border-radius "25px"
+      :color foreground-color
+      :background background-color
+      ;; :border "3px solid"
+      :font-size "0.9em"
+      :letter-spacing "1px"
+      :margin "2px 0px"
+      :width "460px"
+      :padding "10px 30px"}
+     ;; :on-blur
+     ;; (fn [event]
+     ;;   (send-open-game!
+     ;;    (assoc invocation :description @description)))
+     :on-change
+     (fn [event]
+       (let [value (-> event .-target .-value)]
+         (send-create!
+          (assoc invocation :description value))))}]])
+
 (defn invocation-player-colors
   [number invocation]
   (reverse
@@ -1684,6 +1726,7 @@
         turn-order (:players invocation)
         player-captures (:player-captures invocation)
         organism-victory (:organism-victory invocation)
+        description (:description invocation)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
         player-colors (into {} (map vector turn-order invocation-colors))
         create-color (-> invocation :colors rest first last)
@@ -1706,6 +1749,7 @@
         [ring-count-input select-color]
         [player-count-input select-color]
         [organism-victory-input select-color]
+        [description-input invocation select-color inactive-color]
         [players-input js/playerKey invocation]]]
       [:article
        {:style {:flex-grow 1}}
@@ -1714,18 +1758,17 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel turn-order organism-victory invocation-colors player-colors player-captures state [] nil @chat]]])))
+       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures state [] nil @chat]]])))
 
 (defn game-page
   []
   (let [invocation @board-invocation
         {:keys [game board turn choices history cursor]} @game-state
         {:keys [state turn-order]} game
+        {:keys [player-captures organism-victory description]} invocation
         state (if cursor (nth history cursor) state)
         game (assoc game :state state)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
-        player-captures (:player-captures invocation)
-        organism-victory (:organism-victory invocation)
         [turn choices] (if cursor (choice/find-state game) [turn choices])
         {:keys [player-colors]} board]
     (game-layout
@@ -1740,7 +1783,7 @@
        [organism-board game board invocation-colors turn choices]]
       [:nav
        {:style {:width "30%"}}
-       [chat-panel turn-order organism-victory invocation-colors player-colors player-captures state history cursor @chat]]])))
+       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures state history cursor @chat]]])))
 
 (defn create-game-input
   [player color]
