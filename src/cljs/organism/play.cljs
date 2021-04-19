@@ -23,6 +23,9 @@
 (defonce session (r/atom {:page :home}))
 (defonce chat (r/atom []))
 
+(defonce history-advance
+  (r/atom nil))
+
 (defonce player-order
   (r/atom
    (vec
@@ -251,6 +254,13 @@
     (fn [event]
       (swap! game-state update :cursor (partial boundary-dec total)))}])
 
+(defn clear-history-advance!
+  [advance]
+  (.clearInterval
+   js/window
+   advance)
+  (reset! history-advance nil))
+
 (defn history-status-display
   [cursor total]
   [:text
@@ -260,7 +270,17 @@
     :font-size "1.5em"
     :on-click
     (fn [event]
-      (swap! game-state assoc :cursor nil))}
+      (if-let [advance @history-advance]
+        (clear-history-advance! advance)
+        (reset!
+         history-advance
+         (.setInterval
+          js/window
+          (fn []
+            (if (= cursor (dec total))
+              (clear-history-advance! @history-advance)
+              (swap! game-state update :cursor (partial boundary-inc total))))
+          300))))}
    (if cursor
      (str (inc cursor) " / " total)
      total)])
@@ -281,7 +301,7 @@
     :style {:fill "hsl(100, 20%, 20%)"}
     :on-click
     (fn [event]
-      (swap! game-state assoc :cursor (dec total)))}])
+      (swap! game-state assoc :cursor nil))}])
 
 (defn history-controls
   [history cursor]
