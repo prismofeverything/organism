@@ -240,7 +240,7 @@
   []
   [:polygon
    {:points "0,5 10,5 10,25 50,0 50,50 10,25 10,45 0,45"
-    :style {:fill "hsl(100, 20%, 20%)"}
+    :style {:fill "hsl(100, 20%, 30%)"}
     :on-click
     (fn [event]
       (swap! game-state assoc :cursor 0))}])
@@ -249,7 +249,7 @@
   [cursor total]
   [:polygon
    {:points "70,25 100,5 100,45"
-    :style {:fill "hsl(100, 20%, 20%)"}
+    :style {:fill "hsl(100, 20%, 30%)"}
     :on-click
     (fn [event]
       (swap! game-state update :cursor (partial boundary-dec total)))}])
@@ -268,7 +268,9 @@
    {:x (if cursor "110" "140")
     :y "35"
     :width "80"
-    :font-size "1.5em"
+    :font-size "1.8em"
+    :style
+    {:fill "#eee"}
     :on-click
     (fn [event]
       (if-let [advance @history-advance]
@@ -287,13 +289,13 @@
             300)))))}
    (if cursor
      (str (inc cursor) " / " total)
-     total)])
+     (str total))])
 
 (defn history-forward-control
   [total]
   [:polygon
    {:points "200,5 230,25 200,45"
-    :style {:fill "hsl(100, 20%, 20%)"}
+    :style {:fill "hsl(100, 20%, 30%)"}
     :on-click
     (fn [event]
       (swap! game-state update :cursor (partial boundary-inc total)))}])
@@ -302,7 +304,7 @@
   [total]
   [:polygon
    {:points "300,5 290,5 290,25 250,0 250,50 290,25 290,45 300,45"
-    :style {:fill "hsl(100, 20%, 20%)"}
+    :style {:fill "hsl(100, 20%, 30%)"}
     :on-click
     (fn [event]
       (clear-history-advance! @history-advance)
@@ -2144,7 +2146,7 @@
            (fn [event]
              (when (valid-player-name? players @player-key)
                (dom/redirect!
-                (str "/player/" (-> event .-target .-value)))))}])]]]))
+                (str "/player/" @player-key))))}])]]]))
 
 (def create-explanation
   [[:p "Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."]
@@ -2245,9 +2247,6 @@
         player (if player? js/playerKey game/observer-key)
         window-height (.-innerHeight js/window)
         body-height (.-scrollHeight (.-body js/document))]
-    (println "WINDOW HEIGHT " window-height)
-    (println "BODY HEIGHT " body-height)
-    (println "intializing game" js/gameKey)
     (ajax/load-interceptors!)
     (hook-browser-navigation!)
     (let [protocol
