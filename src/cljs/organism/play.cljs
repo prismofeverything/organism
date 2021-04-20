@@ -390,7 +390,7 @@
   [:div
    [:h4
     {:style
-     {:color player-color}}
+     {:color (board/brighten player-color 0.3)}}
     description]])
 
 (defn chat-panel
@@ -1911,7 +1911,7 @@
             [:div
              {:style
               {:margin "0px 40px"
-               :color player-color}}
+               :color (board/brighten player-color 0.3)}}
              description])]))]))
 
 (defn player-active?
