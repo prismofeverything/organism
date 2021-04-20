@@ -882,6 +882,8 @@
 
     :else (dec (count actions))))
 
+(def background-color "#222")
+
 (defn eat-action-control
   [board-colors turn choices color action action-index]
   (let [complete? (game/complete-action? action)]
@@ -896,7 +898,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background "#000" ;; "#fff"
+          :background background-color ;; "#fff"
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -942,7 +944,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background "#000" ;; "#fff"
+          :background background-color ;; "#fff"
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -966,7 +968,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "5px"
-          :background "#000" ;; "#fff"
+          :background background-color ;; "#fff"
           :font-size "1.0em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -1043,7 +1045,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background "#000" ;; "#fff"
+          :background background-color ;; "#fff"
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -1099,7 +1101,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background "#000" ;; "#fff"
+          :background background-color ;; "#fff"
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -1227,7 +1229,7 @@
      :border-width "2px"
      :border-radius "10px"
      :margin "20px 5px"
-     :background "#000" ;; "#fff"
+     :background background-color ;; "#fff"
      :font-size "1.0em"
      :letter-spacing "7px"
      :font-family font-choice
