@@ -288,7 +288,7 @@
 (defn history-status-display
   [cursor total]
   [:text
-   {:x (if cursor "110" "140")
+   {:x (if cursor "110" "160")
     :y "35"
     :width "80"
     :font-size "1.8em"
@@ -309,7 +309,7 @@
 (defn history-forward-control
   [total]
   [:polygon
-   {:points "200,5 230,25 200,45"
+   {:points "250,5 280,25 250,45"
     :style {:fill "hsl(100, 20%, 30%)"}
     :on-click
     (fn [event]
@@ -318,7 +318,7 @@
 (defn history-end-control
   [total]
   [:polygon
-   {:points "300,5 290,5 290,25 250,0 250,50 290,25 290,45 300,45"
+   {:points "350,5 340,5 340,25 300,0 300,50 340,25 340,45 350,45"
     :style {:fill "hsl(100, 20%, 30%)"}
     :on-click
     (fn [event]
@@ -328,18 +328,22 @@
 (defn history-controls
   [history cursor]
   (let [total (count history)]
-    [:svg
-     {:width 300
-      :height 50
-      :style
-      {:margin "40px 0px 0px 0px"}}
-     [:g
-      {:transform "scale(0.6)"}
-      [history-beginning-control]
-      [history-back-control cursor total]
-      [history-status-display cursor total]
-      [history-forward-control total]
-      [history-end-control total]]]))
+    [:div
+      {:style
+       {:margin "0px 0px 0px 0px"}}
+     [:h3 "history"]
+     [:svg
+      {:width 300
+       :height 50
+       :style
+       {:margin "10px 0px 0px 30px"}}
+      [:g
+       {:transform "scale(0.6)"}
+       [history-beginning-control]
+       [history-back-control cursor total]
+       [history-status-display cursor total]
+       [history-forward-control total]
+       [history-end-control total]]]]))
 
 (defn scoreboard
   [turn-order organism-victory colors player-captures state]
@@ -408,9 +412,41 @@
      {:color (board/brighten player-color 0.3)}}
     description]])
 
+(defn help-panel
+  [color]
+  [:div
+   [:h3 "help"]
+   [:div
+    {:style
+     {:color color
+      :font-size "1.2em"
+      :letter-spacing "3px"
+      :margin "0px 0px 0px 30px"}}
+    [:a
+     {:href "/img/organism-player-diagram.png"
+      :target "_blank"
+      :style
+      {:color "hsl(250, 30%, 70%)"}}
+     "player aid"]
+    " | "
+    [:a
+     {:href "/img/organism-rulebook.pdf"
+      :target "_blank"
+      :style
+      {:color "hsl(130, 30%, 70%)"}}
+     "rules"]]])
+
 (defn chat-panel
-  [description turn-order organism-victory colors player-colors player-captures
-   state history cursor chat]
+  [description
+   turn-order
+   organism-victory
+   colors
+   player-colors
+   player-captures
+   state
+   history
+   cursor
+   chat]
   (let [player-color (get player-colors (-> state :player-turn :player) (first colors))]
     [:div
      {:style
@@ -424,7 +460,7 @@
       [description-panel player-color description]
       [scoreboard turn-order organism-victory colors player-captures state]
       [history-controls history cursor]
-      [:br]
+      [help-panel player-color]
       [:h3 "discussion"]
       [chat-list player-colors chat]
       [:br]
