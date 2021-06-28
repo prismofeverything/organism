@@ -290,14 +290,14 @@
           (every? game/complete-action? actions)
           (cond
             (< (count actions) num-actions)
-            (let [choices (choose-action-choices game choice)]
+            (let [choices (choose-action-choices game choice)
+                  pass {:pass
+                        (-> game
+                            (game/choose-action :circulate)
+                            game/pass-action)}]
               (if (empty? choices)
-                [:pass
-                 {:pass
-                  (-> game
-                      (game/choose-action :circulate)
-                      game/pass-action)}]
-                [:choose-action choices]))
+                [:pass pass]
+                [:choose-action (merge choices pass)]))
 
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))
