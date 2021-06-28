@@ -91,14 +91,17 @@
   [{:keys [db game-key player]} channel]
   (let [game-state (find-game! db game-key player channel)]
     (if (get-in game-state [:invocation :created])
-      (do
-        (log/info "CONNECTING" player game-key (get-in game-state [:game :state]))
+      (let [player-game (persist/find-player-game db game-key player)
+            witness (:witness player-game)]
+        (log/info "CONNECTING" player game-key "witness" witness (get-in game-state [:game :state]))
+        ;; (persist/store-witness! game-key player)
         (send!
          channel
          {:type "initialize"
           :invocation (:invocation game-state)
           :game (:game game-state)
           :player player
+          :witness witness
           :history (:history game-state)
           :chat (:chat game-state)}))
       (send!
@@ -117,11 +120,12 @@
       games)))
 
 (defn disconnect!
-  [{:keys [game-key player]} channel {:keys [code reason]}]
+  [{:keys [db game-key player]} channel {:keys [code reason]}]
   (log/info "channel closed" player code reason)
   (swap!
    games
-   (partial disconnect-game game-key channel)))
+   (partial disconnect-game game-key channel))
+  (persist/store-witness! db game-key player))
 
 (defn send-channels!
   [channels message]

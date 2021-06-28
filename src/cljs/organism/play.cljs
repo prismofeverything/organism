@@ -17,6 +17,8 @@
    [organism.websockets :as ws])
   (:import goog.History))
 
+(def orange "rgb(225, 195, 61)")
+
 (def font-choice
   "BlinkMacSystemFont,-apple-system,\"Segoe UI\",Roboto,Oxygen,Ubuntu,Cantarell,\"Fira Sans\",\"Droid Sans\",\"Helvetica Neue\",Helvetica,Arial,sans-serif")
 
@@ -157,13 +159,14 @@
   (:chat message))
 
 (defn initialize-game
-  [game-state {:keys [game invocation player history board] :as message}]
+  [game-state {:keys [game invocation player history board witness] :as message}]
   (let [{:keys [ring-count player-count players colors]} invocation
         board (board/generate-board
                colors
                players
                (take ring-count board/total-rings))
-        [turn choices] (choice/find-state game)]
+        [turn choices] (choice/find-state game)
+        cursor (if (< witness (count history)) witness)]
     (println "initializing game" game)
     (println "initializing board" board)
     (println "turn" turn)
@@ -174,6 +177,7 @@
      :history history
      :board board
      :turn turn
+     :cursor cursor
      :choices choices}))
 
 (defn update-chat
@@ -220,7 +224,7 @@
         (str "/player/" js/playerKey)
         "/")}
      js/gameKey]]
-   [:h2 "round " round]])
+   [:h2 "round " (inc round)]])
 
 (defn boundary-inc
   [total n]
@@ -254,6 +258,8 @@
     (fn [event]
       (swap! game-state update :cursor (partial boundary-dec total)))}])
 
+(def history-interval 300)
+
 (defn clear-history-advance!
   [advance]
   (when advance
@@ -261,6 +267,23 @@
      js/window
      advance)
     (reset! history-advance nil)))
+
+(defn set-history-advance!
+  [total cursor]
+  (if-let [advance @history-advance]
+    (clear-history-advance! advance))
+  (reset!
+   history-advance
+   (.setInterval
+    js/window
+    (fn []
+      (let [cursor (:cursor @game-state)]
+        (if (>= cursor (dec total))
+          (do
+            (clear-history-advance! @history-advance)
+            (swap! game-state assoc :cursor nil))
+          (swap! game-state update :cursor (partial boundary-inc total)))))
+    history-interval)))
 
 (defn history-status-display
   [cursor total]
@@ -278,15 +301,7 @@
         (do
           (when (nil? cursor)
             (swap! game-state assoc :cursor 0))
-          (reset!
-           history-advance
-           (.setInterval
-            js/window
-            (fn []
-              (if (= cursor (dec total))
-                (clear-history-advance! @history-advance)
-                (swap! game-state update :cursor (partial boundary-inc total))))
-            300)))))}
+          (set-history-advance! total cursor))))}
    (if cursor
      (str (inc cursor) " / " total)
      (str total))])
@@ -402,7 +417,7 @@
       {:margin "20px"}}
      [round-banner
       player-color
-      (:round state)]
+      (-> state :round inc)]
      [:div
       {:style
        {:margin "20px 50px"}}
@@ -929,6 +944,11 @@
             :border-radius "5px"}}
           (string/join " " to)]))]]))
 
+(def element-choice-map
+  {:eat "eater"
+   :grow "grower"
+   :move "mover"})
+
 (defn grow-action-control
   [board-colors turn choices color action action-index]
   (let [complete? (game/complete-action? action)]
@@ -989,7 +1009,7 @@
                :border-radius "5px"
                :background color
                :font-size "1.0em"
-               :letter-spacing "7px"
+               :letter-spacing "5px"
                :font-family font-choice
                :cursor "pointer"
                :padding "2px 10px"}
@@ -997,7 +1017,7 @@
               (fn [event]
                 (if-let [choice (get choices element-choice)]
                   (send-state! (:state choice) true)))}
-             element-choice]
+             (element-choice-map element-choice)]
             (if (not= index (dec (count choices)))
               " / ")])
          (keys choices))])
@@ -2028,7 +2048,7 @@
           [:span
            {:style
             {:margin "0px 20px"}}
-           " round " round]
+           " round " (inc round)]
           (for [game-player players]
             (let [current-color (get player-colors game-player)]
               ^{:key game-player}
@@ -2182,7 +2202,11 @@
       (swap! game-state initialize-game received)
       (reset! board-invocation (:invocation received))
       (reset! clear-state (-> received :game :state))
-      (swap! chat initialize-chat received))
+      (swap! chat initialize-chat received)
+      (if-let [cursor (:cursor @game-state)]
+        (let [total (count (:history received))]
+          (if (< cursor total)
+            (set-history-advance! total cursor)))))
     "create"
     (do
       (reset! board-invocation (:invocation received))

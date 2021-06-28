@@ -82,6 +82,7 @@
       :invocation invocation
       :players players
       :current-player current-player
+      :witness 0
       :winner nil})))
 
 (defn create-player-games!
@@ -89,6 +90,10 @@
   (let [players (:players invocation)]
     (doseq [player (reverse players)]
       (create-player-game! db game-key invocation player state))))
+
+(defn find-player-game
+  [db game-key player]
+  (db/one db (player-games-key player) {:game game-key}))
 
 (defn update-player-game!
   [db game-key player state]
@@ -105,6 +110,14 @@
   [db game-key players state]
   (doseq [player (reverse players)]
     (update-player-game! db game-key player state)))
+
+(defn store-witness!
+  [db game-key player]
+  (let [witness (db/number db (history-key game-key))]
+    (db/merge!
+     db (player-games-key player)
+     {:game game-key}
+     {:witness witness})))
 
 (defn complete-player-game!
   [db game-key player winner state]
