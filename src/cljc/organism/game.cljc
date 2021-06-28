@@ -360,27 +360,29 @@
     spaces)))
 
 (defn adjacent-element-spaces
-  [game space]
+  [game space player]
   (filter
    (fn [adjacent]
-     (get-element game adjacent))
+     (if-let [element (get-element game adjacent)]
+       (= player (:player element))))
    (adjacent-to game space)))
 
 (defn contiguous-elements
   [game space]
-  (loop [spaces [space]
-         visited #{}
-         contiguous []]
-    (if (empty? spaces)
-      contiguous
-      (let [space (first spaces)
-            contiguous (conj contiguous space)
-            adjacent (adjacent-element-spaces game space)
-            unseen (remove visited adjacent)]
-        (recur
-         (concat (rest spaces) unseen)
-         (conj visited space)
-         contiguous)))))
+  (let [element (get-element game space)]
+    (loop [spaces [space]
+           visited #{}
+           contiguous []]
+      (if (empty? spaces)
+        contiguous
+        (let [space (first spaces)
+              contiguous (conj contiguous space)
+              adjacent (adjacent-element-spaces game space (:player element))
+              unseen (remove visited adjacent)]
+          (recur
+           (concat (rest spaces) unseen)
+           (conj visited space)
+           contiguous))))))
 
 (defn fed-element?
   [element]
