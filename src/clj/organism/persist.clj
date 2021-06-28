@@ -135,6 +135,19 @@
   (doseq [player (reverse players)]
     (complete-player-game! db game-key player winner state)))
 
+(defn update-player-preferences!
+  [db player preferences]
+  (db/merge!
+   db :players
+   {:key player}
+   preferences))
+
+(defn find-player-preferences
+  [db player]
+  (dissoc
+   (db/one db :players {:key player})
+   :_id))
+
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
   (let [initial-state (serialize-state (:state game))
@@ -146,8 +159,8 @@
     (db/insert! db :games game-state)
     (db/insert! db (history-key key) initial-state)
     (doseq [player (reverse (:players invocation))]
-      (db/index! db (player-games-key player) [:game] {:unique true})
-      (db/merge! db :players {:key player} {:color (get player-colors player)}))
+      (db/index! db (player-games-key player) [:game] {:unique true}))
+      ;; (db/merge! db :players {:key player} {:color (get player-colors player)})
     (create-player-games! db key invocation initial-state)))
 
 (defn update-state!

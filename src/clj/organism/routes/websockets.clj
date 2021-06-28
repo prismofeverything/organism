@@ -94,7 +94,6 @@
       (let [player-game (persist/find-player-game db game-key player)
             witness (:witness player-game)]
         (log/info "CONNECTING" player game-key "witness" witness (get-in game-state [:game :state]))
-        ;; (persist/store-witness! game-key player)
         (send!
          channel
          {:type "initialize"

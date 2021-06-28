@@ -10,8 +10,8 @@
    [hiccup.core :as up]
    [clojure.java.io :as io]
    [organism.middleware :as middleware]
-   [ring.util.response]
-   [ring.util.http-response :as response]))
+   [ring.util.response :as response]
+   [ring.util.http-response :as http-response]))
 
 (def home-game
   (atom {}))
@@ -34,18 +34,19 @@
 
 (defn player-page
   [db request]
-  (let [player (-> request :path-params :player)
-        player-games (persist/load-player-games db player)]
+  (let [player-key (-> request :path-params :player)
+        preferences (persist/find-player-preferences db player-key)
+        player-games (persist/load-player-games db player-key)]
     (layout/render
      request
      "player.html"
-     (merge
-      {:player player
-       :player-games (pr-str player-games)}))))
+     {:player player-key
+      :preferences preferences
+      :player-games (pr-str player-games)})))
 
 (defn eternal-page [request]
-  (response/content-type
-   (response/ok
+  (http-response/content-type
+   (http-response/ok
     (do
       (if (empty? (deref home-game))
         (reset! home-game (empty-game (examples/six-player-game))))
@@ -59,12 +60,22 @@
 
 (defn game-page
   [db request]
-  (layout/render
-   request
-   "game.html"
-   (select-keys
-    (:path-params request)
-    [:player :game])))
+  (let [params (select-keys (:path-params request) [:player :game])
+        player-key (:player params)
+        preferences (persist/find-player-preferences db player-key)]
+    (layout/render
+     request
+     "game.html"
+     (merge
+      params
+      {:preferences preferences}))))
+
+(defn apply-player-preferences
+  [db request]
+  (let [player (-> request :path-params :player)]
+    (println "applying player preferences: " player (:params request))
+    (persist/update-player-preferences! db player (:params request))
+    (response/response {:ok true :status :success})))
 
 (defn home-routes
   [db]
@@ -77,5 +88,6 @@
    ["/game/:game/" {:get (partial game-page db)}]
    ["/player/:player" {:get (partial player-page db)}]
    ["/player/:player/" {:get (partial player-page db)}]
+   ["/player/:player/preferences" {:post (partial apply-player-preferences db)}]
    ["/player/:player/game/:game" {:get (partial game-page db)}]
    ["/player/:player/game/:game/" {:get (partial game-page db)}]])

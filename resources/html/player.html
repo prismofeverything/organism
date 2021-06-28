@@ -17,6 +17,7 @@
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
       var playerKey = "{{player}}";
+      var playerPreferences = "{{preferences|addslashes|safe}}"
       var playerGames = "{{player-games|addslashes|safe}}"
       var gameKey = null;
       console.log("player key: " + playerKey);

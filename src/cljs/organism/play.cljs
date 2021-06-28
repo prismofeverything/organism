@@ -35,9 +35,6 @@
      (count board/default-player-order)
      (repeat "")))))
 
-;; (defonce player-order
-;;   (r/atom board/default-player-order))
-
 (defonce player-captures-order
   (r/atom
    (vec
@@ -76,6 +73,9 @@
   (r/atom {}))
 
 (defonce player-games
+  (r/atom {}))
+
+(defonce player-preferences
   (r/atom {}))
 
 (def max-players 10)
@@ -913,7 +913,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background background-color ;; "#fff"
+          :background background-color
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -964,7 +964,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background background-color ;; "#fff"
+          :background background-color
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -988,7 +988,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "5px"
-          :background background-color ;; "#fff"
+          :background background-color
           :font-size "1.0em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -1065,7 +1065,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background background-color ;; "#fff"
+          :background background-color
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -1121,7 +1121,7 @@
           :border-style "solid"
           :border-width "2px"
           :border-radius "10px"
-          :background background-color ;; "#fff"
+          :background background-color
           :font-size "1.2em"
           :letter-spacing "7px"
           :font-family font-choice
@@ -1249,7 +1249,7 @@
      :border-width "2px"
      :border-radius "10px"
      :margin "20px 5px"
-     :background background-color ;; "#fff"
+     :background background-color
      :font-size "1.0em"
      :letter-spacing "7px"
      :font-family font-choice
@@ -1513,7 +1513,6 @@
     (flex-direction "column")
     [:style :color]
     "#eee")
-   ;; (assoc-in [:style :overflow-x] "scroll")
    inner])
 
 (defn ring-count-input
@@ -1989,8 +1988,6 @@
           [:span
            {:style
             {:margin "0px 20px"}}
-           ;; (when-let [rings (:ring-count invocation)]
-           ;;   [:span rings " rings / "])
            " round " (inc round)]
           (for [game-player players]
             (let [current-color (get player-colors game-player)]
@@ -2071,15 +2068,48 @@
                     :color current-color})}
                 game-player]]))]))]))
 
+(defn player-page-banner
+  [player color turn]
+  [:div
+   {:style
+    {:color "#fff"
+     :border-radius "50px"
+     :cursor "pointer"
+     :background color
+     :letter-spacing "8px"
+     :font-family font-choice
+     :margin "20px 0px"
+     :padding "25px 60px"}
+    :on-click
+    (fn [event]
+      (let [color (board/random-color 0.2 0.9)]
+        (swap! player-preferences assoc :color color)
+        (ajax/post-preferences! player {:color color})))}
+   [:h1
+    [:a
+     {:style
+      {:color "#fff"}
+      :href
+      (if js/playerKey
+        (str "/player/" js/playerKey)
+        "/")}
+     player]]
+   [:div
+    {:style
+     {:font-size "1.3em"
+      :letter-spacing "5px"
+      :margin "10px 0px"}}
+    (string/join " " (string/split (name turn) #"-"))]])
+
 (defn player-page
   [player]
   (let [games @player-games
-        color (board/random-color 0.1 0.9)]
+        color (:color @player-preferences)]
     [:div
      {:style
       {:padding "20px"
        :color "#eee"}}
-     [current-player-banner player color "games"]
+     [player-page-banner player color "games"]
      [create-game-input player color]
      [open-games-section player (get games "open")]
      [active-games-section player (get games "active")]
@@ -2279,6 +2309,12 @@
           (if (= (.-protocol js/location) "https:")
             "wss:"
             "ws:")]
+      (if js/playerPreferences
+        (reset!
+         player-preferences
+         (merge
+          {:color (board/random-color 0.2 0.9)}
+          (reader/read-string js/playerPreferences))))
       (if js/playerGames
         (let [games (reader/read-string js/playerGames)
               favicon-path
@@ -2290,7 +2326,6 @@
           (.setInterval
            js/window
            (fn []
-             (println "what")
              (.reload js/location))
            300000))
         (dom/change-favicon neutral-favicon))
