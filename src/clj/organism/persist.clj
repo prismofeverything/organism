@@ -9,6 +9,7 @@
   (-> state
       (update :elements pr-str)
       (update :captures pr-str)
+      (update :food pr-str)
       (update-in [:player-turn :organism-turns] pr-str)))
 
 (defn conditional-string
@@ -22,6 +23,7 @@
   (-> state
       (dissoc :_id)
       (update :elements read-string)
+      (update :food conditional-string) ;; TODO: remove this once migrated
       (update :captures conditional-string) ;; TODO: remove this once migrated
       (update-in [:player-turn :organism-turns] read-string)))
 

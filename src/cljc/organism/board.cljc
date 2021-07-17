@@ -517,14 +517,14 @@
 
 (defn render-food
   [position beam radius color food]
-  (let [symmetry 3
-        points
-        (map
-         (comp
-          (partial add-vector position)
-          (partial radial-axis symmetry beam (* tau -0.25)))
-         (range food))]
-    (when-not (zero? food)
+  (when-not (zero? food)
+    (let [symmetry food
+          points
+          (map
+           (comp
+            (partial add-vector position)
+            (partial radial-axis symmetry beam (* tau -0.25)))
+           (range food))]
       [:g
        (map
         (partial render-single-food color radius)
@@ -626,7 +626,17 @@
            (let [color (get player-colors player)]
              (render-organism locations color food-color radius elements)))
          organisms)
-        svg (apply conj layout element-icons)]
+
+        free-food
+        (mapv
+         (fn [[space food]]
+           ^{:key [space food]}
+           (render-food
+            (get locations space)
+            (* radius 0.3) (* radius 0.2) food-color food))
+         (get-in game [:state :food]))
+
+        svg (apply conj layout (concat element-icons free-food))]
     svg))
 
 (defn empty-invocation

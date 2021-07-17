@@ -4,7 +4,7 @@
    [organism.base :as base]
    [organism.graph :as graph]))
 
-(def ^:dynamic *food-limit* 3)
+(def ^:dynamic *food-limit* 111)
 (def observer-key "--observer--")
 
 ;; BOARD ----------------------
@@ -202,6 +202,7 @@
     ;; State
     {:round 0
      :elements {}
+     :food {}
      :captures empty-captures
      :player-turn
      ;; PlayerTurn
@@ -212,7 +213,7 @@
 
 (defn initial-game
   "create the initial state for the game from the given adjacencies and player info"
-  [rings adjacencies center player-info organism-victory]
+  [rings adjacencies center player-info organism-victory mutations]
   (let [capture-limit 5
         players (into {} player-info)
         turn-order (mapv first player-info)
@@ -225,24 +226,32 @@
      :players players
      :turn-order turn-order
      :organism-victory organism-victory
+     :mutations mutations
      :state state}))
 
 (defn create-game
   "generate adjacencies for a given symmetry with a ring for each color,
    and the given players"
-  [symmetry colors player-info organism-victory remove-notches?]
-  (let [rings (build-rings symmetry colors)
-        adjacencies (find-adjacencies rings)
-        adjacencies (if remove-notches?
-                      (corner-notches
-                       adjacencies
-                       (last colors)
-                       symmetry)
-                      adjacencies)]
-    (initial-game
-     colors adjacencies
-     (-> rings first last last)
-     player-info organism-victory)))
+  ([symmetry colors player-info organism-victory remove-notches?]
+   (create-game symmetry colors player-info organism-victory remove-notches? {}))
+  ([symmetry colors player-info organism-victory remove-notches? mutations]
+   (let [rings (build-rings symmetry colors)
+         adjacencies (find-adjacencies rings)
+         adjacencies (if remove-notches?
+                       (corner-notches
+                        adjacencies
+                        (last colors)
+                        symmetry)
+                       adjacencies)]
+     (initial-game
+      colors adjacencies
+      (-> rings first last last)
+      player-info organism-victory
+      mutations))))
+
+(defn find-mutation
+  [game mutation]
+  (get-in game [:mutations mutation]))
 
 (defn adjacent-to
   [game space]
@@ -294,12 +303,53 @@
    [:state :elements]
    dissoc space))
 
+(defn free-food-present
+  [game space]
+  (or
+   (get-in game [:state :food space])
+   0))
+
+(defn add-empty
+  [present adding]
+  (if-not present
+    adding
+    (+ present adding)))
+
+(defn drop-free-food
+  [game space food]
+  (update-in
+   game
+   [:state :food space]
+   add-empty food))
+
+(defn remove-free-food
+  [game space]
+  (update-in game [:state :food] dissoc space))
+
+(defn claim-free-food
+  [game space]
+  (let [food (free-food-present game space)]
+    (if (zero? food)
+      [game 0]
+      [(remove-free-food game space) food])))
+
 (defn adjust-food
   [game space amount]
   (update-in
    game
    [:state :elements space :food]
    (partial + amount)))
+
+(defn lose-element
+  [game space]
+  (if (find-mutation game :EXTRACT)
+    (remove-element game space)
+    (let [dropped (inc (get-in game [:state :elements space :food]))]
+      (println "losing element" space)
+      (println dropped "food dropped")
+      (-> game
+          (remove-element space)
+          (drop-free-food space dropped)))))
 
 (defn adjacent-elements
   [state space]
@@ -460,13 +510,26 @@
         :advance nil})
       (award-center player)))
 
+(defn clear-space
+  [game space]
+  (-> game
+      (remove-element space)
+      (remove-free-food space)))
+
+(defn clear-spaces
+  [game spaces]
+  (reduce clear-space game spaces))
+
 (defn introduce
   [game player {:keys [organism eat grow move] :as introduction}]
-  (-> game
-      (add-element player organism :eat eat 1)
-      (add-element player organism :grow grow 1)
-      (add-element player organism :move move 1)
-      (assoc-in [:state :player-turn :introduction] introduction)))
+  (let [surrounding
+        (set (base/map-cat (:adjacencies game) [eat grow move]))]
+    (-> game
+        (clear-spaces surrounding)
+        (add-element player organism :eat eat 1)
+        (add-element player organism :grow grow 1)
+        (add-element player organism :move move 1)
+        (assoc-in [:state :player-turn :introduction] introduction))))
 
 (defn choose-organism
   [game organism]
@@ -637,23 +700,34 @@
   [game {:keys [element from to] :as fields}]
   (let [space (-> from first first)
         {:keys [organism player]} (get-element game space)
+
         game
         (reduce
          (fn [game [space food]]
            (adjust-food game space (* food -1)))
          game
-         from)]
-    (add-element game player organism element to 0)))
+         from)
+
+        [game food]
+        (if (find-mutation game :EXTRACT)
+          [game 0]
+          (claim-free-food game to))]
+    (add-element game player organism element to food)))
 
 (defn move
   [game {:keys [from to] :as fields}]
   (let [element (get-element game from)
-        element (assoc element :space to)]
-    (-> game
-        (remove-element from)
-        (assoc-in
-         [:state :elements to]
-         element))))
+        element (assoc element :space to)
+        game
+        (-> game
+            (remove-element from)
+            (assoc-in
+             [:state :elements to]
+             element))]
+    (if (find-mutation game :EXTRACT)
+      game
+      (let [[game food] (claim-free-food game to)]
+        (adjust-food game to food)))))
 
 (defn circulate
   [game {:keys [from to] :as fields}]
@@ -731,12 +805,16 @@
 
 (defn resolve-conflict
   [game rise fall]
-  (-> game
-      (adjust-food (:space rise) (:food fall))
-      (cap-food (:space rise))
-      (remove-element (:space fall))
-      (mark-capture (:space rise) fall)
-      (award-capture (:player rise) fall)))
+  (let [game
+        (if (find-mutation game :EXTRACT)
+          (-> game
+              (adjust-food (:space rise) (:food fall))
+              (cap-food (:space rise)))
+          game)]
+    (-> game
+        (lose-element (:space fall))
+        (mark-capture (:space rise) fall)
+        (award-capture (:player rise) fall))))
 
 (defn set-add
   [s el]
@@ -874,7 +952,7 @@
                         game captures))
                      (let [capture (assoc (first elements) :type :integrity)]
                        (award-capture game active-player capture)))]
-               (reduce remove-element game spaces))))
+               (reduce lose-element game spaces))))
          game organisms)]
     (advance-player-turn integrity :check-integrity)))
 
