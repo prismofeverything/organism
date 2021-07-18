@@ -451,10 +451,22 @@
   [game space]
   (let [element (get-element game space)
         adjacent (adjacent-elements game space)
-        all-elements (conj adjacent element)]
-    (some
-     (comp (partial = :move) :type)
-     all-elements)))
+        friendly (filter
+                  (fn [other]
+                    (= (:player element) (:player other)))
+                  adjacent)
+        all-elements (conj adjacent element)
+
+        condition?
+        (if (find-mutation game :BOOST)
+          (fn [other]
+            (or
+             (= :move (:type element))
+             (and
+              (not= (:space element) (:space other))
+              (> (:food other) 0))))
+          (comp (partial = :move) :type))]
+    (some condition? all-elements)))
 
 (defn alive-elements?
   [elements]

@@ -23,7 +23,10 @@
   "BlinkMacSystemFont,-apple-system,\"Segoe UI\",Roboto,Oxygen,Ubuntu,Cantarell,\"Fira Sans\",\"Droid Sans\",\"Helvetica Neue\",Helvetica,Arial,sans-serif")
 
 (def possible-mutations
-  {:EXTRACT "the capturing element takes the food from captured element"})
+  {:BOOST "elements are mobile if they are adjacent to at least one other fed element"
+   :COMMUNE "elements are are considered fed for movement if they are adjacent to at least two other fed elements"
+   :EXTRACT "the capturing element takes the food from captured element"})
+
    ;; :SKIP "start with 5 elements instead of 3"
 
 (defn display-mutation
