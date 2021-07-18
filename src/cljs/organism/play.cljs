@@ -22,6 +22,17 @@
 (def font-choice
   "BlinkMacSystemFont,-apple-system,\"Segoe UI\",Roboto,Oxygen,Ubuntu,Cantarell,\"Fira Sans\",\"Droid Sans\",\"Helvetica Neue\",Helvetica,Arial,sans-serif")
 
+(def possible-mutations
+  {:EXTRACT "the capturing element takes the food from captured element"})
+   ;; :SKIP "start with 5 elements instead of 3"
+
+(defn display-mutation
+  [mutation-key mutation-description]
+  (str
+   (name mutation-key)
+   " ➞ "
+   mutation-description))
+
 (defonce session (r/atom {:page :home}))
 (defonce chat (r/atom []))
 
@@ -345,30 +356,51 @@
        [history-forward-control total]
        [history-end-control total]]]]))
 
+(defn mutation-display
+  [color mutation-key]
+  [:h4
+   {:style
+    {:color color
+     :margin-left "20px"}}
+   (display-mutation
+    mutation-key
+    (get possible-mutations mutation-key))])
+
+(defn mutations-display
+  [mutations color]
+  (let [chosen (map first (filter (fn [[key choice]] choice) mutations))]
+    (if-not (empty? chosen)
+      [:div
+       [:h3 "mutations"]
+       [:div
+        (map (partial mutation-display color) chosen)]])))
+
 (defn scoreboard
-  [turn-order organism-victory colors player-captures state]
-  [:div
-   [:h3 "score"]
-   [:ul
-    (let [player-captures (if player-captures player-captures (repeat board/default-player-captures))]
-      (for [[player captures color] (map vector turn-order player-captures colors)]
-        ^{:key (str player color)}
-        [:li
-         {:style {:color color}}
-         player " - "
-         (count (get-in state [:captures player])) " / "
-         captures]))]
-   [:h4
-    {:style
-     {:font-size "1.0em"
-      :margin "12px 0px 0px 0px"}}
-    (let [player (get-in state [:player-turn :player])
-          player-colors (into {} (map vector turn-order colors))]
+  [turn-order organism-victory colors player-captures mutations state]
+  (let [player (get-in state [:player-turn :player])
+        player-colors (into {} (map vector turn-order colors))]
+    [:div
+     [:h3 "score"]
+     [:ul
+      (let [player-captures (if player-captures player-captures (repeat board/default-player-captures))]
+        (for [[player captures color] (map vector turn-order player-captures colors)]
+          ^{:key (str player color)}
+          [:li
+           {:style {:color color}}
+           player " - "
+           (count (get-in state [:captures player])) " / "
+           captures]))]
+
+     [:h4
+      {:style
+       {:font-size "1.0em"
+        :margin "12px 0px 0px 0px"}}
       [:span
        {:style
         {:color (get player-colors player)}}
-       (get number->word organism-victory organism-victory)])
-    " organisms for victory"]])
+       (get number->word organism-victory organism-victory)]
+      " organisms for victory"]
+     [mutations-display mutations (get player-colors player)]]))
 
 (def chat-window 15)
 
@@ -443,6 +475,7 @@
    colors
    player-colors
    player-captures
+   mutations
    state
    history
    cursor
@@ -458,7 +491,7 @@
       {:style
        {:margin "20px 50px"}}
       [description-panel player-color description]
-      [scoreboard turn-order organism-victory colors player-captures state]
+      [scoreboard turn-order organism-victory colors player-captures mutations state]
       [history-controls history cursor]
       [help-panel player-color]
       [:h3 "discussion"]
@@ -1806,6 +1839,45 @@
      last
      (:colors invocation)))))
 
+(defn mutation-choice
+  [color invocation [mutation-key mutation-description]]
+  [:div
+   [:input
+    {:type "checkbox"
+     :id mutation-key
+     :name mutation-key
+     :value mutation-key
+     :checked (get-in invocation [:mutations mutation-key])
+     :style
+     {:margin "5px 10px"
+      :background-color color}
+     :on-change
+     (fn [event]
+       (let [target (.-target event)
+             checked (.-checked target)
+             invocation
+             (if checked
+               (assoc-in invocation [:mutations mutation-key] true)
+               (update invocation :mutations dissoc mutation-key))]
+         (send-create! invocation)))}]
+   [:label
+    {:for mutation-key
+     :style
+     {:color color}}
+    (display-mutation mutation-key mutation-description)]])
+
+(defn mutations-select
+  [color invocation]
+  [:div
+   [:h3
+    {:style
+     {:margin "20px 0px 0px 0px"}}
+    [:span
+     {:title "choose which mutations you want to be active in the game"}
+     "mutations"]]
+   [:div
+    (map (partial mutation-choice color invocation) possible-mutations)]])
+
 (defn create-page
   []
   (let [invocation @board-invocation
@@ -1815,6 +1887,7 @@
         player-captures (:player-captures invocation)
         organism-victory (:organism-victory invocation)
         description (:description invocation)
+        mutations (:mutations invocation)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
         player-colors (into {} (map vector turn-order invocation-colors))
         create-color (-> invocation :colors rest first last)
@@ -1838,7 +1911,8 @@
         [player-count-input select-color]
         [organism-victory-input select-color]
         [description-input invocation select-color inactive-color]
-        [players-input js/playerKey invocation]]]
+        [players-input js/playerKey invocation]
+        [mutations-select create-color invocation]]]
       [:article
        {:style {:flex-grow 1}}
        [organism-board game board invocation-colors turn choices]]
@@ -1846,14 +1920,14 @@
       [:aside
        {:style
         {:width "30%"}}
-       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures state [] nil @chat]]])))
+       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state [] nil @chat]]])))
 
 (defn game-page
   []
   (let [invocation @board-invocation
         {:keys [game board turn choices history cursor]} @game-state
         {:keys [state turn-order]} game
-        {:keys [player-captures organism-victory description]} invocation
+        {:keys [player-captures organism-victory description mutations]} invocation
         state (if cursor (nth history cursor) state)
         game (assoc game :state state)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
@@ -1871,7 +1945,7 @@
        [organism-board game board invocation-colors turn choices]]
       [:nav
        {:style {:width "30%"}}
-       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures state history cursor @chat]]])))
+       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state history cursor @chat]]])))
 
 (defn create-game-input
   [player color]

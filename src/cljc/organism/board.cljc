@@ -650,6 +650,7 @@
       :players players
       :player-captures player-captures
       :description ""
+      :mutations {}
       :colors (generate-colors (take 3 total-rings))})))
 
 (defn invocation-player-colors
