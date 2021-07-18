@@ -340,16 +340,18 @@
    [:state :elements space :food]
    (partial + amount)))
 
+(defn deconstruct-element
+  [game space]
+  (let [dropped (inc (get-in game [:state :elements space :food]))]
+    (-> game
+        (remove-element space)
+        (drop-free-food space dropped))))
+
 (defn lose-element
   [game space]
   (if (find-mutation game :EXTRACT)
     (remove-element game space)
-    (let [dropped (inc (get-in game [:state :elements space :food]))]
-      (println "losing element" space)
-      (println dropped "food dropped")
-      (-> game
-          (remove-element space)
-          (drop-free-food space dropped)))))
+    (deconstruct-element game space)))
 
 (defn adjacent-elements
   [state space]
@@ -434,6 +436,15 @@
            (conj visited space)
            contiguous))))))
 
+(defn friendly-adjacent-elements
+  [game space]
+  (let [element (get-element game space)
+        adjacent (adjacent-elements game space)]
+    (filter
+     (fn [other]
+       (= (:player element) (:player other)))
+     adjacent)))
+
 (defn fed-element?
   [element]
   (> (:food element) 0))
@@ -442,29 +453,39 @@
   [element]
   (zero? (:food element)))
 
+(defn commune?
+  [game space]
+  (let [element (get-element game space)]
+    (or
+     (fed-element? element)
+     (let [adjacent (friendly-adjacent-elements game space)
+           fed (filter fed-element? adjacent)]
+       (>= (count fed) 2)))))
+
 (defn fed?
   [game space]
   (let [element (get-element game space)]
-    (fed-element? element)))
+    (if (find-mutation game :COMMUNE)
+      (commune? game space)
+      (fed-element? element))))
+
+(defn boost?
+  [element other]
+  (or
+   (= :move (:type other))
+   (and
+    (not= (:space element) (:space other))
+    (> (:food other) 0))))
 
 (defn mobile?
   [game space]
   (let [element (get-element game space)
-        adjacent (adjacent-elements game space)
-        friendly (filter
-                  (fn [other]
-                    (= (:player element) (:player other)))
-                  adjacent)
+        adjacent (friendly-adjacent-elements game space)
         all-elements (conj adjacent element)
 
         condition?
         (if (find-mutation game :BOOST)
-          (fn [other]
-            (or
-             (= :move (:type element))
-             (and
-              (not= (:space element) (:space other))
-              (> (:food other) 0))))
+          (partial boost? element)
           (comp (partial = :move) :type))]
     (some condition? all-elements)))
 
