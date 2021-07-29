@@ -75,10 +75,10 @@
         current-player (-> state :player-turn :player)
         player-colors (invocation-colors invocation)]
     (println "creating" player game-key)
-    (db/insert!
+    (db/merge!
      db (player-games-key player)
-     {:game game-key
-      :round round
+     {:game game-key}
+     {:round round
       :status "active"
       :player-colors player-colors
       :invocation invocation
