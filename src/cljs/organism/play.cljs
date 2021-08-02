@@ -491,7 +491,7 @@
       {:margin "20px"}}
      [round-banner
       player-color
-      (-> state :round inc)]
+      (:round state)]
      [:div
       {:style
        {:margin "20px 50px"}}

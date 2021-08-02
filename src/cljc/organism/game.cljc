@@ -411,6 +411,10 @@
     (partial growable-adjacent game)
     spaces)))
 
+(defn element-spaces
+  [game]
+  (-> game :state :elements keys))
+
 (defn adjacent-element-spaces
   [game space player]
   (filter
@@ -829,6 +833,14 @@
    [:state :elements space :captures]
    conj capture))
 
+(defn clear-element-captures
+  [game]
+  (reduce
+   (fn [game space]
+     (update-in game [:state :elements space] assoc :captures []))
+   game
+   (element-spaces game)))
+
 (defn award-capture
   [game player element]
   (update-in
@@ -857,7 +869,8 @@
 
 (defn resolve-conflicts
   [game player]
-  (let [conflicting-elements (player-conflicts game player)
+  (let [game (clear-element-captures game)
+        conflicting-elements (player-conflicts game player)
         conflicts (reduce
                    (fn [conflicts [from to]]
                      (update conflicts from set-add to))
