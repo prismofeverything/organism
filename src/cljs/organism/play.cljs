@@ -26,7 +26,8 @@
   {
    :BOOST "elements are mobile if they are adjacent to at least one other fed element"
    :COMMUNE "elements are are considered fed for movement if they are adjacent to at least two other fed elements"
-   :EXTRACT "the capturing element takes the food from captured element"})
+   :EXTRACT "the capturing element takes the food from captured element"
+   :PERSIST "elements are not lost to integrity unless the player has no living organisms remaining"})
 
    ;; :ABSORB "any element lost to integrity that captured another element is added to that organism in place of the captured element"
    ;; :SKIP "start with 5 elements instead of 3"

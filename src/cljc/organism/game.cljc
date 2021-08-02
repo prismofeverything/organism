@@ -978,13 +978,42 @@
    #{}
    elements))
 
-;;; TODO: implement persist integrity
 (defn persist-integrity
   [game active-player]
   (let [game (find-organisms game)
         organisms (group-organisms game)
-        organisms-by-player (group-by (fn [[[player organism] elements]] player) organisms)
+        organisms-by-player
+        (group-by
+         (fn [[[player organism] elements]]
+           player)
+         organisms)
+        lost-players
+        (map
+         first
+         (remove
+          (fn [[player player-organisms]]
+            (some (comp alive-elements? last) player-organisms))
+          organisms-by-player))
+        integrity
+        (reduce
+         (fn [game lost-player]
+           (let [lost-organisms (get organisms-by-player lost-player)
+                 elements
+                 (base/map-cat
+                  (fn [[[player organism] elements]]
+                    elements)
+                  lost-organisms)
+                 game (reduce lose-element game (map :space elements))]
+             (if (= lost-player active-player)
+               game
+               (award-capture game active-player (assoc (first elements) :type :integrity)))))
+         game lost-players)]
+    (advance-player-turn integrity :check-integrity)))
 
+(defn base-integrity
+  [game active-player]
+  (let [game (find-organisms game)
+        organisms (group-organisms game)
         integrity
         (reduce
          (fn [game [[player organism] elements]]
@@ -1007,27 +1036,10 @@
 
 (defn check-integrity
   [game active-player]
-  (let [game (find-organisms game)
-        organisms (group-organisms game)
-        integrity
-        (reduce
-         (fn [game [[player organism] elements]]
-           (if (alive-elements? elements)
-             game
-             (let [spaces (map :space elements)
-                   game
-                   (if (= active-player player)
-                     (let [captures (players-captured elements)
-                           sacrifice (assoc (first elements) :type :sacrifice)]
-                       (reduce
-                        (fn [game player]
-                          (award-capture game player sacrifice))
-                        game captures))
-                     (let [capture (assoc (first elements) :type :integrity)]
-                       (award-capture game active-player capture)))]
-               (reduce lose-element game spaces))))
-         game organisms)]
-    (advance-player-turn integrity :check-integrity)))
+  (println "checking integrity" (find-mutation game :PERSIST))
+  (if (find-mutation game :PERSIST)
+    (persist-integrity game active-player)
+    (base-integrity game active-player)))
 
 (def action-map
   {:eat eat
