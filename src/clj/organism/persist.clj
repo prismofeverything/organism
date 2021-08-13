@@ -214,11 +214,30 @@
   (filter-ids
    (db/find-all db :players)))
 
+(defn group-player-games
+  [db player player-games]
+  (reduce
+   (fn [sections player-game]
+     (if (= "active" (:status player-game))
+       (update sections "active" conj player-game)
+       (let [game-key (:game player-game)
+             history-count (db/number db (history-key game-key))
+             witness (or (:witness player-game) 0)]
+         (if (and
+              (= "complete" (:status player-game))
+              (< witness history-count))
+           (update
+            sections "active" conj
+            (assoc player-game :status "active" :current-player player))
+           (update sections "complete" conj player-game)))))
+   {"active" [] "complete" []}
+   player-games))
+
 (defn load-player-games
   [db player]
   (let [records (db/query db (player-games-key player) {})
         records (map deserialize-player-game records)
-        states (group-by :status records)
+        states (group-player-games db player records)
         open (load-open-games db)]
     (assoc states "open" open)))
 
