@@ -364,6 +364,7 @@
 
 (defn mutation-display
   [color mutation-key]
+  ^{:key mutation-key}
   [:h4
    {:style
     {:color color
@@ -1847,6 +1848,7 @@
 
 (defn mutation-choice
   [color invocation [mutation-key mutation-description]]
+  ^{:key mutation-key}
   [:div
    [:input
     {:type "checkbox"

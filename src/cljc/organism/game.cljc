@@ -735,8 +735,8 @@
 
 (defn grow
   [game {:keys [element from to] :as fields}]
-  (let [space (-> from first first)
-        {:keys [organism player]} (get-element game space)
+  (let [player (current-player game)
+        organism (current-organism game)
 
         game
         (reduce
@@ -1124,7 +1124,13 @@
 (defn player-organism-victory?
   [game player]
   (let [organism-victory (:organism-victory game)
-        organism-count (count (player-organisms game player))]
+        organisms (player-organisms game player)
+        living-organisms
+        (filter
+         (fn [[organism elements]]
+           (alive-elements? elements))
+         organisms)
+        organism-count (count living-organisms)]
     (>= organism-count organism-victory)))
 
 (defn player-wins?
@@ -1170,7 +1176,12 @@
         organism-counts
         (map
          (fn [[player organisms]]
-           [player (count organisms)])
+           (let [living-organisms
+                 (filter
+                  (fn [[organism elements]]
+                    (alive-elements? elements))
+                  organisms)]
+             [player (count living-organisms)]))
          organisms)
         enough
         (filter
