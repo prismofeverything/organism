@@ -223,13 +223,13 @@
        (let [game-key (:game player-game)
              history-count (db/number db (history-key game-key))
              witness (or (:witness player-game) 0)]
-         (if (and
-              (= "complete" (:status player-game))
-              (< witness history-count))
-           (update
-            sections "active" conj
-            (assoc player-game :status "active" :current-player player))
-           (update sections "complete" conj player-game)))))
+         (if (= "complete" (:status player-game))
+           (if (< witness history-count)
+             (update
+              sections "active" conj
+              (assoc player-game :status "active" :current-player player))
+             (update sections "complete" conj player-game))
+           sections))))
    {"active" [] "complete" []}
    player-games))
 
