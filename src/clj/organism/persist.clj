@@ -150,6 +150,55 @@
    (db/one db :players {:key player})
    :_id))
 
+(defn replacev
+  [v from to]
+  (mapv
+   (fn [x]
+     (if (= x from)
+       to
+       x))
+   v))
+
+(defn rename-players
+  [from to has-players]
+  (update
+   has-players
+   :players
+   replacev
+   from to))
+
+(defn rename-player-games
+  [player-games from to]
+  (map
+   (fn [player-game]
+     (let [rename (partial rename-players from to)]
+       (-> player-game
+           (update
+            :invocation
+            (partial rename-players from to))
+           (update
+            :player-colors
+            (fn [player-colors]
+              (-> player-colors
+                  (assoc (keyword to) (get player-colors (keyword from)))
+                  (dissoc (keyword from)))))
+           (rename from to))))
+   player-games))
+
+(defn rename-player-in-game
+  [])
+
+(defn rename-player!
+  [db from to]
+  (let [player-games (db/query db (player-games-key from) {})
+        player-games (rename-player-games player-games from to)]
+    (doseq [player-game player-games]
+      (let [game (db/one db :games {:key (:game player-game)})])
+      (db/merge!
+       db (player-games-key to)
+       {:game (:game player-game)}
+       (dissoc player-game :game)))))
+
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
   (let [initial-state (serialize-state (:state game))

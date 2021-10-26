@@ -72,8 +72,11 @@
         growers (get types :grow)
         food (reduce + 0 (map :food growers))
         existing (map count (vals types))
-        least (apply min existing)
+        least (if (< (count types) 3)
+                0
+                (apply min existing))
         growable (game/growable-spaces game (map :space growers))]
+    (println "grow filter" food least existing growable)
     (and
      (>= food least)
      (not (empty? growable)))))
@@ -142,6 +145,7 @@
             (count (get types type))
             grower-food))
          element-types)]
+    (println "grow element choices" grower-food types available)
     (partial-map
      (partial game/choose-action-field game :element)
      available)))
