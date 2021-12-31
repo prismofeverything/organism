@@ -10,7 +10,8 @@
       (update :elements pr-str)
       (update :captures pr-str)
       (update :food pr-str)
-      (update-in [:player-turn :organism-turns] pr-str)))
+      (update-in [:player-turn :organism-turns] pr-str)
+      (update-in [:player-turn :introduction] pr-str)))
 
 (defn conditional-string
   [s]
@@ -25,7 +26,8 @@
       (update :elements read-string)
       (update :food conditional-string) ;; TODO: remove this once migrated
       (update :captures conditional-string) ;; TODO: remove this once migrated
-      (update-in [:player-turn :organism-turns] read-string)))
+      (update-in [:player-turn :organism-turns] read-string)
+      (update-in [:player-turn :introduction] conditional-string)))
 
 (defn filter-ids
   [records]

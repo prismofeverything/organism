@@ -689,7 +689,8 @@
 
 (defn choose-organism-highlights
   [game board turn choices]
-  (let [player (game/current-player game)
+  (let [game (game/find-organisms game) ;; find organisms here to avoid finding for each introduction
+        player (game/current-player game)
         organisms (game/player-organisms game player)
         available (keys choices)
         elements (base/map-cat organisms available)

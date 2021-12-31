@@ -295,13 +295,16 @@
       [:introduce (introduce-choices game)]
 
       (empty? organism-turns)
-      (if (> (count organisms) 1)
-        [:choose-organism (choose-organism-choices game (keys organisms))]
-        [:choose-action-type
-         (choose-action-type-choices
-          (game/choose-organism
-           game
-           (-> organisms keys first)))])
+      ;; find organisms again to avoid finding for each introduction
+      (let [game (game/find-organisms game)
+            organisms (game/player-organisms game player)]
+        (if (> (count organisms) 1)
+          [:choose-organism (choose-organism-choices game (keys organisms))]
+          [:choose-action-type
+           (choose-action-type-choices
+            (game/choose-organism
+             game
+             (-> organisms keys first)))]))
 
       :else
       (let [{:keys [organism choice num-actions actions] :as organism-turn} (last organism-turns)

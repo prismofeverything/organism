@@ -430,6 +430,7 @@
     (loop [spaces [space]
            visited #{}
            contiguous []]
+      (println "CONTIGUOUS" spaces visited contiguous)
       (if (empty? spaces)
         contiguous
         (let [space (first spaces)
@@ -1040,7 +1041,7 @@
                game
                (award-capture game active-player (assoc (first elements) :type :integrity)))))
          game lost-players)]
-    (advance-player-turn integrity :check-integrity)))
+    integrity))
 
 (defn base-integrity
   [game active-player]
@@ -1083,12 +1084,11 @@
 
 (defn check-integrity
   [game active-player]
-  (println "checking integrity" (find-mutation game :PERSIST))
   (let [integrity
         (if (find-mutation game :PERSIST)
           (persist-integrity game active-player)
           (base-integrity game active-player))]
-    integrity))
+    (advance-player-turn integrity :check-integrity)))
 
 (defn introduce
   [game player {:keys [organism] :as introduction}]
@@ -1096,7 +1096,7 @@
         (if (:spaces introduction)
           (introduce-spaces game player introduction)
           (introduce-elements game player introduction))]
-    (check-integrity game player)))
+    game))
 
 (def action-map
   {:eat eat
@@ -1150,7 +1150,6 @@
     (-> game
         (resolve-conflicts player)
         (check-integrity player)
-        (advance-player-turn :check-integrity)
         (start-next-turn))))
 
 (defn apply-turn
