@@ -24,7 +24,9 @@
 
 (def possible-mutations
   {:COMMUNE "elements are are considered fed and mobile for movement if they are adjacent to at least two other fed elements"
-   :PERSIST "elements are not lost to integrity unless the player has no living organisms remaining"})
+   :PERSIST "elements are not lost to integrity unless the player has no living organisms remaining"
+   :RAIN "the top two sides rain an increasing amount of neutral elements down upon your organisms"})
+
 
    ;; :BOOST "elements are mobile if they are adjacent to at least one other fed element"
    ;; :EXTRACT "the capturing element takes the food from captured element"
@@ -176,11 +178,12 @@
 
 (defn initialize-game
   [game-state {:keys [game invocation player history board witness] :as message}]
-  (let [{:keys [ring-count player-count players colors]} invocation
+  (let [{:keys [ring-count player-count players colors mutations]} invocation
         board (board/generate-board
                colors
                players
-               (take ring-count board/total-rings))
+               (take ring-count board/total-rings)
+               mutations)
         [turn choices] (choice/find-state game)
         cursor (if (< witness (count history)) witness)]
     (println "initializing game" game)
@@ -866,17 +869,21 @@
       (conj svg highlights))))
 
 (defn generate-game-state
-  [{:keys [ring-count player-count players colors player-captures] :as invocation}]
+  [{:keys [ring-count player-count players colors player-captures mutations] :as invocation}]
   (let [symmetry (board/player-symmetry player-count)
         rings (take ring-count board/total-rings)
-        starting (board/find-starting-spaces symmetry rings players)
+        starting
+        (if (:RAIN mutations)
+          (board/find-rain-spaces symmetry rings players)
+          (board/find-starting-spaces symmetry rings players))
         game-players (game/initial-players starting player-captures)
         game {:players game-players}
         board
         (board/generate-board
          colors
          players
-         rings)]
+         rings
+         mutations)]
     (println "game players" game-players)
     {:game game
      :player js/playerKey

@@ -138,7 +138,7 @@
 (defn find-beams
   [symmetry radius buffer colors]
   (let [axes (map
-              (partial radial-axis symmetry 1 0)
+              (partial radial-axis symmetry 1 (/ tau 12.0))
               (range symmetry))]
     (map
      (partial beam radius buffer colors)
@@ -265,7 +265,8 @@
 (defn board-layout
   [symmetry radius buffer colors notches?]
   (let [field (* 2 radius buffer (count colors))]
-    [:svg {:width field :height field}
+    [:svg
+     {:width field :height field}
      (vec
       (concat
        (build-background symmetry radius buffer colors)
@@ -686,9 +687,10 @@
     (quot total-board-radius total)))
 
 (defn cut-notches?
-  [ring-count player-count]
+  [ring-count player-count mutations]
   (and
    (> ring-count 4)
+   (not (:RAIN mutations))
    (not= 4 player-count)
    (< player-count 8)))
 
@@ -722,6 +724,36 @@
          (range 3))])
      players)))
 
+(defn find-rain-spaces
+  [symmetry rings players]
+  (let [starting-ring (last rings)
+        ring-count (count rings)
+        player-count (count players)
+        total (inc (* (dec ring-count) (- symmetry 4)))
+        num-organisms (int (Math/floor (/ (inc total) 4)))
+        player-cycle (cycle players)
+        between (- total (* num-organisms 3))
+        offset (int (Math/floor (/ (dec between) num-organisms)))]
+
+    (println "starting RAIN" starting-ring ring-count player-count total between offset num-organisms)
+
+    (reduce
+     (fn [spaces [player organism]]
+       (update
+        spaces player concat
+        (mapv
+         (fn [element-index]
+           [starting-ring
+            (mod
+             (int
+              (Math/ceil
+               (+ (* organism 4)
+                  element-index
+                  offset)))
+             total)])
+         (range 3))))
+     {} (map vector player-cycle (range num-organisms)))))
+
 (defn starting-spaces
   [ring-count player-count players total-rings]
   (let [symmetry (player-symmetry player-count)
@@ -729,14 +761,14 @@
     (find-starting-spaces symmetry rings players)))
 
 (defn generate-board
-  [colors players rings]
+  [colors players rings mutations]
   (let [player-count (count players)
         ring-count (count rings)
         symmetry (player-symmetry player-count)
         radius (ring-radius ring-count)
         radius (if (= symmetry 7) (* 0.9 radius) radius)
         buffer (if (= symmetry 7) 2.4 2.1)
-        notches? (cut-notches? ring-count player-count)]
+        notches? (cut-notches? ring-count player-count mutations)]
     (build-board
      symmetry
      radius
