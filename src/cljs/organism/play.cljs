@@ -153,11 +153,12 @@
 
 (defn send-introduction!
   [choices {:keys [progress] :as intro}]
-  (if (introduction-complete? intro)
-    (send-choice!
-     choices
-     (assoc progress :organism 0)
-     true)))
+  ;; if (introduction-complete? intro)
+  (send-choice!
+   choices
+   {:spaces progress
+    :organism 0}
+   true))
 
 (defn send-create!
   [invocation]
@@ -600,11 +601,11 @@
                        (-> intro
                            (assoc :chosen-space nil)
                            (assoc :chosen-element nil)
-                           (update :progress assoc chosen-element space))))
+                           (update :progress assoc space chosen-element))))
                     (send-introduction! choices @introduction))
                   (swap! introduction assoc :chosen-space space))))))
          (remove
-          (set (conj (vals progress) chosen-space))
+          (set (conj (keys progress) chosen-space))
           starting-spaces))
 
         ;; chosen space without element
@@ -623,7 +624,7 @@
         ;; elements placed so far
         elements
         (map
-         (fn [[type space]]
+         (fn [[space type]]
            (let [[x y] (get locations space)]
              ^{:key space}
              (render-element
@@ -637,7 +638,7 @@
                        (-> intro
                            (assoc :chosen-space nil)
                            (assoc :chosen-element nil)
-                           (update :progress assoc chosen-element space))))
+                           (update :progress assoc space chosen-element))))
                     (send-introduction! choices @introduction))
                   (swap! introduction assoc :chosen-space space))))))
          progress)]
@@ -1524,7 +1525,7 @@
                      (or
                       (and
                        (= turn :introduce)
-                       (get progress type))
+                       (some #{type} (vals progress)))
                       (not (nil? action-type)))
                      :dormant
                      :else :neutral)
@@ -1563,7 +1564,7 @@
                                  (-> intro
                                      (dissoc :chosen-element)
                                      (dissoc :chosen-space)
-                                     (update :progress (fn [pro] (assoc pro type chosen-space))))))
+                                     (update :progress (fn [pro] (assoc pro chosen-space type))))))
                               (send-introduction! choices @introduction))
                             (swap! introduction assoc :chosen-element type)))
                         :choose-action-type
@@ -1653,8 +1654,18 @@
                        board/total-rings
                        (:ring-count invocation)
                        max-players)
-               players (vec (take (inc value) order))
-               captures (vec (take (inc value) captures-order))]
+               players (vec
+                        (take
+                         (if (get-in invocation [:mutations :RAIN])
+                           (inc value)
+                           value)
+                         order))
+               captures (vec
+                         (take
+                          (if (get-in invocation [:mutations :RAIN])
+                           (inc value)
+                           value)
+                          captures-order))]
            (-> invocation
                (assoc :colors colors)
                (assoc :player-count value)

@@ -18,24 +18,32 @@
     (juxt identity f)
     s)))
 
+(defn introduce-permutations
+  "assume we want the elements to be as balanced as possible"
+  [elements n]
+  (let [count-elements (count elements)
+        balance (* count-elements (int (Math/ceil (/ n count-elements))))
+        options (take balance (cycle elements))]
+    (combine/permuted-combinations options n)))
+
 (defn introduce-choices
   [{:keys [state players] :as game}]
   (let [{:keys [player-turn]} state
         {:keys [player]} player-turn
         organism 0
         starting (-> players (get player) :starting-spaces)
-        orders (combine/permutations element-types)
+        orders (introduce-permutations element-types (count starting))
         introductions
         (map
          (fn [order]
-           (assoc
+           {:spaces
             (into
              {}
              (map
               vector
-              order
-              starting))
-            :organism organism))
+              starting
+              order))
+            :organism organism})
          orders)]
     (partial-map
      (partial game/introduce game player)

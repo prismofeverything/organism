@@ -567,16 +567,47 @@
   [game spaces]
   (reduce clear-space game spaces))
 
-(defn introduce
+(defn surrounding-spaces
+  [game spaces]
+  (set
+   (base/map-cat
+    (:adjacencies game)
+    spaces)))
+
+(defn add-elements
+  [game player organism food elements]
+  (reduce
+   (fn [game [space type]]
+     (add-element game player organism type space food))
+   game elements))
+
+(defn introduce-elements
   [game player {:keys [organism eat grow move] :as introduction}]
-  (let [surrounding
-        (set (base/map-cat (:adjacencies game) [eat grow move]))]
+  (let [surrounding (surrounding-spaces game [eat grow move])
+        spaces {eat :eat grow :grow move :move}]
     (-> game
         (clear-spaces surrounding)
-        (add-element player organism :eat eat 1)
-        (add-element player organism :grow grow 1)
-        (add-element player organism :move move 1)
+        (add-elements player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
+
+(defn player-starting-spaces
+  [game player]
+  (get-in game [:players player :staring-spaces]))
+
+(defn introduce-spaces
+  [game player {:keys [organism spaces] :as introduction}]
+  (let [starting (player-starting-spaces game player)
+        surrounding (surrounding-spaces game starting)]
+    (-> game
+        (clear-spaces surrounding)
+        (add-elements player organism 1 spaces)
+        (assoc-in [:state :player-turn :introduction] introduction))))
+
+(defn introduce
+  [game player {:keys [organism] :as introduction}]
+  (if (:spaces introduction)
+    (introduce-spaces game player introduction)
+    (introduce-elements game player introduction)))
 
 (defn choose-organism
   [game organism]
