@@ -158,7 +158,8 @@
   [:introduce
    :choose-organism
    :choose-action
-   :eat
+   :eat-from
+   :eat-to
    :move-from
    :move-to
    :grow-type
@@ -361,7 +362,7 @@
     (partial get-element state)
     (adjacent-to state space))))
 
-(defn open?
+(defn open-element?
   [element]
   (> *food-limit* (:food element)))
 
@@ -514,6 +515,12 @@
    (mobile? game space)
    (alive? game space)))
 
+(defn can-eat?
+  [game element]
+  (and
+   (open-element? element)
+   (> (count (open-spaces game (:space element))) 0)))
+
 ;; ACTIONS -----------------------
 
 (defn award-center
@@ -657,7 +664,7 @@
      (assoc-in action [:action :pass] true))))
 
 (def action-fields
-  {:eat [:to]
+  {:eat [:to :from]
    :grow [:element :from :to]
    :move [:from :to]
    :circulate [:from :to]})
@@ -729,9 +736,11 @@
      (:pass action))))
 
 (defn eat
-  [game {:keys [to] :as fields}]
-  (-> game
-      (adjust-food to 1)))
+  [game {:keys [from to] :as fields}]
+  (let [amount (inc (free-food-present game from))]
+    (-> game
+        (remove-free-food from)
+        (adjust-food to amount))))
 
 (defn grow
   [game {:keys [element from to] :as fields}]
@@ -920,7 +929,7 @@
   (reduce
    (fn [organisms element]
      (if element
-       (update
+       (update-in
         organisms
         [(:player element) (:organism element)]
         conj element)
@@ -982,25 +991,20 @@
   [game active-player]
   (let [game (find-organisms game)
         organisms (group-organisms game)
-        organisms-by-player
-        (group-by
-         (fn [[[player organism] elements]]
-           player)
-         organisms)
         lost-players
         (map
          first
          (remove
           (fn [[player player-organisms]]
             (some (comp alive-elements? last) player-organisms))
-          organisms-by-player))
+          organisms))
         integrity
         (reduce
          (fn [game lost-player]
-           (let [lost-organisms (get organisms-by-player lost-player)
+           (let [lost-organisms (get organisms lost-player)
                  elements
                  (base/map-cat
-                  (fn [[[player organism] elements]]
+                  (fn [[organism elements]]
                     elements)
                   lost-organisms)
                  game (reduce lose-element game (map :space elements))]
@@ -1014,24 +1018,39 @@
   [game active-player]
   (let [game (find-organisms game)
         organisms (group-organisms game)
+        organisms-lost
+        (reduce
+         (fn [lost [player player-organisms]]
+           (let [lost-organisms (remove (comp alive-elements? last) player-organisms)]
+             (if (empty? lost-organisms)
+               lost
+               (assoc lost player lost-organisms))))
+         {} organisms)
+        players-lost (keys organisms-lost)
+        other-players (vec (remove #{active-player} players-lost))
+        sacrifice
+        (reduce
+         (fn [game [player player-organisms]]
+           (reduce
+            (fn [game [organism elements]]
+              (let [spaces (map :space elements)
+                    game
+                    (if (= active-player player)
+                      (let [captures (players-captured elements)
+                            sacrifice (assoc (first elements) :type :sacrifice)]
+                        (reduce
+                         (fn [game player]
+                           (award-capture game player sacrifice))
+                         game captures))
+                      game)]
+                (reduce lose-element game spaces)))
+            game player-organisms))
+         game organisms-lost)
         integrity
         (reduce
-         (fn [game [[player organism] elements]]
-           (if (alive-elements? elements)
-             game
-             (let [spaces (map :space elements)
-                   game
-                   (if (= active-player player)
-                     (let [captures (players-captured elements)
-                           sacrifice (assoc (first elements) :type :sacrifice)]
-                       (reduce
-                        (fn [game player]
-                          (award-capture game player sacrifice))
-                        game captures))
-                     (let [capture (assoc (first elements) :type :integrity)]
-                       (award-capture game active-player capture)))]
-               (reduce lose-element game spaces))))
-         game organisms)]
+         (fn [game other-player]
+           (award-capture game active-player {:type :integrity :player other-player}))
+         sacrifice other-players)]
     (advance-player-turn integrity :check-integrity)))
 
 (defn check-integrity

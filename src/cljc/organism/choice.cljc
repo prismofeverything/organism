@@ -62,8 +62,9 @@
   [game]
   (let [elements (game/current-organism-elements game)
         types (group-by :type elements)
-        eaters (get types :eat)]
-    (not (every? game/full? eaters))))
+        eaters (get types :eat)
+        able (filter (partial game/can-eat? game) eaters)]
+    (> (count able) 0)))
 
 (defn grow-filter
   [game]
@@ -123,13 +124,23 @@
          (fn [element]
            (and
             (= :eat (:type element))
-            (game/open? element)))
+            (game/can-eat? game element)))
          elements)]
+    (partial-map
+     (partial game/choose-action-field game :to)
+     (map :space open-eaters))))
+
+(defn eat-from-choices
+  [game elements]
+  (let [to-choice (game/get-action-field game :to)
+        options (game/open-spaces game to-choice)
+        distinct (vals (group-by (partial game/free-food-present game) options))
+        spaces (map first distinct)]
     (partial-map
      (comp
       game/complete-action
-      (partial game/choose-action-field game :to))
-     (map :space open-eaters))))
+      (partial game/choose-action-field game :from))
+     spaces)))
 
 (defn grow-element-choices
   [game elements]
@@ -235,7 +246,7 @@
         open (filter
               (fn [element]
                 (and
-                 (game/open? element)
+                 (game/open-element? element)
                  (not= (:space element) from)))
               elements)]
     (partial-map
@@ -246,6 +257,7 @@
 
 (def action-choices
   {[:eat :to] eat-to-choices
+   [:eat :from] eat-from-choices
    [:grow :element] grow-element-choices
    [:grow :from] grow-from-choices
    [:grow :to] grow-to-choices

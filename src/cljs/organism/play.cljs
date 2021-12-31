@@ -843,6 +843,7 @@
           :choose-action-type (choose-action-type-highlights game board turn choices)
           :choose-action (choose-action-type-highlights game board turn choices)
           :eat-to (choose-space-highlights game board turn choices)
+          :eat-from (choose-space-highlights game board turn choices)
           :circulate-from (choose-space-highlights game board turn choices)
           :circulate-to (choose-target-highlights game board turn choices)
           :grow-element (choose-action-type-highlights game board turn choices)
