@@ -461,17 +461,17 @@
 (defn commune?
   [game space]
   (let [element (get-element game space)]
-    (or
-     (fed-element? element)
-     (let [adjacent (friendly-adjacent-elements game space)
-           fed (filter fed-element? adjacent)]
-       (>= (count fed) 2)))))
+    (let [adjacent (friendly-adjacent-elements game space)
+          fed (filter fed-element? adjacent)]
+      (>= (count fed) 2))))
 
 (defn fed?
   [game space]
   (let [element (get-element game space)]
     (if (find-mutation game :COMMUNE)
-      (commune? game space)
+      (or
+       (fed-element? element)
+       (commune? game space))
       (fed-element? element))))
 
 (defn boost?
@@ -486,13 +486,16 @@
   [game space]
   (let [element (get-element game space)
         adjacent (friendly-adjacent-elements game space)
-        all-elements (conj adjacent element)
+        orbit (conj adjacent element)
 
         condition?
-        (if (find-mutation game :BOOST)
-          (partial boost? element)
+        (if (find-mutation game :COMMUNE)
+          (fn [element]
+            (or
+             (= :move (:type element))
+             (commune? game (:space element))))
           (comp (partial = :move) :type))]
-    (some condition? all-elements)))
+    (some condition? orbit)))
 
 (defn alive-elements?
   [elements]
