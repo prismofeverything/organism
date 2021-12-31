@@ -177,7 +177,7 @@
           player-captures
           mutations]} invocation
         symmetry (board/player-symmetry player-count)
-        starting (board/starting-spaces ring-count player-count players board/total-rings)
+        starting (board/starting-spaces ring-count player-count players board/total-rings mutations)
         player-info (game/initial-players starting player-captures)
         notches? (board/cut-notches? ring-count player-count mutations)
         rings (vec (take ring-count board/total-rings))

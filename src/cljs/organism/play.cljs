@@ -876,12 +876,13 @@
         (if (:RAIN mutations)
           (board/find-rain-spaces symmetry rings players)
           (board/find-starting-spaces symmetry rings players))
+        _ (println "STARTING PLAYERS" starting)
         game-players (game/initial-players starting player-captures)
         game {:players game-players}
         board
         (board/generate-board
          colors
-         players
+         (map first game-players)
          rings
          mutations)]
     (println "game players" game-players)
@@ -1652,8 +1653,8 @@
                        board/total-rings
                        (:ring-count invocation)
                        max-players)
-               players (vec (take value order))
-               captures (vec (take value captures-order))]
+               players (vec (take (inc value) order))
+               captures (vec (take (inc value) captures-order))]
            (-> invocation
                (assoc :colors colors)
                (assoc :player-count value)
@@ -1711,7 +1712,7 @@
 
 (defn players-input
   [page-player invocation]
-  (let [{:keys [player-count colors player-captures]} invocation
+  (let [{:keys [player-count colors player-captures mutations]} invocation
         order @player-order
         captures-order @player-captures-order]
     [:div
@@ -1772,7 +1773,9 @@
                     :player-captures
                     (vec
                      (take
-                      player-count
+                      (if (:RAIN mutations)
+                        (inc player-count)
+                        player-count)
                       @player-captures-order)))
                    (send-create!))))}
 
@@ -1784,7 +1787,12 @@
               n])
            (range 1 14))]])
       (range)
-      (reverse (take player-count (map last colors)))
+      (reverse
+       (take
+        (if (:RAIN mutations)
+          (inc player-count)
+          player-count)
+        (map last colors)))
       order
       player-captures)]))
 

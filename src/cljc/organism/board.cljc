@@ -725,40 +725,60 @@
      players)))
 
 (defn find-rain-spaces
-  [symmetry rings players]
-  (let [starting-ring (last rings)
+  [symmetry rings players-rain]
+  (let [players (take (dec (count players-rain)) players-rain)
+        rain (last players-rain)
+        starting-ring (last rings)
         ring-count (count rings)
-        player-count (count players)
+        player-count (dec (count players))
         total (inc (* (dec ring-count) (- symmetry 4)))
         num-organisms (int (Math/floor (/ (inc total) 4)))
         player-cycle (cycle players)
         between (- total (* num-organisms 3))
-        offset (int (Math/floor (/ (dec between) num-organisms)))]
-
-    (println "starting RAIN" starting-ring ring-count player-count total between offset num-organisms)
-
-    (reduce
-     (fn [spaces [player organism]]
-       (update
-        spaces player concat
+        offset (int (Math/floor (/ (dec between) num-organisms)))
+        player-spaces
+        (reduce
+         (fn [spaces [player organism]]
+           (update
+            spaces player concat
+            (mapv
+             (fn [element-index]
+               [starting-ring
+                (mod
+                 (int
+                  (Math/ceil
+                   (+ (* organism 4)
+                      element-index
+                      offset)))
+                 total)])
+             (range 3))))
+         {} (map vector player-cycle (range num-organisms)))
+        _ (println "PLAYER SPACES BEFORE" player-spaces)
+        player-spaces
         (mapv
-         (fn [element-index]
-           [starting-ring
-            (mod
-             (int
-              (Math/ceil
-               (+ (* organism 4)
-                  element-index
-                  offset)))
-             total)])
-         (range 3))))
-     {} (map vector player-cycle (range num-organisms)))))
+         (fn [[player spaces]]
+           [player spaces])
+         player-spaces)
+        _ (println "PLAYER SPACES AFTER" player-spaces)
+        rain-spaces (inc (* 2 (dec ring-count)))
+        first-rain-space (* (- symmetry 3) (dec ring-count))
+        starting-rain
+        (mapv
+         (fn [rain-space]
+           [starting-ring rain-space])
+         (range
+          first-rain-space
+          (+ first-rain-space rain-spaces)))]
+    (println "starting RAIN" starting-ring ring-count player-count total between offset num-organisms starting-rain)
+    (conj player-spaces [rain starting-rain])))
 
 (defn starting-spaces
-  [ring-count player-count players total-rings]
+  [ring-count player-count players total-rings mutations]
   (let [symmetry (player-symmetry player-count)
         rings (take ring-count total-rings)]
-    (find-starting-spaces symmetry rings players)))
+    (if (:RAIN mutations)
+      (find-rain-spaces symmetry rings players)
+      (find-starting-spaces symmetry rings players))))
 
 (defn generate-board
   [colors players rings mutations]
