@@ -149,7 +149,7 @@
   (let [choice (get-in choices [match :state])]
     (if choice
       (send-state! choice complete)
-      (println "NO CHOICE MATCHING" match (keys choices)))))
+      (println "NO CHOICE MATCHING" match))))
 
 (defn send-introduction!
   [choices {:keys [progress] :as intro}]

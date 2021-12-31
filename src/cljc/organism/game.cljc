@@ -603,12 +603,6 @@
         (add-elements player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
 
-(defn introduce
-  [game player {:keys [organism] :as introduction}]
-  (if (:spaces introduction)
-    (introduce-spaces game player introduction)
-    (introduce-elements game player introduction)))
-
 (defn choose-organism
   [game organism]
   (update-in
@@ -1085,14 +1079,24 @@
          (fn [game other-player]
            (award-capture game active-player {:type :integrity :player other-player}))
          sacrifice other-players)]
-    (advance-player-turn integrity :check-integrity)))
+    integrity))
 
 (defn check-integrity
   [game active-player]
   (println "checking integrity" (find-mutation game :PERSIST))
-  (if (find-mutation game :PERSIST)
-    (persist-integrity game active-player)
-    (base-integrity game active-player)))
+  (let [integrity
+        (if (find-mutation game :PERSIST)
+          (persist-integrity game active-player)
+          (base-integrity game active-player))]
+    integrity))
+
+(defn introduce
+  [game player {:keys [organism] :as introduction}]
+  (let [game
+        (if (:spaces introduction)
+          (introduce-spaces game player introduction)
+          (introduce-elements game player introduction))]
+    (check-integrity game player)))
 
 (def action-map
   {:eat eat
@@ -1146,6 +1150,7 @@
     (-> game
         (resolve-conflicts player)
         (check-integrity player)
+        (advance-player-turn :check-integrity)
         (start-next-turn))))
 
 (defn apply-turn
