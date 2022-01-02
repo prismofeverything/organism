@@ -957,16 +957,24 @@
 
 (defn resolve-conflict
   [game rise fall]
-  (let [game
-        (if (find-mutation game :EXTRACT)
-          (-> game
-              (adjust-food (:space rise) (:food fall))
-              (cap-food (:space rise)))
-          game)]
+  (if (= (:type rise) (:type fall))
     (-> game
+        (lose-element (:space rise))
         (lose-element (:space fall))
         (mark-capture (:space rise) fall)
-        (award-capture (:player rise) fall))))
+        (mark-capture (:space fall) rise)
+        (award-capture (:player rise) fall)
+        (award-capture (:player fall) rise))
+    (let [game
+          (if (find-mutation game :EXTRACT)
+            (-> game
+                (adjust-food (:space rise) (:food fall))
+                (cap-food (:space rise)))
+            game)]
+      (-> game
+          (lose-element (:space fall))
+          (mark-capture (:space rise) fall)
+          (award-capture (:player rise) fall)))))
 
 (defn set-add
   [s el]
@@ -978,14 +986,20 @@
   [game player]
   (let [game (clear-element-captures game)
         conflicting-elements (player-conflicts game player)
+        annihilations (filter (fn [[a b]] (= (:type a) (:type b))) conflicting-elements)
+        conflicting (remove (fn [[a b]] (= (:type a) (:type b))) conflicting-elements)
         conflicts (reduce
                    (fn [conflicts [from to]]
                      (update conflicts from set-add to))
-                   {} conflicting-elements)
+                   {} conflicting)
+        settle (reduce
+                (fn [game [a b]]
+                  (resolve-conflict game a b))
+                game annihilations)
         up (reduce
             (fn [up [from to]]
               (assoc up (:space to) from))
-            {} conflicting-elements)
+            {} conflicting)
         order (graph/kahn-sort conflicts)
         resolved
         (reduce
@@ -997,7 +1011,7 @@
                 (get-element game (:space rise))
                 (get-element game (:space fall)))
                game)))
-         game (reverse order))]
+         settle (reverse order))]
     (advance-player-turn resolved :resolve-conflicts)))
 
 ;; INTEGRITY -----------------------
