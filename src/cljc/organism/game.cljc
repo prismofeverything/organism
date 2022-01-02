@@ -1276,10 +1276,12 @@
          (fn [game space]
            (let [element (space->element space)
                  destination (first (get towards space))]
-             (move
-              game
-              {:from space
-               :to destination})))
+             (if destination
+               (move
+                game
+                {:from space
+                 :to destination})
+               game)))
          game order)
 
         _ (println "ADDING RAIN" adding-rain round rain-interval (quot round rain-interval))
