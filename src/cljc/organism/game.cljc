@@ -961,9 +961,6 @@
     (-> game
         (lose-element (:space rise))
         (lose-element (:space fall))
-        (mark-capture (:space rise) fall)
-        (mark-capture (:space fall) rise)
-        (award-capture (:player rise) fall)
         (award-capture (:player fall) rise))
     (let [game
           (if (find-mutation game :EXTRACT)
