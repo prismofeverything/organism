@@ -46,6 +46,47 @@
   [color spaces step]
   [color (mod step spaces)])
 
+(defn mod6
+  [n]
+  (mod n 6))
+
+(defn mod-symmetry
+  [symmetry space]
+  (let [[ring step] space]
+    (if (zero? ring)
+      space
+      (update
+       space
+       1
+       (fn [step]
+         (mod step (* ring symmetry)))))))
+
+(defn apply-direction
+  "direction will be in mod symmetry only for center, otherwise mod 6"
+  [symmetry space direction]
+  (if (= space [0 0])
+    [1 direction]
+    (let [[ring step] space
+          off-axis (mod step ring)
+          on-axis? (zero? off-axis)
+          axis (quot step ring)
+          rotation (mod6 (- direction axis))
+          towards
+          (if on-axis?
+            (cond
+              (= rotation 3) [(dec ring) (* axis (dec ring))]
+              (#{2 4} rotation) [ring (mod (+ (- 3 rotation) step) (* ring symmetry))]
+              :else ;; #{0 1 5}
+              (let [bump (* axis (inc ring))
+                    offset (if (= 5 rotation) -1 rotation)]
+                [(inc ring) (+ bump offset)]))
+            (cond
+              (#{5 2} rotation) [ring (if (= 2 rotation) (inc step) (dec step))]
+              (#{0 1} rotation) [(inc ring) (+ rotation off-axis (* axis (inc ring)))]
+              :else ;; #{3 4}
+              [(dec ring) (+ off-axis (- 3 rotation) (* axis (dec ring)))]))]
+      (mod-symmetry symmetry towards))))
+
 (defn space-adjacencies
   "find all adjacencies in these rings for the given space"
   [rings space]
@@ -190,8 +231,24 @@
    starting-spaces
    player-captures))
 
+(defn rain-generate
+  [mutation-state state]
+  (assoc
+   state
+   :RAIN
+   {}))
+
+(def mutation-generate-initial
+  {:RAIN rain-generate})
+
+(defn mutation-initial-state
+  [mutation mutation-state state]
+  (if-let [generate (mutation-generate-initial mutation)]
+    (generate mutation-state state)
+    state))
+
 (defn initial-state
-  [turn-order]
+  [turn-order mutations]
   (let [first-player (first turn-order)
         empty-captures
         (into
@@ -200,17 +257,21 @@
           vector
           turn-order
           (repeat [])))]
-    ;; State
-    {:round 0
-     :elements {}
-     :food {}
-     :captures empty-captures
-     :player-turn
-     ;; PlayerTurn
-     {:player first-player
-      :introduction {}
-      :organism-turns []
-      :advance nil}}))
+    (reduce
+     (fn [state [mutation mutation-state]]
+       (mutation-initial-state mutation mutation-state state))
+     ;; State
+     {:round 0
+      :elements {}
+      :food {}
+      :captures empty-captures
+      :player-turn
+      ;; PlayerTurn
+      {:player first-player
+       :introduction {}
+       :organism-turns []
+       :advance nil}}
+     mutations)))
 
 (defn initial-game
   "create the initial state for the game from the given adjacencies and player info"
@@ -218,7 +279,7 @@
   (let [capture-limit 5
         players (into {} player-info)
         turn-order (mapv first player-info)
-        state (initial-state turn-order)]
+        state (initial-state turn-order mutations)]
     ;; Game
     {:rings rings
      :adjacencies adjacencies
@@ -1134,13 +1195,24 @@
         next-index (mod (inc index) (count turn-order))]
     [next-index (nth turn-order next-index)]))
 
+(defn rain-turn
+  [game rain-player]
+  (let [rain-elements (get (player-elements game) rain-player)]))
+
 (defn start-next-turn
   [game]
   (let [[index next] (next-player game)
         game (start-turn game next)]
-    (if (zero? index)
+    (cond
+      (zero? index)
       (update-in game [:state :round] inc)
-      game)))
+
+      (and
+       (find-mutation game :RAIN)
+       (= index (dec (count (:players game)))))
+      (rain-turn game next)
+
+      :else game)))
 
 (defn finish-turn
   [{:keys [state turn-order] :as game}]
@@ -1266,4 +1338,3 @@
   (if-let [winner (victory? game)]
     (declare-victory game winner)
     game))
-

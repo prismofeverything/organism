@@ -77,7 +77,7 @@
   (r/atom empty-game-state))
 
 (defonce clear-state
-  (r/atom (game/initial-state board/default-player-order)))
+  (r/atom (game/initial-state board/default-player-order {})))
 
 (def empty-introduction
   {:chosen-space nil
