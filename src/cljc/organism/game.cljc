@@ -1244,29 +1244,44 @@
   [indexes [ring step]]
   [(get indexes ring) step])
 
+(defn project-towards
+  [name->index index->name symmetry space direction]
+  (let [index-space (ring-index name->index space)
+        towards (apply-direction symmetry index-space direction)]
+    (ring-index index->name towards)))
+
 (defn rain-turn
   [game rain-player]
   (let [round (current-round game)
         rain-elements (get (player-elements game) rain-player)
         adding-rain (inc (quot round rain-interval))
         [index next] (next-player game)
-        ring-indexes (into {} (map vector (:rings game) (range)))
-        ring-names (into {} (map vector (range) (:rings game)))
+        name->index (into {} (map vector (:rings game) (range)))
+        index->name (into {} (map vector (range) (:rings game)))
+        space->element (into {} (map (juxt :space identity) rain-elements))
+        project (partial project-towards name->index index->name rain-symmetry)
+
+        towards
+        (into
+         {}
+         (map
+          (fn [rain]
+            [(:space rain) #{(project (:space rain) rain-direction)}])
+          rain-elements))
+
+        order (reverse (graph/kahn-sort towards))
+
         fall
         (reduce
-         (fn [game element]
-           (move
-            game
-            {:from (:space element)
-             :to (ring-index
-                  ring-names
-                  (apply-direction
-                   rain-symmetry
-                   (ring-index
-                    ring-indexes
-                    (:space element))
-                   rain-direction))}))
-         game rain-elements)
+         (fn [game space]
+           (let [element (space->element space)
+                 destination (first (get towards space))]
+             (move
+              game
+              {:from space
+               :to destination})))
+         game order)
+
         _ (println "ADDING RAIN" adding-rain round rain-interval (quot round rain-interval))
         appear
         (reduce
