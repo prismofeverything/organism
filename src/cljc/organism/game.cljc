@@ -328,6 +328,10 @@
   [game]
   (get-in game [:state :player-turn]))
 
+(defn current-round
+  [game]
+  (get-in game [:state :round]))
+
 (defn current-player
   [{:keys [state] :as game}]
   (get-in state [:player-turn :player]))
@@ -496,7 +500,6 @@
     (loop [spaces [space]
            visited #{}
            contiguous []]
-      (println "CONTIGUOUS" spaces visited contiguous)
       (if (empty? spaces)
         contiguous
         (let [space (first spaces)
@@ -1223,8 +1226,9 @@
 
 (defn rain-turn
   [game rain-player]
-  (let [rain-elements (get (player-elements game) rain-player)
-        adding-rain (inc (quot (:round game) rain-interval))
+  (let [round (current-round game)
+        rain-elements (get (player-elements game) rain-player)
+        adding-rain (inc (quot round rain-interval))
         [index next] (next-player game)
         ring-indexes (into {} (map vector (:rings game) (range)))
         ring-names (into {} (map vector (range) (:rings game)))
@@ -1243,6 +1247,7 @@
                     (:space element))
                    rain-direction))}))
          game rain-elements)
+        _ (println "ADDING RAIN" adding-rain round rain-interval (quot round rain-interval))
         appear
         (reduce
          (fn [game adding]
