@@ -983,6 +983,15 @@
   [game player]
   (let [game (clear-element-captures game)
         conflicting-elements (player-conflicts game player)
+        conflicting-elements
+        (if (find-mutation game :RAIN)
+          (filter
+           (fn [conflict]
+             (let [conflicting-players (set (map :player conflict))
+                   rain-player (-> game :turn-order last)]
+               (conflicting-players rain-player)))
+           conflicting-elements)
+          conflicting-elements)
         annihilations (filter (fn [[a b]] (= (:type a) (:type b))) conflicting-elements)
         conflicting (remove (fn [[a b]] (= (:type a) (:type b))) conflicting-elements)
         conflicts (reduce
