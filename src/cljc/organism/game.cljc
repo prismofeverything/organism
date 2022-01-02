@@ -46,47 +46,6 @@
   [color spaces step]
   [color (mod step spaces)])
 
-(defn mod6
-  [n]
-  (mod n 6))
-
-(defn mod-symmetry
-  [symmetry space]
-  (let [[ring step] space]
-    (if (zero? ring)
-      space
-      (update
-       space
-       1
-       (fn [step]
-         (mod step (* ring symmetry)))))))
-
-(defn apply-direction
-  "direction will be in mod symmetry only for center, otherwise mod 6"
-  [symmetry space direction]
-  (if (= space [0 0])
-    [1 direction]
-    (let [[ring step] space
-          off-axis (mod step ring)
-          on-axis? (zero? off-axis)
-          axis (quot step ring)
-          rotation (mod6 (- direction axis))
-          towards
-          (if on-axis?
-            (cond
-              (= rotation 3) [(dec ring) (* axis (dec ring))]
-              (#{2 4} rotation) [ring (mod (+ (- 3 rotation) step) (* ring symmetry))]
-              :else ;; #{0 1 5}
-              (let [bump (* axis (inc ring))
-                    offset (if (= 5 rotation) -1 rotation)]
-                [(inc ring) (+ bump offset)]))
-            (cond
-              (#{5 2} rotation) [ring (if (= 2 rotation) (inc step) (dec step))]
-              (#{0 1} rotation) [(inc ring) (+ rotation off-axis (* axis (inc ring)))]
-              :else ;; #{3 4}
-              [(dec ring) (+ off-axis (- 3 rotation) (* axis (dec ring)))]))]
-      (mod-symmetry symmetry towards))))
-
 (defn space-adjacencies
   "find all adjacencies in these rings for the given space"
   [rings space]
@@ -161,6 +120,52 @@
                 (partial ring-adjacencies rings)
                 (rest colors))]
     (into adjacent others)))
+
+(defn mod6
+  [n]
+  (mod n 6))
+
+(defn mod-symmetry
+  [symmetry space]
+  (let [[ring step] space]
+    (if (zero? ring)
+      space
+      (update
+       space
+       1
+       (fn [step]
+         (mod step (* ring symmetry)))))))
+
+(defn apply-direction
+  "direction will be in mod symmetry only for center, otherwise mod 6"
+  [symmetry space direction]
+  (if (= space [0 0])
+    [1 direction]
+    (let [[ring step] space
+          off-axis (mod step ring)
+          on-axis? (zero? off-axis)
+          axis (quot step ring)
+          rotation (mod6 (- direction axis))
+          towards
+          (if on-axis?
+            (cond
+              (= rotation 3) [(dec ring) (* axis (dec ring))]
+              (#{2 4} rotation) [ring (mod (+ (- 3 rotation) step) (* ring symmetry))]
+              :else ;; #{0 1 5}
+              (let [bump (* axis (inc ring))
+                    offset (if (= 5 rotation) -1 rotation)]
+                [(inc ring) (+ bump offset)]))
+            (cond
+              (#{5 2} rotation) [ring (if (= 2 rotation) (inc step) (dec step))]
+              (#{0 1} rotation) [(inc ring) (+ rotation off-axis (* axis (inc ring)))]
+              :else ;; #{3 4}
+              [(dec ring) (+ off-axis (- 3 rotation) (* axis (dec ring)))]))]
+      (mod-symmetry symmetry towards))))
+
+(defn discover-adjacencies
+  [rings]
+  (let [colors (mapv first rings)
+        symmetry (count (last (first (drop 1 rings))))]))
 
 (defn find-corners
   [adjacencies outer-ring symmetry]
@@ -654,7 +659,7 @@
 
 (defn player-starting-spaces
   [game player]
-  (get-in game [:players player :staring-spaces]))
+  (get-in game [:players player :starting-spaces]))
 
 (defn introduce-spaces
   [game player {:keys [organism spaces] :as introduction}]
@@ -1111,10 +1116,14 @@
         organisms-lost
         (reduce
          (fn [lost [player player-organisms]]
-           (let [lost-organisms (remove (comp alive-elements? last) player-organisms)]
-             (if (empty? lost-organisms)
-               lost
-               (assoc lost player lost-organisms))))
+           (if (and
+                (find-mutation game :RAIN)
+                (= player (last (get game :turn-order))))
+             lost
+             (let [lost-organisms (remove (comp alive-elements? last) player-organisms)]
+               (if (empty? lost-organisms)
+                 lost
+                 (assoc lost player lost-organisms)))))
          {} organisms)
         players-lost (keys organisms-lost)
         other-players (vec (remove #{active-player} players-lost))
@@ -1195,9 +1204,55 @@
         next-index (mod (inc index) (count turn-order))]
     [next-index (nth turn-order next-index)]))
 
+(def rain-symmetry 6)
+(def rain-direction 1)
+(def rain-interval 5)
+
+(defn grow-rain
+  [game rain-player]
+  (let [starting (player-starting-spaces game rain-player)
+        space (rand-nth starting)
+        type (rand-nth [:eat :move :grow])]
+    (println "GROW RAIN" rain-player type space starting)
+    (println "GAME PLAYERS" (:players game))
+    (add-element game rain-player 0 type space 0)))
+
+(defn ring-index
+  [indexes [ring step]]
+  [(get indexes ring) step])
+
 (defn rain-turn
   [game rain-player]
-  (let [rain-elements (get (player-elements game) rain-player)]))
+  (let [rain-elements (get (player-elements game) rain-player)
+        adding-rain (inc (quot (:round game) rain-interval))
+        [index next] (next-player game)
+        ring-indexes (into {} (map vector (:rings game) (range)))
+        ring-names (into {} (map vector (range) (:rings game)))
+        fall
+        (reduce
+         (fn [game element]
+           (move
+            game
+            {:from (:space element)
+             :to (ring-index
+                  ring-names
+                  (apply-direction
+                   rain-symmetry
+                   (ring-index
+                    ring-indexes
+                    (:space element))
+                   rain-direction))}))
+         game rain-elements)
+        appear
+        (reduce
+         (fn [game adding]
+           (grow-rain game rain-player))
+         fall (range adding-rain))]
+    (-> appear
+        (resolve-conflicts rain-player)
+        (check-integrity rain-player)
+        (update-in [:state :round] inc)
+        (start-turn next))))
 
 (defn start-next-turn
   [game]
