@@ -1043,7 +1043,6 @@
 (defn grow-action-control
   [board-colors turn choices color action action-index]
   (let [complete? (game/complete-action? action)]
-    (println "GROW ACTION CONTROL" action (keys choices))
     [:div
      {:style
       {:margin "20px 0px"}}
@@ -1360,7 +1359,6 @@
   [board-colors turn choices color {:keys [choice num-actions actions] :as organism-turn}]
   (if choice
     (let [current-action (current-action-index num-actions actions)]
-      (println "action controls" current-action turn (count choices) color organism-turn)
       [:div
        (map
         (fn [action-index]

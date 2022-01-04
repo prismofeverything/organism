@@ -668,7 +668,6 @@
   [invocation]
   (let [players (:players invocation)
         players-set (set players)]
-    (println "valid invocation?" players players-set      (every? (comp not empty?) players)      (= (count players) (count players-set)))
     (and
      (every? (comp not empty?) players)
      (= (count players) (count players-set)))))
@@ -707,7 +706,6 @@
         (if (= 4 player-count)
           (inc offset)
           offset)]
-    (println "STARTING" starting-ring ring-count player-count total interval difference offset)
     (map-indexed
      (fn [player-index player]
        [player
@@ -753,13 +751,11 @@
                  total)])
              (range 3))))
          {} (map vector player-cycle (range num-organisms)))
-        _ (println "PLAYER SPACES BEFORE" player-spaces)
         player-spaces
         (mapv
          (fn [[player spaces]]
            [player (vec spaces)])
          player-spaces)
-        _ (println "PLAYER SPACES AFTER" player-spaces)
         rain-spaces (inc (* 2 (dec ring-count)))
         first-rain-space (* (- symmetry 3) (dec ring-count))
         starting-rain
@@ -769,7 +765,7 @@
          (range
           first-rain-space
           (+ first-rain-space rain-spaces)))]
-    (println "starting RAIN" starting-ring ring-count player-count total between offset num-organisms starting-rain)
+    (println "starting RAIN" starting-ring ring-count player-count total between offset num-organisms starting-rain player-spaces)
     (conj player-spaces [rain starting-rain])))
 
 (defn starting-spaces
