@@ -77,7 +77,7 @@
   (r/atom empty-game-state))
 
 (defonce clear-state
-  (r/atom (game/initial-state board/default-player-order {})))
+  (r/atom (game/initial-state board/default-player-order)))
 
 (def empty-introduction
   {:chosen-space nil
@@ -1725,6 +1725,9 @@
 (defn players-input
   [page-player invocation]
   (let [{:keys [player-count colors player-captures mutations]} invocation
+        player-count (if (:RAIN mutations)
+                       (inc player-count)
+                       player-count)
         order @player-order
         captures-order @player-captures-order]
     [:div
@@ -1785,9 +1788,7 @@
                     :player-captures
                     (vec
                      (take
-                      (if (:RAIN mutations)
-                        (inc player-count)
-                        player-count)
+                      player-count
                       @player-captures-order)))
                    (send-create!))))}
 
@@ -1801,12 +1802,10 @@
       (range)
       (reverse
        (take
-        (if (:RAIN mutations)
-          (inc player-count)
-          player-count)
+        player-count
         (map last colors)))
       order
-      player-captures)]))
+      (take player-count captures-order))]))
 
 (defn create-button
   [active-color inactive-color invocation]
@@ -1873,6 +1872,41 @@
      last
      (:colors invocation)))))
 
+(defn adjust-players
+  [invocation player-count]
+  (-> invocation
+      (assoc :players (take player-count @player-order))
+      (assoc :player-captures (take player-count @player-captures-order))))
+
+(defn increase-players
+  [invocation]
+  (let [player-count (inc (:player-count invocation))]
+    (adjust-players invocation player-count)))
+
+(defn decrease-players
+  [invocation]
+  (let [player-count (:player-count invocation)]
+    (adjust-players invocation player-count)))
+
+(def invocation-mutations
+  {:RAIN
+   {:mutate increase-players
+    :unmutate decrease-players}})
+
+(defn mutate-invocation
+  [mutation-key mutation-state invocation]
+  (let [invocation (assoc-in invocation [:mutations mutation-key] mutation-state)]
+    (if-let [mutate (get-in invocation-mutations [mutation-key :mutate])]
+      (mutate invocation)
+      invocation)))
+
+(defn unmutate-invocation
+  [mutation-key mutation-state invocation]
+  (let [invocation (update invocation :mutations dissoc mutation-key)]
+    (if-let [mutate (get-in invocation-mutations [mutation-key :unmutate])]
+      (mutate invocation)
+      invocation)))
+
 (defn mutation-choice
   [color invocation [mutation-key mutation-description]]
   ^{:key mutation-key}
@@ -1890,10 +1924,11 @@
      (fn [event]
        (let [target (.-target event)
              checked (.-checked target)
+             mutation-state (get game/default-mutation-state mutation-key {})
              invocation
              (if checked
-               (assoc-in invocation [:mutations mutation-key] true)
-               (update invocation :mutations dissoc mutation-key))]
+               (mutate-invocation mutation-key mutation-state invocation)
+               (unmutate-invocation mutation-key mutation-state invocation))]
          (send-create! invocation)))}]
    [:label
     {:for mutation-key

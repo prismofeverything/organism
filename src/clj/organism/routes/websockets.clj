@@ -263,13 +263,17 @@
   (when-not (empty? history)
     (let [initial-state (last history)
           initial-player (game/current-player {:state initial-state})
+          initial-round (game/current-round {:state initial-state})
           now-back (reverse history)
           beginning
           (last
            (take-while
             (fn [state]
-              (let [player (game/current-player {:state state})]
-                (= player initial-player)))
+              (let [player (game/current-player {:state state})
+                    round (game/current-round {:state state})]
+                (and
+                 (= player initial-player)
+                 (= round initial-round))))
             now-back))]
       (if (empty? beginning)
         initial-state

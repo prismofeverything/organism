@@ -236,24 +236,8 @@
    starting-spaces
    player-captures))
 
-(defn rain-generate
-  [mutation-state state]
-  (assoc
-   state
-   :RAIN
-   {}))
-
-(def mutation-generate-initial
-  {:RAIN rain-generate})
-
-(defn mutation-initial-state
-  [mutation mutation-state state]
-  (if-let [generate (mutation-generate-initial mutation)]
-    (generate mutation-state state)
-    state))
-
 (defn initial-state
-  [turn-order mutations]
+  [turn-order]
   (let [first-player (first turn-order)
         empty-captures
         (into
@@ -262,21 +246,69 @@
           vector
           turn-order
           (repeat [])))]
-    (reduce
-     (fn [state [mutation mutation-state]]
-       (mutation-initial-state mutation mutation-state state))
-     ;; State
-     {:round 0
-      :elements {}
-      :food {}
-      :captures empty-captures
-      :player-turn
-      ;; PlayerTurn
-      {:player first-player
-       :introduction {}
-       :organism-turns []
-       :advance nil}}
-     mutations)))
+    {:round 0
+     :elements {}
+     :food {}
+     :captures empty-captures
+     :player-turn
+     ;; PlayerTurn
+     {:player first-player
+      :introduction {}
+      :organism-turns []
+      :advance nil}}))
+
+(defn add-element
+  [game player organism type space food]
+  (let [element
+        ;; Element
+        {:player player
+         :organism organism
+         :type type
+         :space space
+         :food food
+         :captures []}]
+    (assoc-in game [:state :elements space] element)))
+
+(defn remove-element
+  [game space]
+  (update-in
+   game
+   [:state :elements]
+   dissoc space))
+
+(defn player-starting-spaces
+  [game player]
+  (get-in game [:players player :starting-spaces]))
+
+(defn introduce-rain
+  [game rain-player]
+  (let [starting (player-starting-spaces game rain-player)
+        space (rand-nth starting)
+        type (rand-nth [:eat :move :grow])]
+    (add-element game rain-player 0 type space 0)))
+
+(defn add-rain
+  [game rain-player rain]
+  (reduce
+   (fn [game _]
+     (introduce-rain game rain-player))
+   game (range rain)))
+
+(defn rain-generate
+  [rain-state game]
+  (let [rain-player (-> game :turn-order last)
+        rain-state (or rain-state {})
+        initial-rain (or (:initial-rain rain-state) 2)]
+    (add-rain game rain-player initial-rain)))
+
+(def mutation-generate-initial
+  {:RAIN rain-generate})
+
+(defn mutation-initial-game
+  [mutation mutation-state game]
+  (if-let [generate (mutation-generate-initial mutation)]
+    (generate mutation-state game)
+    game))
 
 (defn initial-game
   "create the initial state for the game from the given adjacencies and player info"
@@ -284,17 +316,21 @@
   (let [capture-limit 5
         players (into {} player-info)
         turn-order (mapv first player-info)
-        state (initial-state turn-order mutations)]
+        state (initial-state turn-order)]
     ;; Game
-    {:rings rings
-     :adjacencies adjacencies
-     :center center
-     :capture-limit capture-limit
-     :players players
-     :turn-order turn-order
-     :organism-victory organism-victory
-     :mutations mutations
-     :state state}))
+    (reduce
+     (fn [game [mutation mutation-state]]
+       (mutation-initial-game mutation mutation-state game))
+     {:rings rings
+      :adjacencies adjacencies
+      :center center
+      :capture-limit capture-limit
+      :players players
+      :turn-order turn-order
+      :organism-victory organism-victory
+      :mutations mutations
+      :state state}
+     mutations)))
 
 (defn create-game
   "generate adjacencies for a given symmetry with a ring for each color,
@@ -354,25 +390,6 @@
     (and
      (empty? introduction)
      (empty? organism-turns))))
-
-(defn add-element
-  [game player organism type space food]
-  (let [element
-        ;; Element
-        {:player player
-         :organism organism
-         :type type
-         :space space
-         :food food
-         :captures []}]
-    (assoc-in game [:state :elements space] element)))
-
-(defn remove-element
-  [game space]
-  (update-in
-   game
-   [:state :elements]
-   dissoc space))
 
 (defn free-food-present
   [game space]
@@ -659,10 +676,6 @@
         (clear-spaces surrounding)
         (add-elements player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
-
-(defn player-starting-spaces
-  [game player]
-  (get-in game [:players player :starting-spaces]))
 
 (defn introduce-spaces
   [game player {:keys [organism spaces] :as introduction}]
@@ -1227,18 +1240,11 @@
         next-index (mod (inc index) (count turn-order))]
     [next-index (nth turn-order next-index)]))
 
-(def rain-symmetry 6)
-(def rain-direction 1)
-(def rain-interval 5)
-
-(defn grow-rain
-  [game rain-player]
-  (let [starting (player-starting-spaces game rain-player)
-        space (rand-nth starting)
-        type (rand-nth [:eat :move :grow])]
-    (println "GROW RAIN" rain-player type space starting)
-    (println "GAME PLAYERS" (:players game))
-    (add-element game rain-player 0 type space 0)))
+(def default-mutation-state
+  {:RAIN
+   {:initial-rain 2
+    :rain-interval 5
+    :rain-direction 1}})
 
 (defn ring-index
   [indexes [ring step]]
@@ -1253,8 +1259,14 @@
 (defn rain-turn
   [game rain-player]
   (let [round (current-round game)
+        rain-symmetry 6
+        rain-state (get-in game [:mutations :RAIN])
+        rain-state (if (or (nil? rain-state) (= true rain-state))
+                     (:RAIN default-mutation-state)
+                     rain-state)
+        {:keys [initial-rain rain-interval rain-direction]} rain-state
         rain-elements (get (player-elements game) rain-player)
-        adding-rain (inc (quot round rain-interval))
+        adding-rain (+ initial-rain (quot round rain-interval))
         [index next] (next-player game)
         name->index (into {} (map vector (:rings game) (range)))
         index->name (into {} (map vector (range) (:rings game)))
@@ -1284,12 +1296,7 @@
                game)))
          game order)
 
-        _ (println "ADDING RAIN" adding-rain round rain-interval (quot round rain-interval))
-        appear
-        (reduce
-         (fn [game adding]
-           (grow-rain game rain-player))
-         fall (range adding-rain))]
+        appear (add-rain fall rain-player adding-rain)]
     (-> appear
         (resolve-conflicts rain-player)
         (check-integrity rain-player)
