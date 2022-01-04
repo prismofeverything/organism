@@ -399,7 +399,12 @@
            {:style {:color color}}
            player " - "
            (count (get-in state [:captures player])) " / "
-           captures]))]
+           (if (get mutations :RAIN)
+             (let [rain-player (last turn-order)]
+               (if (= player rain-player)
+                 captures
+                 [:span {:style {:font-size "1.5em"}} "∞"]))
+             captures)]))]
 
      [:h4
       {:style

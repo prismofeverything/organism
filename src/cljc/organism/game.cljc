@@ -1374,7 +1374,10 @@
 
 (defn all-relative-captures
   [game]
-  (let [players (:turn-order game)]
+  (let [players
+        (if (get-in game [:mutations :RAIN])
+          [(-> game :turn-order last)]
+          (:turn-order game))]
     (into
      {}
      (map
