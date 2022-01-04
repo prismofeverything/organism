@@ -757,7 +757,7 @@
         player-spaces
         (mapv
          (fn [[player spaces]]
-           [player spaces])
+           [player (vec spaces)])
          player-spaces)
         _ (println "PLAYER SPACES AFTER" player-spaces)
         rain-spaces (inc (* 2 (dec ring-count)))

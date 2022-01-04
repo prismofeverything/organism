@@ -203,9 +203,10 @@
 
 (defn create-game!
   [db {:keys [key invocation game chat] :as game-state}]
-  (let [initial-state (serialize-state (:state game))
+  (let [game-state (update-in game-state [:game :state] serialize-state)
         game-state (update-in game-state [:game :adjacencies] pr-str)
         game-state (update-in game-state [:game :players] pr-str)
+        initial-state (get-in game-state [:game :state])
         player-colors (board/invocation-player-colors invocation)]
     (println "CREATING GAME" game-state)
     (db/index! db :games [:key] {:unique true})

@@ -18,6 +18,7 @@
                  [metosin/reitit "0.5.12"]
                  [metosin/ring-http-response "0.9.2"]
                  [mount "0.1.16"]
+                 [com.cgore/mersenne-twister "1.0.0"]
                  [com.novemberain/monger "3.5.0"
                   :exclusions [com.google.guava/guava]]
                  [nrepl "0.8.3"]
@@ -39,7 +40,7 @@
 
   :min-lein-version "2.0.0"
   
-  :source-paths ["src/clj" "src/cljs" "src/cljc"]
+  :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
   :resource-paths ["resources" "target/cljsbuild"]
   :target-path "target/%s/"
