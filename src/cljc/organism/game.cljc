@@ -2,7 +2,8 @@
   (:require
    [clojure.set :as set]
    [organism.base :as base]
-   [organism.graph :as graph]))
+   [organism.graph :as graph]
+   [organism.random :as random]))
 
 (def ^:dynamic *food-limit* 111)
 (def observer-key "--observer--")
@@ -283,8 +284,11 @@
 (defn introduce-rain
   [game rain-player]
   (let [starting (player-starting-spaces game rain-player)
-        space (rand-nth starting)
-        type (rand-nth [:eat :move :grow])]
+        entropy (get-in game [:mutation-state :RAIN :entropy])
+        space (random/choose entropy starting)
+        type (random/choose entropy [:eat :move :grow])]
+        ;; space (rand-nth starting)
+        ;; type (rand-nth [:eat :move :grow])
     (add-element game rain-player 0 type space 0)))
 
 (defn add-rain
@@ -298,8 +302,12 @@
   [rain-state game]
   (let [rain-player (-> game :turn-order last)
         rain-state (or rain-state {})
+        seed-phrase (get rain-state :seed-phrase)
+        entropy (random/phrase-seq seed-phrase)
         initial-rain (or (:initial-rain rain-state) 2)]
-    (add-rain game rain-player initial-rain)))
+    (-> game
+        (assoc-in [:mutation-state :RAIN :entropy] entropy)
+        (add-rain rain-player initial-rain entropy))))
 
 (def mutation-generate-initial
   {:RAIN rain-generate})
@@ -1244,7 +1252,8 @@
   {:RAIN
    {:initial-rain 2
     :rain-interval 5
-    :rain-direction 1}})
+    :rain-direction 1
+    :seed-phrase "hello world!"}})
 
 (defn ring-index
   [indexes [ring step]]
