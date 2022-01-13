@@ -728,7 +728,7 @@
         rain (last players-rain)
         starting-ring (last rings)
         ring-count (count rings)
-        player-count (dec (count players))
+        player-count (count players)
         total (inc (* (dec ring-count) (- symmetry 4)))
         num-organisms (int (Math/floor (/ (inc total) 4)))
         player-cycle (cycle players)

@@ -33,7 +33,7 @@
 (defn phrase-seq
   [phrase seq]
   (let [seed (hash phrase)]
-    (seed-seq seed)))
+    (seed-seq seed seq)))
 
 (defn choose
   [generator seq]

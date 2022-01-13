@@ -285,10 +285,12 @@
   [game rain-player]
   (let [starting (player-starting-spaces game rain-player)
         entropy (get-in game [:mutation-state :RAIN :entropy])
-        space (random/choose entropy starting)
-        type (random/choose entropy [:eat :move :grow])]
-        ;; space (rand-nth starting)
-        ;; type (rand-nth [:eat :move :grow])
+        space (rand-nth starting)
+        type (rand-nth [:eat :move :grow])]
+
+        ;; space (random/choose entropy starting)
+        ;; type (random/choose entropy [:eat :move :grow])
+
     (add-element game rain-player 0 type space 0)))
 
 (defn add-rain
@@ -303,11 +305,11 @@
   (let [rain-player (-> game :turn-order last)
         rain-state (or rain-state {})
         seed-phrase (get rain-state :seed-phrase)
-        entropy (random/phrase-seq seed-phrase)
+        ;; entropy (random/phrase->rand seed-phrase)
         initial-rain (or (:initial-rain rain-state) 2)]
     (-> game
-        (assoc-in [:mutation-state :RAIN :entropy] entropy)
-        (add-rain rain-player initial-rain entropy))))
+        ;; (assoc-in [:mutation-state :RAIN :entropy] entropy)
+        (add-rain rain-player initial-rain))))
 
 (def mutation-generate-initial
   {:RAIN rain-generate})
