@@ -319,11 +319,7 @@
 
       (empty? organisms)
       (let [choices (introduce-choices game)]
-        (println "CHOICES" choices)
-        ;; [:introduce choices]
-        (if (> (count choices) 1)
-          [:introduce choices]
-          (find-state (first (vals choices)))))
+        [:introduce choices])
 
       (empty? organism-turns)
       ;; find organisms again to avoid finding for each introduction
@@ -362,6 +358,7 @@
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))
                   missing (remove acted (keys organisms))]
+              (println "REMAINING ORGANISMS" missing)
               [:choose-organism (choose-organism-choices game missing)])
 
             :else [:actions-complete {:advance (game/resolve-conflicts game player)}])

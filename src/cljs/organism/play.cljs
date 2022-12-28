@@ -185,7 +185,7 @@
                players
                (take ring-count board/total-rings)
                mutations)
-        [turn choices] (choice/find-state game)
+        [game turn choices] (choice/find-next-choices game)
         cursor (if (< witness (count history)) witness)]
     (println "initializing game" game)
     (println "initializing board" board)
