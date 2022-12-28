@@ -6,8 +6,10 @@
 
 (defstate env
   :start
-  (load-config
-    :merge
-    [(args)
-     (source/from-system-props)
-     (source/from-env)]))
+  (let [merge-list
+        [(args)
+         (source/from-system-props)
+         (source/from-env)]]
+    (load-config
+     :merge
+     merge-list)))

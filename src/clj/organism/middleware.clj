@@ -36,7 +36,10 @@
     (fn [request]
       ;; disable wrap-formats for websockets
       ;; since they're not compatible with this middleware
-      ((if (:websocket? request) handler wrapped) request))))
+      ((if (:websocket? request)
+         handler
+         wrapped)
+       request))))
 
 (defn wrap-base [handler]
   (-> ((:middleware defaults) handler)

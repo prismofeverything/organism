@@ -21,6 +21,8 @@
                  [com.cgore/mersenne-twister "1.0.0"]
                  [com.novemberain/monger "3.5.0"
                   :exclusions [com.google.guava/guava]]
+                 ;; [org.mongodb/mongodb-driver-sync "4.7.1"]
+                 ;; [mongo-driver-3 "0.7.0"]
                  [nrepl "0.8.3"]
                  [org.clojure/clojure "1.10.2"]
                  [org.clojure/clojurescript "1.10.773" :scope "provided"]
@@ -56,7 +58,6 @@
    :nrepl-port 7002
    :css-dirs ["resources/public/css"]
    :nrepl-middleware [cider.piggieback/wrap-cljs-repl]}
-  
 
   :profiles
   {:uberjar {:omit-source true

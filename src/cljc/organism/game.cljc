@@ -281,9 +281,14 @@
   [game player]
   (get-in game [:players player :starting-spaces]))
 
+(defn rain-player
+  [game]
+  (-> game :turn-order last))
+
 (defn introduce-rain
-  [game rain-player]
-  (let [starting (player-starting-spaces game rain-player)
+  [game]
+  (let [rain (rain-player game)
+        starting (player-starting-spaces game rain)
         entropy (get-in game [:mutation-state :RAIN :entropy])
         space (rand-nth starting)
         type (rand-nth [:eat :move :grow])]
@@ -291,25 +296,25 @@
         ;; space (random/choose entropy starting)
         ;; type (random/choose entropy [:eat :move :grow])
 
-    (add-element game rain-player 0 type space 0)))
+    (add-element game rain 0 type space 0)))
 
 (defn add-rain
-  [game rain-player rain]
+  [game rain]
   (reduce
    (fn [game _]
-     (introduce-rain game rain-player))
-   game (range rain)))
+     (introduce-rain game))
+   game
+   (range rain)))
 
 (defn rain-generate
   [rain-state game]
-  (let [rain-player (-> game :turn-order last)
-        rain-state (or rain-state {})
+  (let [rain-state (or rain-state {})
         seed-phrase (get rain-state :seed-phrase)
         ;; entropy (random/phrase->rand seed-phrase)
         initial-rain (or (:initial-rain rain-state) 2)]
     (-> game
         ;; (assoc-in [:mutation-state :RAIN :entropy] entropy)
-        (add-rain rain-player initial-rain))))
+        (add-rain initial-rain))))
 
 (def mutation-generate-initial
   {:RAIN rain-generate})
@@ -447,7 +452,12 @@
 
 (defn lose-element
   [game space]
-  (if (find-mutation game :EXTRACT)
+  (if (or
+       (find-mutation game :EXTRACT)
+       (and
+        (find-mutation game :RAIN)
+        (= (rain-player game)
+           (get-in game [:state :elements space :player]))))
     (remove-element game space)
     (deconstruct-element game space)))
 
@@ -485,7 +495,10 @@
           (fn [adjacent-element]
             (and
              (= (:type adjacent-element) (:type element))
-             (not= (:player adjacent-element) (:player element))))
+             (not= (:player adjacent-element) (:player element))
+             (or
+              (empty? (find-mutation game :RAIN))
+              (= (rain-player game) (:player adjacent-element)))))
           adjacent)))
      open)))
 
@@ -498,7 +511,9 @@
        (let [adjacent (adjacent-elements game open-space)]
          (some
           (fn [adjacent-element]
-            (not= (:player adjacent-element) (:player element)))
+            (if (find-mutation game :RAIN)
+              (= (:player adjacent-element) (rain-player game))
+              (not= (:player adjacent-element) (:player element))))
           adjacent)))
      open)))
 
@@ -518,7 +533,11 @@
   (filter
    (fn [adjacent]
      (if-let [element (get-element game adjacent)]
-       (= player (:player element))))
+       (or
+        (= player (:player element))
+        (and
+         (find-mutation game :RAIN)
+         (not= (:player element) (rain-player game))))))
    (adjacent-to game space)))
 
 (defn contiguous-elements
@@ -544,7 +563,9 @@
         adjacent (adjacent-elements game space)]
     (filter
      (fn [other]
-       (= (:player element) (:player other)))
+       (if (find-mutation game :RAIN)
+         (not= (:player other) (rain-player game))
+         (= (:player element) (:player other))))
      adjacent)))
 
 (defn fed-element?
@@ -629,7 +650,10 @@
         center-element (get-element game center)]
     (if (and
          center-element
-         (= player (:player center-element)))
+         (= player (:player center-element))
+         (or
+          (not (find-mutation game :RAIN))
+          (not= player (rain-player game))))
       (update-in
        game
        [:state :captures player]
@@ -639,7 +663,7 @@
         :type :center
         :space center
         :food 0
-        :captures[]})
+        :captures []})
       game)))
 
 (defn start-turn
@@ -1011,8 +1035,8 @@
           (filter
            (fn [conflict]
              (let [conflicting-players (set (map :player conflict))
-                   rain-player (-> game :turn-order last)]
-               (conflicting-players rain-player)))
+                   rain (rain-player game)]
+               (conflicting-players rain)))
            conflicting-elements)
           conflicting-elements)
         annihilations (filter (fn [[a b]] (= (:type a) (:type b))) conflicting-elements)
@@ -1065,19 +1089,6 @@
    [:state :elements space :organism]
    organism))
 
-(defn group-organisms
-  [game]
-  (reduce
-   (fn [organisms element]
-     (if element
-       (update-in
-        organisms
-        [(:player element) (:organism element)]
-        conj element)
-       organisms))
-   {}
-   (-> game :state :elements vals)))
-
 (defn trace-organism
   [game center-space organism]
   (let [spaces (contiguous-elements game center-space)]
@@ -1105,6 +1116,19 @@
          [game 0]
          (-> game :state :elements vals))]
     game))
+
+(defn group-organisms
+  [game]
+  (reduce
+   (fn [organisms element]
+     (if element
+       (update-in
+        organisms
+        [(:player element) (:organism element)]
+        conj element)
+       organisms))
+   {}
+   (-> game :state :elements vals)))
 
 (defn evaluate-survival
   [organisms]
@@ -1162,6 +1186,7 @@
         organisms-lost
         (reduce
          (fn [lost [player player-organisms]]
+           (println "PLAYER ORGANISMS" player player-organisms)
            (if (and
                 (find-mutation game :RAIN)
                 (= player (last (get game :turn-order))))
@@ -1171,6 +1196,7 @@
                  lost
                  (assoc lost player lost-organisms)))))
          {} organisms)
+        _ (println "ORGANISMS LOST" organisms-lost)
         players-lost (keys organisms-lost)
         other-players (vec (remove #{active-player} players-lost))
         sacrifice
@@ -1307,7 +1333,7 @@
                game)))
          game order)
 
-        appear (add-rain fall rain-player adding-rain)]
+        appear (add-rain fall adding-rain)]
     (-> appear
         (resolve-conflicts rain-player)
         (check-integrity rain-player)
@@ -1387,7 +1413,7 @@
   [game]
   (let [players
         (if (get-in game [:mutations :RAIN])
-          [(-> game :turn-order last)]
+          [(rain-player game)]
           (:turn-order game))]
     (into
      {}
