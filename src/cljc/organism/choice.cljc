@@ -10,6 +10,11 @@
    :grow
    :move])
 
+(def element-combinations
+  (combine/permuted-combinations
+   element-types
+   3))
+
 (defn partial-map
   [f s]
   (into
@@ -18,7 +23,7 @@
     (juxt identity f)
     s)))
 
-(defn introduce-permutations
+(defn full-introduce-permutations
   "assume we want the elements to be as balanced as possible"
   [elements n]
   (let [count-elements (count elements)
@@ -26,13 +31,26 @@
         options (take balance (cycle elements))]
     (combine/permuted-combinations options n)))
 
+(defn introduce-permutations
+  [elements group-count]
+  (let [groups
+        (apply
+         combine/cartesian-product
+         (repeat group-count element-combinations))]
+    (map
+     (fn [group]
+       (apply concat group))
+     groups)))
+
 (defn introduce-choices
   [{:keys [state players] :as game}]
   (let [{:keys [player-turn]} state
         {:keys [player]} player-turn
         organism 0
         starting (-> players (get player) :starting-spaces)
-        orders (introduce-permutations element-types (count starting))
+        groups-count (/ (count starting) (count element-types))
+        orders (introduce-permutations element-types groups-count)
+        _ (println "INTRODUCE PERMUTATIONS" (count orders))
         introductions
         (map
          (fn [order]
@@ -126,7 +144,7 @@
     [action-type :circulate])))
 
 (defn eat-to-choices
-  [game elements]
+  [game elements _]
   (let [open-eaters
         (filter
          (fn [element]
@@ -139,7 +157,7 @@
      (map :space open-eaters))))
 
 (defn eat-from-choices
-  [game elements]
+  [game elements _]
   (let [to-choice (game/get-action-field game :to)
         options (game/open-spaces game to-choice)
         distinct (vals (group-by (partial game/free-food-present game) options))
@@ -151,7 +169,7 @@
      spaces)))
 
 (defn grow-element-choices
-  [game elements]
+  [game elements _]
   (let [types (group-by :type elements)
         grower-food
         (reduce
@@ -200,7 +218,7 @@
         (recur contributions (dec total))))))
 
 (defn grow-from-choices
-  [game elements]
+  [game elements _]
   (let [types (group-by :type elements)
         element-choice (game/get-action-field game :element)
         existing (count (get types element-choice))
@@ -211,7 +229,7 @@
      contributions)))
 
 (defn grow-to-choices
-  [game elements]
+  [game elements _]
   (let [types (group-by :type elements)
         growers (get types :grow)
         growable (game/growable-spaces game (map :space growers))]
@@ -222,7 +240,7 @@
      growable)))
 
 (defn move-from-choices
-  [game elements]
+  [game elements _]
   (let [mobile-elements
         (filter
          (partial game/can-move? game)
@@ -232,7 +250,7 @@
      mobile-elements)))
 
 (defn move-to-choices
-  [game elements]
+  [game elements _]
   (let [from (game/get-action-field game :from)
         open-spaces (game/available-spaces game from)]
     (partial-map
@@ -242,21 +260,22 @@
      open-spaces)))
 
 (defn circulate-from-choices
-  [game elements]
+  [game elements _]
   (let [fed (filter game/fed-element? elements)]
     (partial-map
      (partial game/choose-action-field game :from)
      (map :space fed))))
 
 (defn circulate-to-choices
-  [game elements]
+  [game elements extended]
+  (println "EXTENDED" extended)
   (let [from (game/get-action-field game :from)
         open (filter
               (fn [element]
                 (and
                  (game/open-element? element)
                  (not= (:space element) from)))
-              elements)]
+              extended)]
     (partial-map
      (comp
       game/complete-action
@@ -279,6 +298,8 @@
   (let [{:keys [elements captures player-turn]} state
         {:keys [player introduction organism-turns]} player-turn
         organisms (game/player-organisms game player)
+        all-extended (game/extended-organisms game)
+        extended (get all-extended player)
         winner (game/victory? game)]
 
     (cond
@@ -298,6 +319,7 @@
       ;; find organisms again to avoid finding for each introduction
       (let [game (game/find-organisms game)
             organisms (game/player-organisms game player)]
+
         (if (> (count organisms) 1)
           [:choose-organism (choose-organism-choices game (keys organisms))]
           [:choose-action-type
@@ -309,7 +331,11 @@
       :else
       (let [{:keys [organism choice num-actions actions] :as organism-turn} (last organism-turns)
             elements (get organisms organism)
+            extended-elements (get extended organism)
             types (group-by :type elements)]
+
+        (println "ALL EXTENDED" all-extended)
+        (println "EXTENDED" extended)
 
         (cond
           (nil? choice) [:choose-action-type (choose-action-type-choices game)]
@@ -343,7 +369,7 @@
                                (not (fields-present field)))
                              fields))
                 next-choices (get action-choices [type next-field])
-                choices (next-choices game elements)
+                choices (next-choices game elements extended-elements)
                 action-key (keyword (str (name type) "-" (name next-field)))]
             (if (empty? choices)
               [:pass {:pass (game/pass-action game)}]

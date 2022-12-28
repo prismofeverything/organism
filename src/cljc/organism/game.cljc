@@ -311,7 +311,10 @@
   (let [rain-state (or rain-state {})
         seed-phrase (get rain-state :seed-phrase)
         ;; entropy (random/phrase->rand seed-phrase)
-        initial-rain (or (:initial-rain rain-state) 2)]
+        initial-rain
+        (or
+         (:initial-rain rain-state)
+         (-> game :turn-order count dec))]
     (-> game
         ;; (assoc-in [:mutation-state :RAIN :entropy] entropy)
         (add-rain initial-rain))))
@@ -754,6 +757,40 @@
    {}
    (-> game :state :elements vals)))
 
+(defn contiguous-organisms
+  [game]
+  (reduce
+   (fn [organisms element]
+     (update
+      organisms
+      (:organism element)
+      conj element))
+   {}
+   (-> game :state :elements vals)))
+
+(defn organism-players
+  [elements]
+  (reduce
+   (fn [players element]
+     (conj players (:player element)))
+   #{}
+   elements))
+
+(defn extended-organisms
+  "organisms including elements belonging to other players (if merged)"
+  [game]
+  (let [contiguous (contiguous-organisms game)]
+    (reduce
+     (fn [extended [organism elements]]
+       (let [players (seq (organism-players elements))]
+         (reduce
+          (fn [extended player]
+            (update extended player assoc organism elements))
+          extended
+          players)))
+     {}
+     contiguous)))
+
 (defn all-organisms
   [game]
   (reduce
@@ -1154,9 +1191,9 @@
 
 (defn persist-integrity
   [game active-player]
-  ;; TODO fix this based on simplified result from group-organisms
   (let [game (find-organisms game)
         organisms (group-organisms game)
+
         lost-players
         (map
          first
@@ -1164,20 +1201,29 @@
           (fn [[player player-organisms]]
             (some (comp alive-elements? last) player-organisms))
           organisms))
+
+        lost-players
+        (remove
+         (fn [player]
+           (some
+            (comp alive-elements? last)
+            (player-organisms game player)))
+         (:turn-order game))
+
         integrity
         (reduce
          (fn [game lost-player]
-           (let [lost-organisms (get organisms lost-player)
-                 elements
-                 (base/map-cat
-                  (fn [[organism elements]]
-                    elements)
-                  lost-organisms)
+           (let [lost-organisms (player-organisms game lost-player)
+                 elements (base/map-cat last lost-organisms)
                  game (reduce lose-element game (map :space elements))]
              (if (= lost-player active-player)
                game
-               (award-capture game active-player (assoc (first elements) :type :integrity)))))
-         game lost-players)]
+               (award-capture
+                game
+                active-player
+                (assoc (first elements) :type :integrity)))))
+         game
+         lost-players)]
     integrity))
 
 (defn base-integrity
@@ -1205,7 +1251,7 @@
                   (fn [lost player]
                     (assoc-in lost [player organism-id] elements))
                   lost
-                  (list organism-player?))))))
+                  (seq organism-player?))))))
          {} organisms)
 
         players-lost (keys organisms-lost)

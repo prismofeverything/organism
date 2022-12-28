@@ -1604,6 +1604,39 @@
     "#eee")
    inner])
 
+(defn reset-colors-input
+  [color]
+  (let [invocation @board-invocation]
+    [:input
+     {:type :button
+      :value "reset colors"
+      :style
+      {:border-radius "20px"
+       :color "#fff"
+       :cursor "pointer"
+       :background color
+       :border "0px solid"
+       :font-size "1.0em"
+       :letter-spacing "3px"
+       :margin "40px 40px"
+       :padding "7px 20px"}
+      :on-click
+      (fn [event]
+        (let [invocation @board-invocation
+              colors (board/generate-colors-buffer
+                      board/total-rings
+                      (:ring-count invocation)
+                      max-players)]
+          (-> invocation
+              (assoc :colors colors)
+              send-create!)))}]))
+
+        ;; (if valid?
+        ;;   (ws/send-transit-message!
+        ;;    {:type "trigger-creation"})
+        ;;   (dom/redirect!
+        ;;    (str "/player/" js/playerKey)))
+
 (defn ring-count-input
   [color]
   (let [invocation @board-invocation]
@@ -1985,6 +2018,7 @@
         [organism-victory-input select-color]
         [description-input invocation select-color inactive-color]
         [players-input js/playerKey invocation]
+        [reset-colors-input inactive-color]
         [mutations-select create-color invocation]]]
       [:article
        {:style {:flex-grow 1}}
