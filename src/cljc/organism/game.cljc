@@ -1122,9 +1122,9 @@
   (reduce
    (fn [organisms element]
      (if element
-       (update-in
+       (update
         organisms
-        [(:player element) (:organism element)]
+        (:organism element)
         conj element)
        organisms))
    {}
@@ -1154,6 +1154,7 @@
 
 (defn persist-integrity
   [game active-player]
+  ;; TODO fix this based on simplified result from group-organisms
   (let [game (find-organisms game)
         organisms (group-organisms game)
         lost-players
@@ -1183,22 +1184,33 @@
   [game active-player]
   (let [game (find-organisms game)
         organisms (group-organisms game)
+
         organisms-lost
         (reduce
-         (fn [lost [player player-organisms]]
-           (println "PLAYER ORGANISMS" player player-organisms)
-           (if (and
-                (find-mutation game :RAIN)
-                (= player (last (get game :turn-order))))
-             lost
-             (let [lost-organisms (remove (comp alive-elements? last) player-organisms)]
-               (if (empty? lost-organisms)
+         (fn [lost [organism-id elements]]
+           (let [organism-player?
+                 (reduce
+                  (fn [players element]
+                    (conj players (:player element)))
+                  #{}
+                  elements)]
+             (println "ORGANISM" organism-id organism-player? elements)
+             (if (and
+                  (find-mutation game :RAIN)
+                  (organism-player? (rain-player game)))
+               lost
+               (if (alive-elements? elements)
                  lost
-                 (assoc lost player lost-organisms)))))
+                 (reduce
+                  (fn [lost player]
+                    (assoc-in lost [player organism-id] elements))
+                  lost
+                  (list organism-player?))))))
          {} organisms)
-        _ (println "ORGANISMS LOST" organisms-lost)
+
         players-lost (keys organisms-lost)
         other-players (vec (remove #{active-player} players-lost))
+
         sacrifice
         (reduce
          (fn [game [player player-organisms]]
@@ -1216,7 +1228,9 @@
                       game)]
                 (reduce lose-element game spaces)))
             game player-organisms))
-         game organisms-lost)
+         game
+         organisms-lost)
+
         integrity
         (reduce
          (fn [game other-player]
