@@ -49,10 +49,16 @@
         organism 0
         starting (-> players (get player) :starting-spaces)
         groups-count (/ (count starting) (count element-types))
-        orders (introduce-permutations element-types groups-count)
-        _ (println "INTRODUCE PERMUTATIONS" (count orders))
+        orders
+        (if (> groups-count 3)
+          [(base/map-cat
+            (fn [_]
+              (shuffle element-types))
+            (range groups-count))]
+          (introduce-permutations element-types groups-count))
+        _ (println "ORDERS" orders)
         introductions
-        (map
+        (mapv
          (fn [order]
            {:spaces
             (into
@@ -268,7 +274,6 @@
 
 (defn circulate-to-choices
   [game elements extended]
-  (println "EXTENDED" extended)
   (let [from (game/get-action-field game :from)
         open (filter
               (fn [element]
@@ -313,7 +318,12 @@
       [:check-integrity {:advance (game/start-next-turn game)}]
 
       (empty? organisms)
-      [:introduce (introduce-choices game)]
+      (let [choices (introduce-choices game)]
+        (println "CHOICES" choices)
+        ;; [:introduce choices]
+        (if (> (count choices) 1)
+          [:introduce choices]
+          (find-state (first (vals choices)))))
 
       (empty? organism-turns)
       ;; find organisms again to avoid finding for each introduction
@@ -333,9 +343,6 @@
             elements (get organisms organism)
             extended-elements (get extended organism)
             types (group-by :type elements)]
-
-        (println "ALL EXTENDED" all-extended)
-        (println "EXTENDED" extended)
 
         (cond
           (nil? choice) [:choose-action-type (choose-action-type-choices game)]
