@@ -139,6 +139,21 @@
   (doseq [player (reverse players)]
     (complete-player-game! db game-key player winner state)))
 
+(defn find-player-password
+  [db player]
+  (:password (db/one db :players {:key player})))
+
+(defn player-has-password?
+  [db player]
+  (some? (find-player-password db player)))
+
+(defn set-player-password!
+  [db player hashed-password]
+  (db/merge!
+   db :players
+   {:key player}
+   {:password hashed-password}))
+
 (defn update-player-preferences!
   [db player preferences]
   (db/merge!
@@ -150,7 +165,7 @@
   [db player]
   (dissoc
    (db/one db :players {:key player})
-   :_id))
+   :_id :password))
 
 (defn replacev
   [v from to]
@@ -265,6 +280,25 @@
   [db]
   (filter-ids
    (db/find-all db :players)))
+
+(defn load-observe-games
+  [db]
+  (let [all-games (filter-ids (db/find-all db :games))]
+    (->> all-games
+         (map (fn [game]
+                (let [last-entry (db/find-last db (history-key (:key game)) {})
+                      last-time (when-let [id (:_id last-entry)]
+                                  (when (instance? org.bson.types.ObjectId id)
+                                    (.getTimestamp id)))]
+                  (-> game
+                      (dissoc :game :chat)
+                      (assoc :last-move-time last-time)
+                      (assoc :current-player (get-in last-entry [:player-turn :player]))
+                      (assoc :round (:round last-entry))
+                      (assoc :winner (:winner last-entry))))))
+         (filter #(nil? (:winner %)))
+         (sort-by #(- (or (:last-move-time %) 0)))
+         (map #(dissoc % :last-move-time)))))
 
 (defn group-player-games
   [db player player-games]

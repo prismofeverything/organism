@@ -38,7 +38,8 @@
                  [ring/ring-defaults "0.3.2"]
                  [selmer "1.12.33"]
                  [thi.ng/color "1.4.0"]
-                 [buddy/buddy-auth "2.2.0"]]
+                 [buddy/buddy-auth "2.2.0"]
+                 [buddy/buddy-hashers "1.8.1"]]
 
   :min-lein-version "2.0.0"
   

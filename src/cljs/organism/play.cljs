@@ -96,6 +96,14 @@
 (defonce player-preferences
   (r/atom {}))
 
+(defonce create-game-key
+  (r/atom ""))
+
+(defonce observe-games
+  (r/atom []))
+
+(declare update-messages!)
+
 (def max-players 10)
 
 (def highlight-element-stroke {:ratio 0.04 :color "#ccc"})
@@ -162,15 +170,17 @@
 
 (defn send-create!
   [invocation]
-  (ws/send-transit-message!
-   {:type "create"
-    :invocation invocation}))
+  (when @ws/ws-channel
+    (ws/send-transit-message!
+     {:type "create"
+      :invocation invocation})))
 
 (defn send-open-game!
   [invocation]
-  (ws/send-transit-message!
-   {:type "open-game"
-    :invocation invocation}))
+  (when @ws/ws-channel
+    (ws/send-transit-message!
+     {:type "open-game"
+      :invocation invocation})))
 
 (defn initialize-chat
   [chat message]
@@ -1753,10 +1763,11 @@
 
 (defn send-player-name!
   [index player-name]
-  (ws/send-transit-message!
-   {:type "player-name"
-    :index index
-    :player player-name}))
+  (when @ws/ws-channel
+    (ws/send-transit-message!
+     {:type "player-name"
+      :index index
+      :player player-name})))
 
 (defn players-input
   [page-player invocation]
@@ -1984,6 +1995,45 @@
    [:div
     (map (partial mutation-choice color invocation) possible-mutations)]])
 
+(defn connect-create-ws!
+  [game-key]
+  (when-not (empty? game-key)
+    (ws/close-websocket!)
+    (let [protocol (if (= (.-protocol js/location) "https:") "wss:" "ws:")]
+      (ws/make-websocket!
+       (str protocol "//" (.-host js/location) "/ws/game/" game-key)
+       update-messages!))))
+
+(defn game-name-input
+  [color]
+  (let [connected? (some? @ws/ws-channel)]
+    [:div
+     {:style {:margin-bottom "30px"}}
+     [:h3
+      {:style {:margin "20px 0px 0px 0px"}}
+      "name"]
+     [:input
+      {:value @create-game-key
+       :style
+       {:border-radius "25px"
+        :color "#fff"
+        :background (if connected? color "#555")
+        :border (str "3px solid " (if connected? color "#777"))
+        :font-size "1.5em"
+        :letter-spacing "6px"
+        :margin "2px 0px"
+        :width "366px"
+        :padding "10px 30px"}
+       :on-change
+       (fn [event]
+         (reset! create-game-key (-> event .-target .-value)))
+       :on-blur
+       (fn [_] (connect-create-ws! @create-game-key))
+       :on-key-up
+       (fn [event]
+         (when (= (.-key event) "Enter")
+           (connect-create-ws! @create-game-key)))}]]))
+
 (defn create-page
   []
   (let [invocation @board-invocation
@@ -2008,17 +2058,18 @@
        [:div
         {:style
          {:margin "20px 20px"}}
-        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game"]
-        [create-button create-color inactive-color invocation]]
+        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game"]]
        [:form
         {:style
          {:margin "40px 60px"}}
+        [game-name-input create-color]
         [ring-count-input select-color]
         [player-count-input select-color]
         [organism-victory-input select-color]
         [description-input invocation select-color inactive-color]
         [players-input js/playerKey invocation]
-        [reset-colors-input inactive-color]
+        [:div [reset-colors-input inactive-color]]
+        [create-button create-color inactive-color invocation]
         [mutations-select create-color invocation]]]
       [:article
        {:style {:flex-grow 1}}
@@ -2085,7 +2136,7 @@
            (if (= (.-key event) "Enter")
              (set!
               (-> js/window .-location .-pathname)
-              (str "/player/" player "/game/" @game-key))))}]])))
+              (str "/game/" @game-key))))}]])))
 
 (defn open-games-section
   [player games]
@@ -2109,7 +2160,7 @@
              :padding "10px 0px"}}
            [:span
             [:a
-             {:href (str "/player/" player "/game/" key)
+             {:href (str "/game/" key)
               :style
               {:color "#fff"
                :border-radius "15px"
@@ -2127,7 +2178,7 @@
              ^{:key game-player}
              [:span
               [:a
-               {:href (str "/player/" player "/game/" key)
+               {:href (str "/game/" key)
                 :style
                 (if (= game-player player)
                   {:color "#fff"
@@ -2192,7 +2243,7 @@
                (str organism-victory " organisms for victory\n\n"))
              (:description invocation))}
            [:a
-            {:href (str "/player/" player "/game/" game)
+            {:href (str "/game/" game)
              :style
              {:color "#fff"
               :border-radius "15px"
@@ -2249,7 +2300,7 @@
               :padding "10px 0px"})}
           [:span
            [:a
-            {:href (str "/player/" player "/game/" game)
+            {:href (str "/game/" game)
              :style
              {:color "#fff"
               :border-radius "15px"
@@ -2426,34 +2477,104 @@
    [:p "To join an open game, simply click on the empty player slot and it will fill in your player name."]      
    [:p "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]])
 
+(defn observe-games-section
+  [games]
+  (when-not (empty? games)
+    [:div
+     {:style {:margin "20px 40px"}}
+     (for [{:keys [key invocation round current-player]} games]
+       (let [{:keys [players ring-count organism-victory description]} invocation
+             colors (invocation-player-colors (count players) invocation)
+             player-colors (into {} (map vector players colors))
+             current-color (get player-colors current-player (first colors))]
+         ^{:key key}
+         [:div
+          {:style {:margin "10px 20px" :padding "10px 0px"}}
+          [:span
+           [:a
+            {:href (str "/game/" key)
+             :style {:color "#fff"
+                     :border-radius "15px"
+                     :background current-color
+                     :padding "10px 20px"
+                     :letter-spacing "5px"
+                     :font-family font-choice
+                     :font-size "1.3em"}}
+            key]]
+          [:span {:style {:margin "0px 20px"}} " round " (inc (or round 0))]
+          (for [game-player players]
+            (let [color (get player-colors game-player)]
+              ^{:key game-player}
+              [:span
+               [:a
+                {:href (str "/player/" game-player)
+                 :style (if (= game-player current-player)
+                          {:color "#fff"
+                           :border-radius "20px"
+                           :background color
+                           :margin "0px 10px"
+                           :padding "7px 20px"}
+                          {:padding "5px 10px"
+                           :margin "0px 10px"
+                           :border-style "solid"
+                           :border-width "2px"
+                           :border-color color
+                           :border-radius "5px"
+                           :color color})}
+                game-player]]))
+          (when-not (empty? description)
+            [:div {:style {:margin "0px 40px"
+                           :color (board/brighten current-color 0.3)}}
+             description])]))]))
+
+(defn observe-page
+  []
+  (let [games @observe-games
+        color "#333"]
+    [:div
+     {:style {:padding "20px" :color "#eee"}}
+     [:div
+      {:style {:color "#fff"
+               :border-radius "50px"
+               :letter-spacing "8px"
+               :font-family font-choice
+               :margin "0px 20px"
+               :padding "25px 60px"
+               :background color}}
+      [:h1 "observe"]]
+     (if (empty? games)
+       [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
+       [observe-games-section games])]))
+
 (defn page-container
   []
-  (if js/playerKey
-    (if js/gameKey
-      (let [invocation @board-invocation]
-        (if (:created invocation)
-          (let [game (:game @game-state)]
-            (if (get-in game [:state :winner])
-              [game-page]
-              [game-page]))
-          [create-page]))
-      [player-page js/playerKey])
-    [home-page (reader/read-string js/players)]))
+  (cond
+    js/isObserve  [observe-page]
+    js/isCreate   [create-page]
+    js/playerKey  (cond
+                    js/gameKey (let [invocation @board-invocation]
+                                 (if (:created invocation)
+                                   [game-page]
+                                   [create-page]))
+                    :else      [player-page js/playerKey])
+    :else         [home-page (reader/read-string js/players)]))
 
 (defn update-messages!
   [{:keys [type] :as received}]
   (println "MESSAGE RECEIVED" received)
   (condp = type
     "initialize"
-    (do
-      (swap! game-state initialize-game received)
-      (reset! board-invocation (:invocation received))
-      (reset! clear-state (-> received :game :state))
-      (swap! chat initialize-chat received)
-      (if-let [cursor (:cursor @game-state)]
-        (let [total (count (:history received))]
-          (if (< cursor total)
-            (set-history-advance! total cursor)))))
+    (if js/isCreate
+      (dom/redirect! (str "/game/" @create-game-key))
+      (do
+        (swap! game-state initialize-game received)
+        (reset! board-invocation (:invocation received))
+        (reset! clear-state (-> received :game :state))
+        (swap! chat initialize-chat received)
+        (if-let [cursor (:cursor @game-state)]
+          (let [total (count (:history received))]
+            (if (< cursor total)
+              (set-history-advance! total cursor))))))
     "create"
     (do
       (reset! board-invocation (:invocation received))
@@ -2484,7 +2605,7 @@
     [["/" :home]
      ["/about" :about]
      ["/player/:player"]
-     ["/player/:player/game/:game"]]))
+     ["/game/:game"]]))
 
 (defn match-route [uri]
   (->> (or (not-empty (string/replace uri #"^.*#" "")) "/")
@@ -2546,8 +2667,13 @@
              (.reload js/location))
            300000))
         (dom/change-favicon neutral-favicon))
+      (when js/isObserve
+        (when js/observeGames
+          (reset! observe-games (reader/read-string js/observeGames))))
+      (when js/isCreate
+        (apply-invocation! @board-invocation))
       (when game?
         (ws/make-websocket!
-         (str protocol "//" (.-host js/location) "/ws/player/" player "/game/" js/gameKey)
+         (str protocol "//" (.-host js/location) "/ws/game/" js/gameKey)
          update-messages!))
       (mount-components))))

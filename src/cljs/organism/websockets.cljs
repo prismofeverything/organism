@@ -30,3 +30,9 @@
       (reset! ws-channel channel)
       (println "websocket connection established with " url))
     (throw (js/Error. "websocket connection FAILED with " url))))
+
+(defn close-websocket!
+  []
+  (when @ws-channel
+    (.close @ws-channel)
+    (reset! ws-channel nil)))

@@ -346,10 +346,11 @@
      :on-message (partial notify-clients! config)}))
 
 (defn ws-handler
-  [db {:keys [path-params] :as request}]
-  (let [{:keys [player game]} path-params]
+  [db {:keys [path-params session] :as request}]
+  (let [game (:game path-params)
+        player (or (:player session) "--observer--")]
     (async/as-channel request (websocket-callbacks db player game))))
 
 (defn websocket-routes
   [db]
-  [["/ws/player/:player/game/:game" (partial ws-handler db)]])
+  [["/ws/game/:game" (partial ws-handler db)]])

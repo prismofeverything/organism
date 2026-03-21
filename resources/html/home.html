@@ -1,26 +1,106 @@
 <!DOCTYPE html>
-<html style="background-color:#222">
+<html style="background-color:#111">
   <head>
-      <meta charset="UTF-8"/>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Welcome to organism</title>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ORGANISM</title>
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+    <style>
+      body { background-color: #111; margin: 0; }
+      html, body { height: 100%; margin: 0; }
+      .home-layout {
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+      }
+      .cover-panel {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+        overflow: hidden;
+      }
+      .cover-link {
+        display: flex;
+        align-items: stretch;
+      }
+      .cover-link img {
+        height: 100vh;
+        width: auto;
+        display: block;
+        object-fit: contain;
+      }
+      .nav-panel {
+        width: 280px;
+        min-width: 220px;
+        padding: 3rem 2rem 2rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .nav-label {
+        color: #555;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 0.25rem;
+        margin-top: 1.25rem;
+      }
+      .nav-link {
+        display: block;
+        color: #ccc;
+        font-size: 1.1rem;
+        padding: 0.4rem 0;
+        text-decoration: none;
+        border-bottom: 1px solid #222;
+        transition: color 0.15s;
+      }
+      .nav-link:hover {
+        color: #fff;
+        text-decoration: none;
+      }
+      .nav-link.player-link {
+        color: #adf;
+        font-weight: bold;
+      }
+      .nav-link.player-link:hover {
+        color: #cef;
+      }
+    </style>
   </head>
   <body>
-    <div id="organism"></div>
+    <div class="home-layout">
+      <div class="cover-panel">
+        <a class="cover-link" href="/img/organism-rulebook.pdf" target="_blank">
+          <img src="/img/rulebook-cover-01.png" alt="ORGANISM Rulebook Cover"/>
+        </a>
+      </div>
 
-    <!-- scripts and styles -->
-    {% style "/assets/bulma/css/bulma.min.css" %}
-    {% style "/assets/material-icons/css/material-icons.min.css" %}
-    {% style "/css/screen.css" %}
+      <nav class="nav-panel">
+        {% if session-player %}
+          <span class="nav-label">you</span>
+          <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
+          <a class="nav-link" href="/create">create game</a>
+          <a class="nav-link" href="/player/{{session-player}}">your games</a>
 
-    <script type="text/javascript">
-      var players = "{{players|addslashes|safe}}"
-      var playerKey = null;
-      var playerPreferences = null;
-      var gameKey = null;
-      var playerGames = null;
-      var csrfToken = "{{csrf-token}}";
-    </script>
-    {% script "/js/organism.js" %}
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/observe">observe games</a>
+          <a class="nav-link" href="/stats">player stats</a>
+          <a class="nav-link" href="/learn">learn</a>
+
+          <span class="nav-label" style="margin-top:2rem"></span>
+          <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
+        {% else %}
+          <span class="nav-label">account</span>
+          <a class="nav-link" href="/login">login / register</a>
+
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/observe">observe games</a>
+          <a class="nav-link" href="/stats">player stats</a>
+          <a class="nav-link" href="/learn">learn</a>
+        {% endif %}
+      </nav>
+    </div>
   </body>
 </html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html style="background-color:#222">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ORGANISM - Register</title>
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+  </head>
+  <body style="background-color:#222">
+    <section class="section">
+      <div class="container" style="max-width:420px">
+        <h1 class="title" style="color:#eee">ORGANISM</h1>
+        <h2 class="subtitle" style="color:#aaa">register</h2>
+        {% if error %}
+        <div class="notification is-danger">{{error}}</div>
+        {% endif %}
+        <form method="POST" action="/register">
+          {% csrf-field %}
+          <div class="field">
+            <label class="label" style="color:#eee">player name</label>
+            <div class="control">
+              <input class="input" type="text" name="player" placeholder="choose a name" autofocus required/>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" style="color:#eee">password</label>
+            <div class="control">
+              <input class="input" type="password" name="password" required/>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" style="color:#eee">confirm password</label>
+            <div class="control">
+              <input class="input" type="password" name="password-confirm" required/>
+            </div>
+          </div>
+          <div class="field is-grouped">
+            <div class="control">
+              <button class="button is-primary" type="submit">register</button>
+            </div>
+            <div class="control">
+              <a class="button is-light" href="/login">login</a>
+            </div>
+          </div>
+        </form>
+      </div>
+    </section>
+  </body>
+</html>
