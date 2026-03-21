@@ -1,106 +1,65 @@
 <!DOCTYPE html>
-<html style="background-color:#111">
+<html>
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM</title>
-    {% style "/assets/bulma/css/bulma.min.css" %}
-    {% style "/css/screen.css" %}
+    <title>GAMES</title>
     <style>
-      body { background-color: #111; margin: 0; }
-      html, body { height: 100%; margin: 0; }
-      .home-layout {
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; background: #111; }
+      .catalog {
         display: flex;
         flex-direction: row;
         height: 100vh;
       }
-      .cover-panel {
+      .game-tile {
         flex: 1;
         display: flex;
-        justify-content: center;
-        align-items: stretch;
-        overflow: hidden;
-      }
-      .cover-link {
-        display: flex;
-        align-items: stretch;
-      }
-      .cover-link img {
-        height: 100vh;
-        width: auto;
-        display: block;
-        object-fit: contain;
-      }
-      .nav-panel {
-        width: 280px;
-        min-width: 220px;
-        padding: 3rem 2rem 2rem 1rem;
-        display: flex;
         flex-direction: column;
-        gap: 0.5rem;
-      }
-      .nav-label {
-        color: #555;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 0.25rem;
-        margin-top: 1.25rem;
-      }
-      .nav-link {
-        display: block;
-        color: #ccc;
-        font-size: 1.1rem;
-        padding: 0.4rem 0;
+        align-items: center;
+        justify-content: center;
         text-decoration: none;
-        border-bottom: 1px solid #222;
+        overflow: hidden;
+        border-right: 1px solid #222;
+      }
+      .game-tile:last-child {
+        border-right: none;
+      }
+      .game-tile img {
+        height: 80vh;
+        width: auto;
+        max-width: 90%;
+        object-fit: contain;
+        transition: opacity 0.15s;
+      }
+      .game-tile:hover img {
+        opacity: 0.85;
+      }
+      .game-name {
+        color: #666;
+        font-size: 0.8rem;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        margin-top: 1.5rem;
+        font-family: BlinkMacSystemFont,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
         transition: color 0.15s;
       }
-      .nav-link:hover {
-        color: #fff;
-        text-decoration: none;
-      }
-      .nav-link.player-link {
-        color: #adf;
-        font-weight: bold;
-      }
-      .nav-link.player-link:hover {
-        color: #cef;
+      .game-tile:hover .game-name {
+        color: #bbb;
       }
     </style>
   </head>
   <body>
-    <div class="home-layout">
-      <div class="cover-panel">
-        <a class="cover-link" href="/img/organism-rulebook.pdf" target="_blank">
-          <img src="/img/rulebook-cover-01.png" alt="ORGANISM Rulebook Cover"/>
-        </a>
-      </div>
-
-      <nav class="nav-panel">
-        {% if session-player %}
-          <span class="nav-label">you</span>
-          <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
-          <a class="nav-link" href="/create">create</a>
-          <a class="nav-link" href="/player/{{session-player}}">games</a>
-
-          <span class="nav-label">explore</span>
-          <a class="nav-link" href="/observe">observe</a>
-          <a class="nav-link" href="/stats">players</a>
-          <a class="nav-link" href="/learn">learn</a>
-
-          <span class="nav-label" style="margin-top:2rem"></span>
-          <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
-        {% else %}
-          <span class="nav-label">account</span>
-          <a class="nav-link" href="/login">login / register</a>
-
-          <span class="nav-label">explore</span>
-          <a class="nav-link" href="/observe">observe</a>
-          <a class="nav-link" href="/stats">players</a>
-          <a class="nav-link" href="/learn">learn</a>
-        {% endif %}
-      </nav>
+    <div class="catalog">
+      <a class="game-tile" href="/organism">
+        <img src="/img/rulebook-cover-01.png" alt="ORGANISM"/>
+        <span class="game-name">organism</span>
+      </a>
+      <a class="game-tile" href="/journey">
+        <img src="/img/rulebook-cover-01.png" alt="JOURNEY"
+             style="transform: rotate(180deg); filter: invert(1);"/>
+        <span class="game-name">journey</span>
+      </a>
     </div>
   </body>
 </html>

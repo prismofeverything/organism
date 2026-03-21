@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JOURNEY</title>
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+    <style>
+      body { background-color: #111; margin: 0; }
+      html, body { height: 100%; margin: 0; }
+      .home-layout {
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+      }
+      .cover-panel {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+        overflow: hidden;
+      }
+      .cover-link {
+        display: flex;
+        align-items: stretch;
+      }
+      .cover-link img {
+        height: 100vh;
+        width: auto;
+        display: block;
+        object-fit: contain;
+      }
+      .nav-panel {
+        width: 280px;
+        min-width: 220px;
+        padding: 3rem 2rem 2rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .nav-label {
+        color: #555;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 0.25rem;
+        margin-top: 1.25rem;
+      }
+      .nav-link {
+        display: block;
+        color: #ccc;
+        font-size: 1.1rem;
+        padding: 0.4rem 0;
+        text-decoration: none;
+        border-bottom: 1px solid #222;
+        transition: color 0.15s;
+      }
+      .nav-link:hover {
+        color: #fff;
+        text-decoration: none;
+      }
+      .nav-link.player-link {
+        color: #adf;
+        font-weight: bold;
+      }
+      .nav-link.player-link:hover {
+        color: #cef;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="home-layout">
+      <div class="cover-panel">
+        <a class="cover-link" href="/journey">
+          <img src="/img/rulebook-cover-01.png" alt="JOURNEY"
+               style="transform: rotate(180deg); filter: invert(1);"/>
+        </a>
+      </div>
+
+      <nav class="nav-panel">
+        {% if session-player %}
+          <span class="nav-label">you</span>
+          <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
+          <a class="nav-link" href="/journey/create">create</a>
+
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/journey/observe">observe</a>
+
+          <span class="nav-label" style="margin-top:2rem"></span>
+          <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
+        {% else %}
+          <span class="nav-label">account</span>
+          <a class="nav-link" href="/login">login / register</a>
+
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/journey/observe">observe</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
+        {% endif %}
+      </nav>
+    </div>
+  </body>
+</html>

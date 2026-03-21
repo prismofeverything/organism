@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - players</title>
+    <title>JOURNEY</title>
   </head>
   <body>
-    <div id="organism">
+    <div id="journey">
     </div>
 
     {% style "/assets/bulma/css/bulma.min.css" %}
@@ -15,15 +15,15 @@
 
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{session-player}}";
-      var playerPreferences = null;
+      var playerKey = "{{player}}";
       var playerGames = null;
-      var playKey = null;
+      var playerPreferences = "{{preferences|addslashes|safe}}";
+      var playKey = "{{play}}";
       var isCreate = false;
       var isObserve = false;
-      var isStats = true;
-      var playerStats = "{{player-stats|addslashes|safe}}";
+      console.log("player key: " + playerKey);
+      console.log("play key: " + playKey);
     </script>
-    {% script "/js/organism.js" %}
+    {% script "/js/journey.js" %}
   </body>
 </html>

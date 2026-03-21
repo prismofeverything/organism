@@ -5,6 +5,9 @@
    [organism.layout :refer [error-page]]
    [organism.routes.home :refer [home-routes]]
    ;; [organism.routes.api :refer [api-routes]]
+   [organism.routes.organism :refer [organism-routes]]
+   [organism.routes.journey :refer [journey-routes]]
+   [organism.routes.journey-ws :refer [journey-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
    [ring.middleware.content-type :refer [wrap-content-type]]
@@ -28,7 +31,10 @@
     (let [db (db/connect! mongo-connection)]
       [(home-routes db)
        ;; (api-routes)
-       (websocket-routes db)]))
+       (organism-routes db)
+       (journey-routes db)
+       (websocket-routes db)
+       (journey-ws-routes db)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})

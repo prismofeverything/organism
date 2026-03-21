@@ -3,26 +3,30 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - players</title>
+    <title>ORGANISM</title>
   </head>
   <body>
     <div id="organism">
     </div>
 
+    <!-- scripts and styles -->
     {% style "/assets/bulma/css/bulma.min.css" %}
     {% style "/assets/material-icons/css/material-icons.min.css" %}
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{session-player}}";
-      var playerPreferences = null;
+      var playerKey = "{{player}}";
       var playerGames = null;
-      var playKey = null;
+      var playerPreferences = "{{preferences|addslashes|safe}}";
+      var playKey = "{{play}}";
+      var homePath = "/organism";
+      var playerPath = "/organism/player";
       var isCreate = false;
+      var isStats = false;
       var isObserve = false;
-      var isStats = true;
-      var playerStats = "{{player-stats|addslashes|safe}}";
+      console.log("player key: " + playerKey);
+      console.log("play key: " + playKey);
     </script>
     {% script "/js/organism.js" %}
   </body>

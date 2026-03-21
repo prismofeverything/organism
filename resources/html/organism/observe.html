@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - players</title>
+    <title>ORGANISM - observe games</title>
   </head>
   <body>
     <div id="organism">
@@ -19,10 +19,12 @@
       var playerPreferences = null;
       var playerGames = null;
       var playKey = null;
+      var homePath = "/organism";
+      var playerPath = "/organism/player";
       var isCreate = false;
-      var isObserve = false;
-      var isStats = true;
-      var playerStats = "{{player-stats|addslashes|safe}}";
+      var isStats = false;
+      var isObserve = true;
+      var observeGames = "{{observe-games|addslashes|safe}}";
     </script>
     {% script "/js/organism.js" %}
   </body>

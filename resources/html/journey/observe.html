@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - players</title>
+    <title>JOURNEY - observe games</title>
   </head>
   <body>
-    <div id="organism">
+    <div id="journey">
     </div>
 
     {% style "/assets/bulma/css/bulma.min.css" %}
@@ -20,10 +20,9 @@
       var playerGames = null;
       var playKey = null;
       var isCreate = false;
-      var isObserve = false;
-      var isStats = true;
-      var playerStats = "{{player-stats|addslashes|safe}}";
+      var isObserve = true;
+      var observeGames = "{{observe-games|addslashes|safe}}";
     </script>
-    {% script "/js/organism.js" %}
+    {% script "/js/journey.js" %}
   </body>
 </html>

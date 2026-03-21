@@ -17,6 +17,7 @@
         {% endif %}
         <form method="POST" action="/register">
           {% csrf-field %}
+          {% if redirect %}<input type="hidden" name="redirect" value="{{redirect}}"/>{% endif %}
           <div class="field">
             <label class="label" style="color:#eee">player name</label>
             <div class="control">
@@ -40,7 +41,7 @@
               <button class="button is-primary" type="submit">register</button>
             </div>
             <div class="control">
-              <a class="button is-light" href="/login">login</a>
+              <a class="button is-light" href="/login{% if redirect %}?redirect={{redirect}}{% endif %}">login</a>
             </div>
           </div>
         </form>

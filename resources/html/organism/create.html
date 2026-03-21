@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - players</title>
+    <title>ORGANISM - create game</title>
   </head>
   <body>
     <div id="organism">
@@ -16,13 +16,14 @@
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
       var playerKey = "{{session-player}}";
-      var playerPreferences = null;
+      var playerPreferences = "{{preferences|addslashes|safe}}";
       var playerGames = null;
       var playKey = null;
-      var isCreate = false;
+      var homePath = "/organism";
+      var playerPath = "/organism/player";
+      var isCreate = true;
+      var isStats = false;
       var isObserve = false;
-      var isStats = true;
-      var playerStats = "{{player-stats|addslashes|safe}}";
     </script>
     {% script "/js/organism.js" %}
   </body>

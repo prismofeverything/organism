@@ -2,13 +2,10 @@
   (:require
    [organism.board :as board]
    [organism.layout :as layout]
-   [organism.game :as game]
    [organism.choice :as choice]
    [organism.persist :as persist]
-   [organism.layout :as layout]
    [organism.examples :as examples]
    [hiccup.core :as up]
-   [clojure.java.io :as io]
    [organism.middleware :as middleware]
    [buddy.hashers :as hashers]
    [ring.util.response :as response]
@@ -33,81 +30,83 @@
         (handler request)
         (response/redirect "/login")))))
 
-(defn home-page
-  [db request]
-  (let [player (get-in request [:session :player])]
-    (layout/render
-     request
-     "home.html"
-     {:session-player player})))
+(defn catalog-page
+  [request]
+  (layout/render request "home.html" {}))
 
-(defn observe-page
-  [db request]
-  (let [player (get-in request [:session :player])
-        games (persist/load-observe-games db)]
-    (layout/render request "observe.html"
-                   {:session-player player
-                    :observe-games (pr-str games)})))
-
-(defn stats-page
-  [db request]
-  (let [player-stats (persist/load-player-stats db)]
-    (layout/render request "stats.html"
-                   {:session-player (get-in request [:session :player])
-                    :player-stats (pr-str player-stats)})))
+(defn organism-home-page
+  [request]
+  (layout/render
+   request
+   "organism/home.html"
+   {:session-player (get-in request [:session :player])}))
 
 (defn learn-page
   [request]
   (layout/render request "learn.html" {:session-player (get-in request [:session :player])}))
 
-(defn create-game-page
-  [db request]
-  (let [player (get-in request [:session :player])
-        preferences (persist/find-player-preferences db player)]
-    (layout/render request "create.html"
-                   {:session-player player
-                    :preferences preferences})))
+(defn safe-redirect
+  "Only allow relative paths to prevent open redirect."
+  [redirect player]
+  (if (and redirect
+           (string? redirect)
+           (clojure.string/starts-with? redirect "/")
+           (not (clojure.string/starts-with? redirect "//")))
+    redirect
+    (str "/organism/player/" player)))
 
 (defn login-page
   [request]
-  (layout/render request "login.html" {}))
+  (let [redirect (get-in request [:query-params "redirect"])]
+    (layout/render request "login.html" {:redirect redirect})))
 
 (defn login-submit
   [db request]
   (let [params (:params request)
         player (:player params)
         password (:password params)
+        redirect (safe-redirect (:redirect params) player)
         stored-hash (persist/find-player-password db player)]
     (if (and stored-hash (hashers/check password stored-hash))
-      (-> (response/redirect (str "/player/" player))
+      (-> (response/redirect redirect)
           (assoc :session {:player player}))
-      (layout/render request "login.html" {:error "Invalid player name or password"}))))
+      (layout/render request "login.html"
+                     {:error "Invalid player name or password"
+                      :redirect (:redirect params)}))))
 
 (defn register-page
   [request]
-  (layout/render request "register.html" {}))
+  (let [redirect (get-in request [:query-params "redirect"])]
+    (layout/render request "register.html" {:redirect redirect})))
 
 (defn register-submit
   [db request]
   (let [params (:params request)
         player (:player params)
         password (:password params)
-        password-confirm (:password-confirm params)]
+        password-confirm (:password-confirm params)
+        redirect (safe-redirect (:redirect params) player)]
     (cond
       (or (empty? player) (empty? password))
-      (layout/render request "register.html" {:error "Player name and password are required"})
+      (layout/render request "register.html"
+                     {:error "Player name and password are required"
+                      :redirect (:redirect params)})
 
       (not= password password-confirm)
-      (layout/render request "register.html" {:error "Passwords do not match"})
+      (layout/render request "register.html"
+                     {:error "Passwords do not match"
+                      :redirect (:redirect params)})
 
       (persist/player-has-password? db player)
-      (layout/render request "register.html" {:error "That player name is already taken"})
+      (layout/render request "register.html"
+                     {:error "That player name is already taken"
+                      :redirect (:redirect params)})
 
       :else
       (let [hashed (hashers/derive password)]
         (persist/set-player-password! db player hashed)
         (persist/update-player-preferences! db player {:color (board/random-color 0.4 0.8)})
-        (-> (response/redirect (str "/player/" player))
+        (-> (response/redirect redirect)
             (assoc :session {:player player}))))))
 
 (defn logout
@@ -141,18 +140,6 @@
         (up/html (board/render-game board game)))))
    "text/html; charset=utf-8"))
 
-(defn game-page
-  [db request]
-  (let [game-key (-> request :path-params :game)
-        player-key (get-in request [:session :player])
-        preferences (persist/find-player-preferences db player-key)]
-    (layout/render
-     request
-     "game.html"
-     {:player player-key
-      :game game-key
-      :preferences preferences})))
-
 (defn apply-player-preferences
   [db request]
   (let [player (-> request :path-params :player)]
@@ -160,33 +147,42 @@
     (persist/update-player-preferences! db player (:params request))
     (response/response {:ok true :status :success})))
 
-(defn require-auth
-  [handler]
-  (fn [request]
-    (if (get-in request [:session :player])
-      (handler request)
-      (response/redirect "/login"))))
+(defn account-page
+  [db request]
+  (let [player (-> request :path-params :player)
+        preferences (persist/find-player-preferences db player)
+        color (or (:color preferences) "#888888")]
+    (layout/render
+     request
+     "account.html"
+     {:player player
+      :color color})))
+
+(defn account-submit
+  [db request]
+  (let [player (-> request :path-params :player)
+        color (get-in request [:params :color])]
+    (persist/update-player-preferences! db player {:color color})
+    (response/response {:ok true})))
 
 (defn home-routes
   [db]
   [""
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
-   ["/" {:get (partial home-page db)}]
+   ["/" {:get catalog-page}]
+   ["/organism" {:get organism-home-page}]
    ["/eternal" {:get eternal-page}]
    ["/login" {:get login-page
               :post (partial login-submit db)}]
    ["/register" {:get register-page
                  :post (partial register-submit db)}]
    ["/logout" {:get logout}]
-   ["/observe" {:get (partial observe-page db)}]
-   ["/stats" {:get (partial stats-page db)}]
    ["/learn" {:get learn-page}]
-   ["/create" {:get (partial create-game-page db)
-               :middleware [require-auth]}]
-   ["/game/:game" {:get (partial game-page db)}]
-   ["/game/:game/" {:get (partial game-page db)}]
    ["/player/:player" {:get (partial player-page db)}]
    ["/player/:player/" {:get (partial player-page db)}]
+   ["/player/:player/account" {:get (partial account-page db)
+                               :post (partial account-submit db)
+                               :middleware [require-player-auth]}]
    ["/player/:player/preferences" {:post (partial apply-player-preferences db)
                                    :middleware [require-player-auth]}]])

@@ -205,7 +205,7 @@
       :history history
       :chat chat})
     (persist/remove-open-game! db game-key)
-    (persist/create-game! db (assoc (dissoc game-state :channels) :created-by player))))
+    (persist/create-game! db (assoc (dissoc game-state :channels) :created-by player :game-type "organism"))))
 
 (defn update-game-state
   [db player game-key channel {:keys [game complete] :as message}]
@@ -347,10 +347,10 @@
 
 (defn ws-handler
   [db {:keys [path-params session] :as request}]
-  (let [game (:game path-params)
+  (let [play (:play path-params)
         player (or (:player session) "--observer--")]
-    (async/as-channel request (websocket-callbacks db player game))))
+    (async/as-channel request (websocket-callbacks db player play))))
 
 (defn websocket-routes
   [db]
-  [["/ws/game/:game" (partial ws-handler db)]])
+  [["/ws/organism/play/:play" (partial ws-handler db)]])

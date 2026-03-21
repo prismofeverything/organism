@@ -252,8 +252,8 @@
     [:a
      {:style
       {:color "#fff"}
-      :href (str "/player/" js/playerKey)}
-     js/gameKey]]
+      :href (str js/playerPath "/" js/playerKey)}
+     js/playKey]]
    [:h2 "round " (inc round)]])
 
 (defn boundary-inc
@@ -1559,7 +1559,7 @@
       [:div
        {:style
         {:margin "20px 20px"}}
-       [current-player-banner current-player current-color turn nil (str "/player/" js/playerKey)]
+       [current-player-banner current-player current-color turn nil (str js/playerPath "/" js/playerKey)]
        [:div
         {:style
          {:margin "0px 40px"}}
@@ -1699,7 +1699,7 @@
         ;;   (ws/send-transit-message!
         ;;    {:type "trigger-creation"})
         ;;   (dom/redirect!
-        ;;    (str "/player/" js/playerKey)))
+        ;;    (str js/playerPath "/" js/playerKey)))
 
 (defn ring-count-input
   [color]
@@ -1930,7 +1930,7 @@
           (ws/send-transit-message!
            {:type "trigger-creation"})
           (dom/redirect!
-           (str "/player/" js/playerKey))))}]))
+           (str js/playerPath "/" js/playerKey))))}]))
 
 (defn description-input
   [{:keys [description] :as invocation} foreground-color background-color]
@@ -2121,7 +2121,7 @@
        [:div
         {:style
          {:margin "20px 20px"}}
-        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game" create-explanation]]
+        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game" create-explanation js/homePath]]
        [:form
         {:style
          {:margin "40px 60px"}}
@@ -2193,7 +2193,7 @@
              :padding "10px 0px"}}
            [:span
             [:a
-             {:href (str "/game/" key)
+             {:href (str "/organism/play/" key)
               :style
               {:color "#fff"
                :border-radius "15px"
@@ -2211,7 +2211,7 @@
              ^{:key game-player}
              [:span
               [:a
-               {:href (str "/game/" key)
+               {:href (str "/organism/play/" key)
                 :style
                 (if (= game-player player)
                   {:color "#fff"
@@ -2276,7 +2276,7 @@
                (str organism-victory " organisms for victory\n\n"))
              (:description invocation))}
            [:a
-            {:href (str "/game/" game)
+            {:href (str "/organism/play/" game)
              :style
              {:color "#fff"
               :border-radius "15px"
@@ -2295,7 +2295,7 @@
               ^{:key game-player}
               [:span
                [:a
-                {:href (str "/player/" game-player)
+                {:href (str js/playerPath "/" game-player)
                  :style
                  (if (= game-player current-player)
                    {:color "#fff"
@@ -2333,7 +2333,7 @@
               :padding "10px 0px"})}
           [:span
            [:a
-            {:href (str "/game/" game)
+            {:href (str "/organism/play/" game)
              :style
              {:color "#fff"
               :border-radius "15px"
@@ -2352,7 +2352,7 @@
               ^{:key game-player}
               [:span
                [:a
-                {:href (str "/player/" game-player)
+                {:href (str js/playerPath "/" game-player)
                  :style
                  (if (= game-player winner)
                    {:color "#fff"
@@ -2390,7 +2390,7 @@
     [:a
      {:style
       {:color "#fff"}
-      :href "/"}
+      :href js/homePath}
      player]]
    [:div
     {:style
@@ -2475,7 +2475,7 @@
             (let [valid? (valid-player-name? players @player-key)]
               (if (and valid? (= key "Enter"))
                 (dom/redirect!
-                 (str "/player/" value))))))}]
+                 (str js/playerPath "/" value))))))}]
       [:div
        (let [valid? (valid-player-name? players @player-key)]
          [:input
@@ -2495,7 +2495,7 @@
            (fn [event]
              (when (valid-player-name? players @player-key)
                (dom/redirect!
-                (str "/player/" @player-key))))}])]]]))
+                (str js/playerPath "/" @player-key))))}])]]]))
 
 (defn observe-games-section
   [games]
@@ -2512,7 +2512,7 @@
           {:style {:margin "10px 20px" :padding "10px 0px"}}
           [:span
            [:a
-            {:href (str "/game/" key)
+            {:href (str "/organism/play/" key)
              :style {:color "#fff"
                      :border-radius "15px"
                      :background current-color
@@ -2527,7 +2527,7 @@
               ^{:key game-player}
               [:span
                [:a
-                {:href (str "/player/" game-player)
+                {:href (str js/playerPath "/" game-player)
                  :style (if (= game-player current-player)
                           {:color "#fff"
                            :border-radius "20px"
@@ -2561,7 +2561,7 @@
                :margin "0px 20px"
                :padding "25px 60px"
                :background color}}
-      [:h1 [:a {:style {:color "#fff"} :href "/"} "observe"]]]
+      [:h1 [:a {:style {:color "#fff"} :href js/homePath} "observe"]]]
      (if (empty? games)
        [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
        [observe-games-section games])]))
@@ -2606,7 +2606,7 @@
                :margin "0px 20px"
                :padding "25px 60px"
                :background "#333"}}
-      [:h1 [:a {:style {:color "#fff"} :href "/"} "players"]]]
+      [:h1 [:a {:style {:color "#fff"} :href js/homePath} "players"]]]
      (if (empty? stats)
        [:p {:style {:margin "30px 40px" :color "#888"}} "no players yet"]
        [:div
@@ -2616,7 +2616,7 @@
           [:div
            {:style {:margin "10px 20px" :padding "10px 0px" :display "flex" :align-items "center" :flex-wrap "wrap" :gap "4px"}}
            [:a
-            {:href (str "/player/" key)
+            {:href (str js/playerPath "/" key)
              :style {:color "#fff"
                      :border-radius "15px"
                      :background (or color "#444")
@@ -2638,7 +2638,7 @@
     js/isObserve  [observe-page]
     js/isCreate   [create-page]
     js/playerKey  (cond
-                    js/gameKey (let [invocation @board-invocation]
+                    js/playKey (let [invocation @board-invocation]
                                  (if (:created invocation)
                                    [game-page]
                                    [create-page]))
@@ -2651,7 +2651,7 @@
   (condp = type
     "initialize"
     (if js/isCreate
-      (dom/redirect! (str "/game/" @create-game-key))
+      (dom/redirect! (str "/organism/play/" @create-game-key))
       (do
         (swap! game-state initialize-game received)
         (reset! board-invocation (:invocation received))
@@ -2721,7 +2721,7 @@
 (defn init!
   []
   (let [player? (not (empty? js/playerKey))
-        game? (not (empty? js/gameKey))
+        game? (not (empty? js/playKey))
         player-games? (and player? (not game?))
         observer? (and game? (not player?))
         player (if player? js/playerKey game/observer-key)
@@ -2763,6 +2763,6 @@
         (apply-invocation! @board-invocation))
       (when game?
         (ws/make-websocket!
-         (str protocol "//" (.-host js/location) "/ws/game/" js/gameKey)
+         (str protocol "//" (.-host js/location) "/ws/organism/play/" js/playKey)
          update-messages!))
       (mount-components))))

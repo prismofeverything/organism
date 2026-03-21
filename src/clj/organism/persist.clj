@@ -71,7 +71,7 @@
    (map last (:colors invocation))))
 
 (defn create-player-game!
-  [db game-key invocation player state]
+  [db game-key invocation player state game-type]
   (let [round (:round state)
         players (:players invocation)
         current-player (-> state :player-turn :player)
@@ -82,6 +82,7 @@
      {:game game-key}
      {:round round
       :status "active"
+      :game-type game-type
       :player-colors player-colors
       :invocation invocation
       :players players
@@ -90,10 +91,10 @@
       :winner nil})))
 
 (defn create-player-games!
-  [db game-key invocation state]
+  [db game-key invocation state game-type]
   (let [players (:players invocation)]
     (doseq [player (reverse players)]
-      (create-player-game! db game-key invocation player state))))
+      (create-player-game! db game-key invocation player state game-type))))
 
 (defn find-player-game
   [db game-key player]
@@ -219,7 +220,7 @@
        (dissoc player-game :game)))))
 
 (defn create-game!
-  [db {:keys [key invocation game chat created-by] :as game-state}]
+  [db {:keys [key invocation game chat created-by game-type] :as game-state}]
   (let [game-state (update-in game-state [:game :state] serialize-state)
         game-state (update-in game-state [:game :adjacencies] pr-str)
         game-state (update-in game-state [:game :players] pr-str)
@@ -232,7 +233,7 @@
     (doseq [player (reverse (:players invocation))]
       (db/index! db (player-games-key player) [:game] {:unique true}))
       ;; (db/merge! db :players {:key player} {:color (get player-colors player)})
-    (create-player-games! db key invocation initial-state)))
+    (create-player-games! db key invocation initial-state game-type)))
 
 (defn update-state!
   [db key state]
@@ -352,12 +353,20 @@
    player-games))
 
 (defn load-player-games
-  [db player]
-  (let [records (db/query db (player-games-key player) {})
-        records (map deserialize-player-game records)
-        states (group-player-games db player records)
-        open (load-open-games db)]
-    (assoc states "open" open)))
+  ([db player]
+   (load-player-games db player nil))
+  ([db player game-type]
+   (let [query (if game-type
+                 {"$or" [{:game-type game-type}
+                         {:game-type {"$exists" false}}]}
+                 {})
+         records (db/query db (player-games-key player) query)
+         records (map deserialize-player-game records)
+         states (group-player-games db player records)
+         open (if game-type
+                (filter #(= game-type (:game-type (:invocation %))) (load-open-games db))
+                (load-open-games db))]
+     (assoc states "open" open))))
 
 (defn load-history
   [db key]

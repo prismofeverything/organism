@@ -62,7 +62,9 @@
 
   :profiles
   {:uberjar {:omit-source true
-             :prep-tasks ["compile" ["cljsbuild" "once" "organism"]]
+             :prep-tasks ["compile"
+                          ["cljsbuild" "once" "organism"]
+                          ["cljsbuild" "once" "journey"]]
              :cljsbuild
              {:builds
               {:organism
@@ -76,8 +78,20 @@
                  :infer-externs true
                  :closure-warnings
                  {:externs-validation :off :non-standard-jsdoc :off}
+                 :externs ["react/externs/react.js"]}}
+               :journey
+               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
+                :compiler
+                {:output-dir "target/cljsbuild/public/js/journey-prod"
+                 :output-to "target/cljsbuild/public/js/journey.js"
+                 :source-map "target/cljsbuild/public/js/journey.js.map"
+                 :main "journey.journey"
+                 :optimizations :advanced
+                 :pretty-print false
+                 :infer-externs true
+                 :closure-warnings
+                 {:externs-validation :off :non-standard-jsdoc :off}
                  :externs ["react/externs/react.js"]}}}}
-             
              :aot :all
              :uberjar-name "organism.jar"
              :source-paths ["env/prod/clj" ]
@@ -109,6 +123,17 @@
                       :asset-path "/js/out"
                       :output-to "target/cljsbuild/public/js/organism.js"
                       :output-dir "target/cljsbuild/public/js/out"
+                      :source-map true
+                      :optimizations :none
+                      :pretty-print true}}
+                    :journey
+                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
+                     :figwheel {:on-jsload "journey.play/mount-components"}
+                     :compiler
+                     {:main "journey.journey"
+                      :asset-path "/js/journey-out"
+                      :output-to "target/cljsbuild/public/js/journey.js"
+                      :output-dir "target/cljsbuild/public/js/journey-out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}}}
