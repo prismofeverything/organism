@@ -102,13 +102,15 @@
 (defn update-player-game!
   [db game-key player state]
   (let [current-player (-> state :player-turn :player)
-        round (:round state)]
+        round (:round state)
+        now (quot (System/currentTimeMillis) 1000)]
     (println "updating" player game-key current-player)
     (db/merge!
      db (player-games-key player)
      {:game game-key}
      {:round round
-      :current-player current-player})))
+      :current-player current-player
+      :last-move-at now})))
 
 (defn update-player-games!
   [db game-key players state]
@@ -217,7 +219,7 @@
        (dissoc player-game :game)))))
 
 (defn create-game!
-  [db {:keys [key invocation game chat] :as game-state}]
+  [db {:keys [key invocation game chat created-by] :as game-state}]
   (let [game-state (update-in game-state [:game :state] serialize-state)
         game-state (update-in game-state [:game :adjacencies] pr-str)
         game-state (update-in game-state [:game :players] pr-str)
@@ -280,6 +282,36 @@
   [db]
   (filter-ids
    (db/find-all db :players)))
+
+(defn ensure-player-color!
+  [db player-key color]
+  (update-player-preferences! db player-key {:color color})
+  color)
+
+(defn load-player-stats
+  [db]
+  (let [players (load-players db)]
+    (->> players
+         (map
+          (fn [{:keys [key color]}]
+            (let [games (db/query db (player-games-key key) {})
+                  active (count (filter #(= "active" (:status %)) games))
+                  complete (count (filter #(= "complete" (:status %)) games))
+                  wins (count (filter #(= key (:winner %)) games))
+                  created (db/number db :games {:created-by key})
+                  last-move-at (->> games
+                                    (map :last-move-at)
+                                    (filter some?)
+                                    (apply max 0))
+                  player-color (or color (ensure-player-color! db key (board/random-color 0.4 0.8)))]
+              {:key key
+               :color player-color
+               :active active
+               :complete complete
+               :wins wins
+               :created created
+               :last-move-at last-move-at})))
+         (sort-by :last-move-at >))))
 
 (defn load-observe-games
   [db]

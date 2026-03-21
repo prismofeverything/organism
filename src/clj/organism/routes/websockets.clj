@@ -205,7 +205,7 @@
       :history history
       :chat chat})
     (persist/remove-open-game! db game-key)
-    (persist/create-game! db (dissoc game-state :channels))))
+    (persist/create-game! db (assoc (dissoc game-state :channels) :created-by player))))
 
 (defn update-game-state
   [db player game-key channel {:keys [game complete] :as message}]

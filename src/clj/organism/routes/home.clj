@@ -50,8 +50,11 @@
                     :observe-games (pr-str games)})))
 
 (defn stats-page
-  [request]
-  (layout/render request "stats.html" {:session-player (get-in request [:session :player])}))
+  [db request]
+  (let [player-stats (persist/load-player-stats db)]
+    (layout/render request "stats.html"
+                   {:session-player (get-in request [:session :player])
+                    :player-stats (pr-str player-stats)})))
 
 (defn learn-page
   [request]
@@ -103,6 +106,7 @@
       :else
       (let [hashed (hashers/derive password)]
         (persist/set-player-password! db player hashed)
+        (persist/update-player-preferences! db player {:color (board/random-color 0.4 0.8)})
         (-> (response/redirect (str "/player/" player))
             (assoc :session {:player player}))))))
 
@@ -176,15 +180,13 @@
                  :post (partial register-submit db)}]
    ["/logout" {:get logout}]
    ["/observe" {:get (partial observe-page db)}]
-   ["/stats" {:get stats-page}]
+   ["/stats" {:get (partial stats-page db)}]
    ["/learn" {:get learn-page}]
    ["/create" {:get (partial create-game-page db)
                :middleware [require-auth]}]
    ["/game/:game" {:get (partial game-page db)}]
    ["/game/:game/" {:get (partial game-page db)}]
-   ["/player/:player" {:get (partial player-page db)
-                       :middleware [require-player-auth]}]
-   ["/player/:player/" {:get (partial player-page db)
-                        :middleware [require-player-auth]}]
+   ["/player/:player" {:get (partial player-page db)}]
+   ["/player/:player/" {:get (partial player-page db)}]
    ["/player/:player/preferences" {:post (partial apply-player-preferences db)
                                    :middleware [require-player-auth]}]])

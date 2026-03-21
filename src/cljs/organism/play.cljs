@@ -102,6 +102,9 @@
 (defonce observe-games
   (r/atom []))
 
+(defonce player-stats
+  (r/atom []))
+
 (declare update-messages!)
 
 (def max-players 10)
@@ -249,10 +252,7 @@
     [:a
      {:style
       {:color "#fff"}
-      :href
-      (if js/playerKey
-        (str "/player/" js/playerKey)
-        "/")}
+      :href (str "/player/" js/playerKey)}
      js/gameKey]]
    [:h2 "round " (inc round)]])
 
@@ -935,32 +935,86 @@
      generated)))
 
 (defn current-player-banner
-  [player color turn]
-  [:div
-   {:style
-    {:color "#fff"
-     :border-radius "50px"
-     :cursor "pointer"
-     :background color
-     :letter-spacing "8px"
-     :font-family font-choice
-     :margin "20px 0px"
-     :padding "25px 60px"}}
-   [:h1
-    [:a
-     {:style
-      {:color "#fff"}
-      :href
-      (if js/playerKey
-        (str "/player/" js/playerKey)
-        "/")}
-     player]]
-   [:div
-    {:style
-     {:font-size "1.3em"
-      :letter-spacing "5px"
-      :margin "10px 0px"}}
-    (string/join " " (string/split (name turn) #"-"))]])
+  ([player color turn] (current-player-banner player color turn nil "/"))
+  ([player color turn tooltip] (current-player-banner player color turn tooltip "/"))
+  ([player color turn tooltip href]
+   (let [show-tooltip (r/atom false)
+         dismiss (fn dismiss []
+                   (reset! show-tooltip false)
+                   (.removeEventListener js/document "click" dismiss))]
+     (fn [player color turn tooltip href]
+       [:div
+        {:style
+         {:color "#fff"
+          :border-radius "50px"
+          :cursor "pointer"
+          :background color
+          :letter-spacing "8px"
+          :font-family font-choice
+          :margin "20px 0px"
+          :padding "25px 60px"}}
+        [:h1
+         [:a
+          {:style
+           {:color "#fff"}
+           :href href}
+          player]]
+        [:div
+         {:style
+          {:font-size "1.3em"
+           :letter-spacing "5px"
+           :margin "10px 0px"
+           :display "flex"
+           :align-items "center"
+           :gap "12px"}}
+         (string/join " " (string/split (name turn) #"-"))
+         (when tooltip
+           [:span
+            {:style {:position "relative"}}
+            [:span
+             {:on-click (fn [e]
+                          (.stopPropagation e)
+                          (if @show-tooltip
+                            (dismiss)
+                            (do
+                              (reset! show-tooltip true)
+                              (.addEventListener js/document "click" dismiss))))
+              :style
+              {:font-size "0.7em"
+               :cursor "pointer"
+               :border "2px solid rgba(255,255,255,0.4)"
+               :border-radius "50%"
+               :width "1.4em"
+               :height "1.4em"
+               :display "inline-flex"
+               :align-items "center"
+               :justify-content "center"
+               :line-height "1"
+               :letter-spacing "0"
+               :flex-shrink 0
+               :opacity "0.45"
+               :color "rgba(255,255,255,0.7)"}}
+             "?"]
+            (when @show-tooltip
+              [:div
+               {:on-click (fn [e] (.stopPropagation e))
+                :style
+                {:position "absolute"
+                 :top "2em"
+                 :left "0"
+                 :z-index 100
+                 :background "rgba(30,30,30,0.95)"
+                 :color "#ddd"
+                 :border-radius "12px"
+                 :padding "16px 20px"
+                 :width "320px"
+                 :font-size "0.85em"
+                 :letter-spacing "1px"
+                 :line-height "1.6"
+                 :white-space "pre-line"
+                 :box-shadow "0 4px 20px rgba(0,0,0,0.5)"
+                 :cursor "default"}}
+               tooltip])])]]))))
 
 (def turn-descriptions
   {:pass "pass"
@@ -1505,7 +1559,7 @@
       [:div
        {:style
         {:margin "20px 20px"}}
-       [current-player-banner current-player current-color turn]
+       [current-player-banner current-player current-color turn nil (str "/player/" js/playerKey)]
        [:div
         {:style
          {:margin "0px 40px"}}
@@ -1628,7 +1682,7 @@
        :border "0px solid"
        :font-size "1.0em"
        :letter-spacing "3px"
-       :margin "40px 40px"
+       :margin "10px 0px"
        :padding "7px 20px"}
       :on-click
       (fn [event]
@@ -1868,7 +1922,7 @@
        :border "3px solid"
        :font-size "2em"
        :letter-spacing "8px"
-       :margin "20px 40px"
+       :margin "10px 0px"
        :padding "25px 60px"}
       :on-click
       (fn [event]
@@ -2034,6 +2088,15 @@
          (when (= (.-key event) "Enter")
            (connect-create-ws! @create-game-key)))}]]))
 
+(def create-explanation
+  (string/join "\n\n"
+    ["Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."
+     "From this page you can choose the number of rings and number of players, as well as the number of organisms required for victory."
+     "You can also choose which other players will be in the game, as well as their personal capture limit required for victory (this defaults to 5)."
+     "If you want to leave some player spots open for others to join, just leave them blank. It will show up in everyone's player page under OPEN."
+     "To join an open game, simply click on the empty player slot and it will fill in your player name."
+     "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]))
+
 (defn create-page
   []
   (let [invocation @board-invocation
@@ -2058,7 +2121,7 @@
        [:div
         {:style
          {:margin "20px 20px"}}
-        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game"]]
+        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game" create-explanation]]
        [:form
         {:style
          {:margin "40px 60px"}}
@@ -2068,8 +2131,10 @@
         [organism-victory-input select-color]
         [description-input invocation select-color inactive-color]
         [players-input js/playerKey invocation]
-        [:div [reset-colors-input inactive-color]]
-        [create-button create-color inactive-color invocation]
+        [:div
+         {:style {:display "flex" :flex-direction "column" :align-items "center" :width "fit-content" :margin "20px 40px"}}
+         [reset-colors-input inactive-color]
+         [create-button create-color inactive-color invocation]]
         [mutations-select create-color invocation]]]
       [:article
        {:style {:flex-grow 1}}
@@ -2105,38 +2170,6 @@
        {:style {:width "30%"}}
        [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state history cursor @chat]]])))
 
-(defn create-game-input
-  [player color]
-  (let [game-key (r/atom "")]
-    (fn []
-      [:div
-       {:style
-        {:margin "30px 40px"}}
-       [:h2
-        [:span
-         {:title "You can create a new game by entering any letters in this box and hitting enter."}
-         "CREATE"]]
-       [:input
-        {:value @game-key
-         :style
-         {:border-radius "25px"
-          :color "#fff"
-          :background color
-          :border "3px solid"
-          :font-size "2em"
-          :letter-spacing "8px"
-          :margin "0px 20px"
-          :padding "10px 40px"}
-         :on-change
-         (fn [event]
-           (let [value (-> event .-target .-value)]
-             (reset! game-key value)))
-         :on-key-up
-         (fn [event]
-           (if (= (.-key event) "Enter")
-             (set!
-              (-> js/window .-location .-pathname)
-              (str "/game/" @game-key))))}]])))
 
 (defn open-games-section
   [player games]
@@ -2357,10 +2390,7 @@
     [:a
      {:style
       {:color "#fff"}
-      :href
-      (if js/playerKey
-        (str "/player/" js/playerKey)
-        "/")}
+      :href "/"}
      player]]
    [:div
     {:style
@@ -2378,7 +2408,6 @@
       {:padding "20px"
        :color "#eee"}}
      [player-page-banner player color "games"]
-     [create-game-input player color]
      [open-games-section player (get games "open")]
      [active-games-section player (get games "active")]
      [complete-games-section player (get games "complete")]]))
@@ -2468,15 +2497,6 @@
                (dom/redirect!
                 (str "/player/" @player-key))))}])]]]))
 
-(def create-explanation
-  [[:p "Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."]
-   [:p "You can create a new game from your player page by entering any letters in the CREATE box and hitting enter."]
-   [:p "From the create page, you can choose the number of rings and number of players, as well as the number of organisms required for victory."]
-   [:p "You can also choose which other players will be in the game, as well as their personal capture limit required for victory (this defaults to 5)."]
-   [:p "If you want to leave some player spots open for others to join, just leave them blank. It will show up in everyone's player page under OPEN."]
-   [:p "To join an open game, simply click on the empty player slot and it will fill in your player name."]      
-   [:p "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]])
-
 (defn observe-games-section
   [games]
   (when-not (empty? games)
@@ -2541,14 +2561,80 @@
                :margin "0px 20px"
                :padding "25px 60px"
                :background color}}
-      [:h1 "observe"]]
+      [:h1 [:a {:style {:color "#fff"} :href "/"} "observe"]]]
      (if (empty? games)
        [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
        [observe-games-section games])]))
 
+(def stat-column-hues
+  {:playing (rand) :complete (rand) :won (rand) :created (rand)})
+
+(defn col-color
+  [hue ratio]
+  (let [lightness (js/Math.round (+ 20 (* 50 ratio)))]
+    (str "hsl(" (js/Math.round (* hue 360)) ",55%," lightness "%)")))
+
+(defn stat-cell
+  [label value color]
+  [:span
+   {:style {:display "inline-flex"
+            :flex-direction "column"
+            :align-items "center"
+            :color "#fff"
+            :border-radius "20px"
+            :background color
+            :padding "7px 20px"
+            :margin "0px 10px"}}
+   [:span {:style {:font-size "1.1em"}} value]
+   [:span {:style {:font-size "0.6em" :letter-spacing "2px" :opacity "0.7" :margin-top "2px"}} label]])
+
+(defn stats-page
+  []
+  (let [stats @player-stats
+        col-max  (fn [k] (apply max 1 (map k stats)))
+        max-active   (col-max :active)
+        max-complete (col-max :complete)
+        max-wins     (col-max :wins)
+        max-created  (col-max :created)]
+    [:div
+     {:style {:padding "20px" :color "#eee"}}
+     [:div
+      {:style {:color "#fff"
+               :border-radius "50px"
+               :letter-spacing "8px"
+               :font-family font-choice
+               :margin "0px 20px"
+               :padding "25px 60px"
+               :background "#333"}}
+      [:h1 [:a {:style {:color "#fff"} :href "/"} "players"]]]
+     (if (empty? stats)
+       [:p {:style {:margin "30px 40px" :color "#888"}} "no players yet"]
+       [:div
+        {:style {:margin "20px 40px"}}
+        (for [{:keys [key color active complete wins created]} stats]
+          ^{:key key}
+          [:div
+           {:style {:margin "10px 20px" :padding "10px 0px" :display "flex" :align-items "center" :flex-wrap "wrap" :gap "4px"}}
+           [:a
+            {:href (str "/player/" key)
+             :style {:color "#fff"
+                     :border-radius "15px"
+                     :background (or color "#444")
+                     :padding "10px 20px"
+                     :letter-spacing "5px"
+                     :font-family font-choice
+                     :font-size "1.3em"
+                     :margin-right "10px"}}
+            key]
+           [stat-cell "playing"  active   (col-color (:playing  stat-column-hues) (/ active   max-active))]
+           [stat-cell "complete" complete (col-color (:complete stat-column-hues) (/ complete max-complete))]
+           [stat-cell "won"      wins     (col-color (:won      stat-column-hues) (/ wins     max-wins))]
+           [stat-cell "created"  created  (col-color (:created  stat-column-hues) (/ created  max-created))]])])]))
+
 (defn page-container
   []
   (cond
+    js/isStats    [stats-page]
     js/isObserve  [observe-page]
     js/isCreate   [create-page]
     js/playerKey  (cond
@@ -2670,6 +2756,9 @@
       (when js/isObserve
         (when js/observeGames
           (reset! observe-games (reader/read-string js/observeGames))))
+      (when js/isStats
+        (when js/playerStats
+          (reset! player-stats (reader/read-string js/playerStats))))
       (when js/isCreate
         (apply-invocation! @board-invocation))
       (when game?

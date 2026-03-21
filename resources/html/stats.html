@@ -1,22 +1,29 @@
 <!DOCTYPE html>
-<html style="background-color:#111">
+<html style="background-color:#222">
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - player stats</title>
-    {% style "/assets/bulma/css/bulma.min.css" %}
-    {% style "/css/screen.css" %}
+    <title>ORGANISM - players</title>
   </head>
-  <body style="background-color:#111; color:#ccc;">
-    <section class="section">
-      <div class="container">
-        <nav style="margin-bottom:2rem">
-          <a href="/" style="color:#666">← Home</a>
-        </nav>
-        <h1 class="title" style="color:#eee">player stats</h1>
-        <p class="subtitle" style="color:#888">win rates, game history, and more.</p>
-        <p style="color:#555; font-style:italic">coming soon.</p>
-      </div>
-    </section>
+  <body>
+    <div id="organism">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/assets/material-icons/css/material-icons.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{session-player}}";
+      var playerPreferences = null;
+      var playerGames = null;
+      var gameKey = null;
+      var isCreate = false;
+      var isObserve = false;
+      var isStats = true;
+      var playerStats = "{{player-stats|addslashes|safe}}";
+    </script>
+    {% script "/js/organism.js" %}
   </body>
 </html>
