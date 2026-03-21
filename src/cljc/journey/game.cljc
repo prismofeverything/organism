@@ -118,7 +118,8 @@
     :towers          3
     :gates           8
     :beacons         21
-    :level-platforms 13}})
+    :level-platforms 13}
+   :held-card nil})
 
 ;; --- game state ---
 
@@ -242,7 +243,8 @@
       (update-in [:players player :reserve :sundivers] inc)
       (update-in [:players player :reserve :gates] dec)
       (update-in [:players player :gates from-pos] (fnil conj #{}) to-pos)
-      (update-in [:players player :gates to-pos] (fnil conj #{}) from-pos)))
+      (update-in [:players player :gates to-pos] (fnil conj #{}) from-pos)
+      (update-in [:player-turn :action :gates-created] (fnil inc 0))))
 
 (defn fly-sundiver
   "Move one sundiver for player from from-pos to to-pos.
@@ -415,7 +417,330 @@
         (assoc-in [:board target :station] {:type station-type :player player :level level})
         (assoc-in [:players player :stations target] {:type station-type :level level})
         (update-in [:players player :reserve (station-reserve-key station-type)] dec)
-        (assoc-in [:player-turn :phase] :choose-action-type))))
+        (assoc-in [:player-turn :action :cards-to-draw] level)
+        (assoc-in [:player-turn :phase] :draw-cards))))
+
+;; --- activate action ---
+
+(def activation-actions-table
+  {0 {:base 1 :bonus 0}
+   1 {:base 1 :bonus 1}
+   2 {:base 2 :bonus 1}
+   3 {:base 3 :bonus 2}})
+
+(defn station-action-counts
+  "Returns {:base n :bonus n} for the given station level (clamped 0–3)."
+  [level]
+  (get activation-actions-table (min (max level 0) 3)))
+
+(defn activatable-station-types
+  "Set of station types where player has at least one sundiver on a station tile."
+  [state player]
+  (set
+   (keep
+    (fn [pos]
+      (let [tile (get-tile state pos)]
+        (when (and (some? (:station tile))
+                   (pos? (get-in tile [:sundivers player] 0)))
+          (get-in tile [:station :type]))))
+    (keys (:board state)))))
+
+(defn stations-of-type-with-sundiver
+  "All station positions of the given type where player has at least one sundiver."
+  [state player station-type]
+  (filterv
+   (fn [pos]
+     (let [tile (get-tile state pos)]
+       (and (= station-type (get-in tile [:station :type]))
+            (pos? (get-in tile [:sundivers player] 0)))))
+   (keys (:board state))))
+
+(defn foundry-action
+  "Move up to 2 sundivers from player's reserve to habitat."
+  [state player]
+  (let [available (get-in state [:players player :reserve :sundivers] 0)
+        amount    (min 2 available)]
+    (-> state
+        (update-in [:players player :reserve :sundivers] - amount)
+        (update-in [:players player :habitat :sundivers] + amount))))
+
+(defn spend-sundiver
+  "Move one sundiver for player from pos (nil = habitat) to reserve."
+  [state player pos]
+  (if pos
+    (-> state
+        (update-in [:board pos :sundivers player] dec)
+        (update-in [:players player :reserve :sundivers] inc))
+    (-> state
+        (update-in [:players player :habitat :sundivers] dec)
+        (update-in [:players player :reserve :sundivers] inc))))
+
+(defn place-beacon
+  [state player pos]
+  (-> state
+      (assoc-in [:board pos :beacon] player)
+      (update-in [:players player :reserve :beacons] dec)))
+
+(defn matrix-beacon-positions
+  "Valid positions to place a matrix beacon: the Ark, the space behind the Ark,
+   the two flanking spaces, and any board space where player has a sundiver.
+   Position must have a world tile with no existing beacon."
+  [state player]
+  (let [ark     (:ark state)
+        dir     (heading-direction state)
+        dir-idx (direction-index dir)
+        behind  (add-hex ark (nth hex-directions (mod (+ dir-idx 3) 6)))
+        specials (into #{ark behind (add-hex ark (rotate-ccw dir)) (add-hex ark (rotate-cw dir))}
+                       (filter #(pos? (get-in state [:board % :sundivers player] 0))
+                               (keys (:board state))))]
+    (filterv
+     (fn [pos]
+       (let [tile (get-tile state pos)]
+         (and tile (:world tile) (nil? (:beacon tile)))))
+     specials)))
+
+(defn sundiver-spend-positions
+  "Positions where player has board sundivers, plus nil for habitat if non-empty."
+  [state player]
+  (let [board-positions (filterv
+                         #(pos? (get-in state [:board % :sundivers player] 0))
+                         (keys (:board state)))
+        habitat-count   (get-in state [:players player :habitat :sundivers] 0)]
+    (cond-> (set board-positions)
+      (pos? habitat-count) (conj nil))))
+
+(defn total-spendable-sundivers
+  "Total sundivers available to spend: board + habitat."
+  [state player]
+  (let [board (apply + (map #(get-in state [:board % :sundivers player] 0) (keys (:board state))))
+        hab   (get-in state [:players player :habitat :sundivers] 0)]
+    (+ board hab)))
+
+(defn become-captain [state player]
+  (assoc state :captain-flame player))
+
+(defn turn-heading
+  "Rotate heading direction :left (CCW) or :right (CW); :none leaves it unchanged."
+  [state turn-dir]
+  (if (= turn-dir :none)
+    state
+    (let [ark     (:ark state)
+          dir     (heading-direction state)
+          new-dir (case turn-dir
+                    :left  (rotate-ccw dir)
+                    :right (rotate-cw dir))]
+      (assoc state :heading-token (add-hex ark new-dir)))))
+
+(defn advance-ark
+  "Moves the Ark to the heading-token position; heading-token advances one more step."
+  [state]
+  (let [dir        (heading-direction state)
+        new-ark    (:heading-token state)
+        new-heading (add-hex new-ark dir)]
+    (-> state
+        (assoc :ark new-ark)
+        (assoc :heading-token new-heading))))
+
+(defn discover-beacon
+  "Remove tile with beacon from board; enqueue in :pending-cipher for end-of-turn resolution."
+  [state pos actor-player]
+  (let [tile (get-tile state pos)]
+    (-> state
+        (update :board dissoc pos)
+        (update :pending-cipher (fnil conj [])
+                {:world        (:color tile)
+                 :beacon-owner (:beacon tile)
+                 :discoverer   actor-player
+                 :joiners      []}))))
+
+(defn join-beacon-to-cipher
+  "Add player's beacon to a pending-cipher entry.
+   If cipher-idx is omitted, updates the most recent entry."
+  ([state player]
+   (join-beacon-to-cipher state player (dec (count (:pending-cipher state)))))
+  ([state player cipher-idx]
+   (-> state
+       (update-in [:pending-cipher cipher-idx :joiners] conj player)
+       (update-in [:players player :reserve :beacons] dec))))
+
+;; --- activate state machine ---
+
+(declare advance-after-actions begin-next-station)
+
+(defn actor-player
+  "The player executing actions: activator = turn player, owner = station owner."
+  [state actor]
+  (if (= actor :activator)
+    (current-player state)
+    (get-in state [:player-turn :action :current-owner])))
+
+(defn begin-actor-actions
+  "Start the given actor's action sequence. For foundry, executes all actions
+   immediately. For matrix/tower, sets the appropriate choice phase."
+  [state actor]
+  (let [actions-key  (if (= actor :activator) :activator-actions :owner-actions)
+        n-actions    (get-in state [:player-turn :action actions-key] 0)
+        station-type (get-in state [:player-turn :action :station-type])
+        aplayer      (actor-player state actor)]
+    (cond
+      (zero? n-actions)
+      (advance-after-actions state actor)
+
+      (= station-type :foundry)
+      (let [s (reduce (fn [acc _] (foundry-action acc aplayer)) state (range n-actions))]
+        (-> s
+            (assoc-in [:player-turn :action actions-key] 0)
+            (advance-after-actions actor)))
+
+      :else
+      (-> state
+          (assoc-in [:player-turn :action :current-actor] actor)
+          (assoc-in [:player-turn :phase]
+                    (case station-type
+                      :matrix :choose-activate-matrix-beacon
+                      :tower  :choose-activate-tower-heading))))))
+
+(defn advance-after-actions
+  "After current actor finishes, hand off to owner actions or move to next station."
+  [state actor]
+  (if (= actor :activator)
+    (begin-actor-actions state :owner)
+    (begin-next-station state)))
+
+(defn begin-next-station
+  "Pop the next station from the queue and set it up, or finish the activate action."
+  [state]
+  (let [player       (current-player state)
+        queue        (get-in state [:player-turn :action :stations-queue] [])
+        station-type (get-in state [:player-turn :action :station-type])]
+    (if (empty? queue)
+      (assoc-in state [:player-turn :phase] :draw-cards)
+      (let [pos      (first queue)
+            rest-q   (vec (rest queue))
+            tile     (get-tile state pos)
+            owner    (get-in tile [:station :player])
+            level    (get-in tile [:station :level])
+            {:keys [base bonus]} (station-action-counts level)
+            same?    (= player owner)
+            state    (-> state
+                         (cond-> (= station-type :tower) (become-captain player))
+                         (assoc-in [:player-turn :action :stations-queue] rest-q)
+                         (assoc-in [:player-turn :action :current-station] pos)
+                         (assoc-in [:player-turn :action :current-owner] owner)
+                         (assoc-in [:player-turn :action :bonus-total] bonus)
+                         (assoc-in [:player-turn :action :beacons-joined] 0)
+                         (update-in [:player-turn :action :cards-to-draw] (fnil + 0) level))]
+        (if (and (not same?) (pos? bonus))
+          (-> state
+              (assoc-in [:player-turn :action :activator-actions] base)
+              (assoc-in [:player-turn :action :owner-actions] 0)
+              (assoc-in [:player-turn :choice-player] owner)
+              (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
+          (-> state
+              (assoc-in [:player-turn :action :activator-actions] (+ base bonus))
+              (assoc-in [:player-turn :action :owner-actions] 0)
+              (begin-actor-actions :activator)))))))
+
+(defn start-activate
+  "Initialize the activate action for the chosen station type."
+  [state station-type]
+  (let [player   (current-player state)
+        stations (stations-of-type-with-sundiver state player station-type)]
+    (-> state
+        (assoc-in [:player-turn :action :station-type] station-type)
+        (assoc-in [:player-turn :action :stations-queue] (vec stations))
+        begin-next-station)))
+
+;; --- card drawing and post-action phases ---
+
+(def flare-suit 4)
+
+(defn flare? [card] (= (:suit card) flare-suit))
+
+(defn draw-n-cards
+  "Draw n cards from the deck, reshuffling discard if needed.
+   Returns [updated-state [cards...]]."
+  [state n]
+  (loop [s state drawn []]
+    (if (= (count drawn) n)
+      [s drawn]
+      (let [s    (if (empty? (:deck s))
+                   (-> s (assoc :deck (shuffle (:discard s))) (assoc :discard []))
+                   s)
+            card (first (:deck s))]
+        (recur (-> s (update :deck rest) (update :discard conj card))
+               (conj drawn card))))))
+
+(defn compute-draw-count
+  "Number of cards to draw: gates-created (move) or cards-to-draw (convert/activate)."
+  [state]
+  (let [action-type (get-in state [:player-turn :action-type])
+        action      (get-in state [:player-turn :action])]
+    (case action-type
+      :move    (get action :gates-created 0)
+      :convert (get action :cards-to-draw 0)
+      :activate (get action :cards-to-draw 0)
+      0)))
+
+(defn process-draw-and-flares
+  "Draw cards for end of action. Advances Ark once per flare drawn, queueing
+   beacon-join opportunities for the captain. Transitions to :flare-beacon-join
+   or :keep-card."
+  [state]
+  (let [n          (compute-draw-count state)
+        player     (current-player state)
+        captain    (:captain-flame state)
+        [s cards]  (draw-n-cards state n)
+        grouped    (group-by flare? cards)
+        flares     (get grouped true [])
+        non-flares (get grouped false [])
+        ;; Advance Ark once per flare; collect cipher indices for non-captain beacons
+        [s join-indices]
+        (reduce
+         (fn [[acc-s indices] _]
+           (let [new-s   (advance-ark acc-s)
+                 new-ark (:ark new-s)
+                 tile    (get-tile new-s new-ark)]
+             (if (and tile (:beacon tile))
+               (let [beacon-owner (:beacon tile)
+                     cipher-idx   (count (:pending-cipher new-s))
+                     new-s        (discover-beacon new-s new-ark player)]
+                 (if (= beacon-owner captain)
+                   [new-s indices]
+                   [new-s (conj indices cipher-idx)]))
+               [new-s indices])))
+         [s []]
+         flares)]
+    (-> s
+        (assoc-in [:player-turn :action :drawn-cards] (vec non-flares))
+        (assoc-in [:player-turn :action :flare-join-indices] join-indices)
+        (assoc-in [:player-turn :captain-beacons-joined] 0)
+        (cond-> (seq join-indices)
+          (assoc-in [:player-turn :choice-player] captain))
+        (assoc-in [:player-turn :phase]
+                  (if (seq join-indices) :flare-beacon-join :keep-card)))))
+
+;; --- turn transitions ---
+
+(defn next-player-index
+  [state player]
+  (first (keep-indexed #(when (= %2 player) %1) (:turn-order state))))
+
+(defn begin-next-player-turn
+  "Advance to the next player; increment round when wrapping around."
+  [state]
+  (let [order    (vec (:turn-order state))
+        current  (current-player state)
+        idx      (next-player-index state current)
+        next-idx (mod (inc idx) (count order))
+        next-p   (order next-idx)
+        round    (if (zero? next-idx) (inc (:round state)) (:round state))]
+    (-> state
+        (assoc :round round)
+        (update :pending-cipher (constantly []))
+        (assoc :player-turn {:player                  next-p
+                             :phase                   :choose-action-type
+                             :captain-beacons-joined  0}))))
 
 ;; --- movement points ---
 
