@@ -18,6 +18,8 @@
 (def hex-directions
   [[1 0] [1 -1] [0 -1] [-1 0] [-1 1] [0 1]])
 
+(def default-wrapping-radius 9)
+
 (defn hex-neighbors
   [[q r]]
   (mapv (fn [[dq dr]] [(+ q dq) (+ r dr)]) hex-directions))
@@ -245,10 +247,11 @@
      :pending-cipher []
      :flares-drawn  0
      :players       (into {} (map (fn [p] [p (initial-player)]) turn-order))
-     :turn-order    turn-order
-     :round         0
-     :player-turn   {:player (first turn-order)
-                     :phase  :choose-action-type}}))
+     :turn-order       turn-order
+     :round            0
+     :wrapping-radius  default-wrapping-radius
+     :player-turn      {:player (first turn-order)
+                        :phase  :choose-action-type}}))
 
 ;; --- accessors ---
 
@@ -686,6 +689,48 @@
         (assoc :ark new-ark)
         (assoc :heading-token new-heading))))
 
+(defn advance-ark-to
+  "Move the Ark to target-pos; heading-token advances one step in the current heading direction."
+  [state target-pos]
+  (let [dir (heading-direction state)]
+    (-> state
+        (assoc :ark target-pos)
+        (assoc :heading-token (add-hex target-pos dir)))))
+
+(defn- on-ray?
+  "True if pos lies on the ray from start in direction dir at distance >= 1."
+  [[sq sr] [dq dr] [pq pr]]
+  (let [diffq (- pq sq)
+        diffr (- pr sr)]
+    (cond
+      (zero? dq)
+      (and (zero? diffq) (if (pos? dr) (pos? diffr) (neg? diffr)))
+
+      (zero? dr)
+      (and (zero? diffr) (if (pos? dq) (pos? diffq) (neg? diffq)))
+
+      :else
+      (let [n-from-q (* diffq dq)
+            n-from-r (* diffr dr)]
+        (and (pos? n-from-q) (= n-from-q n-from-r))))))
+
+(defn wrap-target
+  "Target position for wrapping when moving from from-pos in direction dir.
+   Returns the farthest board tile at distance >= wrapping-radius in the opposite direction,
+   or exactly wrapping-radius steps in the opposite direction if none exists."
+  [state from-pos dir]
+  (let [radius   (get state :wrapping-radius default-wrapping-radius)
+        opp-dir  (nth hex-directions (mod (+ (direction-index dir) 3) 6))
+        far-tiles (filter #(and (on-ray? from-pos opp-dir %)
+                                (>= (hex-distance from-pos %) radius))
+                          (keys (:board state)))
+        farthest  (when (seq far-tiles)
+                    (apply max-key #(hex-distance from-pos %) far-tiles))]
+    (or farthest
+        (let [[q r] from-pos
+              [dq dr] opp-dir]
+          [(+ q (* radius dq)) (+ r (* radius dr))]))))
+
 (defn discover-beacon
   "Remove tile with beacon from board; enqueue in :pending-cipher for end-of-turn resolution."
   [state pos actor-player]
@@ -838,14 +883,60 @@
       :activate (get action :cards-to-draw 0)
       0)))
 
+(declare continue-flare-processing)
+
+(defn- after-all-flares
+  "Complete flare processing: store drawn cards and transition to beacon-join or keep-card."
+  [state]
+  (let [non-flares   (get-in state [:player-turn :pending-non-flares] [])
+        join-indices (get-in state [:player-turn :action :flare-join-indices] [])
+        captain      (:captain-flame state)]
+    (-> state
+        (update :player-turn dissoc :pending-flares :pending-non-flares)
+        (assoc-in [:player-turn :action :drawn-cards] (vec non-flares))
+        (cond-> (seq join-indices)
+          (assoc-in [:player-turn :choice-player] captain))
+        (assoc-in [:player-turn :phase]
+                  (if (seq join-indices) :flare-beacon-join :keep-card)))))
+
+(defn advance-flare-ark-to
+  "Advance the Ark to new-ark for one flare, handle beacon discovery, then continue processing."
+  [state new-ark]
+  (let [player  (current-player state)
+        captain (:captain-flame state)
+        tile    (get-tile state new-ark)
+        s       (-> state
+                    (advance-ark-to new-ark)
+                    (update-in [:player-turn :pending-flares] dec))]
+    (if (and tile (:beacon tile))
+      (let [beacon-owner (:beacon tile)
+            cipher-idx   (count (:pending-cipher s))
+            s            (discover-beacon s new-ark player)]
+        (if (= beacon-owner captain)
+          (continue-flare-processing s)
+          (-> s
+              (update-in [:player-turn :action :flare-join-indices] (fnil conj []) cipher-idx)
+              continue-flare-processing)))
+      (continue-flare-processing s))))
+
+(defn continue-flare-processing
+  "Process the next pending flare Ark advance. If the next position is unexplored,
+   pause at :choose-flare-advance; otherwise advance directly."
+  [state]
+  (let [remaining (get-in state [:player-turn :pending-flares] 0)]
+    (if (zero? remaining)
+      (after-all-flares state)
+      (let [next-pos (:heading-token state)]
+        (if (get-tile state next-pos)
+          (advance-flare-ark-to state next-pos)
+          (assoc-in state [:player-turn :phase] :choose-flare-advance))))))
+
 (defn process-draw-and-flares
-  "Draw cards for end of action. Advances Ark once per flare drawn, queueing
-   beacon-join opportunities for the captain. Triggers loss on the 13th flare.
-   Transitions to :flare-beacon-join or :keep-card."
+  "Draw cards for end of action. Advances Ark once per flare drawn (with wrap option for
+   unexplored spaces), queueing beacon-join opportunities for the captain.
+   Triggers loss on the 13th flare. Transitions to :flare-beacon-join or :keep-card."
   [state]
   (let [n          (compute-draw-count state)
-        player     (current-player state)
-        captain    (:captain-flame state)
         [s cards]  (draw-n-cards state n)
         grouped    (group-by flare? cards)
         flares     (get grouped true [])
@@ -853,31 +944,12 @@
         s          (update s :flares-drawn (fnil + 0) (count flares))]
     (if (>= (:flares-drawn s) 13)
       (trigger-loss s)
-      ;; Advance Ark once per flare; collect cipher indices for non-captain beacons
-      (let [[s join-indices]
-            (reduce
-             (fn [[acc-s indices] _]
-               (let [new-s   (advance-ark acc-s)
-                     new-ark (:ark new-s)
-                     tile    (get-tile new-s new-ark)]
-                 (if (and tile (:beacon tile))
-                   (let [beacon-owner (:beacon tile)
-                         cipher-idx   (count (:pending-cipher new-s))
-                         new-s        (discover-beacon new-s new-ark player)]
-                     (if (= beacon-owner captain)
-                       [new-s indices]
-                       [new-s (conj indices cipher-idx)]))
-                   [new-s indices])))
-             [s []]
-             flares)]
-        (-> s
-            (assoc-in [:player-turn :action :drawn-cards] (vec non-flares))
-            (assoc-in [:player-turn :action :flare-join-indices] join-indices)
-            (assoc-in [:player-turn :captain-beacons-joined] 0)
-            (cond-> (seq join-indices)
-              (assoc-in [:player-turn :choice-player] captain))
-            (assoc-in [:player-turn :phase]
-                      (if (seq join-indices) :flare-beacon-join :keep-card)))))))
+      (-> s
+          (assoc-in [:player-turn :pending-flares] (count flares))
+          (assoc-in [:player-turn :pending-non-flares] (vec non-flares))
+          (assoc-in [:player-turn :action :flare-join-indices] [])
+          (assoc-in [:player-turn :captain-beacons-joined] 0)
+          continue-flare-processing))))
 
 ;; --- turn transitions ---
 

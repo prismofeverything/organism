@@ -43,13 +43,27 @@
 
 (defn choose-launch-destination-choices
   [state]
-  (let [player (game/current-player state)]
+  (let [player (game/current-player state)
+        ark    (:ark state)
+        dir    (game/heading-direction state)
+        ;; The 3 directional launch positions and their corresponding directions from the Ark
+        flanks [(game/add-hex ark dir)
+                (game/add-hex ark (game/rotate-ccw dir))
+                (game/add-hex ark (game/rotate-cw dir))]
+        flank-dirs [dir (game/rotate-ccw dir) (game/rotate-cw dir)]]
     (into {}
-          (map (fn [pos]
-                 [pos (-> state
-                          (game/launch-sundiver player pos)
-                          use-move-point)])
-               (game/launch-positions state)))))
+          (mapcat
+           (fn [pos]
+             (let [base-entry [pos (-> state (game/launch-sundiver player pos) use-move-point)]]
+               (if-let [flank-idx (first (keep-indexed #(when (= %2 pos) %1) flanks))]
+                 (if (game/get-tile state pos)
+                   [base-entry]
+                   ;; Unexplored directional position: also offer wrap
+                   (let [wrap-pos (game/wrap-target state ark (nth flank-dirs flank-idx))]
+                     [base-entry [[:wrap pos] (-> state (game/launch-sundiver player wrap-pos) use-move-point)]]))
+                 ;; Ark position itself: no wrap
+                 [base-entry])))
+           (game/launch-positions state)))))
 
 (defn choose-fly-from-choices
   [state]
@@ -66,14 +80,23 @@
   (let [player   (game/current-player state)
         from-pos (get-in state [:player-turn :action :fly-from])]
     (into {}
-          (map (fn [to-pos]
-                 (let [owner (game/gate-owner state from-pos to-pos)]
-                   [to-pos (-> (if owner
-                                 (game/fly-through-gate state player from-pos to-pos)
-                                 (game/fly-sundiver state player from-pos to-pos))
-                               (update-in [:player-turn :action] dissoc :fly-from)
-                               use-move-point)]))
-               (fly-destinations state player from-pos)))))
+          (mapcat
+           (fn [to-pos]
+             (let [owner (game/gate-owner state from-pos to-pos)
+                   after (fn [s] (-> s
+                                     (update-in [:player-turn :action] dissoc :fly-from)
+                                     use-move-point))
+                   base-entry [to-pos (after (if owner
+                                               (game/fly-through-gate state player from-pos to-pos)
+                                               (game/fly-sundiver state player from-pos to-pos)))]]
+               (if (and (nil? owner) (nil? (game/get-tile state to-pos)))
+                 ;; Unexplored non-gate: also offer wrap
+                 (let [dir-idx  (game/adjacent-direction from-pos to-pos)
+                       fly-dir  (nth game/hex-directions dir-idx)
+                       wrap-pos (game/wrap-target state from-pos fly-dir)]
+                   [base-entry [[:wrap to-pos] (after (game/fly-sundiver state player from-pos wrap-pos))]])
+                 [base-entry])))
+           (fly-destinations state player from-pos)))))
 
 (defn choose-move-choices
   "Options during the move action. Launch and fly are only offered while move points remain."
@@ -219,15 +242,17 @@
 ;; --- tower choice phases ---
 
 (defn choose-activate-tower-heading-choices
-  "Choose heading turn (:none/:left/:right), then advance Ark."
+  "Choose heading turn (:none/:left/:right), then advance Ark (with wrap if unexplored)."
   [state]
   (into {}
         (map
          (fn [turn-dir]
-           [turn-dir (-> state
-                         (game/turn-heading turn-dir)
-                         game/advance-ark
-                         tower-after-advance)])
+           [turn-dir (let [s (game/turn-heading state turn-dir)]
+                       (if (game/get-tile s (:heading-token s))
+                         (-> s game/advance-ark tower-after-advance)
+                         (-> s
+                             (assoc-in [:player-turn :ark-advance-context] :tower)
+                             (assoc-in [:player-turn :phase] :choose-ark-advance))))])
          [:none :left :right])))
 
 (defn finish-tower-join
@@ -465,15 +490,17 @@
       (enter-cipher-phase state))))
 
 (defn choose-captain-drift-choices
-  "Captain may turn heading once (:none/:left/:right), then Ark advances."
+  "Captain may turn heading once (:none/:left/:right), then Ark advances (with wrap if unexplored)."
   [state]
   (into {}
         (map
          (fn [turn-dir]
-           [turn-dir (-> state
-                         (game/turn-heading turn-dir)
-                         game/advance-ark
-                         handle-captain-drift-beacon)])
+           [turn-dir (let [s (game/turn-heading state turn-dir)]
+                       (if (game/get-tile s (:heading-token s))
+                         (-> s game/advance-ark handle-captain-drift-beacon)
+                         (-> s
+                             (assoc-in [:player-turn :ark-advance-context] :drift)
+                             (assoc-in [:player-turn :phase] :choose-ark-advance))))])
          [:none :left :right])))
 
 (defn finish-captain-join
@@ -576,6 +603,31 @@
       (seq landings)
       (into (map (fn [pos] [[:land pos] (game/land-ark state pos)]) landings)))))
 
+;; --- ark advance wrap choice ---
+
+(defn choose-ark-advance-choices
+  "When the Ark would advance into unexplored space: offer :direct (explore) or :wrap."
+  [state]
+  (let [from-pos (:ark state)
+        dir      (game/heading-direction state)
+        wrap-pos (game/wrap-target state from-pos dir)
+        context  (get-in state [:player-turn :ark-advance-context])
+        after-fn (case context
+                   :tower tower-after-advance
+                   :drift handle-captain-drift-beacon)]
+    {:direct (-> state game/advance-ark after-fn)
+     :wrap   (-> state (game/advance-ark-to wrap-pos) after-fn)}))
+
+(defn choose-flare-advance-choices
+  "When a flare would advance the Ark into unexplored space: offer :direct or :wrap."
+  [state]
+  (let [from-pos (:ark state)
+        dir      (game/heading-direction state)
+        wrap-pos (game/wrap-target state from-pos dir)
+        next-pos (:heading-token state)]
+    {:direct (game/advance-flare-ark-to state next-pos)
+     :wrap   (game/advance-flare-ark-to state wrap-pos)}))
+
 ;; --- action type ---
 
 (defn choose-action-type-choices
@@ -611,6 +663,8 @@
       :flare-beacon-join-spend          [:flare-beacon-join-spend          (choose-flare-beacon-join-spend-choices state)]
       :keep-card                        [:keep-card                        (choose-keep-card-choices state)]
       :choose-captain-drift             [:choose-captain-drift             (choose-captain-drift-choices state)]
+      :choose-ark-advance               [:choose-ark-advance               (choose-ark-advance-choices state)]
+      :choose-flare-advance             [:choose-flare-advance             (choose-flare-advance-choices state)]
       :captain-beacon-join              [:captain-beacon-join              (choose-captain-beacon-join-choices state)]
       :captain-beacon-join-spend        [:captain-beacon-join-spend        (choose-captain-beacon-join-spend-choices state)]
       :cipher                           [:cipher                           (choose-cipher-choices state)]
