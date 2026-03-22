@@ -167,8 +167,12 @@
       :captain-beacon-join (:join choices (:skip choices))
 
       ;; Ark advance wrap: always go direct
-      :choose-ark-advance   (:direct choices)
-      :choose-flare-advance (:direct choices)
+      :choose-ark-advance        (:direct choices)
+      :choose-flare-advance      (:direct choices)
+      :choose-drift-flare-advance (:direct choices)
+
+      ;; Drift card: auto-draw
+      :draw-drift-card (:draw choices)
 
       ;; Captain drift: no turn (straight ahead)
       :choose-captain-drift (:none choices)

@@ -475,8 +475,20 @@
 
 ;; --- captain drift ---
 
+(defn captain-drift-continuation
+  "End of a captain beacon-join sequence.
+   If :beacon-join-continuation is :draw-drift-card (regular drift), draws the drift card.
+   Otherwise (drift-card flare beacon join) enters cipher directly."
+  [state]
+  (if (= :draw-drift-card (get-in state [:player-turn :beacon-join-continuation]))
+    (-> state
+        (update :player-turn dissoc :beacon-join-continuation)
+        (assoc-in [:player-turn :phase] :draw-drift-card))
+    (enter-cipher-phase state)))
+
 (defn handle-captain-drift-beacon
-  "After Ark advance during drift: discover beacon if present; offer join if another's."
+  "After Ark advance during drift: discover beacon if present; offer join if another's.
+   All paths continue to :draw-drift-card after any beacon resolution."
   [state]
   (let [captain (:captain-flame state)
         new-ark (:ark state)
@@ -485,9 +497,11 @@
       (let [beacon-owner (:beacon tile)
             s (game/discover-beacon state new-ark captain)]
         (if (= beacon-owner captain)
-          (enter-cipher-phase s)
-          (assoc-in s [:player-turn :phase] :captain-beacon-join)))
-      (enter-cipher-phase state))))
+          (assoc-in s [:player-turn :phase] :draw-drift-card)
+          (-> s
+              (assoc-in [:player-turn :beacon-join-continuation] :draw-drift-card)
+              (assoc-in [:player-turn :phase] :captain-beacon-join))))
+      (assoc-in state [:player-turn :phase] :draw-drift-card))))
 
 (defn choose-captain-drift-choices
   "Captain may turn heading once (:none/:left/:right), then Ark advances (with wrap if unexplored)."
@@ -510,7 +524,7 @@
         (game/join-beacon-to-cipher captain)
         (update-in [:player-turn :captain-beacons-joined] (fnil inc 0))
         (update-in [:player-turn :action] dissoc :captain-join-spend-remaining)
-        enter-cipher-phase)))
+        captain-drift-continuation)))
 
 (defn choose-captain-beacon-join-choices
   "Captain may add their own beacon to the cipher for the discovered world."
@@ -519,7 +533,7 @@
         join-cost   (get-in state [:player-turn :captain-beacons-joined] 0)
         has-beacons (pos? (get-in state [:players captain :reserve :beacons] 0))
         can-afford  (>= (game/total-spendable-sundivers state captain) join-cost)]
-    (cond-> {:skip (enter-cipher-phase state)}
+    (cond-> {:skip (captain-drift-continuation state)}
       (and has-beacons can-afford)
       (assoc :join
              (if (zero? join-cost)
@@ -527,6 +541,50 @@
                (-> state
                    (assoc-in [:player-turn :action :captain-join-spend-remaining] join-cost)
                    (assoc-in [:player-turn :phase] :captain-beacon-join-spend)))))))
+
+;; --- drift card ---
+
+(defn process-drift-flare-advance
+  "Advance Ark to new-ark for a drift-card flare, handle beacon, then enter cipher.
+   Uses captain-drift-continuation for beacon joins (no :beacon-join-continuation set,
+   so it routes to enter-cipher-phase rather than another drift card draw)."
+  [state new-ark]
+  (let [captain (:captain-flame state)
+        tile    (game/get-tile state new-ark)
+        s       (game/advance-ark-to state new-ark)]
+    (if (and tile (:beacon tile))
+      (let [beacon-owner (:beacon tile)
+            s (game/discover-beacon s new-ark captain)]
+        (if (= beacon-owner captain)
+          (enter-cipher-phase s)
+          (assoc-in s [:player-turn :phase] :captain-beacon-join)))
+      (enter-cipher-phase s))))
+
+(defn choose-drift-flare-advance-choices
+  "When drift-card flare advances Ark into unexplored space: :direct or :wrap."
+  [state]
+  (let [from-pos (:ark state)
+        dir      (game/heading-direction state)
+        wrap-pos (game/wrap-target state from-pos dir)
+        next-pos (:heading-token state)]
+    {:direct (process-drift-flare-advance state next-pos)
+     :wrap   (process-drift-flare-advance state wrap-pos)}))
+
+(defn choose-draw-drift-card-choices
+  "Auto-choice to draw one drift card after captain drift.
+   Flares advance the Ark (with wrap if unexplored); non-flares are discarded."
+  [state]
+  (let [[s cards] (game/draw-n-cards state 1)
+        card      (first cards)]
+    {:draw (if (game/flare? card)
+             (let [s (update s :flares-drawn (fnil + 0) 1)]
+               (if (>= (:flares-drawn s) 13)
+                 (game/trigger-loss s)
+                 (let [next-pos (:heading-token s)]
+                   (if (game/get-tile s next-pos)
+                     (process-drift-flare-advance s next-pos)
+                     (assoc-in s [:player-turn :phase] :choose-drift-flare-advance)))))
+             (enter-cipher-phase s))}))
 
 (defn choose-captain-beacon-join-spend-choices
   [state]
@@ -665,6 +723,8 @@
       :choose-captain-drift             [:choose-captain-drift             (choose-captain-drift-choices state)]
       :choose-ark-advance               [:choose-ark-advance               (choose-ark-advance-choices state)]
       :choose-flare-advance             [:choose-flare-advance             (choose-flare-advance-choices state)]
+      :draw-drift-card                  [:draw-drift-card                  (choose-draw-drift-card-choices state)]
+      :choose-drift-flare-advance       [:choose-drift-flare-advance       (choose-drift-flare-advance-choices state)]
       :captain-beacon-join              [:captain-beacon-join              (choose-captain-beacon-join-choices state)]
       :captain-beacon-join-spend        [:captain-beacon-join-spend        (choose-captain-beacon-join-spend-choices state)]
       :cipher                           [:cipher                           (choose-cipher-choices state)]
