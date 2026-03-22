@@ -36,18 +36,22 @@
              (set (mapcat (comp keys :colors) (vals cipher))))))))
 
 (deftest choose-action-type-test
-  (testing "find-state returns action type choices at start of turn"
+  (testing "find-state only offers action types with valid sub-choices"
     (let [state (game/initial-state ["alice" "bob"])
           [phase choices] (choice/find-state state)]
       (println "phase:" phase)
       (println "choice keys:" (keys choices))
       (is (= :choose-action-type phase))
-      (is (= (set game/action-types) (set (keys choices))))
-      (doseq [action-type game/action-types]
-        (let [next-state (get choices action-type)]
-          (is (= action-type (get-in next-state [:player-turn :action-type])))
-          (is (= (keyword (str "choose-" (name action-type)))
-                 (game/current-phase next-state))))))))
+      ;; At game start: no sundivers on board → no conversions, no stations → no activate.
+      ;; Only :move is available (it always has :done at minimum).
+      (is (contains? choices :move))
+      (is (not (contains? choices :convert)))
+      (is (not (contains? choices :activate)))
+      ;; Each present choice leads to the correct next phase.
+      (doseq [[action-type next-state] choices]
+        (is (= action-type (get-in next-state [:player-turn :action-type])))
+        (is (= (keyword (str "choose-" (name action-type)))
+               (game/current-phase next-state)))))))
 
 ;; All test positions use [2,0] as target to avoid the NEUTRAL tower at [0,0].
 ;; Sundivers around [2,0]:
@@ -64,6 +68,27 @@
   (-> state
       (update-in [:board pos] #(or % (game/make-tile :blue)))
       (assoc-in [:board pos :sundivers player] 1)))
+
+(deftest action-type-filtering-test
+  (testing "convert appears when conversion patterns exist"
+    ;; Matrix pattern: sundivers at [3,0] and [1,0] (dirs 0 and 3 from [2,0])
+    (let [state (-> (game/initial-state ["alice"])
+                    (place-tile [2 0] :blue)
+                    (place-sundiver "alice" [3 0])
+                    (place-sundiver "alice" [1 0]))
+          [_ choices] (choice/find-state state)]
+      (is (contains? choices :convert))))
+
+  (testing "activate appears when player has a sundiver on their station"
+    ;; Place a matrix station with alice's sundiver on it directly.
+    (let [state (-> (game/initial-state ["alice"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :matrix "alice" 0)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :phase] :choose-action-type))
+          [_ choices] (choice/find-state state)]
+      (is (contains? choices :activate)))))
 
 (deftest convert-patterns-test
   (testing "foundry: two sundivers at 120° → two target choices"
@@ -133,6 +158,13 @@
   [state]
   (seq (get-in state [:players (game/current-player state) :stations])))
 
+(defn- has-real-moves?
+  "True if the current player can actually launch or fly (not just take :done)."
+  [state]
+  (let [move-state (get (second (choice/find-state state)) :move)
+        [_ mc]     (when move-state (choice/find-state move-state))]
+    (or (contains? mc :launch) (contains? mc :fly))))
+
 (defn- simulate-step
   "Pick one smart choice and return the next state. Throws on dead-end."
   [state]
@@ -140,13 +172,13 @@
     (when (empty? choices)
       (throw (ex-info "Dead end" {:phase phase})))
     (case phase
-      ;; Action type: only prefer activate when the player has own stations
-      ;; (avoids spinning on the neutral tower forever). Prefer convert when
-      ;; patterns exist. Fall back to move (always available).
+      ;; Action type: prefer activate (own stations) → convert → move with real
+      ;; sub-choices. Skip move if its only sub-choice would be :done.
       :choose-action-type
       (or (when (has-own-stations? state) (try-if-choices (:activate choices)))
           (try-if-choices (:convert choices))
-          (:move choices))
+          (when (has-real-moves? state) (:move choices))
+          (first (vals choices)))
 
       ;; Move: launch first (explores new tiles), then fly, then done
       :choose-move

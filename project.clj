@@ -42,6 +42,10 @@
                  [buddy/buddy-hashers "1.8.1"]]
 
   :min-lein-version "2.0.0"
+
+  ;; Run `lein dev` to start figwheel watching all game builds.
+  ;; Add new game build IDs here when a new game is added to project.clj.
+  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey"]}
   
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]

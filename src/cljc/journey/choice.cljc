@@ -20,7 +20,7 @@
   (filter
    (fn [pos]
      (and (pos? (get-in state [:board pos :sundivers player] 0))
-          (not (game/immobile? state pos))))
+          (not (game/immobile? state player pos))))
    (keys (:board state))))
 
 (defn fly-destinations
@@ -56,11 +56,16 @@
            (fn [pos]
              (let [base-entry [pos (-> state (game/launch-sundiver player pos) use-move-point)]]
                (if-let [flank-idx (first (keep-indexed #(when (= %2 pos) %1) flanks))]
-                 (if (game/get-tile state pos)
-                   [base-entry]
-                   ;; Unexplored directional position: also offer wrap
-                   (let [wrap-pos (game/wrap-target state ark (nth flank-dirs flank-idx))]
-                     [base-entry [[:wrap pos] (-> state (game/launch-sundiver player wrap-pos) use-move-point)]]))
+                 (let [fly-dir (nth flank-dirs flank-idx)]
+                   (if (or (game/get-tile state pos)
+                           ;; Don't wrap when tiles exist further along this ray
+                           (some #(and (game/on-ray? ark fly-dir %)
+                                       (> (game/hex-distance ark %) 1))
+                                 (keys (:board state))))
+                     [base-entry]
+                     ;; Edge of known space: also offer wrap
+                     (let [wrap-pos (game/wrap-target state ark fly-dir)]
+                       [base-entry [[:wrap pos] (-> state (game/launch-sundiver player wrap-pos) use-move-point)]])))
                  ;; Ark position itself: no wrap
                  [base-entry])))
            (game/launch-positions state)))))
@@ -89,8 +94,12 @@
                    base-entry [to-pos (after (if owner
                                                (game/fly-through-gate state player from-pos to-pos)
                                                (game/fly-sundiver state player from-pos to-pos)))]]
-               (if (and (nil? owner) (nil? (game/get-tile state to-pos)))
-                 ;; Unexplored non-gate: also offer wrap
+               (if (and (nil? owner) (nil? (game/get-tile state to-pos))
+                        ;; Only wrap when no tiles exist further along this ray
+                        (not (some #(and (game/on-ray? from-pos (nth game/hex-directions (game/adjacent-direction from-pos to-pos)) %)
+                                         (> (game/hex-distance from-pos %) 1))
+                                   (keys (:board state)))))
+                 ;; Edge of known space: also offer wrap
                  (let [dir-idx  (game/adjacent-direction from-pos to-pos)
                        fly-dir  (nth game/hex-directions dir-idx)
                        wrap-pos (game/wrap-target state from-pos fly-dir)]
@@ -690,9 +699,16 @@
 
 (defn choose-action-type-choices
   [state]
-  (partial-map
-   (partial game/choose-action-type state)
-   game/action-types))
+  (into {}
+        (keep (fn [action-type]
+                (let [next-state (game/choose-action-type state action-type)
+                      choices    (case action-type
+                                   :move     (choose-move-choices next-state)
+                                   :convert  (choose-convert-choices next-state)
+                                   :activate (choose-activate-choices next-state))]
+                  (when (seq choices)
+                    [action-type next-state])))
+              game/action-types)))
 
 ;; --- central dispatch ---
 

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html style="background-color:#04040E">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JOURNEY - generate</title>
+  </head>
+  <body>
+    <div id="journey">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/assets/material-icons/css/material-icons.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = null;
+      var playerPreferences = "{}";
+      var playerGames = null;
+      var playKey = null;
+      var isCreate = false;
+      var isObserve = false;
+      var isGenerate = true;
+      var generateHistory = "{{generate-history|addslashes|safe}}";
+    </script>
+    {% script "/js/journey.js" %}
+  </body>
+</html>

@@ -302,25 +302,25 @@
 ;; --- move action ---
 
 (defn immobile?
-  "True if a sundiver at pos is marked immobile for the current turn
-   (e.g. it just explored a new tile)."
-  [state pos]
-  (contains? (get-in state [:player-turn :immobile] #{}) pos))
+  "True if this specific player's sundiver at pos is marked immobile for the current turn
+   (i.e. it just explored a new tile). Other players' sundivers at the same pos are unaffected."
+  [state player pos]
+  (contains? (get-in state [:player-turn :immobile] #{}) [player pos]))
 
 (defn mark-immobile
-  [state pos]
-  (update-in state [:player-turn :immobile] (fnil conj #{}) pos))
+  [state player pos]
+  (update-in state [:player-turn :immobile] (fnil conj #{}) [player pos]))
 
 (defn explore
   "Draw a world from the bag, place a new tile of that color at pos,
-   add one sundiver there for player, and mark that sundiver immobile."
+   add one sundiver there for player, and mark only that sundiver immobile."
   [state player pos]
   (let [[bag color] (draw-from-bag (:bag state))
         tile (assoc-in (make-tile color) [:sundivers player] 1)]
     (-> state
         (assoc :bag bag)
         (assoc-in [:board pos] tile)
-        (mark-immobile pos))))
+        (mark-immobile player pos))))
 
 (defn launch-sundiver
   "Transfer one sundiver from player's habitat to pos.
@@ -697,7 +697,7 @@
         (assoc :ark target-pos)
         (assoc :heading-token (add-hex target-pos dir)))))
 
-(defn- on-ray?
+(defn on-ray?
   "True if pos lies on the ray from start in direction dir at distance >= 1."
   [[sq sr] [dq dr] [pq pr]]
   (let [diffq (- pq sq)
@@ -716,20 +716,22 @@
 
 (defn wrap-target
   "Target position for wrapping when moving from from-pos in direction dir.
-   Returns the farthest board tile at distance >= wrapping-radius in the opposite direction,
-   or exactly wrapping-radius steps in the opposite direction if none exists."
+   Returns the farthest board tile at distance >= (radius-1) in the opposite direction,
+   or exactly (radius-1) steps in the opposite direction if none exists.
+   The radius counts inclusively (current space = 1), so radius 9 = 8 steps away."
   [state from-pos dir]
-  (let [radius   (get state :wrapping-radius default-wrapping-radius)
-        opp-dir  (nth hex-directions (mod (+ (direction-index dir) 3) 6))
+  (let [radius    (get state :wrapping-radius default-wrapping-radius)
+        steps     (dec radius)
+        opp-dir   (nth hex-directions (mod (+ (direction-index dir) 3) 6))
         far-tiles (filter #(and (on-ray? from-pos opp-dir %)
-                                (>= (hex-distance from-pos %) radius))
+                                (>= (hex-distance from-pos %) steps))
                           (keys (:board state)))
         farthest  (when (seq far-tiles)
                     (apply max-key #(hex-distance from-pos %) far-tiles))]
     (or farthest
         (let [[q r] from-pos
               [dq dr] opp-dir]
-          [(+ q (* radius dq)) (+ r (* radius dr))]))))
+          [(+ q (* steps dq)) (+ r (* steps dr))]))))
 
 (defn discover-beacon
   "Remove tile with beacon from board; enqueue in :pending-cipher for end-of-turn resolution."
@@ -747,7 +749,10 @@
   "Add player's beacon to a pending-cipher entry.
    If cipher-idx is omitted, updates the most recent entry."
   ([state player]
-   (join-beacon-to-cipher state player (dec (count (:pending-cipher state)))))
+   (let [idx (dec (count (:pending-cipher state)))]
+     (if (neg? idx)
+       state
+       (join-beacon-to-cipher state player idx))))
   ([state player cipher-idx]
    (-> state
        (update-in [:pending-cipher cipher-idx :joiners] conj player)
