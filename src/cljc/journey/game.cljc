@@ -88,18 +88,119 @@
          value (range 1 (inc cards-per-suit))]
      (make-card suit value))))
 
+(declare add-hex hex-neighbors matrix-beacon-positions
+         total-spendable-sundivers stations-of-type-with-sundiver station-action-counts)
+
 ;; --- cipher ---
 ;; A mini hex grid: center [0 0] plus the 6 neighbor offsets from hex-directions.
-;; Each outer position is associated with one tile color (in tile-colors order).
-;; :beacon is nil or a player-key.
+;; Each outer position is associated with one or more world token colors.
+;; :beacons is a vector of {:player player-key :color color}.
 
 (defn initial-cipher
   []
   (into
-   {[0 0] {:color nil :beacon nil}}
-   (map (fn [offset color] [offset {:color color :beacon nil}])
+   {[0 0] {:colors {}}}
+   (map (fn [offset color] [offset {:colors {color {}}}])
         hex-directions
         tile-colors)))
+
+(defn cipher-placement-cost
+  "Sundivers required to place color at cipher position pos.
+   0 if color is already present; otherwise 1 per existing color."
+  [state pos color]
+  (let [existing (get-in state [:cipher pos :colors] {})]
+    (if (contains? existing color)
+      0
+      (count existing))))
+
+(defn cipher-place-beacon
+  "Place player's beacon of color at cipher pos.
+   Adds color to the position if new (draws from bag if from-bag? is true).
+   Increments the player's beacon count for that color at that position."
+  [state player pos color from-bag?]
+  (let [new-color? (not (contains? (get-in state [:cipher pos :colors] {}) color))]
+    (cond-> state
+      new-color?              (assoc-in [:cipher pos :colors color] {})
+      (and new-color? from-bag?) (update-in [:bag color] dec)
+      true                    (update-in [:cipher pos :colors color player] (fnil inc 0)))))
+
+;; --- landing check ---
+
+(defn count-cipher-matches
+  "Count how many of the 6 tile neighbors of pos match the corresponding outer cipher position."
+  [state pos]
+  (count
+   (filter
+    (fn [dir]
+      (let [neighbor       (add-hex pos dir)
+            neighbor-color (get-in state [:board neighbor :color])
+            cipher-colors  (get-in state [:cipher dir :colors] {})]
+        (and neighbor-color (contains? cipher-colors neighbor-color))))
+    hex-directions)))
+
+(defn can-land-at?
+  "True if the Ark can choose to land on tile at pos.
+   Requires the tile color in the center cipher, and ≥5 directional matches.
+   5 matches: Ark must be exactly on pos. 6 matches: Ark may be on pos or adjacent."
+  [state pos]
+  (let [center-colors (get-in state [:cipher [0 0] :colors] {})
+        tile-color    (get-in state [:board pos :color])
+        ark           (:ark state)
+        matches       (count-cipher-matches state pos)]
+    (and (contains? center-colors tile-color)
+         (or (and (= matches 5) (= ark pos))
+             (and (= matches 6)
+                  (or (= ark pos)
+                      (some #{ark} (hex-neighbors pos))))))))
+
+(defn available-landings
+  "All tile positions where the Ark can currently choose to land."
+  [state]
+  (filterv #(can-land-at? state %) (keys (:board state))))
+
+;; --- scoring and game over ---
+
+(defn- add-beacons-to-scores
+  "Accumulate beacon counts from a {player count} map into scores."
+  [scores beacons]
+  (reduce-kv (fn [acc player n] (update acc player (fnil + 0) n)) scores beacons))
+
+(defn compute-scores
+  "Score beacons on the cipher for a landing at pos.
+   Center position [0 0]: score beacons for the landed tile's color.
+   Each outer position (= a direction): score beacons for the board tile color
+   in that direction from pos, only if that color is registered at that cipher position."
+  [state pos]
+  (let [landed-color (get-in state [:board pos :color])
+        scores (add-beacons-to-scores
+                {} (get-in state [:cipher [0 0] :colors landed-color] {}))]
+    (reduce
+     (fn [scores dir]
+       (let [neighbor-color (get-in state [:board (add-hex pos dir) :color])]
+         (if (and neighbor-color
+                  (contains? (get-in state [:cipher dir :colors] {}) neighbor-color))
+           (add-beacons-to-scores
+            scores (get-in state [:cipher dir :colors neighbor-color] {}))
+           scores)))
+     scores
+     hex-directions)))
+
+(defn land-ark
+  "End the game: compute scores from landing on tile at pos."
+  [state pos]
+  (let [scores    (compute-scores state pos)
+        max-score (if (seq scores) (apply max (vals scores)) 0)
+        winners   (filterv #(= (get scores % 0) max-score) (:turn-order state))]
+    (-> state
+        (assoc :game-over {:type :landing :tile pos :scores scores :winners winners})
+        (assoc-in [:player-turn :phase] :game-over))))
+
+(defn trigger-loss
+  "End the game: everyone loses. The captain especially loses."
+  [state]
+  (-> state
+      (assoc :game-over {:type :loss :captain (:captain-flame state)})
+      (assoc-in [:player-turn :phase] :game-over)))
 
 ;; --- player state ---
 ;; Physical pieces only. Placement on the board is tracked via tile :contents;
@@ -141,6 +242,8 @@
      :heading-token [0 1]
      :captain-flame (last turn-order)
      :cipher        (initial-cipher)
+     :pending-cipher []
+     :flares-drawn  0
      :players       (into {} (map (fn [p] [p (initial-player)]) turn-order))
      :turn-order    turn-order
      :round         0
@@ -433,16 +536,58 @@
   [level]
   (get activation-actions-table (min (max level 0) 3)))
 
+(defn- total-activation-actions
+  "Minimum forced actions for the activating player: base only for every station.
+   Bonus is always optional (own or other), so it does not affect feasibility."
+  [state player station-type]
+  (apply +
+         (map (fn [pos]
+                (let [level (get-in state [:board pos :station :level] 0)]
+                  (:base (station-action-counts level))))
+              (stations-of-type-with-sundiver state player station-type))))
+
+(defn can-fully-activate-matrix?
+  "True if player has enough beacon positions, spendable sundivers, and beacon reserves
+   to complete all base (+ bonus for own) matrix actions."
+  [state player]
+  (let [n         (total-activation-actions state player :matrix)
+        positions (count (matrix-beacon-positions state player))
+        spendable (total-spendable-sundivers state player)
+        beacons   (get-in state [:players player :reserve :beacons] 0)]
+    (or (zero? n)
+        (and (>= positions n) (>= spendable n) (>= beacons n)))))
+
+(defn can-fully-activate-tower?
+  "True if player has enough spendable sundivers to pay 1 per tower action."
+  [state player]
+  (let [n         (total-activation-actions state player :tower)
+        spendable (total-spendable-sundivers state player)]
+    (or (zero? n) (>= spendable n))))
+
+(defn can-fully-activate-foundry?
+  "True if player has at least 1 reserve sundiver per foundry action."
+  [state player]
+  (let [n       (total-activation-actions state player :foundry)
+        reserve (get-in state [:players player :reserve :sundivers] 0)]
+    (or (zero? n) (>= reserve n))))
+
 (defn activatable-station-types
-  "Set of station types where player has at least one sundiver on a station tile."
+  "Set of station types where player has a sundiver on a station tile and
+   the full activation can be completed (no partial activations)."
   [state player]
   (set
    (keep
     (fn [pos]
-      (let [tile (get-tile state pos)]
+      (let [tile  (get-tile state pos)
+            stype (get-in tile [:station :type])]
         (when (and (some? (:station tile))
-                   (pos? (get-in tile [:sundivers player] 0)))
-          (get-in tile [:station :type]))))
+                   (pos? (get-in tile [:sundivers player] 0))
+                   (case stype
+                     :matrix  (can-fully-activate-matrix? state player)
+                     :tower   (can-fully-activate-tower? state player)
+                     :foundry (can-fully-activate-foundry? state player)
+                     true))
+          stype)))
     (keys (:board state)))))
 
 (defn stations-of-type-with-sundiver
@@ -601,10 +746,19 @@
                       :tower  :choose-activate-tower-heading))))))
 
 (defn advance-after-actions
-  "After current actor finishes, hand off to owner actions or move to next station."
+  "After current actor finishes:
+   - Activator done → offer owner their bonus (if other's station with bonus), else next station.
+   - Owner done → next station."
   [state actor]
   (if (= actor :activator)
-    (begin-actor-actions state :owner)
+    (let [bonus-total (get-in state [:player-turn :action :bonus-total] 0)
+          owner       (get-in state [:player-turn :action :current-owner])
+          player      (current-player state)]
+      (if (and (pos? bonus-total) (not= player owner))
+        (-> state
+            (assoc-in [:player-turn :choice-player] owner)
+            (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
+        (begin-next-station state)))
     (begin-next-station state)))
 
 (defn begin-next-station
@@ -630,14 +784,16 @@
                          (assoc-in [:player-turn :action :bonus-total] bonus)
                          (assoc-in [:player-turn :action :beacons-joined] 0)
                          (update-in [:player-turn :action :cards-to-draw] (fnil + 0) level))]
-        (if (and (not same?) (pos? bonus))
+        (if (and same? (pos? bonus))
+          ;; Own station with bonus: ask activator how many bonus actions to take
           (-> state
               (assoc-in [:player-turn :action :activator-actions] base)
               (assoc-in [:player-turn :action :owner-actions] 0)
-              (assoc-in [:player-turn :choice-player] owner)
-              (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
+              (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
+          ;; All other cases: activator does base actions first;
+          ;; owner bonus (if any) is offered after activator finishes.
           (-> state
-              (assoc-in [:player-turn :action :activator-actions] (+ base bonus))
+              (assoc-in [:player-turn :action :activator-actions] base)
               (assoc-in [:player-turn :action :owner-actions] 0)
               (begin-actor-actions :activator)))))))
 
@@ -684,8 +840,8 @@
 
 (defn process-draw-and-flares
   "Draw cards for end of action. Advances Ark once per flare drawn, queueing
-   beacon-join opportunities for the captain. Transitions to :flare-beacon-join
-   or :keep-card."
+   beacon-join opportunities for the captain. Triggers loss on the 13th flare.
+   Transitions to :flare-beacon-join or :keep-card."
   [state]
   (let [n          (compute-draw-count state)
         player     (current-player state)
@@ -694,31 +850,34 @@
         grouped    (group-by flare? cards)
         flares     (get grouped true [])
         non-flares (get grouped false [])
-        ;; Advance Ark once per flare; collect cipher indices for non-captain beacons
-        [s join-indices]
-        (reduce
-         (fn [[acc-s indices] _]
-           (let [new-s   (advance-ark acc-s)
-                 new-ark (:ark new-s)
-                 tile    (get-tile new-s new-ark)]
-             (if (and tile (:beacon tile))
-               (let [beacon-owner (:beacon tile)
-                     cipher-idx   (count (:pending-cipher new-s))
-                     new-s        (discover-beacon new-s new-ark player)]
-                 (if (= beacon-owner captain)
-                   [new-s indices]
-                   [new-s (conj indices cipher-idx)]))
-               [new-s indices])))
-         [s []]
-         flares)]
-    (-> s
-        (assoc-in [:player-turn :action :drawn-cards] (vec non-flares))
-        (assoc-in [:player-turn :action :flare-join-indices] join-indices)
-        (assoc-in [:player-turn :captain-beacons-joined] 0)
-        (cond-> (seq join-indices)
-          (assoc-in [:player-turn :choice-player] captain))
-        (assoc-in [:player-turn :phase]
-                  (if (seq join-indices) :flare-beacon-join :keep-card)))))
+        s          (update s :flares-drawn (fnil + 0) (count flares))]
+    (if (>= (:flares-drawn s) 13)
+      (trigger-loss s)
+      ;; Advance Ark once per flare; collect cipher indices for non-captain beacons
+      (let [[s join-indices]
+            (reduce
+             (fn [[acc-s indices] _]
+               (let [new-s   (advance-ark acc-s)
+                     new-ark (:ark new-s)
+                     tile    (get-tile new-s new-ark)]
+                 (if (and tile (:beacon tile))
+                   (let [beacon-owner (:beacon tile)
+                         cipher-idx   (count (:pending-cipher new-s))
+                         new-s        (discover-beacon new-s new-ark player)]
+                     (if (= beacon-owner captain)
+                       [new-s indices]
+                       [new-s (conj indices cipher-idx)]))
+                   [new-s indices])))
+             [s []]
+             flares)]
+        (-> s
+            (assoc-in [:player-turn :action :drawn-cards] (vec non-flares))
+            (assoc-in [:player-turn :action :flare-join-indices] join-indices)
+            (assoc-in [:player-turn :captain-beacons-joined] 0)
+            (cond-> (seq join-indices)
+              (assoc-in [:player-turn :choice-player] captain))
+            (assoc-in [:player-turn :phase]
+                      (if (seq join-indices) :flare-beacon-join :keep-card)))))))
 
 ;; --- turn transitions ---
 

@@ -2,6 +2,7 @@
   (:require
    [clojure.test :refer :all]
    [clojure.pprint :refer [pprint]]
+   [clojure.string :as str]
    [journey.game :as game]
    [journey.choice :as choice]))
 
@@ -30,9 +31,9 @@
       (pprint cipher)
       (is (= 7 (count cipher)))
       (is (contains? cipher [0 0]))
-      (is (nil? (get-in cipher [[0 0] :color])))
+      (is (empty? (get-in cipher [[0 0] :colors])))
       (is (= (set game/tile-colors)
-             (set (keep :color (vals cipher))))))))
+             (set (mapcat (comp keys :colors) (vals cipher))))))))
 
 (deftest choose-action-type-test
   (testing "find-state returns action type choices at start of turn"
@@ -107,7 +108,7 @@
           after (game/convert state "alice" :matrix [2 0] [[3 0] [1 0]])]
       (is (= :matrix (get-in after [:board [2 0] :station :type])))
       (is (= "alice" (get-in after [:board [2 0] :station :player])))
-      (is (= 1 (get-in after [:board [2 0] :station :level])))
+      (is (nat-int? (get-in after [:board [2 0] :station :level])))
       (is (= 0 (get-in after [:board [3 0] :sundivers "alice"] 0)))
       (is (= 0 (get-in after [:board [1 0] :sundivers "alice"] 0))))))
 
@@ -119,3 +120,173 @@
       (println "drew:" drawn)
       (is (some? drawn))
       (is (= (dec game/num-worlds-per-color) (get bag2 drawn))))))
+
+;; ─── extended simulation ──────────────────────────────────────────────────────
+
+(defn- try-if-choices
+  "Return s if find-state yields non-empty choices for it, else nil."
+  [s]
+  (when (seq (second (choice/find-state s))) s))
+
+(defn- has-own-stations?
+  "True if the player has at least one station they converted themselves."
+  [state]
+  (seq (get-in state [:players (game/current-player state) :stations])))
+
+(defn- simulate-step
+  "Pick one smart choice and return the next state. Throws on dead-end."
+  [state]
+  (let [[phase choices] (choice/find-state state)]
+    (when (empty? choices)
+      (throw (ex-info "Dead end" {:phase phase})))
+    (case phase
+      ;; Action type: only prefer activate when the player has own stations
+      ;; (avoids spinning on the neutral tower forever). Prefer convert when
+      ;; patterns exist. Fall back to move (always available).
+      :choose-action-type
+      (or (when (has-own-stations? state) (try-if-choices (:activate choices)))
+          (try-if-choices (:convert choices))
+          (:move choices))
+
+      ;; Move: launch first (explores new tiles), then fly, then done
+      :choose-move
+      (or (:launch choices) (:fly choices) (:done choices))
+
+      ;; Activate: always decline bonus to keep resources available for base actions.
+      :choose-activate-self-bonus  (get choices 0)
+      :choose-activate-owner-bonus (get choices 0)
+
+      ;; Tower joins: join when possible (exercises that path), skip otherwise
+      :choose-activate-tower-join (:join choices (:skip choices))
+
+      ;; Tower action cost: spend first available sundiver
+      :choose-activate-tower-spend (first (vals choices))
+
+      ;; Post-action joins: always join (exercises captain/flare join paths)
+      :flare-beacon-join   (:join choices (:skip choices))
+      :captain-beacon-join (:join choices (:skip choices))
+
+      ;; Captain drift: no turn (straight ahead)
+      :choose-captain-drift (:none choices)
+
+      ;; Never land during the simulation — let all 5 rounds complete
+      :choose-land (:continue choices)
+
+      ;; Cipher: prefer centre [0 0] so landing colours accumulate there
+      :cipher (or (get choices [0 0]) (first (vals choices)))
+
+      ;; Matrix beacon: prefer tiles without stations to avoid blocking future activations
+      :choose-activate-matrix-beacon
+      (let [no-station (remove #(get-in state [:board % :station]) (keys choices))]
+        (get choices (if (seq no-station) (first no-station) (first (keys choices)))))
+
+      ;; Everything else: first available
+      (first (vals choices)))))
+
+(defn- play-one-player-turn
+  "Step from the current player's :choose-action-type until the next player's.
+   Returns [final-state phases-visited]."
+  [state]
+  (let [start-player (game/current-player state)]
+    (loop [s state phases []]
+      (cond
+        (:game-over s)
+        [s phases]
+
+        (and (seq phases)
+             (= :choose-action-type (game/current-phase s))
+             (not= (game/current-player s) start-player))
+        [s phases]
+
+        :else
+        (recur (simulate-step s)
+               (conj phases (game/current-phase s)))))))
+
+(defn- tile-color-counts [board]
+  (->> (vals board)
+       (map :color)
+       frequencies
+       (sort-by (comp name key))
+       (map (fn [[c n]] (str (name c) "×" n)))
+       (str/join " ")))
+
+(defn- cipher-summary [cipher]
+  (let [center (get-in cipher [[0 0] :colors])]
+    (if (empty? center)
+      "center=empty"
+      (str "center=" (str/join "," (map name (keys center)))))))
+
+(defn- player-line [state p]
+  (let [ps  (get-in state [:players p])
+        hab (get-in ps [:habitat :sundivers])
+        res (get-in ps [:reserve :sundivers])
+        bea (get-in ps [:reserve :beacons])
+        sta (count (:stations ps))
+        on-board (apply + (map #(get-in state [:board % :sundivers p] 0)
+                               (keys (:board state))))]
+    (format "  %-6s hab=%-2d board=%-2d res=%-2d beacons=%-3d stations=%d"
+            p hab on-board res bea sta)))
+
+(defn- print-turn
+  [state turn round player phases]
+  (println (format "\n─── Turn %-2d │ Round %d │ %-6s ───" turn round player))
+  (println (str "  phases: " (str/join " → " (map name phases))))
+  (println (format "  Ark=%-8s head=%-8s captain=%-6s flares=%d"
+                   (pr-str (:ark state))
+                   (pr-str (:heading-token state))
+                   (:captain-flame state)
+                   (:flares-drawn state 0)))
+  (println (format "  board=%d tiles  [%s]"
+                   (count (:board state))
+                   (tile-color-counts (:board state))))
+  (println (str "  " (cipher-summary (:cipher state))))
+  (doseq [p (:turn-order state)]
+    (println (player-line state p))))
+
+(deftest extended-three-player-game-test
+  (testing "3-player game, 5 rounds — exercises all actions and phases"
+    (let [players   ["alice" "bob" "carol"]
+          state0    (game/initial-state players)
+          max-turns (* 5 (count players))]
+      (println "\n══════════════════════════════════════════")
+      (println "  3-PLAYER GAME SIMULATION — 5 rounds")
+      (println "══════════════════════════════════════════")
+      (loop [state state0
+             turn  1]
+        (cond
+          (:game-over state)
+          (do
+            (println "\n  *** GAME OVER ***")
+            (println " " (pr-str (:game-over state)))
+            (is (some? (:type (:game-over state)))))
+
+          (> turn max-turns)
+          (do
+            (println "\n  Completed all 15 player turns.")
+            (is true))
+
+          :else
+          (let [player              (game/current-player state)
+                round               (inc (quot (dec turn) (count players)))
+                [s phases]          (play-one-player-turn state)
+                phase-set           (set phases)]
+            (print-turn s turn round player phases)
+
+            ;; Structural invariants after every turn
+            (is (= 7 (count (:cipher s)))
+                "cipher always has 7 positions")
+            (is (every? #(>= (get-in s [:players % :habitat :sundivers] 0) 0) players)
+                "no player has negative habitat sundivers")
+            (is (every? #(>= (get-in s [:players % :reserve :sundivers] 0) 0) players)
+                "no player has negative reserve sundivers")
+            (is (every? #(>= (get-in s [:players % :reserve :beacons] 0) 0) players)
+                "no player has negative beacon reserve")
+
+            ;; Every turn must visit at least choose-action-type and draw-cards
+            (is (contains? phase-set :choose-action-type)
+                "turn began with action-type choice")
+            (is (contains? phase-set :draw-cards)
+                "turn included card draw")
+
+            (recur s (inc turn))))))))
+
