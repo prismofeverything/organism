@@ -84,3 +84,69 @@
    :conflict [1 2 1]
    :win-type :captures :win-threshold 3
    :num-players 2})
+
+;; ── Search-discovered games (ranked by richness score) ─────────────────────────
+
+(def discovered-games
+  [{:name "Hexgrow"
+    :richness 1814
+    :description "6-fold 3-ring, all actions, grow to win. Highest strategic depth found."
+    :ruleset
+    {:board-symmetry 6 :num-rings 3 :num-types 3 :elements-per-player 3
+     :food-enabled true :food-initial 1
+     :can-move true :can-eat true :can-grow true :can-capture true :can-circulate true
+     :conflict [1 2 0] :win-type :population :win-threshold 5 :num-players 2}}
+
+   {:name "Hexgrow-4"
+    :richness 1034
+    :description "Larger board (4 rings), same mechanics. Higher branching factor."
+    :ruleset
+    {:board-symmetry 6 :num-rings 4 :num-types 3 :elements-per-player 3
+     :food-enabled true :food-initial 1
+     :can-move true :can-eat true :can-grow true :can-capture true :can-circulate true
+     :conflict [1 2 0] :win-type :population :win-threshold 5 :num-players 2}}
+
+   {:name "Four Elements"
+    :richness 527
+    :description "4 types, no grow, lots of food. Perfectly balanced. Capture to win."
+    :ruleset
+    {:board-symmetry 4 :num-rings 6 :num-types 4 :elements-per-player 3
+     :food-enabled true :food-initial 2
+     :can-move true :can-eat true :can-grow false :can-capture true :can-circulate true
+     :conflict [1 3 0 3 2 2] :win-type :captures :win-threshold 3 :num-players 2}}
+
+   {:name "Triangle March"
+    :richness 439
+    :description "3-fold 6-ring, move-only, 4 types. Pure positional game."
+    :ruleset
+    {:board-symmetry 3 :num-rings 6 :num-types 4 :elements-per-player 5
+     :food-enabled false :food-initial 0
+     :can-move true :can-eat false :can-grow false :can-capture false :can-circulate false
+     :conflict [2 2 1 3 2 1] :win-type :captures :win-threshold 3 :num-players 2}}
+
+   {:name "Full Spectrum"
+    :richness 321
+    :description "4 types, all actions, small board. Highest interaction rate."
+    :ruleset
+    {:board-symmetry 4 :num-rings 3 :num-types 4 :elements-per-player 2
+     :food-enabled true :food-initial 2
+     :can-move true :can-eat true :can-grow true :can-capture true :can-circulate true
+     :conflict [1 1 2 2 3 3] :win-type :population :win-threshold 5 :num-players 2}}
+
+   {:name "Binary Clash"
+    :richness 179
+    :description "2 types, mutual destruction. Most balanced game found."
+    :ruleset
+    {:board-symmetry 6 :num-rings 3 :num-types 2 :elements-per-player 3
+     :food-enabled true :food-initial 0
+     :can-move true :can-eat true :can-grow true :can-capture true :can-circulate false
+     :conflict [3] :win-type :population :win-threshold 5 :num-players 2}}
+
+   {:name "Pentagonal"
+    :richness 96
+    :description "5-fold symmetry like Organism, compact 3-ring board."
+    :ruleset
+    {:board-symmetry 5 :num-rings 3 :num-types 3 :elements-per-player 3
+     :food-enabled true :food-initial 1
+     :can-move true :can-eat true :can-grow true :can-capture true :can-circulate true
+     :conflict [1 2 0] :win-type :population :win-threshold 5 :num-players 2}}])

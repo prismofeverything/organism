@@ -589,17 +589,16 @@
      [:div {:style {:flex "1" :overflow-y "auto" :padding "4px 0"
                     :font-family "monospace" :font-size "11px"}}
       (for [i (range (dec (count entries)) -1 -1)
-            :let [{:keys [step player action round]} (nth entries i)
+            :let [{:keys [player action]} (nth entries i)
                   is-me? (= player @player-key)
                   color (player-color player)]]
         ^{:key i}
-        [:div {:style {:padding "4px 10px" :border-left (str "3px solid " color)
+        [:div {:style {:padding "3px 10px" :border-left (str "3px solid " color)
                        :margin-bottom "1px"
                        :background (if is-me? "rgba(68,136,255,0.08)" "transparent")}}
-         [:div {:style {:color color :font-size "10px"}}
-          (str "R" round " #" step "  "
-               (if is-me? "YOU" (str "P" player)))]
-         [:div {:style {:color "#999" :font-size "11px" :word-break "break-all"}}
+         [:span {:style {:color color :font-size "11px"}}
+          (str (if is-me? "You" (str "P" player)) ": ")]
+         [:span {:style {:color "#999" :font-size "11px"}}
           (format-action action)]])]
 
      ;; Empty state
@@ -610,45 +609,93 @@
 
 ;; ── Create game view ────────────────────────────────────────────────────────────
 
-(defonce create-ruleset (r/atom (or rs/heterarchy-minimal {})))
+(defonce create-ruleset (r/atom (:ruleset (first rs/discovered-games))))
+
+(defn game-card
+  "A clickable card for a discovered game."
+  [{:keys [name richness description ruleset]} selected?]
+  [:div {:style {:padding "10px 14px" :margin-bottom "6px" :cursor "pointer"
+                 :border-radius "6px"
+                 :background (if selected? "#1a2a3a" "#111118")
+                 :border (str "1px solid " (if selected? "#4488ff" "#222"))
+                 :transition "all 0.15s"}
+         :on-click #(reset! create-ruleset ruleset)}
+   [:div {:style {:display "flex" :justify-content "space-between" :align-items "baseline"}}
+    [:span {:style {:color (if selected? "#fff" "#ccc") :font-size "14px"
+                    :font-weight (if selected? "bold" "normal")}}
+     name]
+    [:span {:style {:color "#666" :font-size "11px"}}
+     (str "score " richness)]]
+   [:div {:style {:color "#777" :font-size "11px" :margin-top "3px"}}
+    description]
+   [:div {:style {:color "#555" :font-size "10px" :margin-top "3px"}}
+    (str (:board-symmetry ruleset) "-fold  "
+         (:num-rings ruleset) "r  "
+         (:num-types ruleset) "t  "
+         (:num-players ruleset) "p  "
+         (clojure.core/name (:win-type ruleset)) ">" (:win-threshold ruleset))]])
 
 (defn create-view []
   (let [rs @create-ruleset
         game-id (str (random-uuid))]
-    [:div {:style {:color "#ccc" :font-family "monospace" :padding "40px"
-                   :max-width "600px" :margin "0 auto"}}
-     [:h1 {:style {:color "#fff"}} "Create Universal Game"]
+    [:div {:style {:color "#ccc" :font-family "monospace" :padding "30px 40px"
+                   :max-width "700px" :margin "0 auto"}}
 
-     [:div {:style {:margin "20px 0"}}
-      [:label "Preset: "]
-      [:button {:style {:margin "0 8px" :padding "4px 12px"
-                        :background "#333" :color "#ccc" :border "1px solid #555"
-                        :cursor "pointer"}
+     [:h1 {:style {:color "#fff" :margin-bottom "4px"}} "Universal Game Player"]
+     [:div {:style {:color "#666" :font-size "12px" :margin-bottom "20px"}}
+      "Games discovered by evolutionary search + AlphaZero depth evaluation"]
+
+     ;; Discovered games list
+     [:div {:style {:margin-bottom "16px"}}
+      [:div {:style {:color "#888" :font-size "10px" :margin-bottom "8px"
+                     :text-transform "uppercase" :letter-spacing "1.5px"}}
+       (str (count rs/discovered-games) " discovered games (ranked by strategic depth)")]
+      (for [{:keys [name ruleset] :as game} rs/discovered-games]
+        ^{:key name}
+        [game-card game (= ruleset rs)])]
+
+     ;; Classic presets
+     [:div {:style {:margin "16px 0 8px" :color "#888" :font-size "10px"
+                    :text-transform "uppercase" :letter-spacing "1.5px"}}
+      "Hand-designed presets"]
+     [:div {:style {:display "flex" :gap "8px" :margin-bottom "16px"}}
+      [:button {:style {:padding "6px 14px"
+                        :background (if (= rs rs/heterarchy-minimal) "#1a2a3a" "#111")
+                        :color "#ccc" :border "1px solid #333"
+                        :cursor "pointer" :border-radius "4px" :font-family "monospace"}
                 :on-click #(reset! create-ruleset rs/heterarchy-minimal)}
        "Heterarchy Minimal"]
-      [:button {:style {:margin "0 8px" :padding "4px 12px"
-                        :background "#333" :color "#ccc" :border "1px solid #555"
-                        :cursor "pointer"}
+      [:button {:style {:padding "6px 14px"
+                        :background (if (= rs rs/organism-like) "#1a2a3a" "#111")
+                        :color "#ccc" :border "1px solid #333"
+                        :cursor "pointer" :border-radius "4px" :font-family "monospace"}
                 :on-click #(reset! create-ruleset rs/organism-like)}
        "Organism-like"]]
 
-     [:div {:style {:margin "10px 0"}}
-      (for [[k v] (sort-by key rs)]
-        ^{:key k}
-        [:div {:style {:margin "4px 0"}}
-         [:span {:style {:display "inline-block" :width "180px" :color "#888"}}
-          (name k)]
-         [:span {:style {:color "#fff"}} (pr-str v)]])]
+     ;; Selected ruleset detail
+     (when rs
+       [:div {:style {:background "#0a0a14" :border "1px solid #222"
+                      :border-radius "6px" :padding "12px" :margin-bottom "16px"}}
+        [:div {:style {:color "#666" :font-size "10px" :margin-bottom "6px"
+                       :text-transform "uppercase" :letter-spacing "1px"}}
+         "Selected ruleset"]
+        [:div {:style {:display "flex" :flex-wrap "wrap" :gap "4px 16px"}}
+         (for [[k v] (sort-by key rs)]
+           ^{:key k}
+           [:div {:style {:font-size "11px"}}
+            [:span {:style {:color "#666"}} (clojure.core/name k) " "]
+            [:span {:style {:color "#ddd"}} (pr-str v)]])]])
 
-     [:div {:style {:margin "20px 0"}}
-      [:a {:href (str "/universal/play/" game-id)
-           :style {:padding "8px 20px" :background "#4488ff" :color "#fff"
-                   :text-decoration "none" :border-radius "4px"
-                   :font-size "16px"}}
-       "Start Game"]]
-
-     [:div {:style {:margin "10px 0" :font-size "11px" :color "#666"}}
-      (str "Game ID: " game-id)]]))
+     ;; Play button
+     [:a {:href (str "/universal/play/" game-id)
+          :on-click (fn [_]
+                      ;; Store selected ruleset so play page can use it
+                      (.setItem js/localStorage "universal-ruleset" (pr-str rs)))
+          :style {:display "inline-block" :padding "10px 28px"
+                  :background "#4488ff" :color "#fff"
+                  :text-decoration "none" :border-radius "6px"
+                  :font-size "16px" :font-family "monospace"}}
+      "Play this game"]]))
 
 ;; ── WebSocket handling ──────────────────────────────────────────────────────────
 
@@ -740,13 +787,15 @@
               url (str protocol "://" host "/ws/universal/play/" play-key)]
           (ws/make-websocket! url receive-message!))
 
-        ;; Auto-create game if none exists
+        ;; Auto-create game if none exists, using stored ruleset or default
         (js/setTimeout
          (fn []
            (when-not @game-state
-             (ws/send-transit-message!
-              {"type" "create"
-               "ruleset" (pr-str rs/heterarchy-minimal)})))
+             (let [stored (.getItem js/localStorage "universal-ruleset")
+                   ruleset-str (or stored (pr-str (:ruleset (first rs/discovered-games))))]
+               (ws/send-transit-message!
+                {"type" "create"
+                 "ruleset" ruleset-str}))))
          500)
 
         (rdom/render [game-page]
