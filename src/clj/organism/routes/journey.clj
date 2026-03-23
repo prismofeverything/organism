@@ -116,6 +116,11 @@
                     (when real-move? move-next)
                     (first (vals choices))))
 
+              ;; Prefer tower conversions over matrix/foundry to ensure towers get built
+              :choose-convert
+              (let [tower (some #(when (= :tower (:type (key %))) (val %)) choices)]
+                (or tower (first (vals choices))))
+
               ;; Prefer fly when 3+ on board; otherwise launch to build presence
               :choose-move
               (let [player (game/current-player state)]
@@ -123,12 +128,19 @@
                   (or (:fly choices) (:launch choices) (:done choices))
                   (or (:launch choices) (:fly choices) (:done choices))))
 
-              ;; Launch to a position that creates a conversion pattern if possible;
-              ;; otherwise spread players to different flanks via player index
+              ;; Launch: prefer conversion-enabling tiles, then spread out
+              ;; (fewest of this player's sundivers), then non-wrap, wrap as last resort.
               :choose-launch-destination
-              (let [non-wrap (into {} (remove #(vector? (key %)) choices))
-                    conv     (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)]
-                (or conv (pick-varied state (vals non-wrap)) (first (vals choices))))
+              (let [player   (game/current-player state)
+                    non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
+                    conv     (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)
+                    ;; Prefer tile where this player has fewest sundivers (spread out)
+                    fewest   (when (and (not conv) (seq non-wrap))
+                               (let [k (apply min-key
+                                         #(get-in state [:board % :sundivers player] 0)
+                                         (keys non-wrap))]
+                                 (get non-wrap k)))]
+                (or conv fewest (pick-varied state (vals non-wrap)) (pick-varied state (vals choices))))
 
               ;; Fly from the position with most sundivers (spread them out)
               :choose-fly-from
@@ -137,11 +149,17 @@
                                   (keys choices))]
                 (get choices best))
 
-              ;; Fly to a position that creates a conversion pattern if possible;
-              ;; otherwise vary by player to avoid all moving the same direction
+              ;; Fly to: prefer conversion-enabling tiles, then spread out, then non-wrap.
               :choose-fly-to
-              (let [conv (some #(when (enables-conversion? state (val %)) (val %)) choices)]
-                (or conv (pick-varied state (vals choices))))
+              (let [player   (game/current-player state)
+                    non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
+                    conv     (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)
+                    fewest   (when (and (not conv) (seq non-wrap))
+                               (let [k (apply min-key
+                                         #(get-in state [:board % :sundivers player] 0)
+                                         (keys non-wrap))]
+                                 (get non-wrap k)))]
+                (or conv fewest (pick-varied state (vals non-wrap)) (pick-varied state (vals choices))))
 
               ;; Take max bonus actions to fully utilise stations
               :choose-activate-self-bonus  (get choices (apply max (keys choices)))
@@ -152,34 +170,61 @@
               :flare-beacon-join   (:join choices (:skip choices))
               :captain-beacon-join (:join choices (:skip choices))
 
-              ;; Prefer wrap when it gets the ark closer to a beacon; else direct.
+              ;; Landing first; then prefer wrap if it gets ark closer to a beacon.
               :choose-ark-advance
-              (let [bs (beacon-positions state)]
-                (if (seq bs)
+              (let [landings (game/available-landings state)]
+                (if (seq landings)
                   (let [ark        (:ark state)
                         dir        (game/heading-direction state)
                         direct-pos (:heading-token state)
                         wrap-pos   (game/wrap-target state ark dir)
-                        d-direct   (apply min (map #(game/hex-distance direct-pos %) bs))
-                        d-wrap     (apply min (map #(game/hex-distance wrap-pos   %) bs))]
+                        d-fn       (fn [p] (apply min (map #(game/hex-distance p %) landings)))
+                        d-direct   (d-fn direct-pos)
+                        d-wrap     (d-fn wrap-pos)]
                     (if (< d-wrap d-direct)
                       (or (:wrap choices) (:direct choices))
                       (:direct choices)))
-                  (:direct choices)))
+                  (let [bs (beacon-positions state)]
+                    (if (seq bs)
+                      (let [ark        (:ark state)
+                            dir        (game/heading-direction state)
+                            direct-pos (:heading-token state)
+                            wrap-pos   (game/wrap-target state ark dir)
+                            d-direct   (apply min (map #(game/hex-distance direct-pos %) bs))
+                            d-wrap     (apply min (map #(game/hex-distance wrap-pos   %) bs))]
+                        (if (< d-wrap d-direct)
+                          (or (:wrap choices) (:direct choices))
+                          (:direct choices)))
+                      (:direct choices)))))
               :choose-flare-advance        (:direct choices)
               :choose-drift-flare-advance  (:direct choices)
 
               :draw-drift-card (:draw choices)
 
+              ;; Priority 0: steer toward a landable tile (if any exist).
               ;; Priority 1: steer toward the nearest beacon (shortest hex path).
               ;; Priority 2: wrap back over explored space (tiles in back half).
               ;; Priority 3: vary by player index (spread the arcs apart).
               :choose-captain-drift
-              (let [ark     (:ark state)
-                    dir     (game/heading-direction state)
-                    idx     (game/direction-index dir)
-                    board   (:board state)
-                    beacons (filter #(get-in board [% :beacon]) (keys board))
+              (let [ark      (:ark state)
+                    dir      (game/heading-direction state)
+                    idx      (game/direction-index dir)
+                    board    (:board state)
+                    landings (game/available-landings state)
+                    beacons  (filter #(get-in board [% :beacon]) (keys board))
+
+                    ;; Turn that gets ark closest to any landable tile (highest priority)
+                    landing-turn
+                    (when (seq landings)
+                      (let [d-none  (effective-ark-dist state ark dir                   landings)
+                            d-left  (effective-ark-dist state ark (game/rotate-ccw dir) landings)
+                            d-right (effective-ark-dist state ark (game/rotate-cw  dir) landings)
+                            best-d  (min d-none d-left d-right)]
+                        (when-not (= d-none d-left d-right)
+                          (cond
+                            (= best-d d-none)  (:none  choices)
+                            (= best-d d-left)  (or (:left  choices) (:none choices))
+                            :else              (or (:right choices) (:none choices))))))
 
                     ;; Turn option that gets the ark closest to the nearest beacon,
                     ;; accounting for wrap as an option when the next cell is unexplored.
@@ -189,10 +234,11 @@
                             d-left  (effective-ark-dist state ark (game/rotate-ccw dir)   beacons)
                             d-right (effective-ark-dist state ark (game/rotate-cw  dir)   beacons)
                             best-d  (min d-none d-left d-right)]
-                        (cond
-                          (= best-d d-none)  (:none  choices)
-                          (= best-d d-left)  (or (:left  choices) (:none choices))
-                          :else              (or (:right choices) (:none choices)))))
+                        (when-not (= d-none d-left d-right)
+                          (cond
+                            (= best-d d-none)  (:none  choices)
+                            (= best-d d-left)  (or (:left  choices) (:none choices))
+                            :else              (or (:right choices) (:none choices))))))
 
                     ;; Back-half tile check (fallback when no beacons)
                     at       (fn [o] (contains? board (game/add-hex ark (nth game/hex-directions (mod (+ idx o) 6)))))
@@ -200,7 +246,8 @@
                     behind   (at 3)
                     ccw-back (at 4)]
 
-                (or beacon-turn
+                (or landing-turn
+                    beacon-turn
                     (cond
                       (and cw-back (not ccw-back)) (or (:right choices) (:none choices))
                       (and ccw-back (not cw-back)) (or (:left  choices) (:none choices))
@@ -225,12 +272,23 @@
               ;; Land whenever possible
               :choose-land (:land choices (:continue choices))
 
-              ;; Cipher: skip if no affordable positions; prefer center [0 0] when free,
-              ;; else pick a free (cost-0) position, else spread via player index.
+              ;; Cipher: always place if affordable. Score by new board matches;
+              ;; prefer new activations, but join existing colors too.
+              ;; Only skip when no placeable positions (can't pay).
               :cipher
-              (or (:skip choices)
-                  (get choices [0 0])
-                  (pick-varied state (vals choices)))
+              (let [{:keys [color]} (first (get-in state [:player-turn :cipher-queue] []))
+                    board     (:board state)
+                    score     (fn [pos]
+                                (if (game/cipher-color-active? state pos color)
+                                  0
+                                  (if (= pos [0 0])
+                                    (count (filter #(= color (:color %)) (vals board)))
+                                    (count (filter #(= color (get-in board [(game/add-hex % pos) :color]))
+                                                   (keys board))))))
+                    placeable (dissoc choices :skip)]
+                (if (and color (seq placeable))
+                  (get choices (apply max-key score (keys placeable)))
+                  (or (:skip choices) (first (vals choices)))))
 
               ;; Matrix beacon: prefer tile on the ark's heading path, else no-station tile
               :choose-activate-matrix-beacon
@@ -247,14 +305,14 @@
 ;; ── Generate page (smart simulation with full choice history) ─────────────────────────────────────────
 
 (defn generate-history
-  "Simulate a 5-player game using the smart agent until game-over or 1000 steps.
+  "Simulate a 5-player game using the smart agent until game-over.
    Returns a vector of {:step :player :phase :choice :state} entries."
   []
   (let [players ["alice" "bob" "carol" "dave" "eve"]
         state0  (game/initial-state players)
         initial {:step 0 :player nil :phase :initial :choice "—" :state state0}]
     (loop [s state0 i 0 history [initial]]
-      (if (or (:game-over s) (>= i 1000))
+      (if (:game-over s)
         history
         (if-let [[ck next-s] (agent-step s)]
           (let [[phase _] (choice/find-state s)]

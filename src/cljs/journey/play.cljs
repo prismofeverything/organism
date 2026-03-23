@@ -266,29 +266,31 @@
       (not= old-sel? new-sel?))
     :reagent-render
     (fn [i {:keys [step player phase choice]} player-colors selected? group-start? show-sep? on-click]
-      (let [ck (get player-colors player :sun)
-            fc (board/pf ck)]
+      (let [ck   (get player-colors player :sun)
+            fc   (board/ptb ck)
+            bg-c (if (= ck :void) "#8888AA" fc)]
         [:div
          (when show-sep?
            [:div {:style {:height "1px" :margin "3px 0"
-                          :background (str fc "33")}}])
+                          :background (str bg-c "66")}}])
          (when group-start?
-           [:div {:style {:padding "4px 10px 1px" :color fc
-                          :opacity (if selected? 1.0 0.45)
+           [:div {:style {:padding "4px 10px 1px"
+                          :color (if selected? fc (str fc "99"))
                           :font-size "9px" :font-family "monospace"
-                          :letter-spacing "1px"}}
+                          :letter-spacing "1px"
+                          :background (str bg-c "44")}}
             (str "▸ " (or player "—"))])
          [:div
           {:id       (str "hist-item-" i)
            :on-click on-click
            :style {:padding "4px 10px 4px 14px" :cursor "pointer"
                    :border-left (str "2px solid "
-                                     (if selected? fc (str fc "44")))
-                   :background (if selected? (str fc "0F") "transparent")}}
-          [:div {:style {:color (if selected? fc (str fc "88"))
+                                     (if selected? bg-c (str bg-c "88")))
+                   :background (if selected? (str bg-c "60") (str bg-c "30"))}}
+          [:div {:style {:color (if selected? fc (str fc "CC"))
                          :font-size "12px" :font-family "monospace"}}
            (str "·" step "  " (name phase))]
-          [:div {:style {:color (if selected? "#778899" "#2A3A44")
+          [:div {:style {:color (if selected? (str fc "DD") (str fc "88"))
                          :font-size "10px" :font-family "monospace"
                          :word-break "break-all"}}
            choice]]]))}))
@@ -301,7 +303,7 @@
        player-order  (:turn-order (:state (first history)))
        player-colors (board/build-player-colors player-order)
        selected       (r/atom 0)
-       playing?       (r/atom true)
+       playing?       (r/atom false)
        interval       (r/atom nil)
        history-focus? (r/atom false)
        ;; Stop interval without changing playing? flag
@@ -324,7 +326,7 @@
          (stop-interval!)
          (reset! playing? true)
          (reset! interval (js/setInterval advance! 40)))
-       ;; Manual step navigation — list is newest-on-top so up = more recent
+       ;; Manual step — always pauses playback
        navigate!
        (fn [dir]
          (stop-interval!)
@@ -332,13 +334,27 @@
          (swap! selected #(case dir
                             :up   (min (dec n) (inc %))
                             :down (max 0 (dec %)))))
-       ;; Escape blurs history focus
-       on-escape
+       ;; Single capture-phase listener: intercepts keys when history has focus,
+       ;; preventing the board's own keydown handler from also firing.
+       ;; When history is not focused this handler is a no-op, so the board pans normally.
+       on-key
        (fn [e]
-         (when (= "Escape" (.-key e))
-           (reset! history-focus? false)))
-       _ (do (start!)
-             (js/document.addEventListener "keydown" on-escape))]
+         (case (.-key e)
+           "Escape"
+           (do (.preventDefault e) (swap! history-focus? not))
+           (when @history-focus?
+             (case (.-key e)
+               "ArrowUp"
+               (do (.preventDefault e) (.stopImmediatePropagation e) (navigate! :up))
+               "ArrowDown"
+               (do (.preventDefault e) (.stopImmediatePropagation e) (navigate! :down))
+               " "
+               (do (.preventDefault e) (.stopImmediatePropagation e)
+                   (if @playing?
+                     (do (stop-interval!) (reset! playing? false))
+                     (start!)))
+               nil))))
+       _ (js/document.addEventListener "keydown" on-key #js {:capture true})]
 
       (let [sel     @selected
             focused @history-focus?
@@ -349,10 +365,9 @@
                           :background "#04040E" :overflow "hidden"}
                :on-mouse-down #(reset! history-focus? false)}
 
-         ;; Board
+         ;; Board — no on-navigate; Up/Down always pan when history is not focused
          [:div {:style {:flex "1" :overflow "hidden"}}
-          [board-view state #{} nil nil
-           (when focused {:on-navigate navigate!})]]
+          [board-view state #{} nil nil]]
 
          ;; History panel — mousedown stops propagation so outer blur doesn't fire
          [:div {:style         {:width "250px" :display "flex" :flex-direction "column"
@@ -398,7 +413,7 @@
 
       (finally
         (stop-interval!)
-        (js/document.removeEventListener "keydown" on-escape))))
+        (js/document.removeEventListener "keydown" on-key #js {:capture true}))))
 
 ;; ── Page container ────────────────────────────────────────────────────────────
 

@@ -77,13 +77,15 @@
           (map (fn [pos]
                  [pos (-> state
                           (assoc-in [:player-turn :phase] :choose-fly-to)
-                          (assoc-in [:player-turn :action :fly-from] pos))])
+                          (assoc-in [:player-turn :action :fly-from] pos)
+                          (update-in [:player-turn :action :fly-visited] (fnil conj #{}) pos))])
                (mobile-positions state player)))))
 
 (defn choose-fly-to-choices
   [state]
-  (let [player   (game/current-player state)
-        from-pos (get-in state [:player-turn :action :fly-from])]
+  (let [player      (game/current-player state)
+        from-pos    (get-in state [:player-turn :action :fly-from])
+        fly-visited (get-in state [:player-turn :action :fly-visited] #{})]
     (into {}
           (mapcat
            (fn [to-pos]
@@ -105,7 +107,8 @@
                        wrap-pos (game/wrap-target state from-pos fly-dir)]
                    [base-entry [[:wrap to-pos] (after (game/fly-sundiver state player from-pos wrap-pos))]])
                  [base-entry])))
-           (fly-destinations state player from-pos)))))
+           ;; Exclude positions already visited this move action to prevent back-and-forth
+           (remove fly-visited (fly-destinations state player from-pos))))))
 
 (defn choose-move-choices
   "Options during the move action. Launch and fly are only offered while move points remain."
@@ -169,17 +172,30 @@
            (range (inc max-feasible))))))
 
 (defn choose-activate-self-bonus-choices
-  "Activating their own station: choose 0..bonus bonus actions on top of base."
+  "Activating their own station: choose 0..bonus bonus actions on top of base.
+   Cap the offered range to what the player can actually execute — mirrors the
+   same feasibility guard already applied in choose-activate-owner-bonus-choices."
   [state]
-  (let [bonus-total (get-in state [:player-turn :action :bonus-total] 0)
-        base        (get-in state [:player-turn :action :activator-actions] 0)]
+  (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
+        base         (get-in state [:player-turn :action :activator-actions] 0)
+        player       (game/current-player state)
+        station-type (get-in state [:player-turn :action :station-type])
+        max-feasible (case station-type
+                       :matrix
+                       (let [positions (count (game/matrix-beacon-positions state player))
+                             spendable (game/total-spendable-sundivers state player)
+                             beacons   (get-in state [:players player :reserve :beacons] 0)]
+                         (max 0 (min bonus-total (- positions base) (- spendable base) (- beacons base))))
+                       :tower
+                       (max 0 (min bonus-total (- (game/total-spendable-sundivers state player) base)))
+                       bonus-total)]
     (into {}
           (map
            (fn [n]
              [n (-> state
                     (assoc-in [:player-turn :action :activator-actions] (+ base n))
                     (game/begin-actor-actions :activator))])
-           (range (inc bonus-total))))))
+           (range (inc max-feasible))))))
 
 ;; --- activate helpers ---
 

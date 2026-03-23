@@ -101,33 +101,62 @@ def self_play_game(
 def _shaped_score(state: dict, player: str) -> float:
     """Weighted progress score for one player.
 
-    Weights are deliberately skewed toward cipher beacons (the true objective)
-    so the agent isn't nudged to build stations as an end in itself.
+    Dispatches on game type by inspecting state structure.
 
+    Journey weights:
       cipher beacons placed : 10
       board beacons placed  :  2  (instrumental — discovered via tower)
       stations activated    :  3  (instrumental — actually using structures)
       stations built        :  1  (weakest hint — structure exists but unused)
-    """
-    score = 0.0
 
-    # Cipher beacons (primary objective)
+    Organism weights:
+      captures              :  5  (primary objective)
+      living organisms      :  2  (organism-victory path)
+      total food held       :  0.1 (minor hint — feeding supports growth)
+    """
+    # ── AbstractGame state (has "elements" at top level) ──
+    if "elements" in state and "current_player" in state and "captures" in state:
+        score = 0.0
+        inner = state
+        score += 5 * inner.get("captures", {}).get(player, 0)
+        # Elements owned by player count as minor bonus
+        score += 0.5 * sum(1 for e in inner.get("elements", {}).values() if e["player"] == player)
+        return score
+
+    # ── Organism state (has "elements" key in nested "state") ──
+    if "elements" in state.get("state", {}):
+        score = 0.0
+        inner = state["state"]
+        # Captures
+        score += 5 * len(inner.get("captures", {}).get(player, []))
+        # Living organisms
+        elements_by_org: dict = {}
+        for el in inner.get("elements", {}).values():
+            if el["player"] == player:
+                elements_by_org.setdefault(el["organism"], []).append(el)
+        for org_elements in elements_by_org.values():
+            types = {e["type"] for e in org_elements}
+            if len(types) >= 3:
+                score += 2
+        # Food held
+        for el in inner.get("elements", {}).values():
+            if el["player"] == player:
+                score += 0.1 * el.get("food", 0)
+        return score
+
+    # ── Journey state (flat dict with "board", "cipher", etc.) ──
+    score = 0.0
     for pos_entry in state.get("cipher", {}).values():
         for color_entry in pos_entry.get("colors", {}).values():
             score += 10 * color_entry.get(player, 0)
-
-    # Board beacons placed by this player
     for tile in state.get("board", {}).values():
         if tile.get("beacon") == player:
             score += 2
-
-    # Stations built and activated
     pstate = state.get("players", {}).get(player, {})
     for info in pstate.get("stations", {}).values():
-        score += 1                          # built
+        score += 1
         if info.get("level", 1) > 1:
-            score += 3                      # activated (level increases on use)
-
+            score += 3
     return score
 
 

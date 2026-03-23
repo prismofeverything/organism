@@ -81,6 +81,9 @@
 ;; Shared deck of 5 suits × 13 cards = 65 cards.
 ;; Suits are numbered 0–4; values 1–13.
 
+(def suit-names  {0 "space" 1 "matter" 2 "time" 3 "energy" 4 "flare"})
+(def suit-colors {0 "#8844CC" 1 "#22AA55" 2 "#AAAACC" 3 "#4488EE" 4 "#DD3322"})
+
 (defn make-card [suit value]
   {:suit suit :value value})
 
@@ -107,6 +110,12 @@
    (map (fn [offset color] [offset {:colors {color {}}}])
         hex-directions
         tile-colors)))
+
+(defn cipher-color-active?
+  "True when at least one player has placed a beacon of color at cipher position pos.
+   Initial pre-populated entries have an empty player map and are NOT active."
+  [state pos color]
+  (seq (get-in state [:cipher pos :colors color] {})))
 
 (defn cipher-placement-cost
   "Sundivers required to place color at cipher position pos.
@@ -137,9 +146,8 @@
    (filter
     (fn [dir]
       (let [neighbor       (add-hex pos dir)
-            neighbor-color (get-in state [:board neighbor :color])
-            cipher-colors  (get-in state [:cipher dir :colors] {})]
-        (and neighbor-color (contains? cipher-colors neighbor-color))))
+            neighbor-color (get-in state [:board neighbor :color])]
+        (and neighbor-color (cipher-color-active? state dir neighbor-color))))
     hex-directions)))
 
 (defn can-land-at?
@@ -147,11 +155,10 @@
    Requires the tile color in the center cipher, and ≥5 directional matches.
    5 matches: Ark must be exactly on pos. 6 matches: Ark may be on pos or adjacent."
   [state pos]
-  (let [center-colors (get-in state [:cipher [0 0] :colors] {})
-        tile-color    (get-in state [:board pos :color])
-        ark           (:ark state)
-        matches       (count-cipher-matches state pos)]
-    (and (contains? center-colors tile-color)
+  (let [tile-color (get-in state [:board pos :color])
+        ark        (:ark state)
+        matches    (count-cipher-matches state pos)]
+    (and (cipher-color-active? state [0 0] tile-color)
          (or (and (= matches 5) (= ark pos))
              (and (= matches 6)
                   (or (= ark pos)
@@ -181,8 +188,7 @@
     (reduce
      (fn [scores dir]
        (let [neighbor-color (get-in state [:board (add-hex pos dir) :color])]
-         (if (and neighbor-color
-                  (contains? (get-in state [:cipher dir :colors] {}) neighbor-color))
+         (if (and neighbor-color (cipher-color-active? state dir neighbor-color))
            (add-beacons-to-scores
             scores (get-in state [:cipher dir :colors neighbor-color] {}))
            scores)))
@@ -243,7 +249,7 @@
      :discard       []
      :ark           [0 0]
      :neutral-tower [0 0]
-     :heading-token [0 1]
+     :heading-token [0 -1]
      :captain-flame (last turn-order)
      :cipher        (initial-cipher)
      :pending-cipher []
@@ -352,7 +358,7 @@
   (-> state
       (update-in [:board from-pos :sundivers player] dec)
       (update-in [:players player :reserve :sundivers] inc)
-      (update-in [:players player :reserve :gates] dec)
+      (update-in [:players player :reserve :gates] #(max 0 (dec %)))
       (update-in [:players player :gates from-pos] (fnil conj #{}) to-pos)
       (update-in [:players player :gates to-pos] (fnil conj #{}) from-pos)
       (update-in [:player-turn :action :gates-created] (fnil inc 0))))
@@ -379,16 +385,21 @@
 
 (defn fly-through-gate
   "Move sundiver for player from from-pos to to-pos via an existing gate.
-   If player is not the gate owner, the owner gains one sundiver (reserve → habitat)."
+   If player is not the gate owner AND the owner hasn't already been paid this turn
+   AND the owner has sundivers in reserve, the owner gains one sundiver (reserve → habitat).
+   Each gate owner receives at most 1 sundiver per turn from gate crossings."
   [state player from-pos to-pos]
   (let [owner (gate-owner state from-pos to-pos)
         state (-> state
                   (update-in [:board from-pos :sundivers player] dec)
-                  (update-in [:board to-pos :sundivers player] (fnil inc 0)))]
-    (if (and owner (not= player owner))
+                  (update-in [:board to-pos :sundivers player] (fnil inc 0)))
+        already-paid (get-in state [:player-turn :gate-owners-paid] #{})
+        has-reserve  (pos? (get-in state [:players owner :reserve :sundivers] 0))]
+    (if (and owner (not= player owner) (not (contains? already-paid owner)) has-reserve)
       (-> state
           (update-in [:players owner :reserve :sundivers] dec)
-          (update-in [:players owner :habitat :sundivers] inc))
+          (update-in [:players owner :habitat :sundivers] inc)
+          (update-in [:player-turn :gate-owners-paid] (fnil conj #{}) owner))
       state)))
 
 ;; --- convert action ---
@@ -460,7 +471,7 @@
                                 (region-station-level state (region-tiles state exit)))
                               exits)]
         (if (seq neighbor-levels)
-          (inc (apply max neighbor-levels))
+          (min 3 (inc (apply max neighbor-levels)))
           1)))))
 
 ;; --- conversion pattern detection ---
@@ -474,11 +485,20 @@
           (some? (adjacent-direction target pos))))
    (hex-neighbors target)))
 
+;; Reserve uses plural keys; station type keywords are singular.
+(def station-reserve-key
+  {:foundry :foundries
+   :matrix  :matrixes
+   :tower   :towers})
+
 (defn find-conversions
   "Find all valid conversion patterns for player. Returns a seq of
-   {:type :foundry/:matrix/:tower, :target pos, :sundivers [pos...]}."
+   {:type :foundry/:matrix/:tower, :target pos, :sundivers [pos...]}.
+   Only includes station types that the player still has in reserve."
   [state player]
-  (let [board (:board state)]
+  (let [board   (:board state)
+        reserve (get-in state [:players player :reserve])
+        has?    (fn [stype] (pos? (get reserve (station-reserve-key stype) 0)))]
     (mapcat
      (fn [target]
        (when (and (contains? board target)
@@ -487,31 +507,28 @@
                indexed (mapv (fn [s] [s (adjacent-direction target s)]) adj)]
            (concat
             ;; Foundry: two sundivers at 120° from each other (direction-diff == 2)
-            (for [[s1 d1] indexed [s2 d2] indexed
-                  :when (and (not= s1 s2)
-                             (= 2 (direction-diff d1 d2))
-                             (< d1 d2))]
-              {:type :foundry :target target :sundivers [s1 s2]})
+            (when (has? :foundry)
+              (for [[s1 d1] indexed [s2 d2] indexed
+                    :when (and (not= s1 s2)
+                               (= 2 (direction-diff d1 d2))
+                               (< d1 d2))]
+                {:type :foundry :target target :sundivers [s1 s2]}))
             ;; Matrix: two sundivers directly across (direction-diff == 3)
-            (for [[s1 d1] indexed [s2 d2] indexed
-                  :when (and (not= s1 s2)
-                             (= 3 (direction-diff d1 d2))
-                             (< d1 d2))]
-              {:type :matrix :target target :sundivers [s1 s2]})
+            (when (has? :matrix)
+              (for [[s1 d1] indexed [s2 d2] indexed
+                    :when (and (not= s1 s2)
+                               (= 3 (direction-diff d1 d2))
+                               (< d1 d2))]
+                {:type :matrix :target target :sundivers [s1 s2]}))
             ;; Tower: three sundivers equally spaced (directions i, i+2, i+4)
-            (for [[s1 d1] indexed [s2 d2] indexed [s3 d3] indexed
-                  :when (and (not= s1 s2) (not= s1 s3) (not= s2 s3)
-                             (let [ds (sort [d1 d2 d3])]
-                               (or (= ds [0 2 4]) (= ds [1 3 5])))
-                             (< d1 d2 d3))]
-              {:type :tower :target target :sundivers [s1 s2 s3]})))))
+            (when (has? :tower)
+              (for [[s1 d1] indexed [s2 d2] indexed [s3 d3] indexed
+                    :when (and (not= s1 s2) (not= s1 s3) (not= s2 s3)
+                               (let [ds (sort [d1 d2 d3])]
+                                 (or (= ds [0 2 4]) (= ds [1 3 5])))
+                               (< d1 d2 d3))]
+                {:type :tower :target target :sundivers [s1 s2 s3]}))))))
      (keys board))))
-
-;; Reserve uses plural keys; station type keywords are singular.
-(def station-reserve-key
-  {:foundry :foundries
-   :matrix  :matrixes
-   :tower   :towers})
 
 (defn convert
   "Return sundivers to reserve, place station at target, record level, then
@@ -528,7 +545,7 @@
     (-> state
         (assoc-in [:board target :station] {:type station-type :player player :level level})
         (assoc-in [:players player :stations target] {:type station-type :level level})
-        (update-in [:players player :reserve (station-reserve-key station-type)] dec)
+        (update-in [:players player :reserve (station-reserve-key station-type)] #(max 0 (dec %)))
         (assoc-in [:player-turn :action :cards-to-draw] level)
         (auto-activate-converted-station player station-type target))))
 
@@ -661,7 +678,7 @@
   [state player pos]
   (-> state
       (assoc-in [:board pos :beacon] player)
-      (update-in [:players player :reserve :beacons] dec)))
+      (update-in [:players player :reserve :beacons] #(max 0 (dec %)))))
 
 (defn matrix-beacon-positions
   "Valid positions to place a matrix beacon: the Ark, the space behind the Ark,
@@ -768,11 +785,12 @@
           [(+ q (* steps dq)) (+ r (* steps dr))]))))
 
 (defn discover-beacon
-  "Remove tile with beacon from board; enqueue in :pending-cipher for end-of-turn resolution."
+  "Consume the world token and beacon from the tile; keep the hex with any station/sundivers.
+   Enqueues the world color in :pending-cipher for end-of-turn resolution."
   [state pos actor-player]
   (let [tile (get-tile state pos)]
     (-> state
-        (update :board dissoc pos)
+        (update-in [:board pos] assoc :beacon nil :world false)
         (update :pending-cipher (fnil conj [])
                 {:world        (:color tile)
                  :beacon-owner (:beacon tile)
@@ -790,7 +808,7 @@
   ([state player cipher-idx]
    (-> state
        (update-in [:pending-cipher cipher-idx :joiners] conj player)
-       (update-in [:players player :reserve :beacons] dec))))
+       (update-in [:players player :reserve :beacons] #(max 0 (dec %))))))
 
 ;; --- activate state machine ---
 
