@@ -1,51 +1,108 @@
 <!DOCTYPE html>
-<html style="background-color:#222">
+<html>
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM - Register</title>
+    <title>{{game-title}} - Register</title>
     {% style "/assets/bulma/css/bulma.min.css" %}
     {% style "/css/screen.css" %}
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; background: #111; }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .oval {
+        width: 640px;
+        min-height: 480px;
+        border-radius: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 80px;
+      }
+      .oval h1 {
+        color: #fff;
+        font-family: monospace;
+        font-size: 1.8rem;
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      }
+      .oval h2 {
+        color: rgba(255,255,255,0.6);
+        font-family: monospace;
+        font-size: 0.9rem;
+        letter-spacing: 0.15em;
+        margin-bottom: 18px;
+      }
+      .oval .field { margin-bottom: 12px; width: 260px; }
+      .oval label { color: rgba(255,255,255,0.8); font-family: monospace; font-size: 0.85rem; display: block; margin-bottom: 4px; }
+      .oval input.input {
+        background: rgba(0,0,0,0.25);
+        border: 1px solid rgba(255,255,255,0.2);
+        color: #fff;
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-family: monospace;
+        width: 100%;
+      }
+      .oval input.input::placeholder { color: rgba(255,255,255,0.3); }
+      .oval .buttons { display: flex; gap: 10px; margin-top: 8px; }
+      .oval .btn {
+        padding: 8px 22px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.9rem;
+        cursor: pointer;
+        text-decoration: none;
+        border: 1px solid rgba(255,255,255,0.25);
+      }
+      .oval .btn-primary { background: rgba(255,255,255,0.15); color: #fff; }
+      .oval .btn-primary:hover { background: rgba(255,255,255,0.25); }
+      .oval .btn-secondary { background: transparent; color: rgba(255,255,255,0.6); }
+      .oval .btn-secondary:hover { color: #fff; background: rgba(255,255,255,0.08); }
+      .oval .error { color: #ff6b6b; font-family: monospace; font-size: 0.85rem; margin-bottom: 12px; }
+    </style>
   </head>
-  <body style="background-color:#222">
-    <section class="section">
-      <div class="container" style="max-width:420px">
-        <h1 class="title" style="color:#eee">ORGANISM</h1>
-        <h2 class="subtitle" style="color:#aaa">register</h2>
-        {% if error %}
-        <div class="notification is-danger">{{error}}</div>
-        {% endif %}
-        <form method="POST" action="/register">
-          {% csrf-field %}
-          {% if redirect %}<input type="hidden" name="redirect" value="{{redirect}}"/>{% endif %}
-          <div class="field">
-            <label class="label" style="color:#eee">player name</label>
-            <div class="control">
-              <input class="input" type="text" name="player" placeholder="choose a name" autofocus required/>
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" style="color:#eee">password</label>
-            <div class="control">
-              <input class="input" type="password" name="password" required/>
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" style="color:#eee">confirm password</label>
-            <div class="control">
-              <input class="input" type="password" name="password-confirm" required/>
-            </div>
-          </div>
-          <div class="field is-grouped">
-            <div class="control">
-              <button class="button is-primary" type="submit">register</button>
-            </div>
-            <div class="control">
-              <a class="button is-light" href="/login{% if redirect %}?redirect={{redirect}}{% endif %}">login</a>
-            </div>
-          </div>
-        </form>
-      </div>
-    </section>
+  <body>
+    <div class="oval" id="oval">
+      <h1>{{game-title}}</h1>
+      <h2>register</h2>
+      {% if error %}
+      <div class="error">{{error}}</div>
+      {% endif %}
+      <form method="POST" action="/register">
+        {% csrf-field %}
+        {% if redirect %}<input type="hidden" name="redirect" value="{{redirect}}"/>{% endif %}
+        <div class="field">
+          <label>player name</label>
+          <input class="input" type="text" name="player" placeholder="choose a name" autofocus required/>
+        </div>
+        <div class="field">
+          <label>password</label>
+          <input class="input" type="password" name="password" required/>
+        </div>
+        <div class="field">
+          <label>confirm password</label>
+          <input class="input" type="password" name="password-confirm" required/>
+        </div>
+        <div class="buttons">
+          <button class="btn btn-primary" type="submit">register</button>
+          <a class="btn btn-secondary" href="/login{% if redirect %}?redirect={{redirect}}{% endif %}">login</a>
+        </div>
+      </form>
+    </div>
+    <script>
+      (function() {
+        var h = (Math.random() * 360)|0;
+        var bg = 'hsl(' + h + ', 35%, 25%)';
+        document.getElementById('oval').style.background = bg;
+      })();
+    </script>
   </body>
 </html>

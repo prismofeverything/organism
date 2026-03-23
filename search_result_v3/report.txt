@@ -1,0 +1,181 @@
+=== Search V2 Results (top 15) ===
+
+#1  squ5t4p2_c2  (gen 5)
+  Topology:  square size=5
+  Pieces:    4 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  (0, 1, 3, 1, 1, 3)  trigger=move_into
+  Win:       captures ≥ 2
+  Info:      fog radius=2
+  Resources: energy
+  Metrics:   term=1.00 bal=0.87 B=22.1 len=202 interact=0.13 mech=1.00 KR=53.6b logGT=271.6 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=5.07  Balance=0.87  Interaction=0.129  KR=54b
+
+#2  squ5t4p2_c2  (gen 0)
+  Topology:  square size=5
+  Pieces:    4 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  (0, 1, 3, 1, 1, 3)  trigger=move_into
+  Win:       captures ≥ 2
+  Info:      fog radius=2
+  Resources: energy
+  Metrics:   term=1.00 bal=0.67 B=22.3 len=202 interact=0.13 mech=1.00 KR=53.6b logGT=272.4 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=5.08  Balance=0.67  Interaction=0.127  KR=54b
+
+#3  hex4t1p2_e2  (gen 10)
+  Topology:  hex size=4
+  Pieces:    1 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  ()  trigger=adjacency
+  Win:       elimination ≥ 2
+  Info:      perfect
+  Resources: energy
+  Metrics:   term=1.00 bal=0.93 B=46.5 len=122 interact=0.09 mech=1.00 KR=40.0b logGT=203.5 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=5.09  Balance=0.93  Interaction=0.091  KR=40b
+
+#4  tor3t3p2_s7  (gen 9)
+  Topology:  torus_hex size=3
+  Pieces:    3 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  (1, 1, 2)  trigger=explicit
+  Win:       score_at_limit ≥ 7
+  Info:      perfect
+  Resources: energy
+  Metrics:   term=1.00 bal=0.93 B=33.9 len=122 interact=0.11 mech=1.00 KR=46.0b logGT=186.6 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=4.06  Balance=0.93  Interaction=0.108  KR=46b
+
+#5  tor3t3p2_s5  (gen 5)
+  Topology:  torus_hex size=3
+  Pieces:    3 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  (1, 1, 2)  trigger=explicit
+  Win:       score_at_limit ≥ 5
+  Info:      perfect
+  Resources: energy
+  Metrics:   term=1.00 bal=0.87 B=33.6 len=122 interact=0.11 mech=1.00 KR=46.0b logGT=186.3 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=4.05  Balance=0.87  Interaction=0.110  KR=46b
+
+#6  tor3t1p2_s5  (gen 6)
+  Topology:  torus_hex size=3
+  Pieces:    1 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  ()  trigger=move_into
+  Win:       score_at_limit ≥ 5
+  Info:      perfect
+  Resources: energy
+  Metrics:   term=1.00 bal=0.87 B=33.7 len=122 interact=0.11 mech=1.00 KR=40.0b logGT=186.3 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=4.66  Balance=0.87  Interaction=0.107  KR=40b
+
+#7  tor4t3p2_e2  (gen 10)
+  Topology:  torus_hex size=4
+  Pieces:    3 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  (0, 1, 3)  trigger=move_into
+  Win:       elimination ≥ 2
+  Info:      perfect
+  Resources: energy
+  Metrics:   term=1.00 bal=0.67 B=32.8 len=122 interact=0.16 mech=1.00 KR=46.0b logGT=184.9 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=4.02  Balance=0.67  Interaction=0.157  KR=46b
+
+#8  squ5t4p2_e2  (gen 1)
+  Topology:  square size=5
+  Pieces:    4 types, 3/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  (0, 1, 3, 1, 3, 3)  trigger=move_into
+  Win:       elimination ≥ 2
+  Info:      perfect
+  Resources: energy
+  Metrics:   term=1.00 bal=1.00 B=22.6 len=122 interact=0.13 mech=1.00 KR=52.0b logGT=165.3 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=3.18  Balance=1.00  Interaction=0.131  KR=52b
+
+#9  hex4t1p2_c2  (gen 8)
+  Topology:  hex size=4
+  Pieces:    1 types, 3/player, 2p
+  Actions:   move, swap, eat
+  Turns:     single
+  Conflict:  ()  trigger=move_into
+  Win:       captures ≥ 2
+  Info:      perfect
+  Resources: none
+  Metrics:   term=1.00 bal=0.80 B=28.7 len=102 interact=0.07 mech=0.67 KR=34.8b logGT=148.7 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=4.27  Balance=0.80  Interaction=0.072  KR=35b
+
+#10  tor4t3p2_e5  (gen 7)
+  Topology:  torus_hex size=4
+  Pieces:    3 types, 3/player, 2p
+  Actions:   move, swap, eat
+  Turns:     single
+  Conflict:  (0, 3, 3)  trigger=move_into
+  Win:       elimination ≥ 5
+  Info:      fog radius=2
+  Resources: energy
+  Metrics:   term=1.00 bal=1.00 B=22.6 len=62 interact=0.12 mech=1.00 KR=46.0b logGT=83.9 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.82  Balance=1.00  Interaction=0.123  KR=46b
+
+#11  tor4t3p2_e5  (gen 6)
+  Topology:  torus_hex size=4
+  Pieces:    3 types, 3/player, 2p
+  Actions:   move, swap, eat
+  Turns:     single
+  Conflict:  (0, 1, 3)  trigger=move_into
+  Win:       elimination ≥ 5
+  Info:      fog radius=2
+  Resources: energy
+  Metrics:   term=1.00 bal=0.93 B=24.2 len=62 interact=0.11 mech=1.00 KR=46.0b logGT=85.8 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.86  Balance=0.93  Interaction=0.111  KR=46b
+
+#12  hex4t3p2_e5  (gen 0)
+  Topology:  hex size=4
+  Pieces:    3 types, 3/player, 2p
+  Actions:   move, swap, eat
+  Turns:     single
+  Conflict:  (3, 0, 2)  trigger=move_into
+  Win:       elimination ≥ 5
+  Info:      perfect
+  Resources: none
+  Metrics:   term=1.00 bal=0.93 B=24.2 len=62 interact=0.11 mech=1.00 KR=40.8b logGT=85.8 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=2.10  Balance=0.93  Interaction=0.109  KR=41b
+
+#13  hex4t1p2_e2  (gen 8)
+  Topology:  hex size=4
+  Pieces:    1 types, 1/player, 2p
+  Actions:   move, leap
+  Turns:     action_points
+  Conflict:  ()  trigger=move_into
+  Win:       elimination ≥ 2
+  Info:      perfect
+  Resources: food
+  Metrics:   term=1.00 bal=0.73 B=19.0 len=62 interact=0.25 mech=1.00 KR=38.4b logGT=79.3 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=2.06  Balance=0.73  Interaction=0.250  KR=38b
+
+#14  hex4t1p2_e2  (gen 4)
+  Topology:  hex size=4
+  Pieces:    1 types, 3/player, 2p
+  Actions:   place, circulate
+  Turns:     action_points
+  Conflict:  ()  trigger=move_into
+  Win:       elimination ≥ 2
+  Info:      perfect
+  Resources: food
+  Metrics:   term=1.00 bal=1.00 B=16.0 len=62 interact=0.11 mech=1.00 KR=38.4b logGT=74.7 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.94  Balance=1.00  Interaction=0.109  KR=38b
+
+#15  hex4t1p2_c2  (gen 5)
+  Topology:  hex size=4
+  Pieces:    1 types, 2/player, 2p
+  Actions:   move, charge, swap
+  Turns:     single
+  Conflict:  ()  trigger=move_into
+  Win:       captures ≥ 2
+  Info:      fog radius=1
+  Resources: food
+  Metrics:   term=1.00 bal=0.87 B=16.5 len=60 interact=0.16 mech=1.00 KR=38.4b logGT=73.4 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.91  Balance=0.87  Interaction=0.160  KR=38b

@@ -40,8 +40,8 @@ class SimMetrics:
     def is_viable(self) -> bool:
         """Minimum quality bar before running expensive AlphaZero evaluation."""
         return (
-            self.termination_rate   >= 0.25 and
-            self.balance_score      >= 0.30 and
+            self.termination_rate   >= 0.15 and
+            self.balance_score      >= 0.20 and
             self.branching_factor   >= 2.0
         )
 
@@ -167,23 +167,22 @@ def measure_simulation_metrics(
 
     capture_rate = captures_sum / (n * max(mean_length, 1))
 
-    # Mechanism coverage
-    n_available = sum([
-        rs.can_move,
-        rs.can_eat and rs.food_enabled,
-        rs.can_grow and rs.food_enabled,
-        rs.can_capture,
-        rs.can_circulate and rs.food_enabled,
-    ])
-    # Available action type slots (excluding PASS):
-    #  MOVE=0, EAT=1, GROW_0..GROW_{T-1}, CAPTURE=T+2, CIRCULATE=T+3
-    available_slots: set[int] = set()
-    if rs.can_move:           available_slots.add(0)
-    if rs.can_eat:            available_slots.add(1)
-    if rs.can_grow:
-        for t in range(T):    available_slots.add(2 + t)
-    if rs.can_capture:        available_slots.add(T + 2)
-    if rs.can_circulate:      available_slots.add(T + 3)
+    # Mechanism coverage — works for both v1 (has can_move etc) and v2 (has action_names)
+    if hasattr(rs, 'can_move'):
+        # v1 RuleSet
+        available_slots: set[int] = set()
+        if rs.can_move:           available_slots.add(0)
+        if rs.can_eat:            available_slots.add(1)
+        if rs.can_grow:
+            for t in range(T):    available_slots.add(2 + t)
+        if rs.can_capture:        available_slots.add(T + 2)
+        if rs.can_circulate:      available_slots.add(T + 3)
+    else:
+        # v2 RuleSetV2 — action slots are 0..n_action_types-1
+        n_at = len(getattr(rs, 'action_names', [])) if hasattr(rs, 'action_names') else 0
+        if n_at == 0 and hasattr(game, '_action_types'):
+            n_at = len(game._action_types)
+        available_slots = set(range(n_at))
 
     used_available = action_types_used & available_slots
     mechanism_coverage = len(used_available) / max(len(available_slots), 1)

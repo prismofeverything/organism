@@ -24,12 +24,18 @@
    (keys (:board state))))
 
 (defn fly-destinations
-  "All positions reachable by flying from from-pos: adjacent hexes plus gate connections.
-   Gate connections take precedence when a position appears in both."
-  [state player from-pos]
-  (let [gate-connected (get-in state [:players player :gates from-pos] #{})
-        adjacent       (set (game/hex-neighbors from-pos))]
-    (into gate-connected adjacent)))
+  "All positions reachable by flying from from-pos: adjacent hexes plus ALL gate connections.
+   Any player's gates can be used (the owner gets a fee, handled in fly-through-gate)."
+  [state _player from-pos]
+  (let [;; Collect gates from ALL players, not just the current player
+        all-gate-connected
+        (reduce
+         (fn [acc p]
+           (into acc (get-in state [:players p :gates from-pos] #{})))
+         #{}
+         (:turn-order state))
+        adjacent (set (game/hex-neighbors from-pos))]
+    (into all-gate-connected adjacent)))
 
 (defn use-move-point
   "Decrement :moves-remaining and return to :choose-move.
@@ -77,15 +83,13 @@
           (map (fn [pos]
                  [pos (-> state
                           (assoc-in [:player-turn :phase] :choose-fly-to)
-                          (assoc-in [:player-turn :action :fly-from] pos)
-                          (update-in [:player-turn :action :fly-visited] (fnil conj #{}) pos))])
+                          (assoc-in [:player-turn :action :fly-from] pos))])
                (mobile-positions state player)))))
 
 (defn choose-fly-to-choices
   [state]
   (let [player      (game/current-player state)
-        from-pos    (get-in state [:player-turn :action :fly-from])
-        fly-visited (get-in state [:player-turn :action :fly-visited] #{})]
+        from-pos    (get-in state [:player-turn :action :fly-from])]
     (into {}
           (mapcat
            (fn [to-pos]
@@ -107,22 +111,36 @@
                        wrap-pos (game/wrap-target state from-pos fly-dir)]
                    [base-entry [[:wrap to-pos] (after (game/fly-sundiver state player from-pos wrap-pos))]])
                  [base-entry])))
-           ;; Exclude positions already visited this move action to prevent back-and-forth
-           (remove fly-visited (fly-destinations state player from-pos))))))
+           (fly-destinations state player from-pos)))))
 
 (defn choose-move-choices
-  "Options during the move action. Launch and fly are only offered while move points remain."
+  "Options during the move action. Launch destinations and fly-from positions are
+   inlined so they light up on the board directly. Done remains as a keyword choice.
+   Launch keys are bare [q r] or [:wrap pos]. Fly-from keys are [:fly [q r]]."
   [state]
   (let [player    (game/current-player state)
         remaining (get-in state [:player-turn :action :moves-remaining] 0)
         habitat   (get-in state [:players player :habitat :sundivers] 0)
-        mobile    (mobile-positions state player)]
+        mobile    (mobile-positions state player)
+        ;; Inline launch destinations so they appear as clickable hexes
+        launch-choices
+        (when (and (pos? remaining) (pos? habitat))
+          (try
+            (let [launch-state (assoc-in state [:player-turn :phase] :choose-launch-destination)]
+              (choose-launch-destination-choices launch-state))
+            (catch #?(:clj Exception :cljs :default) _e nil)))
+        ;; Inline fly-from positions with [:fly pos] tagged keys
+        fly-from-choices
+        (when (and (pos? remaining) (seq mobile))
+          (try
+            (let [fly-state (assoc-in state [:player-turn :phase] :choose-fly-from)]
+              (into {}
+                    (map (fn [[pos s]] [[:fly pos] s])
+                         (choose-fly-from-choices fly-state))))
+            (catch #?(:clj Exception :cljs :default) _e nil)))]
     (cond-> {:done (assoc-in state [:player-turn :phase] :draw-cards)}
-      (and (pos? remaining) (pos? habitat))
-      (assoc :launch (assoc-in state [:player-turn :phase] :choose-launch-destination))
-
-      (and (pos? remaining) (seq mobile))
-      (assoc :fly (assoc-in state [:player-turn :phase] :choose-fly-from)))))
+      (seq launch-choices)    (merge launch-choices)
+      (seq fly-from-choices)  (merge fly-from-choices))))
 
 ;; --- convert ---
 
@@ -598,14 +616,19 @@
       (enter-cipher-phase s))))
 
 (defn choose-drift-flare-advance-choices
-  "When drift-card flare advances Ark into unexplored space: :direct or :wrap."
+  "When drift-card flare advances Ark into unexplored space: :direct or :wrap.
+   Wrap only if no tiles exist further along the ray."
   [state]
   (let [from-pos (:ark state)
         dir      (game/heading-direction state)
         wrap-pos (game/wrap-target state from-pos dir)
-        next-pos (:heading-token state)]
-    {:direct (process-drift-flare-advance state next-pos)
-     :wrap   (process-drift-flare-advance state wrap-pos)}))
+        next-pos (:heading-token state)
+        has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
+                                      (> (game/hex-distance from-pos %) 1))
+                                (keys (:board state)))]
+    (cond-> {:direct (process-drift-flare-advance state next-pos)}
+      (not has-tiles-beyond?)
+      (assoc :wrap (process-drift-flare-advance state wrap-pos)))))
 
 (defn choose-draw-drift-card-choices
   "Auto-choice to draw one drift card after captain drift.
@@ -708,7 +731,8 @@
 ;; --- ark advance wrap choice ---
 
 (defn choose-ark-advance-choices
-  "When the Ark would advance into unexplored space: offer :direct (explore) or :wrap."
+  "When the Ark would advance into unexplored space: offer :direct (explore) or :wrap.
+   Wrap is only offered if there are no tiles further along the ray (extreme edge)."
   [state]
   (let [from-pos (:ark state)
         dir      (game/heading-direction state)
@@ -716,19 +740,29 @@
         context  (get-in state [:player-turn :ark-advance-context])
         after-fn (case context
                    :tower tower-after-advance
-                   :drift handle-captain-drift-beacon)]
-    {:direct (-> state game/advance-ark after-fn)
-     :wrap   (-> state (game/advance-ark-to wrap-pos) after-fn)}))
+                   :drift handle-captain-drift-beacon)
+        ;; Only offer wrap if no tiles exist further along this ray
+        has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
+                                      (> (game/hex-distance from-pos %) 1))
+                                (keys (:board state)))]
+    (cond-> {:direct (-> state game/advance-ark after-fn)}
+      (not has-tiles-beyond?)
+      (assoc :wrap (-> state (game/advance-ark-to wrap-pos) after-fn)))))
 
 (defn choose-flare-advance-choices
-  "When a flare would advance the Ark into unexplored space: offer :direct or :wrap."
+  "When a flare would advance the Ark into unexplored space: offer :direct or :wrap.
+   Wrap only if no tiles exist further along the ray."
   [state]
   (let [from-pos (:ark state)
         dir      (game/heading-direction state)
         wrap-pos (game/wrap-target state from-pos dir)
-        next-pos (:heading-token state)]
-    {:direct (game/advance-flare-ark-to state next-pos)
-     :wrap   (game/advance-flare-ark-to state wrap-pos)}))
+        next-pos (:heading-token state)
+        has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
+                                      (> (game/hex-distance from-pos %) 1))
+                                (keys (:board state)))]
+    (cond-> {:direct (game/advance-flare-ark-to state next-pos)}
+      (not has-tiles-beyond?)
+      (assoc :wrap (game/advance-flare-ark-to state wrap-pos)))))
 
 ;; --- action type ---
 
@@ -736,50 +770,110 @@
   [state]
   (into {}
         (keep (fn [action-type]
-                (let [next-state (game/choose-action-type state action-type)
-                      choices    (case action-type
+                (let [next-state (game/choose-action-type state action-type)]
+                  (try
+                    (let [choices (case action-type
                                    :move     (choose-move-choices next-state)
                                    :convert  (choose-convert-choices next-state)
                                    :activate (choose-activate-choices next-state))]
-                  (when (seq choices)
-                    [action-type next-state])))
+                      (when (seq choices)
+                        [action-type next-state]))
+                    (catch #?(:clj Exception :cljs :default) e
+                      (println "choose-action-type error for" action-type
+                               #?(:clj (.getMessage e) :cljs e))
+                      ;; :move should always be available — return it with a safe fallback
+                      (when (= :move action-type)
+                        [action-type next-state])))))
               game/action-types)))
 
 ;; --- central dispatch ---
 
 (defn find-state
-  "Return [phase choices-map] describing what the current player must decide next."
+  "Return [phase choices-map] describing what the current player must decide next.
+   Auto-advances through phases that have exactly one choice (no real decision)."
+  [state]
+  (loop [state state]
+    (let [phase   (game/current-phase state)
+          choices (case phase
+                  :choose-action-type        (choose-action-type-choices state)
+                  :choose-move               (choose-move-choices state)
+                  :choose-launch-destination (choose-launch-destination-choices state)
+                  :choose-fly-from           (choose-fly-from-choices state)
+                  :choose-fly-to             (choose-fly-to-choices state)
+                  :choose-convert            (choose-convert-choices state)
+                  :choose-activate                  (choose-activate-choices state)
+                  :choose-activate-self-bonus       (choose-activate-self-bonus-choices state)
+                  :choose-activate-owner-bonus      (choose-activate-owner-bonus-choices state)
+                  :choose-activate-matrix-beacon    (choose-activate-matrix-beacon-choices state)
+                  :choose-activate-matrix-spend     (choose-activate-matrix-spend-choices state)
+                  :choose-activate-tower-heading    (choose-activate-tower-heading-choices state)
+                  :choose-activate-tower-join       (choose-activate-tower-join-choices state)
+                  :choose-activate-tower-join-spend (choose-activate-tower-join-spend-choices state)
+                  :choose-activate-tower-spend      (choose-activate-tower-spend-choices state)
+                  :draw-cards                       (choose-draw-cards-choices state)
+                  :flare-beacon-join                (choose-flare-beacon-join-choices state)
+                  :flare-beacon-join-spend          (choose-flare-beacon-join-spend-choices state)
+                  :keep-card                        (choose-keep-card-choices state)
+                  :choose-captain-drift             (choose-captain-drift-choices state)
+                  :choose-ark-advance               (choose-ark-advance-choices state)
+                  :choose-flare-advance             (choose-flare-advance-choices state)
+                  :draw-drift-card                  (choose-draw-drift-card-choices state)
+                  :choose-drift-flare-advance       (choose-drift-flare-advance-choices state)
+                  :captain-beacon-join              (choose-captain-beacon-join-choices state)
+                  :captain-beacon-join-spend        (choose-captain-beacon-join-spend-choices state)
+                  :cipher                           (choose-cipher-choices state)
+                  :cipher-spend                     (choose-cipher-spend-choices state)
+                  :choose-land                      (choose-land-choices state)
+                  :game-over                        {}
+                  {})]
+      ;; Auto-advance: if exactly 1 choice, skip this phase entirely.
+      ;; Never auto-advance these phases — the player must always choose explicitly.
+      ;; Also never auto-advance choose-convert (player should see what they're building).
+      (if (and (= 1 (count choices))
+               (not (#{:choose-action-type :choose-move :choose-convert
+                       :choose-activate :choose-activate-self-bonus
+                       :choose-activate-owner-bonus :choose-land} phase)))
+        (let [next-state (first (vals choices))]
+          (if (and next-state (not= phase :game-over))
+            (recur next-state)
+            [phase choices]))
+        [phase choices]))))
+
+(defn find-state-raw
+  "Like find-state but without auto-advance. Returns [phase choices-map] for the
+   exact current phase, even if there's only one choice."
   [state]
   (let [phase (game/current-phase state)]
-    (case phase
-      :choose-action-type        [:choose-action-type        (choose-action-type-choices state)]
-      :choose-move               [:choose-move               (choose-move-choices state)]
-      :choose-launch-destination [:choose-launch-destination (choose-launch-destination-choices state)]
-      :choose-fly-from           [:choose-fly-from           (choose-fly-from-choices state)]
-      :choose-fly-to             [:choose-fly-to             (choose-fly-to-choices state)]
-      :choose-convert            [:choose-convert            (choose-convert-choices state)]
-      :choose-activate                  [:choose-activate                  (choose-activate-choices state)]
-      :choose-activate-self-bonus       [:choose-activate-self-bonus       (choose-activate-self-bonus-choices state)]
-      :choose-activate-owner-bonus      [:choose-activate-owner-bonus      (choose-activate-owner-bonus-choices state)]
-      :choose-activate-matrix-beacon    [:choose-activate-matrix-beacon    (choose-activate-matrix-beacon-choices state)]
-      :choose-activate-matrix-spend     [:choose-activate-matrix-spend     (choose-activate-matrix-spend-choices state)]
-      :choose-activate-tower-heading    [:choose-activate-tower-heading    (choose-activate-tower-heading-choices state)]
-      :choose-activate-tower-join       [:choose-activate-tower-join       (choose-activate-tower-join-choices state)]
-      :choose-activate-tower-join-spend [:choose-activate-tower-join-spend (choose-activate-tower-join-spend-choices state)]
-      :choose-activate-tower-spend      [:choose-activate-tower-spend      (choose-activate-tower-spend-choices state)]
-      :draw-cards                       [:draw-cards                       (choose-draw-cards-choices state)]
-      :flare-beacon-join                [:flare-beacon-join                (choose-flare-beacon-join-choices state)]
-      :flare-beacon-join-spend          [:flare-beacon-join-spend          (choose-flare-beacon-join-spend-choices state)]
-      :keep-card                        [:keep-card                        (choose-keep-card-choices state)]
-      :choose-captain-drift             [:choose-captain-drift             (choose-captain-drift-choices state)]
-      :choose-ark-advance               [:choose-ark-advance               (choose-ark-advance-choices state)]
-      :choose-flare-advance             [:choose-flare-advance             (choose-flare-advance-choices state)]
-      :draw-drift-card                  [:draw-drift-card                  (choose-draw-drift-card-choices state)]
-      :choose-drift-flare-advance       [:choose-drift-flare-advance       (choose-drift-flare-advance-choices state)]
-      :captain-beacon-join              [:captain-beacon-join              (choose-captain-beacon-join-choices state)]
-      :captain-beacon-join-spend        [:captain-beacon-join-spend        (choose-captain-beacon-join-spend-choices state)]
-      :cipher                           [:cipher                           (choose-cipher-choices state)]
-      :cipher-spend                     [:cipher-spend                     (choose-cipher-spend-choices state)]
-      :choose-land                      [:choose-land                      (choose-land-choices state)]
-      :game-over                        [:game-over                        {}]
-      [phase {}])))
+    [phase
+     (case phase
+       :choose-action-type        (choose-action-type-choices state)
+       :choose-move               (choose-move-choices state)
+       :choose-launch-destination (choose-launch-destination-choices state)
+       :choose-fly-from           (choose-fly-from-choices state)
+       :choose-fly-to             (choose-fly-to-choices state)
+       :choose-convert            (choose-convert-choices state)
+       :choose-activate                  (choose-activate-choices state)
+       :choose-activate-self-bonus       (choose-activate-self-bonus-choices state)
+       :choose-activate-owner-bonus      (choose-activate-owner-bonus-choices state)
+       :choose-activate-matrix-beacon    (choose-activate-matrix-beacon-choices state)
+       :choose-activate-matrix-spend     (choose-activate-matrix-spend-choices state)
+       :choose-activate-tower-heading    (choose-activate-tower-heading-choices state)
+       :choose-activate-tower-join       (choose-activate-tower-join-choices state)
+       :choose-activate-tower-join-spend (choose-activate-tower-join-spend-choices state)
+       :choose-activate-tower-spend      (choose-activate-tower-spend-choices state)
+       :draw-cards                       (choose-draw-cards-choices state)
+       :flare-beacon-join                (choose-flare-beacon-join-choices state)
+       :flare-beacon-join-spend          (choose-flare-beacon-join-spend-choices state)
+       :keep-card                        (choose-keep-card-choices state)
+       :choose-captain-drift             (choose-captain-drift-choices state)
+       :choose-ark-advance               (choose-ark-advance-choices state)
+       :choose-flare-advance             (choose-flare-advance-choices state)
+       :draw-drift-card                  (choose-draw-drift-card-choices state)
+       :choose-drift-flare-advance       (choose-drift-flare-advance-choices state)
+       :captain-beacon-join              (choose-captain-beacon-join-choices state)
+       :captain-beacon-join-spend        (choose-captain-beacon-join-spend-choices state)
+       :cipher                           (choose-cipher-choices state)
+       :cipher-spend                     (choose-cipher-spend-choices state)
+       :choose-land                      (choose-land-choices state)
+       :game-over                        {}
+       {})]))

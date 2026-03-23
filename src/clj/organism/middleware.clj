@@ -8,7 +8,8 @@
     [muuntaja.middleware :refer [wrap-format wrap-params]]
     [organism.config :refer [env]]
     [ring.middleware.flash :refer [wrap-flash]]
-    [immutant.web.middleware :refer [wrap-session]]
+    [ring.middleware.session :refer [wrap-session]]
+    [ring.middleware.session.cookie :refer [cookie-store]]
     [ring.middleware.defaults :refer [site-defaults wrap-defaults]])
   )
 
@@ -41,10 +42,15 @@
          wrapped)
        request))))
 
+;; 16-byte key for signing session cookies. Sessions survive server restarts.
+(defonce session-store
+  (cookie-store {:key (.getBytes "organism-secret!" "UTF-8")}))
+
 (defn wrap-base [handler]
   (-> ((:middleware defaults) handler)
       wrap-flash
-      (wrap-session {:cookie-attrs {:http-only true}})
+      (wrap-session {:store session-store
+                     :cookie-attrs {:http-only true :max-age (* 60 60 24 30)}})
       (wrap-defaults
         (-> site-defaults
             (assoc-in [:security :anti-forgery] false)

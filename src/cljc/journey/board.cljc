@@ -244,7 +244,7 @@
 (def ^:const sundiver-arc-r   30)   ; radius of placement ring
 (def ^:const sundiver-ang-step 12)  ; degrees between stacked sundivers
 
-(defn sundivers-on-tile [tile player-order player-colors]
+(defn sundivers-on-tile [tile player-order player-colors & [{:keys [highlight-player highlight-color on-sundiver-click]}]]
   (let [n-players (count player-order)]
     [:g
      (keep-indexed
@@ -254,6 +254,8 @@
           (when (pos? n)
             (let [fc         (pf ck)
                   sc         (ps ck)
+                  hl?        (and highlight-player (= player highlight-player))
+                  hl-c       (or highlight-color "#FFD030")
                   base-deg   (* idx (/ 360.0 n-players))
                   show       (min n 5)
                   half-span  (* 0.5 (dec show) sundiver-ang-step)]
@@ -264,7 +266,14 @@
                            cx  (* sundiver-arc-r (Math/cos rad))
                            cy  (* sundiver-arc-r (Math/sin rad))
                            rot (+ 90 deg)]]
-                 [:g {:key i :transform (str "translate(" cx "," cy ") rotate(" rot ")")}
+                 [:g {:key i :transform (str "translate(" cx "," cy ") rotate(" rot ")")
+                      :on-click (when (and hl? on-sundiver-click)
+                                  (fn [e] (.stopPropagation e) (on-sundiver-click)))
+                      :style {:cursor (when (and hl? on-sundiver-click) "pointer")}}
+                  (when hl?
+                    [:polygon {:points (tri-pts 0 0 13)
+                               :fill "none" :stroke hl-c :stroke-width 2.5
+                               :opacity 0.7}])
                   [:polygon {:points (tri-pts 0 0 8)
                              :fill fc :stroke sc :stroke-width 0.8}]])
                (when (> n 5)
@@ -397,7 +406,7 @@
              :when (and neighbor-color (game/cipher-color-active? state dir neighbor-color))
              :let  [[ex ey] (edge-offset dir)
                     angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
-                    arc-c   (get tile-bg neighbor-color "#FFF")]]
+                    arc-c   (get world-outer neighbor-color "#FFF")]]
          [:path {:key          (str dir)
                  :d            "M 0,-16 A 11,16 0 0,0 0,16 L 0,13 A 8,13 0 0,1 0,-13 Z"
                  :transform    (str "translate(" ex "," ey ") rotate(" angle ")")
@@ -408,25 +417,32 @@
 ;; ── Single tile ───────────────────────────────────────────────────────────────
 
 (defn- render-tile*
-  "Inner tile render. cipher-dots is the pre-computed cipher-match-dots hiccup (or nil)."
-  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click]
+  "Inner tile render. cipher-dots is the pre-computed cipher-match-dots hiccup (or nil).
+   highlight? can be :gold (launch/destination), :chosen (selected sundiver), or nil.
+   sundiver-hl is {:highlight-player p :highlight-color c} or nil."
+  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click sundiver-hl]
   (let [[cx cy] (hex->pixel pos)
         color   (:color tile)
-        bg      (get tile-bg color "#141420")]
+        bg      (get tile-bg color "#141420")
+        hl-color (case highlight?
+                   :gold   "#FFD030"
+                   :fly    "#30C8FF"
+                   :chosen "#30FF90"
+                   nil)]
     [:g {:key      (str pos)
          :transform (str "translate(" cx "," cy ")")
          :on-click  (when on-click #(on-click pos))
          :style    {:cursor (when on-click "pointer")}}
-     ;; Hex background — no border; small gap (hex-size-1) provides visual separation
+     ;; Hex background
      [:polygon {:points       (hex-pts-str (- hex-size 1))
                 :fill         bg
-                :stroke       (if highlight? "#FFD030" "none")
-                :stroke-width (if highlight? 2.5 0)}]
+                :stroke       (or hl-color "none")
+                :stroke-width (if hl-color 2.5 0)}]
      ;; Highlight glow outer ring
-     (when highlight?
+     (when hl-color
        [:polygon {:points (hex-pts-str (- hex-size 1))
                   :fill "none"
-                  :stroke "#FFD030"
+                  :stroke hl-color
                   :stroke-width 7
                   :opacity 0.2}])
      ;; World token (nested circles) — hidden once the beacon has been discovered
@@ -443,7 +459,7 @@
      (when (= pos ark-pos)
        [:g [ark-ring] [ark-heading-arrow heading-dir]])
      ;; Sundivers (triangles grouped by player)
-     [sundivers-on-tile tile player-order player-colors]
+     [sundivers-on-tile tile player-order player-colors sundiver-hl]
      ;; Cipher-match edge dots (pre-computed)
      cipher-dots]))
 
@@ -457,16 +473,18 @@
        :should-component-update
        (fn [_ old-argv new-argv]
          ;; argv = [component-fn pos tile cipher-dots player-order player-colors
-         ;;         ark-pos heading-dir highlight? on-click]
+         ;;         ark-pos heading-dir highlight? on-click sundiver-hl]
          (let [pos     (nth old-argv 1)
                old-tile (nth old-argv 2)  new-tile (nth new-argv 2)
                old-cd   (nth old-argv 3)  new-cd   (nth new-argv 3)
                old-ark  (nth old-argv 6)  new-ark  (nth new-argv 6)
                old-hd   (nth old-argv 7)  new-hd   (nth new-argv 7)
-               old-hl   (nth old-argv 8)  new-hl   (nth new-argv 8)]
+               old-hl   (nth old-argv 8)  new-hl   (nth new-argv 8)
+               old-shl  (nth old-argv 10 nil) new-shl (nth new-argv 10 nil)]
            (or (not= old-tile new-tile)
                (not= old-cd   new-cd)
                (not= old-hl   new-hl)
+               (not= old-shl  new-shl)
                ;; Ark arrived at or departed from this tile
                (not= (= pos old-ark) (= pos new-ark))
                ;; Heading changed while ark is here
@@ -494,7 +512,8 @@
 (defn ark-ghost [ark-pos heading-dir]
   (let [[cx cy] (hex->pixel ark-pos)]
     [:g {:key "ark-ghost"
-         :transform (str "translate(" cx "," cy ")")}
+         :transform (str "translate(" cx "," cy ")")
+         :style {:pointer-events "none"}}
      [:polygon {:points       (hex-pts-str (- hex-size 1))
                 :fill         "#05050E"
                 :stroke       neutral-stroke
@@ -507,48 +526,137 @@
 ;; ── Board ─────────────────────────────────────────────────────────────────────
 
 (defn render-board
-  [state player-order player-colors pos-highlights on-hex-click]
+  [state player-order player-colors pos-highlights on-hex-click
+   & [{:keys [fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert]}]]
   (let [board       (:board state)
         ark-pos     (:ark state)
-        heading-dir (game/heading-direction state)]
+        heading-dir (game/heading-direction state)
+        fly-hl      (or fly-highlights #{})
+        chosen      chosen-pos
+        conv-g      (or conv-groups {})
+        conv-s      (or conv-sundivers #{})
+        conv-targets (set (map first (keys conv-g)))
+        pending     pending-convert]
     [:g
-     ;; Floating ark when it sits on unexplored space
-     (when (and ark-pos (not (contains? board ark-pos)))
-       [ark-ghost ark-pos heading-dir])
      ;; Tiles (backgrounds, world tokens, pieces)
      ;; cipher-dots is pre-computed here so render-tile doesn't depend on full state,
      ;; enabling shouldComponentUpdate to skip tiles whose data hasn't changed.
      (for [[pos tile] board
-           :let [cipher-dots (cipher-match-dots state pos (:color tile))]]
+           :let [cipher-dots (cipher-match-dots state pos (:color tile))
+                 is-fly?     (contains? fly-hl pos)
+                 is-chosen?  (= pos chosen)
+                 is-conv-s?  (contains? conv-s pos)
+                 is-conv-t?  (contains? conv-targets pos)
+                 hl (cond
+                      is-chosen?                     :chosen
+                      (contains? pos-highlights pos) :gold
+                      :else                          nil)
+                 ;; Highlight sundivers: fly-from, chosen, or convert-involved
+                 shl (cond
+                       is-fly?    {:highlight-player active-player :highlight-color "#FFD030"
+                                   :on-sundiver-click (when on-hex-click #(on-hex-click [:fly pos]))}
+                       is-chosen? {:highlight-player active-player :highlight-color "#30FF90"}
+                       is-conv-s? {:highlight-player active-player :highlight-color "#FFD030"}
+                       :else      nil)
+                 ;; Hex click: launch/destination (not fly — fly is on the sundiver itself)
+                 hex-click (when (or hl is-conv-t?) on-hex-click)]]
        ^{:key (str pos)}
        [render-tile pos tile cipher-dots player-order player-colors ark-pos heading-dir
-        (contains? pos-highlights pos)
-        (when (contains? pos-highlights pos) on-hex-click)])
+        hl
+        (or hex-click (when (and is-fly? (not hl)) on-hex-click))
+        shl])
+     ;; Ghost hexes for highlighted positions that don't have tiles yet
+     (for [pos pos-highlights
+           :when (not (contains? board pos))
+           :let [[px py] (hex->pixel pos)]]
+       [:g {:key       (str "ghost" pos)
+            :transform (str "translate(" px "," py ")")
+            :on-click  (when on-hex-click #(on-hex-click pos))
+            :style     {:cursor "pointer"}}
+        [:polygon {:points       (hex-pts-str (- hex-size 1))
+                   :fill         "#0A0A1A"
+                   :stroke       "#FFD030"
+                   :stroke-width 2.5}]
+        [:polygon {:points       (hex-pts-str (- hex-size 1))
+                   :fill         "none"
+                   :stroke       "#FFD030"
+                   :stroke-width 7
+                   :opacity      0.15}]
+        [:text {:x 0 :y 4
+                :text-anchor "middle"
+                :fill "#FFD03066" :font-size "10" :font-family "monospace"}
+         "?"]])
+     ;; Ghost station icons for each conversion option, clickable
+     ;; When pending-convert is set, show sundiver arrangement options instead
+     (if pending
+       ;; Show each sundiver arrangement as clickable highlighted sundivers
+       (let [{:keys [target options]} pending
+             [px py] (hex->pixel target)]
+         (for [[i {:keys [choice-key sundivers]}] (map-indexed vector options)]
+           [:g {:key (str "conv-opt" i)
+                :on-click (when on-hex-click #(on-hex-click choice-key))
+                :style {:cursor "pointer"}}
+            ;; Draw lines from each sundiver to the target to show the pattern
+            (for [[j sv-pos] (map-indexed vector sundivers)
+                  :let [[sx sy] (hex->pixel sv-pos)]]
+              [:line {:key (str "line" j)
+                      :x1 sx :y1 sy :x2 px :y2 py
+                      :stroke (nth ["#FFD030" "#30C8FF" "#FF6090"] (mod i 3))
+                      :stroke-width 2.5
+                      :opacity 0.5
+                      :stroke-dasharray "4,4"}])]))
+       ;; Normal: show one ghost station per (target, type) group
+       (let [by-target (group-by (fn [[[t _] _]] t) conv-g)]
+         (for [[target entries] by-target
+               :let [[px py] (hex->pixel target)
+                     n (count entries)
+                     spacing 28
+                     x-start (- (* (dec n) spacing 0.5))]]
+           [:g {:key (str "conv-group" target)}
+            (for [[i [[_ stype] _opts]] (map-indexed vector entries)
+                  :let [ox (+ x-start (* i spacing))
+                        group-key [target stype]]]
+              [:g {:key       (str "conv" i stype)
+                   :transform (str "translate(" (+ px ox) "," (+ py 26) ")")
+                   :on-click  (when on-hex-click #(on-hex-click group-key))
+                   :style     {:cursor "pointer" :opacity 0.6}}
+               [:circle {:cx 0 :cy 0 :r 16
+                         :fill "none" :stroke "#FFD030" :stroke-width 2 :opacity 0.5}]
+               [station-shape {:type stype :color-key (get player-colors active-player :sun) :level 0}]])])))
      ;; Gate ovals in a separate pass — always above all tile backgrounds
-     [render-all-gates state player-order player-colors]]))
+     [render-all-gates state player-order player-colors]
+     ;; Floating ark on unexplored space — rendered last so it's always on top
+     (when (and ark-pos (not (contains? board ark-pos)))
+       [ark-ghost ark-pos heading-dir])]))
 
 ;; ── Cipher display ────────────────────────────────────────────────────────────
 
 (def ^:const cipher-hex-size 26)
 
-(defn cipher-hex [cipher pos]
+(defn cipher-hex [cipher pos highlight? on-click]
   (let [[cx cy]  (let [[q r] pos]
                    [(* cipher-hex-size 1.5 q)
                     (* cipher-hex-size sqrt3 (+ (* 0.5 q) r))])
         entry    (get cipher pos {})
-        ;; Only show colors where at least one player has placed a beacon
         colors   (keep (fn [[c players]] (when (seq players) c)) (:colors entry))
         bg       (if (= pos [0 0]) "#1A1830" "#0C0C1E")]
     [:g {:key      (str "c" pos)
-         :transform (str "translate(" cx "," cy ")")}
+         :transform (str "translate(" cx "," cy ")")
+         :on-click (when on-click #(on-click pos))
+         :style    {:cursor (when on-click "pointer")}}
      [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
-                :fill bg :stroke "#2A2A4A" :stroke-width 1}]
+                :fill bg
+                :stroke (if highlight? "#FFD030" "#2A2A4A")
+                :stroke-width (if highlight? 2.5 1)}]
+     (when highlight?
+       [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
+                  :fill "none" :stroke "#FFD030" :stroke-width 5 :opacity 0.2}])
      ;; Color dots
      (let [n (count colors)]
        (for [[i c] (map-indexed vector colors)
              :let  [a   (if (= n 1) 0 (* i (/ tau n)))
                     r   (if (= n 1) 0 (* cipher-hex-size 0.38))
-                    icf (get tile-bg c "#555")]]
+                    icf (get world-outer c "#555")]]
          [:circle {:key (str c i)
                    :cx (* r (Math/cos a))
                    :cy (* r (Math/sin a))
@@ -561,10 +669,11 @@
                :fill "#445" :font-size "7" :font-family "monospace"}
         "C"])]))
 
-(defn render-cipher [cipher]
+(defn render-cipher [cipher & [{:keys [highlights on-click]}]]
   [:g
-   (for [pos (into [[0 0]] game/hex-directions)]
-     [cipher-hex cipher pos])])
+   (for [pos (into [[0 0]] game/hex-directions)
+         :let [hl? (and highlights (contains? highlights pos))]]
+     [cipher-hex cipher pos hl? (when hl? on-click)])])
 
 ;; ── Scoring overlay (game-over landing) ──────────────────────────────────────
 
@@ -835,7 +944,8 @@
      :zoom          — board zoom factor (default 1.0)
      :on-bg-mouse-down — handler for mouse-down on the background (for panning)"
   [state pos-highlights on-hex-click choice-buttons
-   & [{:keys [pan-x pan-y zoom on-bg-mouse-down]
+   & [{:keys [pan-x pan-y zoom on-bg-mouse-down fly-highlights chosen-pos active-player
+              conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click]
        :or   {pan-x 0 pan-y 0 zoom 1.0}}]]
   (let [player-order  (:turn-order state)
         player-colors (build-player-colors player-order)
@@ -865,7 +975,9 @@
                                    " scale(" zoom ")"
                                    " translate(" (- bcx) "px," (- bcy) "px)")
                   :transition "transform 0.18s cubic-bezier(0.2,0,0,1)"}}
-      [render-board state player-order player-colors pos-highlights on-hex-click]
+      [render-board state player-order player-colors pos-highlights on-hex-click
+       {:fly-highlights fly-highlights :chosen-pos chosen-pos :active-player active-player
+        :conv-groups conv-groups :conv-sundivers conv-sundivers :pending-convert pending-convert}]
       (when (= :landing (get-in state [:game-over :type]))
         [render-scoring-overlay state player-colors])]
 
@@ -876,7 +988,35 @@
               :fill "#445566"
               :font-size "10" :font-family "monospace" :letter-spacing "2"}
        "CIPHER"]
-      [render-cipher (:cipher state)]]
+      [render-cipher (:cipher state) {:highlights cipher-highlights :on-click cipher-on-click}]
+      ;; Cipher queue: show pending beacons to place
+      (let [queue (get-in state [:player-turn :cipher-queue] [])]
+        (when (seq queue)
+          [:g {:transform "translate(0,110)"}
+           [:text {:x 0 :y -16
+                   :text-anchor "middle"
+                   :fill "#445566"
+                   :font-size "8" :font-family "monospace" :letter-spacing "1"}
+            "QUEUE"]
+           ;; Arrow pointing right at the first item, from its left side
+           (let [first-x (* (- 0 (/ (dec (count queue)) 2.0)) 40)]
+             [:path {:d "M 0,-4 L 8,0 L 0,4 Z"
+                     :fill "#FFD030" :opacity 0.8
+                     :transform (str "translate(" (- first-x 28) ",7)")}])
+           (for [[i {:keys [player color]}] (map-indexed vector queue)
+                 :let [x (* (- i (/ (dec (count queue)) 2.0)) 40)
+                       wc (get world-outer color "#555")
+                       ic (get world-inner color "#333")
+                       pc (pf (get player-colors player :sun))
+                       first? (zero? i)]]
+             [:g {:key i :transform (str "translate(" x ",8)")}
+              ;; World tile circle (color of the discovered world)
+              [:circle {:cx 0 :cy 0 :r 14
+                        :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2 1)}]
+              [:circle {:cx 0 :cy 0 :r 9 :fill ic}]
+              ;; Player beacon pentagon on top
+              [:g {:transform "translate(0,-1)"}
+               [beacon-shape pc]]])]))]
 
      ;; ── Player panels (fixed, left column)
      [:g {:transform (str "translate(" panel-x ",0)")}

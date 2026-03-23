@@ -119,12 +119,13 @@
 
 (defn cipher-placement-cost
   "Sundivers required to place color at cipher position pos.
-   0 if color is already present; otherwise 1 per existing color."
+   0 if color is already present (even with no players yet);
+   otherwise 1 per active color (colors where at least one player has placed a beacon)."
   [state pos color]
   (let [existing (get-in state [:cipher pos :colors] {})]
     (if (contains? existing color)
       0
-      (count existing))))
+      (count (filter (fn [[_ players]] (seq players)) existing)))))
 
 (defn cipher-place-beacon
   "Place player's beacon of color at cipher pos.
@@ -309,15 +310,22 @@
 
 ;; --- move action ---
 
-(defn immobile?
-  "True if this specific player's sundiver at pos is marked immobile for the current turn
-   (i.e. it just explored a new tile). Other players' sundivers at the same pos are unaffected."
+(defn immobile-count
+  "Number of immobile sundivers for player at pos (from exploring this turn)."
   [state player pos]
-  (contains? (get-in state [:player-turn :immobile] #{}) [player pos]))
+  (get-in state [:player-turn :immobile [player pos]] 0))
+
+(defn immobile?
+  "True if ALL of this player's sundivers at pos are immobile.
+   If the player has more sundivers than immobile ones, some can still move."
+  [state player pos]
+  (let [total    (get-in state [:board pos :sundivers player] 0)
+        immobile (immobile-count state player pos)]
+    (and (pos? immobile) (>= immobile total))))
 
 (defn mark-immobile
   [state player pos]
-  (update-in state [:player-turn :immobile] (fnil conj #{}) [player pos]))
+  (update-in state [:player-turn :immobile] (fnil assoc {}) [player pos] 1))
 
 (defn explore
   "Draw a world from the bag, place a new tile of that color at pos,
@@ -551,9 +559,13 @@
 
 (defn auto-activate-converted-station
   "Trigger one automatic activation of a newly converted station.
+   Uses the station's level to determine base + bonus actions.
    If the player lacks resources for even 1 activation, goes straight to :draw-cards."
   [state player station-type target]
-  (let [feasible? (case station-type
+  (let [level     (get-in state [:board target :station :level] 0)
+        {:keys [base bonus]} (station-action-counts level)
+        same?     true ;; player always owns the station they just converted
+        feasible? (case station-type
                     :matrix
                     (let [positions (count (matrix-beacon-positions state player))
                           spendable (total-spendable-sundivers state player)
@@ -563,18 +575,24 @@
                     (pos? (total-spendable-sundivers state player))
                     :foundry true)]
     (if feasible?
-      (-> state
-          (cond-> (= station-type :tower) (become-captain player))
-          (assoc-in [:player-turn :action :station-type] station-type)
-          (assoc-in [:player-turn :action :stations-queue] [])
-          (assoc-in [:player-turn :action :current-station] target)
-          (assoc-in [:player-turn :action :current-owner] player)
-          (assoc-in [:player-turn :action :bonus-total] 0)
-          (assoc-in [:player-turn :action :beacons-joined] 0)
-          (assoc-in [:player-turn :action :activator-actions] 1)
-          (assoc-in [:player-turn :action :owner-actions] 0)
-          (assoc-in [:player-turn :choice-player] nil)
-          (begin-actor-actions :activator))
+      (let [state (-> state
+                      (cond-> (= station-type :tower) (become-captain player))
+                      (assoc-in [:player-turn :action :station-type] station-type)
+                      (assoc-in [:player-turn :action :stations-queue] [])
+                      (assoc-in [:player-turn :action :current-station] target)
+                      (assoc-in [:player-turn :action :current-owner] player)
+                      (assoc-in [:player-turn :action :bonus-total] bonus)
+                      (assoc-in [:player-turn :action :beacons-joined] 0)
+                      (assoc-in [:player-turn :action :owner-actions] 0)
+                      (assoc-in [:player-turn :choice-player] nil))]
+        ;; Own station with bonus: ask how many bonus actions to take first
+        (if (and same? (pos? bonus))
+          (-> state
+              (assoc-in [:player-turn :action :activator-actions] base)
+              (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
+          (-> state
+              (assoc-in [:player-turn :action :activator-actions] base)
+              (begin-actor-actions :activator))))
       (assoc-in state [:player-turn :phase] :draw-cards))))
 
 ;; --- activate action ---
@@ -619,8 +637,9 @@
     (or (zero? n) (>= spendable n))))
 
 (defn can-fully-activate-foundry?
-  "True if player has at least 1 reserve sundiver per foundry action."
-  [state player]
+  "Foundry activation moves sundivers from reserve to habitat — always feasible,
+   even with 0 reserve (you just get fewer sundivers)."
+  [state player]                                                                                
   (let [n       (total-activation-actions state player :foundry)
         reserve (get-in state [:players player :reserve :sundivers] 0)]
     (or (zero? n) (>= reserve n))))
@@ -719,15 +738,16 @@
   (assoc state :captain-flame player))
 
 (defn turn-heading
-  "Rotate heading direction :left (CCW) or :right (CW); :none leaves it unchanged."
+  "Rotate heading direction :left or :right; :none leaves it unchanged.
+   In SVG flat-top hex (Y-down), visual left = CW, visual right = CCW."
   [state turn-dir]
   (if (= turn-dir :none)
     state
     (let [ark     (:ark state)
           dir     (heading-direction state)
           new-dir (case turn-dir
-                    :left  (rotate-ccw dir)
-                    :right (rotate-cw dir))]
+                    :left  (rotate-cw dir)
+                    :right (rotate-ccw dir))]
       (assoc state :heading-token (add-hex ark new-dir)))))
 
 (defn advance-ark
@@ -847,10 +867,21 @@
                       :matrix :choose-activate-matrix-beacon
                       :tower  :choose-activate-tower-heading))))))
 
+(defn- return-sundiver-from-station
+  "Return the activator's sundiver from the current station to their habitat."
+  [state]
+  (let [player (current-player state)
+        pos    (get-in state [:player-turn :action :current-station])]
+    (if (and pos (pos? (get-in state [:board pos :sundivers player] 0)))
+      (-> state
+          (update-in [:board pos :sundivers player] dec)
+          (update-in [:players player :habitat :sundivers] inc))
+      state)))
+
 (defn advance-after-actions
   "After current actor finishes:
    - Activator done → offer owner their bonus (if other's station with bonus), else next station.
-   - Owner done → next station."
+   - Owner done → return sundiver from station to habitat, then next station."
   [state actor]
   (if (= actor :activator)
     (let [bonus-total (get-in state [:player-turn :action :bonus-total] 0)
@@ -860,8 +891,8 @@
         (-> state
             (assoc-in [:player-turn :choice-player] owner)
             (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
-        (begin-next-station state)))
-    (begin-next-station state)))
+        (-> state return-sundiver-from-station begin-next-station)))
+    (-> state return-sundiver-from-station begin-next-station)))
 
 (defn begin-next-station
   "Pop the next station from the queue and set it up, or finish the activate action."

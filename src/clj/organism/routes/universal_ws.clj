@@ -7,7 +7,9 @@
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
    [immutant.web.async :as async]
-   [organism.universal.game :as game])
+   [organism.universal.game :as game]
+   [organism.universal.game-v2 :as game-v2]
+   [organism.universal.ruleset-v2 :as rs2])
   (:import
    [java.io ByteArrayOutputStream]))
 
@@ -85,6 +87,8 @@
       (do (append-channel! play-key channel)
           (update existing :channels conj channel)))))
 
+(declare compute-legal-actions)
+
 ;; ── AI agent ────────────────────────────────────────────────────────────────────
 
 (defn ai-pick-action
@@ -116,7 +120,7 @@
               bd (:board gd)]
           (when (and st rs (pos? n) (not (:winner st))
                      (not= (:current-player st) human-player))
-            (let [actions (game/legal-actions rs bd st)]
+            (let [actions (compute-legal-actions rs bd st)]
               (when (seq actions)
                 (let [[ak ns] (ai-pick-action (vec actions))]
                   (swap! games assoc-in [:games play-key :state] ns)
@@ -129,11 +133,25 @@
 
 ;; ── Message handlers ────────────────────────────────────────────────────────────
 
+(defn- create-game-dispatch
+  "Create a game from either v1 or v2 ruleset."
+  [ruleset-map]
+  (if (rs2/v2-ruleset? ruleset-map)
+    (let [{:keys [topology state]} (game-v2/create-game ruleset-map)]
+      {:board topology :state state})
+    (let [{:keys [board state]} (game/create-game ruleset-map)]
+      {:board board :state state})))
+
+(defn- compute-legal-actions [ruleset board state]
+  (if (rs2/v2-ruleset? ruleset)
+    (game-v2/legal-actions ruleset board state)
+    (game/legal-actions ruleset board state)))
+
 (defn handle-create! [play-key message]
   (let [ruleset-raw (or (get message "ruleset") (get message :ruleset))]
     (when ruleset-raw
       (let [ruleset-map (if (string? ruleset-raw) (edn/read-string ruleset-raw) ruleset-raw)
-            {:keys [board state]} (game/create-game ruleset-map)]
+            {:keys [board state]} (create-game-dispatch ruleset-map)]
         (swap! games
                (fn [gs]
                  (-> gs
@@ -142,8 +160,7 @@
                      (assoc-in [:games play-key :state] state)
                      (assoc-in [:games play-key :human-player] "0"))))
         (log/info "Created universal game" play-key
-                  "sym=" (:board-symmetry ruleset-map)
-                  "rings=" (:num-rings ruleset-map)
+                  "v2?=" (rs2/v2-ruleset? ruleset-map)
                   "players=" (:num-players ruleset-map))
         (broadcast-state! play-key)
         (play-ai-turns! play-key "0")))))
@@ -157,7 +174,7 @@
     (when (and choice state ruleset)
       (try
         (let [action-key (edn/read-string choice)
-              actions (game/legal-actions ruleset board state)
+              actions (compute-legal-actions ruleset board state)
               next-state (get actions action-key)]
           (if next-state
             (do

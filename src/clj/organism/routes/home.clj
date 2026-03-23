@@ -47,18 +47,28 @@
 
 (defn safe-redirect
   "Only allow relative paths to prevent open redirect."
-  [redirect player]
+  [redirect _player]
   (if (and redirect
            (string? redirect)
            (clojure.string/starts-with? redirect "/")
            (not (clojure.string/starts-with? redirect "//")))
     redirect
-    (str "/organism/player/" player)))
+    "/"))
+
+(defn- game-title
+  "Derive a display title from the redirect path."
+  [redirect]
+  (cond
+    (and redirect (clojure.string/starts-with? redirect "/journey"))  "JOURNEY"
+    (and redirect (clojure.string/starts-with? redirect "/universal")) "UNIVERSAL"
+    :else "ORGANISM"))
 
 (defn login-page
   [request]
   (let [redirect (get-in request [:query-params "redirect"])]
-    (layout/render request "login.html" {:redirect redirect})))
+    (layout/render request "login.html"
+                   {:redirect redirect
+                    :game-title (game-title redirect)})))
 
 (defn login-submit
   [db request]
@@ -72,12 +82,15 @@
           (assoc :session {:player player}))
       (layout/render request "login.html"
                      {:error "Invalid player name or password"
-                      :redirect (:redirect params)}))))
+                      :redirect (:redirect params)
+                      :game-title (game-title (:redirect params))}))))
 
 (defn register-page
   [request]
   (let [redirect (get-in request [:query-params "redirect"])]
-    (layout/render request "register.html" {:redirect redirect})))
+    (layout/render request "register.html"
+                   {:redirect redirect
+                    :game-title (game-title redirect)})))
 
 (defn register-submit
   [db request]
@@ -90,17 +103,20 @@
       (or (empty? player) (empty? password))
       (layout/render request "register.html"
                      {:error "Player name and password are required"
-                      :redirect (:redirect params)})
+                      :redirect (:redirect params)
+                      :game-title (game-title (:redirect params))})
 
       (not= password password-confirm)
       (layout/render request "register.html"
                      {:error "Passwords do not match"
-                      :redirect (:redirect params)})
+                      :redirect (:redirect params)
+                      :game-title (game-title (:redirect params))})
 
       (persist/player-has-password? db player)
       (layout/render request "register.html"
                      {:error "That player name is already taken"
-                      :redirect (:redirect params)})
+                      :redirect (:redirect params)
+                      :game-title (game-title (:redirect params))})
 
       :else
       (let [hashed (hashers/derive password)]

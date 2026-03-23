@@ -2,7 +2,7 @@
 
 Quick start
 -----------
-  from alphazero.game_search import Search, Grammar, EvalConfig
+  from alphazero.oroboros import Search, Grammar, EvalConfig
 
   # Fast search with small boards, 2 players
   grammar = Grammar(num_players=2)
@@ -12,7 +12,7 @@ Quick start
   print(search.report())
 
   # Evaluate a specific ruleset
-  from alphazero.game_search import RuleSet, evaluate
+  from alphazero.oroboros import RuleSet, evaluate
   rs = grammar.heterarchy_minimal()
   metrics = evaluate(rs, cfg)
   print(metrics.summary())

@@ -3,26 +3,23 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>JOURNEY - create game</title>
+    <title>UNIVERSAL - observe games</title>
   </head>
   <body>
-    <div id="journey">
+    <div id="universal">
     </div>
 
     {% style "/assets/bulma/css/bulma.min.css" %}
-    {% style "/assets/material-icons/css/material-icons.min.css" %}
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
       var csrfToken = "{{csrf-token}}";
       var playerKey = "{{session-player}}";
-      var playerPreferences = "{{preferences|addslashes|safe}}";
-      var playerGames = null;
       var playKey = null;
-      var isCreate = true;
-      var isObserve = false;
-      var isGenerate = false;
+      var isCreate = false;
+      var isObserve = true;
+      var observeGames = "{{observe-games|addslashes|safe}}";
     </script>
-    {% script "/js/journey.js" %}
+    {% script "/js/universal.js" %}
   </body>
 </html>

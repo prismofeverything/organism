@@ -7,7 +7,10 @@
    [reagent.dom :as rdom]
    [organism.websockets :as ws]
    [organism.universal.game :as game]
-   [organism.universal.ruleset :as rs]))
+   [organism.universal.game-v2 :as game-v2]
+   [organism.universal.ruleset :as rs]
+   [organism.universal.ruleset-v2 :as rs2]
+   [organism.universal.topology :as topo]))
 
 ;; ── State atoms ─────────────────────────────────────────────────────────────────
 
@@ -33,12 +36,14 @@
    "#66eeee" "#ffee22" "#ff88cc"])
 
 (def action-type-colors
-  {:move      "#66aaff"
-   :eat       "#66ee66"
-   :grow      "#ffcc00"
-   :capture   "#ff4444"
-   :circulate "#cc88ff"
-   :pass      "#666666"})
+  {;; V1 actions (keyword keys for v1 compat)
+   :move      "#66aaff"  :eat       "#66ee66"  :grow      "#ffcc00"
+   :capture   "#ff4444"  :circulate "#cc88ff"  :pass      "#666666"
+   ;; V2 actions (string keys)
+   "move" "#66aaff"  "eat" "#66ee66"  "grow" "#ffcc00"  "capture" "#ff4444"
+   "circulate" "#cc88ff"  "place" "#88cccc"  "push" "#ff8844"
+   "swap" "#44cccc"  "convert" "#cc44cc"  "snipe" "#ff6666"
+   "leap" "#88aaff"  "charge" "#ff4466"  "pass" "#666666"})
 
 (defn player-color [player]
   (let [idx (js/parseInt player 10)]
@@ -48,14 +53,15 @@
   (let [idx (js/parseInt player 10)]
     (nth player-glow-colors (mod idx (count player-glow-colors)))))
 
-;; ── Board geometry (ring → pixel) ───────────────────────────────────────────────
+;; ── Board geometry ────────────────────────────────────────────────────────────────
 
 (def board-cx 400)
 (def board-cy 400)
 (def ring-spacing 55)
 (def space-radius 18)
 
-(defn space->pixel
+;; V1 ring board coordinate mapping
+(defn ring-space->pixel
   [rings space]
   (let [[color step] space
         ring-names (mapv first rings)
@@ -70,12 +76,43 @@
         [(+ board-cx (* rad (js/Math.cos angle)))
          (+ board-cy (* rad (js/Math.sin angle)))]))))
 
+;; V2 topology coordinate mapping
+(defn- square-node->pixel
+  [coords grid-size node]
+  (let [[row col] (get coords node [0 0])
+        spacing (/ 700 (max grid-size 1))
+        margin 50]
+    [(+ margin (* col spacing) (/ spacing 2))
+     (+ margin (* row spacing) (/ spacing 2))]))
+
+(defn- hex-node->pixel
+  [coords grid-size node]
+  (let [[row col] (get coords node [0 0])
+        hex-size 38
+        ;; Offset hex layout
+        x (* hex-size 1.5 col)
+        y (* hex-size (js/Math.sqrt 3) (+ row (* 0.5 (mod col 2))))
+        ;; Center in viewport
+        cx (+ 80 x)
+        cy (+ 80 y)]
+    [cx cy]))
+
 (defn compute-locations
-  [rings adjacencies]
-  (reduce
-   (fn [locs space]
-     (assoc locs space (space->pixel rings space)))
-   {} (keys adjacencies)))
+  "Compute pixel positions for all board spaces. Dispatches on topology type."
+  [topology-type coords grid-size rings adjacencies]
+  (case topology-type
+    ;; V2 topologies
+    ("square" "torus_square")
+    (reduce (fn [m node] (assoc m node (square-node->pixel coords grid-size node)))
+            {} (keys coords))
+
+    ("hex" "torus_hex")
+    (reduce (fn [m node] (assoc m node (hex-node->pixel coords grid-size node)))
+            {} (keys coords))
+
+    ;; V1 ring topology (default)
+    (reduce (fn [m space] (assoc m space (ring-space->pixel rings space)))
+            {} (keys adjacencies))))
 
 ;; ── Action analysis ─────────────────────────────────────────────────────────────
 
@@ -271,8 +308,13 @@
         ruleset @ruleset-atom
         board @board-atom]
     (when (and state ruleset board)
-      (let [{:keys [adjacencies rings]} board
-            locations (compute-locations rings adjacencies)
+      (let [v2? (rs2/v2-ruleset? ruleset)
+            adjacencies (if v2? (:adjacencies board) (:adjacencies board))
+            topology-type (if v2? (get-in ruleset [:board :topology]) "ring")
+            coords (when v2? (:coords board))
+            grid-size (when v2? (:grid-size board))
+            rings (when-not v2? (:rings board))
+            locations (compute-locations topology-type coords grid-size rings adjacencies)
             my-turn? (= (:current-player state) @player-key)
             actions (when my-turn? @legal-actions-atom)
             indexed (when (seq actions) (index-actions actions))
@@ -420,24 +462,29 @@
 (defn conflict-explanation
   "Human-readable conflict table."
   [ruleset]
-  (let [n (:num-types ruleset)
+  (let [v2? (rs2/v2-ruleset? ruleset)
+        n (if v2? (get-in ruleset [:pieces :num-types]) (:num-types ruleset))
+        conflict (when v2? (get-in ruleset [:interactions :conflict]))
         type-name (fn [t] (str "Type " t))]
-    [:div {:style {:margin-top "8px"}}
-     [:div {:style {:color "#888" :font-size "10px" :margin-bottom "4px"
-                    :text-transform "uppercase" :letter-spacing "1px"}}
-      "Conflict resolution"]
-     (for [i (range n)
-           j (range (inc i) n)
-           :let [outcome (rs/outcome-for ruleset i j)]]
-       ^{:key (str i "-" j)}
-       [:div {:style {:font-size "11px" :padding "1px 0"}}
-        [:span {:style {:color (get action-type-colors :capture "#aaa")}}
-         (case outcome
-           :wins    (str (type-name i) " beats " (type-name j))
-           :loses   (str (type-name j) " beats " (type-name i))
-           :coexist (str (type-name i) " & " (type-name j) " coexist")
-           :mutual  (str (type-name i) " & " (type-name j) " mutual destruction")
-           (str i " vs " j ": " (pr-str outcome)))]])]))
+    (when (and n (> n 1))
+      [:div {:style {:margin-top "8px"}}
+       [:div {:style {:color "#888" :font-size "10px" :margin-bottom "4px"
+                      :text-transform "uppercase" :letter-spacing "1px"}}
+        "Conflict resolution"]
+       (for [i (range n)
+             j (range (inc i) n)
+             :let [outcome (if v2?
+                             (rs2/outcome-for n conflict i j)
+                             (rs/outcome-for ruleset i j))]]
+         ^{:key (str i "-" j)}
+         [:div {:style {:font-size "11px" :padding "1px 0"}}
+          [:span {:style {:color (get action-type-colors "capture" "#aaa")}}
+           (case outcome
+             :wins    (str (type-name i) " beats " (type-name j))
+             :loses   (str (type-name j) " beats " (type-name i))
+             :coexist (str (type-name i) " & " (type-name j) " coexist")
+             :mutual  (str (type-name i) " & " (type-name j) " mutual destruction")
+             (str i " vs " j ": " (pr-str outcome)))]])])))
 
 (defn rules-panel []
   (let [ruleset @ruleset-atom
@@ -493,68 +540,88 @@
                         (str "/" (:win-threshold ruleset))))]))])
 
          ;; Rules explanation
-         [:div {:style {:border-top "1px solid #222" :padding-top "8px" :margin-top "4px"}}
-          [:div {:style {:color "#666" :font-size "10px" :margin-bottom "6px"
-                         :text-transform "uppercase" :letter-spacing "1px"}}
-           "Rules"]
+         (let [v2? (rs2/v2-ruleset? ruleset)]
+           [:div {:style {:border-top "1px solid #222" :padding-top "8px" :margin-top "4px"}}
+            [:div {:style {:color "#666" :font-size "10px" :margin-bottom "6px"
+                           :text-transform "uppercase" :letter-spacing "1px"}}
+             "Rules"]
 
-          [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
-           (str "Board: " (:board-symmetry ruleset) "-fold symmetry with "
-                (:num-rings ruleset) " rings")]
+            [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
+             (if v2?
+               (str "Board: " (get-in ruleset [:board :topology]) " size " (get-in ruleset [:board :size]))
+               (str "Board: " (:board-symmetry ruleset) "-fold symmetry with "
+                    (:num-rings ruleset) " rings"))]
 
-          [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
-           (str "Each player starts with " (:elements-per-player ruleset)
-                " pieces (" (:num-types ruleset) " types)")]
+            [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
+             (let [epp (if v2? (get-in ruleset [:pieces :elements-per-player]) (:elements-per-player ruleset))
+                   nt (if v2? (get-in ruleset [:pieces :num-types]) (:num-types ruleset))]
+               (str "Each player starts with " epp " pieces (" nt " types)"))]
 
-          [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
-           (str "Win by: "
-                (case (:win-type ruleset)
-                  :captures (str "capturing " (:win-threshold ruleset) " enemy pieces")
-                  :population (str "growing to " (:win-threshold ruleset) " pieces")
-                  "unknown"))]
+            [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
+             (let [wc (if v2? (get-in ruleset [:win :condition]) (name (:win-type ruleset)))
+                   wt (if v2? (get-in ruleset [:win :threshold]) (:win-threshold ruleset))
+                   tl (when v2? (get-in ruleset [:win :turn-limit]))]
+               (str "Win by: "
+                    (case wc
+                      "captures"       (str "capturing " wt " enemy pieces")
+                      "population"     (str "growing to " wt " pieces")
+                      "elimination"    "eliminating all opponents"
+                      "territory"      (str "controlling " wt "% of board")
+                      "score_at_limit" (str "highest score at round " tl)
+                      wc)
+                    (when tl (str " (limit: " tl " rounds)"))))]
 
-          ;; Available actions
-          [:div {:style {:margin-top "8px"}}
-           [:div {:style {:color "#666" :font-size "10px" :margin-bottom "4px"
-                          :text-transform "uppercase" :letter-spacing "1px"}}
-            "Actions"]
-           (when (:can-move ruleset)
-             [:div {:style {:font-size "11px" :padding "2px 0"}}
-              [:span {:style {:color (action-type-colors :move)}} "M "]
-              [:span {:style {:color "#999"}} "Move to empty adjacent space"]])
-           (when (:can-eat ruleset)
-             [:div {:style {:font-size "11px" :padding "2px 0"}}
-              [:span {:style {:color (action-type-colors :eat)}} "E "]
-              [:span {:style {:color "#999"}} "Eat food from adjacent space"]])
-           (when (:can-grow ruleset)
-             [:div {:style {:font-size "11px" :padding "2px 0"}}
-              [:span {:style {:color (action-type-colors :grow)}} "G "]
-              [:span {:style {:color "#999"}} "Spend food to grow new piece"]])
-           (when (:can-capture ruleset)
-             [:div {:style {:font-size "11px" :padding "2px 0"}}
-              [:span {:style {:color (action-type-colors :capture)}} "X "]
-              [:span {:style {:color "#999"}} "Capture weaker adjacent enemy"]])
-           (when (:can-circulate ruleset)
-             [:div {:style {:font-size "11px" :padding "2px 0"}}
-              [:span {:style {:color (action-type-colors :circulate)}} "C "]
-              [:span {:style {:color "#999"}} "Pass food to friendly neighbor"]])]
+            ;; Turns info
+            (when v2?
+              (let [ts (get-in ruleset [:turns :structure])]
+                (when (not= ts "single")
+                  [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
+                   (str "Turns: " (rs2/actions-per-turn ruleset) " actions per turn")])))
 
-          ;; Conflict table
-          [conflict-explanation ruleset]
+            ;; Available actions
+            [:div {:style {:margin-top "8px"}}
+             [:div {:style {:color "#666" :font-size "10px" :margin-bottom "4px"
+                            :text-transform "uppercase" :letter-spacing "1px"}}
+              "Actions"]
+             (let [action-names (if v2?
+                                  (:action-names ruleset)
+                                  (cond-> []
+                                    (:can-move ruleset) (conj "move")
+                                    (:can-eat ruleset) (conj "eat")
+                                    (:can-grow ruleset) (conj "grow")
+                                    (:can-capture ruleset) (conj "capture")
+                                    (:can-circulate ruleset) (conj "circulate")))]
+               (for [aname action-names
+                     :let [at (rs2/get-action-type aname)
+                           label (or (:label at) (str (first aname)))
+                           color (or (:color at) "#888")]]
+                 ^{:key aname}
+                 [:div {:style {:font-size "11px" :padding "2px 0"}}
+                  [:span {:style {:color color}} (str label " ")]
+                  [:span {:style {:color "#999"}} aname]]))]
 
-          ;; Food info
-          (when (:food-enabled ruleset)
-            [:div {:style {:margin-top "8px" :color "#999" :font-size "11px"}}
-             (str "Food enabled (start: " (:food-initial ruleset) " per piece)")
-             [:br]
-             "Captured pieces drop food on the board"])]
+            ;; Conflict table
+            [conflict-explanation ruleset]
+
+            ;; Resource info
+            (let [res-sys (if v2? (get-in ruleset [:resources :system]) (when (:food-enabled ruleset) "food"))]
+              (when (and res-sys (not= res-sys "none"))
+                [:div {:style {:margin-top "8px" :color "#999" :font-size "11px"}}
+                 (str (str/capitalize res-sys) " system"
+                      (when v2?
+                        (str " (start: " (get-in ruleset [:resources :initial-amount] 0)
+                             (when (= res-sys "energy")
+                               (str ", regen: " (get-in ruleset [:resources :regen-rate] 0) "/round"))
+                             ")")))]))])
 
          ;; Pass button
          (when (and state my-turn? (not winner))
            [:button {:style {:margin-top "12px" :padding "6px 16px" :width "100%"
                              :background "#222" :color "#ccc" :border "1px solid #444"
                              :cursor "pointer" :border-radius "4px" :font-family "monospace"}
-                     :on-click #(send-action! [:pass nil nil])}
+                     :on-click #(send-action! (if (rs2/v2-ruleset? ruleset)
+                                                ["pass" nil nil]
+                                                [:pass nil nil]))}
             "Pass turn"])]))))
 
 ;; ── History panel (right) ────────────────────────────────────────────────────────
@@ -562,7 +629,9 @@
 (defn format-action
   "Human-readable description of an action."
   [[action-type from-sp to-sp & args]]
-  (let [fmt-sp (fn [sp] (if sp (str (first sp) ":" (second sp)) "—"))]
+  (let [fmt-sp (fn [sp] (cond (nil? sp) "—"
+                               (number? sp) (str sp)
+                               :else (str (first sp) ":" (second sp))))]
     (case action-type
       :move      (str "Move " (fmt-sp from-sp) " → " (fmt-sp to-sp))
       :eat       (str "Eat at " (fmt-sp to-sp))
@@ -609,7 +678,7 @@
 
 ;; ── Create game view ────────────────────────────────────────────────────────────
 
-(defonce create-ruleset (r/atom (:ruleset (first rs/discovered-games))))
+(defonce create-ruleset (r/atom (:ruleset (first rs2/discovered-v2-games))))
 
 (defn game-card
   "A clickable card for a discovered game."
@@ -629,11 +698,18 @@
    [:div {:style {:color "#777" :font-size "11px" :margin-top "3px"}}
     description]
    [:div {:style {:color "#555" :font-size "10px" :margin-top "3px"}}
-    (str (:board-symmetry ruleset) "-fold  "
-         (:num-rings ruleset) "r  "
-         (:num-types ruleset) "t  "
-         (:num-players ruleset) "p  "
-         (clojure.core/name (:win-type ruleset)) ">" (:win-threshold ruleset))]])
+    (if (rs2/v2-ruleset? ruleset)
+      (str (get-in ruleset [:board :topology]) " "
+           (get-in ruleset [:board :size]) "  "
+           (get-in ruleset [:pieces :num-types]) "t  "
+           (:num-players ruleset) "p  "
+           (str/join "+" (:action-names ruleset)) "  "
+           (get-in ruleset [:win :condition]) ">" (get-in ruleset [:win :threshold]))
+      (str (:board-symmetry ruleset) "-fold  "
+           (:num-rings ruleset) "r  "
+           (:num-types ruleset) "t  "
+           (:num-players ruleset) "p  "
+           (name (:win-type ruleset)) ">" (:win-threshold ruleset)))]])
 
 (defn create-view []
   (let [rs @create-ruleset
@@ -645,11 +721,20 @@
      [:div {:style {:color "#666" :font-size "12px" :margin-bottom "20px"}}
       "Games discovered by evolutionary search + AlphaZero depth evaluation"]
 
-     ;; Discovered games list
+     ;; V2 discovered games (new topologies)
+     [:div {:style {:margin-bottom "16px"}}
+      [:div {:style {:color "#88aaff" :font-size "10px" :margin-bottom "8px"
+                     :text-transform "uppercase" :letter-spacing "1.5px"}}
+       (str (count rs2/discovered-v2-games) " new-topology games (square, hex, torus)")]
+      (for [{:keys [name ruleset] :as game} rs2/discovered-v2-games]
+        ^{:key (str "v2-" name)}
+        [game-card game (= ruleset rs)])]
+
+     ;; V1 discovered games (ring boards)
      [:div {:style {:margin-bottom "16px"}}
       [:div {:style {:color "#888" :font-size "10px" :margin-bottom "8px"
                      :text-transform "uppercase" :letter-spacing "1.5px"}}
-       (str (count rs/discovered-games) " discovered games (ranked by strategic depth)")]
+       (str (count rs/discovered-games) " ring-board games")]
       (for [{:keys [name ruleset] :as game} rs/discovered-games]
         ^{:key name}
         [game-card game (= ruleset rs)])]
@@ -699,64 +784,65 @@
 
 ;; ── WebSocket handling ──────────────────────────────────────────────────────────
 
+(defn- build-board-for [rs]
+  "Build board data for either v1 or v2 ruleset."
+  (if (rs2/v2-ruleset? rs)
+    (topo/build-topology (get-in rs [:board :topology])
+                         (get-in rs [:board :size])
+                         (get-in rs [:board :symmetry] 4))
+    (game/build-board rs)))
+
+(defn- compute-legal-actions [rs board state]
+  "Compute legal actions for either v1 or v2."
+  (if (rs2/v2-ruleset? rs)
+    (game-v2/legal-actions rs board state)
+    (game/legal-actions rs board state)))
+
+(defn- process-state-update! [state action-str]
+  (let [me @player-key
+        current (:current-player state)
+        my-turn? (= current me)
+        prev-state @game-state
+        acted-player (when prev-state (:current-player prev-state))]
+    ;; Add to history
+    (when (and prev-state acted-player
+               (or (not= current acted-player) (:winner state)))
+      (swap! history-atom conj
+             {:step (count @history-atom)
+              :player acted-player
+              :round (:round prev-state)
+              :action (if action-str
+                        (reader/read-string action-str)
+                        ["unknown" nil nil])}))
+    (reset! game-state state)
+    (reset! selected-element nil)
+    (reset! action-picker nil)
+    (if (and my-turn? @ruleset-atom @board-atom (not (:winner state)))
+      (let [actions (compute-legal-actions @ruleset-atom @board-atom state)]
+        (js/console.log "legal actions:" (count actions))
+        (reset! legal-actions-atom actions))
+      (reset! legal-actions-atom {}))))
+
 (defn receive-message! [message]
   (let [msg-type (get message "type")]
     (case msg-type
       "initialize"
       (do
-        (js/console.log "initialize msg, has state?" (boolean (get message "state"))
-                        "has ruleset?" (boolean (get message "ruleset")))
         (when-let [rs-str (get message "ruleset")]
           (let [rs (reader/read-string rs-str)]
             (reset! ruleset-atom rs)
-            (reset! board-atom (game/build-board rs))))
+            (reset! board-atom (build-board-for rs))))
         (when-let [state-str (get message "state")]
-          (let [state (reader/read-string state-str)
-                me @player-key
-                my-turn? (= (:current-player state) me)]
-            (js/console.log "init state: current=" (:current-player state) "me=" me)
-            (reset! game-state state)
-            (when (and my-turn? @ruleset-atom @board-atom (not (:winner state)))
-              (let [actions (game/legal-actions @ruleset-atom @board-atom state)]
-                (js/console.log "init legal actions:" (count actions))
-                (reset! legal-actions-atom actions))))))
+          (process-state-update! (reader/read-string state-str) nil)))
 
       "game-state"
       (do
         (when-let [rs-str (get message "ruleset")]
           (let [rs (reader/read-string rs-str)]
             (reset! ruleset-atom rs)
-            (reset! board-atom (game/build-board rs))))
+            (reset! board-atom (build-board-for rs))))
         (when-let [state-str (get message "state")]
-          (let [state (reader/read-string state-str)
-                me @player-key
-                current (:current-player state)
-                my-turn? (= current me)
-                ;; Detect the action: server sends the *result* state, so the
-                ;; player who just acted is the one *before* current in turn order
-                prev-state @game-state
-                acted-player (when prev-state (:current-player prev-state))
-                action-str (get message "action")]
-
-            ;; Add to history if a turn actually changed
-            (when (and prev-state acted-player
-                       (or (not= current acted-player)
-                           (:winner state)))
-              (swap! history-atom conj
-                     {:step (count @history-atom)
-                      :player acted-player
-                      :round (:round prev-state)
-                      :action (if action-str
-                                (reader/read-string action-str)
-                                [:unknown nil nil])}))
-
-            (reset! game-state state)
-            (reset! selected-element nil)
-            (reset! action-picker nil)
-            (if (and my-turn? @ruleset-atom @board-atom (not (:winner state)))
-              (let [actions (game/legal-actions @ruleset-atom @board-atom state)]
-                (reset! legal-actions-atom actions))
-              (reset! legal-actions-atom {})))))
+          (process-state-update! (reader/read-string state-str) (get message "action"))))
 
       nil)))
 

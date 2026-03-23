@@ -1,6 +1,6 @@
 (ns organism.universal.ruleset
   "RuleSet: compact description of a parameterized abstract board game.
-   Matches the Python alphazero.game_search.ruleset.RuleSet.")
+   Matches the Python alphazero.oroboros.ruleset.RuleSet.")
 
 ;; A ruleset is a plain map:
 ;; {:board-symmetry  5       ; 3-6

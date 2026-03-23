@@ -72,9 +72,14 @@
   <body>
     <div class="home-layout">
       <div class="cover-panel">
-        <a class="cover-link" href="/journey">
-          <img src="/img/rulebook-cover-01.png" alt="JOURNEY"
-               style="transform: rotate(180deg); filter: invert(1);"/>
+        <a class="cover-link" href="/journey"
+           style="display:flex; align-items:center; justify-content:center;">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"
+               style="height:60vh; width:auto;">
+            <polygon points="100,20 180,170 20,170"
+                     fill="#E8B800" stroke="#FFD030" stroke-width="2"
+                     stroke-linejoin="round"/>
+          </svg>
         </a>
       </div>
 
@@ -83,6 +88,7 @@
           <span class="nav-label">you</span>
           <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
           <a class="nav-link" href="/journey/create">create</a>
+          <a class="nav-link" href="/journey/play">play</a>
 
           <span class="nav-label">explore</span>
           <a class="nav-link" href="/journey/observe">observe</a>
@@ -93,7 +99,7 @@
           <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
         {% else %}
           <span class="nav-label">account</span>
-          <a class="nav-link" href="/login">login / register</a>
+          <a class="nav-link" href="/login?redirect=/journey">login / register</a>
 
           <span class="nav-label">explore</span>
           <a class="nav-link" href="/journey/observe">observe</a>

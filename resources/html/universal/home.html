@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ORGANISM</title>
+    <title>UNIVERSAL</title>
     {% style "/assets/bulma/css/bulma.min.css" %}
     {% style "/css/screen.css" %}
     <style>
@@ -18,18 +18,15 @@
         flex: 1;
         display: flex;
         justify-content: center;
-        align-items: stretch;
+        align-items: center;
         overflow: hidden;
       }
-      .cover-link {
-        display: flex;
-        align-items: stretch;
-      }
-      .cover-link img {
-        height: 100vh;
-        width: auto;
-        display: block;
-        object-fit: contain;
+      .cover-title {
+        color: #556;
+        font-family: monospace;
+        font-size: 3rem;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
       }
       .nav-panel {
         width: 280px;
@@ -72,34 +69,28 @@
   <body>
     <div class="home-layout">
       <div class="cover-panel">
-        <a class="cover-link" href="/img/organism-rulebook.pdf" target="_blank">
-          <img src="/img/rulebook-cover-01.png" alt="ORGANISM Rulebook Cover"/>
-        </a>
+        <span class="cover-title">Universal</span>
       </div>
 
       <nav class="nav-panel">
         {% if session-player %}
           <span class="nav-label">you</span>
-          <a class="nav-link player-link" href="/player/{{session-player}}/account">{{session-player}}</a>
-          <a class="nav-link" href="/organism/create">create</a>
-          <a class="nav-link" href="/organism/play">play</a>
+          <a class="nav-link player-link" href="/universal/player/{{session-player}}">{{session-player}}</a>
+          <a class="nav-link" href="/universal/create">create</a>
+          <a class="nav-link" href="/universal/play">play</a>
 
           <span class="nav-label">explore</span>
-          <a class="nav-link" href="/organism/observe">observe</a>
-          <a class="nav-link" href="/organism/players">players</a>
-          <a class="nav-link" href="/learn">learn</a>
+          <a class="nav-link" href="/universal/observe">observe</a>
 
           <span class="nav-label" style="margin-top:2rem"></span>
           <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
           <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
         {% else %}
           <span class="nav-label">account</span>
-          <a class="nav-link" href="/login?redirect=/organism">login / register</a>
+          <a class="nav-link" href="/login?redirect=/universal">login / register</a>
 
           <span class="nav-label">explore</span>
-          <a class="nav-link" href="/organism/observe">observe</a>
-          <a class="nav-link" href="/organism/players">players</a>
-          <a class="nav-link" href="/learn">learn</a>
+          <a class="nav-link" href="/universal/observe">observe</a>
           <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
         {% endif %}
       </nav>

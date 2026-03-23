@@ -12,6 +12,17 @@
       (handler request)
       (response/redirect (str "/login?redirect=" (:uri request))))))
 
+(defn play-list-page
+  "Show the logged-in player's games for organism."
+  [db request]
+  (let [player (get-in request [:session :player])
+        player-games (persist/load-player-games db player "organism")]
+    (layout/render
+     request
+     "organism/games.html"
+     {:session-player player
+      :player-games (pr-str player-games)})))
+
 (defn create-page
   [db request]
   (let [player (get-in request [:session :player])
@@ -72,6 +83,8 @@
                  middleware/wrap-formats]}
    ["/create" {:get (partial create-page db)
                :middleware [require-auth]}]
+   ["/play" {:get (partial play-list-page db)
+             :middleware [require-auth]}]
    ["/play/:play" {:get (partial play-page db)}]
    ["/play/:play/" {:get (partial play-page db)}]
    ["/observe" {:get (partial observe-page db)}]

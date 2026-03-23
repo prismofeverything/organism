@@ -4,6 +4,7 @@
    [cljs.reader :as reader]
    [reagent.core :as r]
    [reagent.dom :as rdom]
+   [ajax.core :refer [POST]]
    [journey.game :as game]
    [journey.choice :as choice]
    [journey.board :as board]
@@ -23,6 +24,25 @@
 
 (defonce observe-games
   (r/atom []))
+
+(defonce bots-set
+  (r/atom #{}))
+
+(defonce can-undo?
+  (r/atom false))
+
+;; Server-provided choices: the server computes find-state-raw and sends the choice keys.
+;; This avoids stale .cljc auto-advance issues.
+(defonce server-choices
+  (r/atom nil))
+
+(defonce play-history
+  (r/atom []))
+
+;; When non-nil, the player has clicked a convert ghost station and must pick
+;; which sundiver arrangement to use. Value: {:target pos :type t :options [conv...]}
+(defonce pending-convert
+  (r/atom nil))
 
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,27 +68,48 @@
 (defn wrap-choice? [k]
   (and (vector? k) (= 2 (count k)) (= :wrap (first k))))
 
+(defn fly-from? [k]
+  (and (vector? k) (= 2 (count k)) (= :fly (first k))))
+
 (defn choice-label
   "Human-readable label for a choice key."
   [k]
   (cond
-    (keyword? k)  (name k)
-    (integer? k)  (str k " bonus")
-    (hex-pos? k)  (str "[" (first k) "," (second k) "]")
-    (wrap-choice? k) (str "wrap → " (choice-label (second k)))
-    (map? k)      (str (name (:type k)) " @ " (choice-label (:target k)))
-    :else         (pr-str k)))
+    (nil? k)           "habitat"
+    (= k :none)        "straight"
+    (keyword? k)       (name k)
+    (integer? k)       (str k " bonus")
+    (hex-pos? k)       (str "[" (first k) "," (second k) "]")
+    (wrap-choice? k)   (str "wrap → " (choice-label (second k)))
+    (fly-from? k)      (str "fly from " (choice-label (second k)))
+    (and (map? k) (:type k) (:target k))
+    (str (name (:type k)) " @ " (choice-label (:target k)))
+    (and (map? k) (:suit k))
+    (str (get game/suit-names (:suit k) "?"))
+    :else              (pr-str k)))
+
+(defn convert-choice? [k]
+  (and (map? k) (contains? k :type) (contains? k :target)))
 
 (defn partition-choices
-  "Split choices into pos-highlights (hex clicks) and button-choices (everything else).
-   Wrap choices become separate buttons."
+  "Split choices into pos-highlights, fly-from highlights, wrap positions,
+   convert info, and buttons.
+   Returns [pos-set fly-from-set wrap-set conv-groups button-choices].
+   conv-groups: {[target type] → [{:choice-key k :sundivers [...]} ...]}"
   [choices]
   (reduce-kv
-   (fn [[pos-set btns] k _v]
+   (fn [[pos-set fly-set wrap-set conv-groups btns] k _v]
      (cond
-       (hex-pos? k)   [(conj pos-set k) btns]
-       :else          [pos-set (conj btns {:label (choice-label k) :choice-key k})]))
-   [#{} []]
+       (hex-pos? k)      [(conj pos-set k) fly-set wrap-set conv-groups btns]
+       (fly-from? k)     [pos-set (conj fly-set (second k)) wrap-set conv-groups btns]
+       (wrap-choice? k)  [pos-set fly-set (conj wrap-set (second k)) conv-groups btns]
+       (convert-choice? k)
+       [pos-set fly-set wrap-set
+        (update conv-groups [(:target k) (:type k)]
+                (fnil conj []) {:choice-key k :sundivers (:sundivers k)})
+        btns]
+       :else [pos-set fly-set wrap-set conv-groups (conj btns {:label (choice-label k) :choice-key k})]))
+   [#{} #{} #{} {} []]
    choices))
 
 ;; ── WebSocket communication ───────────────────────────────────────────────────
@@ -77,6 +118,11 @@
   "Send a choice to the server."
   [choice-key]
   (ws/send-transit-message! {:type "action" :choice (pr-str choice-key)}))
+
+(defn send-undo!
+  "Ask the server to undo the last action."
+  []
+  (ws/send-transit-message! {:type "undo"}))
 
 ;; ── Choice interaction ────────────────────────────────────────────────────────
 
@@ -93,8 +139,8 @@
 (defn board-view
   "Wraps render-game with mouse-drag pan and keyboard/slider zoom.
    Arrow keys pan; PageUp/PageDown zoom; drag the starfield to pan.
-   Optional on-navigate fn(dir) — when provided, Up/Down call it instead of panning."
-  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate]}]]
+   Optional: on-navigate, fly-highlights, chosen-pos."
+  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click]}]]
   (r/with-let
     [pan-x (r/atom 0)
      pan-y (r/atom 0)
@@ -123,6 +169,14 @@
     [:div {:style {:position "relative" :width "100%" :height "100%"}}
      [board/render-game state pos-highlights on-hex-click choice-buttons
       {:pan-x @pan-x :pan-y @pan-y :zoom @zoom
+       :fly-highlights fly-highlights
+       :chosen-pos chosen-pos
+       :active-player active-player
+       :conv-groups conv-groups
+       :conv-sundivers conv-sundivers
+       :pending-convert pending-convert
+       :cipher-highlights cipher-highlights
+       :cipher-on-click cipher-on-click
        :on-bg-mouse-down
        (fn [e]
          (.preventDefault e)
@@ -142,123 +196,10 @@
       (js/document.removeEventListener "mousemove" on-move)
       (js/document.removeEventListener "mouseup" on-up))))
 
-;; ── Play page ─────────────────────────────────────────────────────────────────
+;; ── Shared history row component ─────────────────────────────────────────────
+;; Used by both play-page and generate-page.
 
-(defn game-phase-label [state]
-  (let [phase (game/current-phase state)
-        cp    (choice-player state)]
-    (str (name (or phase :?)) " — " cp)))
-
-(defn play-page []
-  (let [state @game-state
-        my    @player-key]
-    (if (nil? state)
-      [:div {:style {:color "#556" :padding "40px" :font-family "monospace"}}
-       [:p "Waiting for game state…"]]
-      (let [[_ choices]       (choice/find-state state)
-            active?           (my-turn? state my)
-            [pos-hl btn-choices] (if active?
-                                   (partition-choices choices)
-                                   [#{} []])
-            on-click          (when active?
-                                (partial on-hex-click state my choices))
-            buttons           (when active?
-                                (map (fn [{:keys [label choice-key]}]
-                                       {:label    label
-                                        :on-click #(on-button-click choice-key)})
-                                     btn-choices))]
-        [:div {:style {:width "100vw" :height "100vh"
-                       :overflow "hidden" :background "#04040E"}}
-         ;; Phase/turn indicator strip
-         [:div {:style {:position "absolute" :top "6px" :left "8px"
-                        :color "#334455" :font-size "11px"
-                        :font-family "monospace" :z-index 10}}
-          (game-phase-label state)
-          (when active? " ← YOUR TURN")]
-         ;; Game-over banner
-         (when-let [go (:game-over state)]
-           [:div {:style {:position "absolute"
-                          :top "40%" :left "50%"
-                          :transform "translate(-50%,-50%)"
-                          :background "#0A0E1C"
-                          :border "2px solid #3A5090"
-                          :border-radius "8px"
-                          :padding "32px 48px"
-                          :color "#AAC8EE"
-                          :font-family "monospace"
-                          :font-size "18px"
-                          :z-index 20
-                          :text-align "center"}}
-            [:div {:style {:font-size "22px" :margin-bottom "12px"}} "GAME OVER"]
-            (if (= :landing (:type go))
-              [:div
-               [:div (str "Landing at " (pr-str (:tile go)))]
-               (for [[p sc] (:scores go)]
-                 [:div {:key p :style {:margin-top "4px"}}
-                  (str p ": " sc " pts")])]
-              [:div (str "Loss — captain: " (:captain go))])])
-         ;; SVG board
-         [board-view state pos-hl on-click buttons]]))))
-
-;; ── Create / Observe pages ────────────────────────────────────────────────────
-
-(defn create-page []
-  (let [players-input (r/atom "")]
-    (fn []
-      [:div {:style {:color "#AABBCC" :padding "48px"
-                     :font-family "monospace" :background "#04040E"
-                     :min-height "100vh"}}
-       [:h2 {:style {:color "#7AAAE0" :margin-bottom "24px"}} "JOURNEY — New Game"]
-       [:p {:style {:color "#445566" :margin-bottom "12px"}}
-        "Enter player names, comma-separated:"]
-       [:input {:type "text"
-                :value @players-input
-                :on-change #(reset! players-input (-> % .-target .-value))
-                :style {:background "#0A0E1C" :color "#AACCEE"
-                        :border "1px solid #2A4A80" :border-radius "4px"
-                        :padding "8px 12px" :font-family "monospace"
-                        :font-size "14px" :width "320px"}}]
-       [:button
-        {:on-click #(ws/send-transit-message!
-                     {:type    "create"
-                      :players (->> (str/split @players-input #",")
-                                    (map str/trim)
-                                    (remove empty?)
-                                    vec)})
-         :style {:margin-left "12px"
-                 :background "#10182A" :color "#7AAAE0"
-                 :border "1px solid #2A4A80" :border-radius "4px"
-                 :padding "8px 20px" :cursor "pointer"
-                 :font-family "monospace" :font-size "14px"}}
-        "Create"]])))
-
-(defn observe-page []
-  [:div {:style {:color "#AABBCC" :padding "48px"
-                 :font-family "monospace" :background "#04040E"
-                 :min-height "100vh"}}
-   [:h2 {:style {:color "#7AAAE0"}} "JOURNEY — Observe"]
-   [play-page]])
-
-;; ── WebSocket messages ────────────────────────────────────────────────────────
-
-(defn update-messages! [{:keys [type state] :as received}]
-  (condp = type
-    "game-state"
-    (when state
-      (reset! game-state (reader/read-string state)))
-
-    "initialize"
-    (when state
-      (reset! game-state (reader/read-string state)))
-
-    (js/console.log "unknown message" (pr-str received))))
-
-;; ── Generate (simulation replay with choice log) ─────────────────────────────
-
-;; Memoized list-row component: only re-renders when selected? changes.
-;; The parent's for-loop still runs in O(n) but creates only cheap
-;; [component ...] vectors; the actual DOM work runs for ≤2 rows per tick.
-(def ^:private history-row
+(def history-row
   (r/create-class
    {:display-name "history-row"
     :should-component-update
@@ -289,11 +230,339 @@
                    :background (if selected? (str bg-c "60") (str bg-c "30"))}}
           [:div {:style {:color (if selected? fc (str fc "CC"))
                          :font-size "12px" :font-family "monospace"}}
-           (str "·" step "  " (name phase))]
+           (str "·" (or step i) "  " (name (or phase :?)))]
           [:div {:style {:color (if selected? (str fc "DD") (str fc "88"))
                          :font-size "10px" :font-family "monospace"
                          :word-break "break-all"}}
            choice]]]))}))
+
+;; ── Play page ─────────────────────────────────────────────────────────────────
+
+(defn game-phase-label [state]
+  (let [phase (game/current-phase state)
+        cp    (choice-player state)]
+    (str (name (or phase :?)) " — " cp)))
+
+(defn play-page []
+  (let [state   @game-state
+        my      @player-key
+        bots    @bots-set
+        undo?   @can-undo?
+        history @play-history]
+    (if (nil? state)
+      [:div {:style {:color "#556" :padding "40px" :font-family "monospace"}}
+       [:p "Waiting for game state…"]]
+      (let [;; Use ONLY server-provided choice keys. No local find-state computation.
+            ;; The server is authoritative for what choices exist.
+            srv         @server-choices
+            choices     (if srv
+                          (into {} (map (fn [k] [k state]) (:keys srv)))
+                          {})
+            active?           (my-turn? state my)
+            cp                (choice-player state)
+            bot-thinking?     (and (not active?) (contains? bots cp) (not (:game-over state)))
+            ;; Detect cipher phase: cipher positions go to cipher display, not board
+            is-cipher?        (= :cipher (:phase srv))
+            cipher-positions  (when is-cipher?
+                                (set (filter hex-pos? (keys choices))))
+            ;; Remove cipher positions from choices before partition (they go to cipher display)
+            board-choices     (if is-cipher?
+                                (into {} (remove #(hex-pos? (key %)) choices))
+                                choices)
+            [pos-hl fly-hl wrap-hl conv-groups btn-choices]
+            (if active?
+              (partition-choices board-choices)
+              [#{} #{} #{} {} []])
+            pending         @pending-convert
+            ;; Compute actual wrap destination positions and map them to choice keys
+            ark             (:ark state)
+            wrap-dest->key  (into {}
+                              (for [edge-pos wrap-hl
+                                    :let [dir      (mapv - edge-pos ark)
+                                          dest-pos (game/wrap-target state ark dir)]
+                                    :when dest-pos]
+                                [dest-pos [:wrap edge-pos]]))
+            wrap-dest-set   (set (keys wrap-dest->key))
+            ;; Convert sundiver highlights depend on pending selection
+            conv-sundivers  (if pending
+                              ;; Highlight all sundivers for the pending options
+                              (set (mapcat :sundivers (:options pending)))
+                              ;; Highlight all sundivers for all conversions
+                              (set (mapcat (fn [[_ opts]] (mapcat :sundivers opts)) conv-groups)))
+            ;; Merge all highlights
+            all-pos-hl      (into pos-hl wrap-dest-set)
+            on-click        (when active?
+                              (fn [pos-or-key]
+                                (cond
+                                  ;; Convert choice-key map from pending sundiver selection
+                                  (map? pos-or-key)
+                                  (do (reset! pending-convert nil)
+                                      (send-action! pos-or-key))
+                                  ;; Convert ghost station: [target type] where target is a vector
+                                  (and (vector? pos-or-key) (= 2 (count pos-or-key))
+                                       (vector? (first pos-or-key)) (keyword? (second pos-or-key)))
+                                  (let [opts (get conv-groups pos-or-key)]
+                                    (if (= 1 (count opts))
+                                      (do (reset! pending-convert nil)
+                                          (send-action! (:choice-key (first opts))))
+                                      (reset! pending-convert
+                                              {:target (first pos-or-key) :type (second pos-or-key)
+                                               :options opts})))
+                                  ;; [:fly pos] from sundiver click
+                                  (and (vector? pos-or-key) (= :fly (first pos-or-key)))
+                                  (send-action! pos-or-key)
+                                  (contains? pos-hl pos-or-key)          (send-action! pos-or-key)
+                                  (contains? wrap-dest->key pos-or-key)  (send-action! (get wrap-dest->key pos-or-key))
+                                  :else                                  (send-action! pos-or-key))))
+            chosen-pos        (get-in state [:player-turn :action :fly-from])
+            undo-btn          (when (and active? undo?)
+                                [{:label "undo" :on-click send-undo!}])
+            buttons           (concat
+                               undo-btn
+                               (when active?
+                                 (map (fn [{:keys [label choice-key]}]
+                                        {:label    label
+                                         :on-click #(on-button-click choice-key)})
+                                      btn-choices)))
+            player-order      (:turn-order state)
+            player-colors     (board/build-player-colors player-order)
+            n                 (count history)]
+        [:div {:style {:display "flex" :width "100vw" :height "100vh"
+                       :background "#04040E" :overflow "hidden"}}
+         ;; Board area
+         [:div {:style {:flex "1" :position "relative" :overflow "hidden"}}
+          ;; Phase/turn indicator strip
+          [:div {:style {:position "absolute" :top "6px" :left "8px"
+                         :color "#334455" :font-size "11px"
+                         :font-family "monospace" :z-index 10}}
+           (game-phase-label state)
+           (when active? " ← YOUR TURN")
+           (let [remaining (get-in state [:player-turn :action :moves-remaining])
+                 total     (game/move-points state (game/current-player state))]
+             (when (and remaining (#{:choose-move} (:phase srv)))
+               [:span {:style {:color "#667788" :margin-left "8px"}}
+                (str "moves: " remaining "/" total)]))
+           (when bot-thinking?
+             [:span {:style {:color "#667744" :margin-left "8px"}} "Bot thinking…"])]
+          ;; Game-over banner
+          (when-let [go (:game-over state)]
+            [:div {:style {:position "absolute"
+                           :top "40%" :left "50%"
+                           :transform "translate(-50%,-50%)"
+                           :background "#0A0E1C"
+                           :border "2px solid #3A5090"
+                           :border-radius "8px"
+                           :padding "32px 48px"
+                           :color "#AAC8EE"
+                           :font-family "monospace"
+                           :font-size "18px"
+                           :z-index 20
+                           :text-align "center"}}
+             [:div {:style {:font-size "22px" :margin-bottom "12px"}} "GAME OVER"]
+             (if (= :landing (:type go))
+               [:div
+                [:div (str "Landing at " (pr-str (:tile go)))]
+                (for [[p sc] (:scores go)]
+                  [:div {:key p :style {:margin-top "4px"}}
+                   (str p ": " sc " pts")])]
+               [:div (str "Loss — captain: " (:captain go))])])
+          ;; SVG board
+          [board-view state all-pos-hl on-click buttons
+           {:fly-highlights fly-hl :chosen-pos chosen-pos :active-player my
+            :conv-groups conv-groups :conv-sundivers conv-sundivers
+            :pending-convert pending
+            :cipher-highlights (when active? cipher-positions)
+            :cipher-on-click (when (and active? is-cipher?)
+                               (fn [pos] (send-action! pos)))}]]
+         ;; History panel (right side)
+         [:div {:style {:width "250px" :display "flex" :flex-direction "column"
+                        :background "#05060F" :border-left "1px solid #141830"}}
+          ;; Header
+          [:div {:style {:padding "6px 10px 5px"
+                         :border-bottom "1px solid #141830"
+                         :display "flex" :align-items "center"}}
+           [:span {:style {:flex "1" :color "#334455" :font-size "9px"
+                           :font-family "monospace" :letter-spacing "1.5px"
+                           :text-transform "uppercase"}}
+            (str "step " (dec n))]]
+          ;; Scrollable step list
+          (do
+            (r/after-render
+             #(when-let [el (.getElementById js/document (str "hist-item-" (dec n)))]
+                (.scrollIntoView el #js {:block "nearest" :behavior "instant"})))
+            [:div {:style {:flex "1" :overflow-y "auto" :padding "4px 0"}}
+             (for [i (range (dec n) -1 -1)]
+               (let [{:keys [player phase] :as entry} (nth history i)
+                     above-player (:player (when (< i (dec n)) (nth history (inc i))))
+                     group-start? (not= player above-player)
+                     show-sep?    (and group-start? (< i (dec n)))
+                     selected?    (= i (dec n))]
+                 ^{:key i}
+                 [history-row i entry player-colors selected? group-start? show-sep?
+                  nil]))])]  ;; close for, [:div scroll], do, [:div panel]
+         ]                  ;; close [:div flex-outer]
+        ))))                ;; close inner let, if, outer let, defn
+
+;; ── Create / Observe pages ────────────────────────────────────────────────────
+
+(def input-style
+  {:background "#0A0E1C" :color "#AACCEE"
+   :border "1px solid #2A4A80" :border-radius "4px"
+   :padding "8px 12px" :font-family "monospace" :font-size "14px"})
+
+(def btn-style
+  {:background "#10182A" :color "#7AAAE0"
+   :border "1px solid #2A4A80" :border-radius "4px"
+   :padding "8px 20px" :cursor "pointer"
+   :font-family "monospace" :font-size "14px"})
+
+(defn create-page []
+  (let [play-name (r/atom "")
+        ;; Each slot: {:name "..." :bot? true/false}
+        slots     (r/atom [{:name (or @player-key "") :bot? false}
+                           {:name "" :bot? true}])
+        error     (r/atom nil)]
+    (fn []
+      (let [ss @slots]
+        [:div {:style {:color "#AABBCC" :padding "48px"
+                       :font-family "monospace" :background "#04040E"
+                       :min-height "100vh"}}
+         [:h2 {:style {:color "#7AAAE0" :margin-bottom "24px"}} "JOURNEY — New Game"]
+
+         ;; Play name
+         [:div {:style {:margin-bottom "20px"}}
+          [:label {:style {:color "#556677" :display "block" :margin-bottom "6px"}}
+           "Game name"]
+          [:input {:type "text" :value @play-name
+                   :on-change #(reset! play-name (-> % .-target .-value))
+                   :placeholder "my-game"
+                   :style (merge input-style {:width "260px"})}]]
+
+         ;; Player slots
+         [:div {:style {:margin-bottom "20px"}}
+          [:label {:style {:color "#556677" :display "block" :margin-bottom "10px"}}
+           "Players (1–5)"]
+          (for [i (range (count ss))]
+            (let [{:keys [name bot?]} (nth ss i)]
+              [:div {:key i :style {:display "flex" :align-items "center"
+                                    :gap "8px" :margin-bottom "8px"}}
+               [:span {:style {:color "#445566" :width "20px"}} (str (inc i) ".")]
+               [:input {:type "text" :value name
+                        :on-change #(swap! slots assoc-in [i :name] (-> % .-target .-value))
+                        :placeholder (if bot? "Bot name" "Player name")
+                        :style (merge input-style {:width "180px"})}]
+               [:button
+                {:on-click #(swap! slots update-in [i :bot?] not)
+                 :style (merge btn-style
+                               {:padding "6px 14px" :font-size "12px"
+                                :background (if bot? "#1A2810" "#10182A")
+                                :color (if bot? "#88CC66" "#7AAAE0")})}
+                (if bot? "BOT" "HUMAN")]
+               (when (> (count ss) 1)
+                 [:button
+                  {:on-click #(swap! slots (fn [v] (vec (concat (subvec v 0 i) (subvec v (inc i))))))
+                   :style (merge btn-style {:padding "6px 10px" :font-size "12px"
+                                            :color "#886666" :border-color "#4A2A2A"})}
+                  "✕"])]))]
+
+         ;; Add player button
+         (when (< (count ss) 5)
+           [:button {:on-click #(swap! slots conj {:name "" :bot? true})
+                     :style (merge btn-style {:margin-bottom "20px"})}
+            "+ Add Player"])
+
+         ;; Error
+         (when @error
+           [:div {:style {:color "#CC4444" :margin-bottom "12px"}} @error])
+
+         ;; Create button
+         [:button
+          {:on-click
+           (fn []
+             (let [pname (str/trim @play-name)
+                   players (mapv #(str/trim (:name %)) ss)
+                   bots    (vec (keep-indexed #(when (:bot? %2) (str/trim (:name %2))) ss))]
+               (cond
+                 (empty? pname)
+                 (reset! error "Game name is required")
+                 (some empty? players)
+                 (reset! error "All player names are required")
+                 (not= (count players) (count (set players)))
+                 (reset! error "Player names must be unique")
+                 :else
+                 (do (reset! error nil)
+                     (POST "/journey/create"
+                       {:params  {:play-name pname :players players :bots bots}
+                        :format  :transit
+                        :response-format :transit
+                        :handler (fn [resp]
+                                   (let [pk (get resp :play-key)]
+                                     (set! js/window.location
+                                           (str "/journey/play/" pk))))
+                        :error-handler (fn [err]
+                                         (reset! error (str "Create failed: " (pr-str err))))})))))
+           :style (merge btn-style {:padding "12px 36px" :font-size "16px"})}
+          "Create Game"]]))))
+
+(defn observe-page []
+  [:div {:style {:color "#AABBCC" :padding "48px"
+                 :font-family "monospace" :background "#04040E"
+                 :min-height "100vh"}}
+   [:h2 {:style {:color "#7AAAE0"}} "JOURNEY — Observe"]
+   [play-page]])
+
+;; ── WebSocket messages ────────────────────────────────────────────────────────
+
+(defn- append-history! [s]
+  (when s
+    (let [phase  (game/current-phase s)
+          player (game/current-player s)
+          step   (count @play-history)]
+      (swap! play-history conj
+             {:step step :player player
+              :phase (or phase :?) :state s}))))
+
+(defn update-messages! [{:keys [type state] :as received}]
+  (condp = type
+    "game-state"
+    (do
+      (reset! pending-convert nil)
+      ;; Update server-provided choices BEFORE game-state to avoid stale render
+      (when (get received :choices)
+        (reset! server-choices
+                {:keys (reader/read-string (get received :choices))
+                 :phase (keyword (subs (get received :phase) 1))}))
+      (when (contains? received :bots) (reset! bots-set (set (get received :bots))))
+      (let [cu (get received :can-undo)]
+        (when (some? cu)
+          (js/console.log "can-undo from server:" cu)
+          (reset! can-undo? cu)))
+      ;; Update game-state last — this triggers the re-render
+      (when state
+        (let [s (reader/read-string state)]
+          (reset! game-state s)
+          (append-history! s))))
+
+    "initialize"
+    (do
+      ;; Update server-provided choices BEFORE game-state
+      (when (get received :choices)
+        (reset! server-choices
+                {:keys (reader/read-string (get received :choices))
+                 :phase (keyword (subs (get received :phase) 1))}))
+      (when (contains? received :bots) (reset! bots-set (set (get received :bots))))
+      (when (contains? received :can-undo) (reset! can-undo? (get received :can-undo)))
+      ;; Update game-state last
+      (when state
+        (let [s (reader/read-string state)]
+          (reset! game-state s)
+          (let [saved (get received :history [])]
+            (reset! play-history (vec saved))
+            (append-history! s)))))
+
+    (js/console.log "unknown message" (pr-str received))))
+
+;; ── Generate (simulation replay with choice log) ─────────────────────────────
 
 (defn generate-page []
   (r/with-let

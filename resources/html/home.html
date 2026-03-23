@@ -32,7 +32,13 @@
         object-fit: contain;
         transition: opacity 0.15s;
       }
-      .game-tile:hover img {
+      .game-tile svg {
+        height: 40vh;
+        width: auto;
+        transition: opacity 0.15s;
+      }
+      .game-tile:hover img,
+      .game-tile:hover svg {
         opacity: 0.85;
       }
       .game-name {
@@ -56,9 +62,42 @@
         <span class="game-name">organism</span>
       </a>
       <a class="game-tile" href="/journey">
-        <img src="/img/rulebook-cover-01.png" alt="JOURNEY"
-             style="transform: rotate(180deg); filter: invert(1);"/>
+        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="100,20 180,170 20,170"
+                   fill="#E8B800" stroke="#FFD030" stroke-width="2"
+                   stroke-linejoin="round"/>
+        </svg>
         <span class="game-name">journey</span>
+      </a>
+      <a class="game-tile" href="/universal">
+        <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="tg" cx="50%" cy="40%">
+              <stop offset="0%" stop-color="#8866CC"/>
+              <stop offset="100%" stop-color="#44226A"/>
+            </radialGradient>
+          </defs>
+          <!-- Torus: outer ellipse minus inner hole via even-odd fill -->
+          <path d="M 100,38
+                   C 148,38 186,62 186,100
+                   C 186,138 148,162 100,162
+                   C 52,162 14,138 14,100
+                   C 14,62 52,38 100,38 Z
+                   M 100,68
+                   C 72,68 50,82 50,100
+                   C 50,118 72,132 100,132
+                   C 128,132 150,118 150,100
+                   C 150,82 128,68 100,68 Z"
+                fill="url(#tg)" fill-rule="evenodd"
+                stroke="#AA88DD" stroke-width="1.5"/>
+          <!-- Inner shadow for depth -->
+          <ellipse cx="100" cy="104" rx="46" ry="28"
+                   fill="none" stroke="#22113A" stroke-width="3" opacity="0.5"/>
+          <!-- Top highlight -->
+          <ellipse cx="100" cy="96" rx="46" ry="28"
+                   fill="none" stroke="#BB99EE" stroke-width="1" opacity="0.3"/>
+        </svg>
+        <span class="game-name">universal</span>
       </a>
     </div>
   </body>

@@ -2,7 +2,9 @@
   (:require
    [organism.layout :as layout]
    [organism.persist :as persist]
+   [organism.persist-journey :as persist-j]
    [organism.middleware :as middleware]
+   [organism.routes.journey-ws :as journey-ws]
    [ring.util.response :as response]
    [journey.game :as game]
    [journey.choice :as choice]))
@@ -30,6 +32,17 @@
      "journey/create.html"
      {:session-player player
       :preferences preferences})))
+
+(defn play-list-page
+  "Show the logged-in player's games for journey."
+  [db request]
+  (let [player (get-in request [:session :player])
+        player-games (persist/load-player-games db player "journey")]
+    (layout/render
+     request
+     "journey/games.html"
+     {:session-player player
+      :player-games (pr-str player-games)})))
 
 (defn play-page
   [db request]
@@ -99,7 +112,7 @@
             wrap-dist (apply min (map #(game/hex-distance wrap-pos %) beacons))]
         (min direct-dist wrap-dist)))))
 
-(defn- agent-step
+(defn agent-step
   "Pick one goal-oriented choice and return [choice-key next-state]."
   [state]
   (let [[phase choices] (choice/find-state state)]
@@ -107,10 +120,13 @@
       (let [next-s
             (case phase
               ;; Priority: activate own stations → convert → move with real choices
+              ;; Move choices now have inlined hex positions and [:fly pos] keys instead of :launch/:fly
               :choose-action-type
               (let [move-next   (:move choices)
-                    [_ move-cs] (when move-next (choice/find-state move-next))
-                    real-move?  (or (contains? move-cs :launch) (contains? move-cs :fly))]
+                    ;; Use find-state-raw to peek at move choices without auto-advance
+                    [_ move-cs] (when move-next (choice/find-state-raw move-next))
+                    ;; Real move = has any hex pos (launch) or [:fly pos] keys (not just :done)
+                    real-move?  (some #(and (vector? %) (or (number? (first %)) (= :fly (first %)))) (keys move-cs))]
                 (or (when (has-own-stations? state) (:activate choices))
                     (:convert choices)
                     (when real-move? move-next)
@@ -122,12 +138,26 @@
                 (or (of-type :tower) (of-type :matrix) (of-type :foundry)
                     (first (vals choices))))
 
-              ;; Prefer fly when 3+ on board; otherwise launch to build presence
+              ;; choose-move now has inlined launch [q r] / [:wrap ...] / [:fly pos] / :done
+              ;; Prefer fly when 3+ on board; otherwise launch (any hex pos) to build presence.
               :choose-move
-              (let [player (game/current-player state)]
-                (if (>= (on-board-count state player) 3)
-                  (or (:fly choices) (:launch choices) (:done choices))
-                  (or (:launch choices) (:fly choices) (:done choices))))
+              (let [player    (game/current-player state)
+                    fly-keys  (filter #(and (vector? %) (= :fly (first %))) (keys choices))
+                    pos-keys  (filter #(and (vector? %) (number? (first %))) (keys choices))
+                    prefer-fly? (>= (on-board-count state player) 3)]
+                (or (when (and prefer-fly? (seq fly-keys))
+                      (let [best (apply max-key
+                                   #(get-in state [:board (second %) :sundivers player] 0)
+                                   fly-keys)]
+                        (get choices best)))
+                    (when (seq pos-keys)
+                      (let [fewest (apply min-key
+                                     #(get-in state [:board % :sundivers player] 0)
+                                     pos-keys)]
+                        (get choices fewest)))
+                    (when (seq fly-keys) (get choices (first fly-keys)))
+                    (:done choices)
+                    (first (vals choices))))
 
               ;; Launch: prefer conversion-enabling tiles, then spread out
               ;; (fewest of this player's sundivers), then non-wrap, wrap as last resort.
@@ -333,14 +363,43 @@
    "journey/generate.html"
    {:generate-history (pr-str (generate-history))}))
 
+(defn create-game!
+  "POST handler: create a new game in the games atom, persist to DB, and return the play key."
+  [db request]
+  (let [params    (or (:body-params request) (:params request))
+        play-name (get params :play-name (get params "play-name"))
+        players   (get params :players (get params "players"))
+        bots      (get params :bots (get params "bots" []))]
+    (if (and (seq play-name) (seq players))
+      (let [state   (game/initial-state (vec players))
+            bot-set (set bots)]
+        (swap! journey-ws/games
+               assoc-in [:games play-name]
+               {:key           play-name
+                :state         state
+                :initial-state state
+                :history       []
+                :bots          bot-set
+                :players       (vec players)
+                :chat          []
+                :channels      #{}})
+        (persist-j/save-game! db play-name state bot-set (vec players) state)
+        (when (contains? bot-set (game/current-player state))
+          (journey-ws/run-bot-turns! db play-name))
+        (response/response {:play-key play-name}))
+      (response/bad-request {:error "play-name and players required"}))))
+
 (defn journey-routes
   [db]
   ["/journey"
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["" {:get home-page}]
-   ["/create" {:get (partial create-page db)
+   ["/create" {:get  (partial create-page db)
+               :post (partial create-game! db)
                :middleware [require-auth]}]
+   ["/play" {:get (partial play-list-page db)
+             :middleware [require-auth]}]
    ["/play/:play" {:get (partial play-page db)}]
    ["/play/:play/" {:get (partial play-page db)}]
    ["/observe" {:get (partial observe-page db)}]
