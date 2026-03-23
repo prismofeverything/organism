@@ -45,7 +45,7 @@
 
   ;; Run `lein dev` to start figwheel watching all game builds.
   ;; Add new game build IDs here when a new game is added to project.clj.
-  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey"]}
+  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "universal"]}
   
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
@@ -138,6 +138,17 @@
                       :asset-path "/js/journey-out"
                       :output-to "target/cljsbuild/public/js/journey.js"
                       :output-dir "target/cljsbuild/public/js/journey-out"
+                      :source-map true
+                      :optimizations :none
+                      :pretty-print true}}
+                    :universal
+                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
+                     :figwheel {:on-jsload "organism.universal.play/mount-components"}
+                     :compiler
+                     {:main "organism.universal"
+                      :asset-path "/js/universal-out"
+                      :output-to "target/cljsbuild/public/js/universal.js"
+                      :output-dir "target/cljsbuild/public/js/universal-out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}}}

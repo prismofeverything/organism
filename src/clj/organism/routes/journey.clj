@@ -116,10 +116,11 @@
                     (when real-move? move-next)
                     (first (vals choices))))
 
-              ;; Prefer tower conversions over matrix/foundry to ensure towers get built
+              ;; Prefer tower → matrix → foundry
               :choose-convert
-              (let [tower (some #(when (= :tower (:type (key %))) (val %)) choices)]
-                (or tower (first (vals choices))))
+              (let [of-type (fn [t] (some #(when (= t (:type (key %))) (val %)) choices))]
+                (or (of-type :tower) (of-type :matrix) (of-type :foundry)
+                    (first (vals choices))))
 
               ;; Prefer fly when 3+ on board; otherwise launch to build presence
               :choose-move

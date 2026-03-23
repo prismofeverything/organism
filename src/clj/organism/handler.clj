@@ -8,6 +8,8 @@
    [organism.routes.organism :refer [organism-routes]]
    [organism.routes.journey :refer [journey-routes]]
    [organism.routes.journey-ws :refer [journey-ws-routes]]
+   [organism.routes.universal :refer [universal-routes]]
+   [organism.routes.universal-ws :refer [universal-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
    [ring.middleware.content-type :refer [wrap-content-type]]
@@ -33,8 +35,10 @@
        ;; (api-routes)
        (organism-routes db)
        (journey-routes db)
+       (universal-routes db)
        (websocket-routes db)
-       (journey-ws-routes db)]))
+       (journey-ws-routes db)
+       (universal-ws-routes)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})
