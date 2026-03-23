@@ -682,7 +682,7 @@
 
 (defn game-card
   "A clickable card for a discovered game."
-  [{:keys [name richness description ruleset]} selected?]
+  [{:keys [richness description ruleset] game-name :name} selected?]
   [:div {:style {:padding "10px 14px" :margin-bottom "6px" :cursor "pointer"
                  :border-radius "6px"
                  :background (if selected? "#1a2a3a" "#111118")
@@ -692,7 +692,7 @@
    [:div {:style {:display "flex" :justify-content "space-between" :align-items "baseline"}}
     [:span {:style {:color (if selected? "#fff" "#ccc") :font-size "14px"
                     :font-weight (if selected? "bold" "normal")}}
-     name]
+     game-name]
     [:span {:style {:color "#666" :font-size "11px"}}
      (str "score " richness)]]
    [:div {:style {:color "#777" :font-size "11px" :margin-top "3px"}}
@@ -817,10 +817,17 @@
     (reset! game-state state)
     (reset! selected-element nil)
     (reset! action-picker nil)
+    (js/console.log "state update: my-turn?=" my-turn? "current=" current "me=" me
+                    "has-ruleset?=" (boolean @ruleset-atom) "has-board?=" (boolean @board-atom)
+                    "winner=" (:winner state) "elements=" (count (:elements state)))
     (if (and my-turn? @ruleset-atom @board-atom (not (:winner state)))
-      (let [actions (compute-legal-actions @ruleset-atom @board-atom state)]
-        (js/console.log "legal actions:" (count actions))
-        (reset! legal-actions-atom actions))
+      (try
+        (let [actions (compute-legal-actions @ruleset-atom @board-atom state)]
+          (js/console.log "legal actions:" (count actions))
+          (reset! legal-actions-atom actions))
+        (catch js/Error e
+          (js/console.error "Failed to compute legal actions:" (.-message e))
+          (reset! legal-actions-atom {})))
       (reset! legal-actions-atom {}))))
 
 (defn receive-message! [message]

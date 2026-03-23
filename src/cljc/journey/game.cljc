@@ -81,7 +81,7 @@
 ;; Shared deck of 5 suits × 13 cards = 65 cards.
 ;; Suits are numbered 0–4; values 1–13.
 
-(def suit-names  {0 "space" 1 "matter" 2 "time" 3 "energy" 4 "flare"})
+(def suit-names  {0 "space" 1 "matter" 2 "time" 3 "dyad" 4 "flare"})
 (def suit-colors {0 "#8844CC" 1 "#22AA55" 2 "#AAAACC" 3 "#4488EE" 4 "#DD3322"})
 
 (defn make-card [suit value]
@@ -895,13 +895,14 @@
     (-> state return-sundiver-from-station begin-next-station)))
 
 (defn begin-next-station
-  "Pop the next station from the queue and set it up, or finish the activate action."
+  "Pop the next station from the queue and set it up, or return to station selection."
   [state]
   (let [player       (current-player state)
         queue        (get-in state [:player-turn :action :stations-queue] [])
         station-type (get-in state [:player-turn :action :station-type])]
     (if (empty? queue)
-      (assoc-in state [:player-turn :phase] :draw-cards)
+      ;; Return to station selection so the player can pick the next station
+      (assoc-in state [:player-turn :phase] :choose-activate-station)
       (let [pos      (first queue)
             rest-q   (vec (rest queue))
             tile     (get-tile state pos)
@@ -931,14 +932,14 @@
               (begin-actor-actions :activator)))))))
 
 (defn start-activate
-  "Initialize the activate action for the chosen station type."
+  "Initialize the activate action for the chosen station type.
+   Goes to :choose-activate-station so the player picks which station to activate."
   [state station-type]
-  (let [player   (current-player state)
-        stations (stations-of-type-with-sundiver state player station-type)]
-    (-> state
-        (assoc-in [:player-turn :action :station-type] station-type)
-        (assoc-in [:player-turn :action :stations-queue] (vec stations))
-        begin-next-station)))
+  (-> state
+      (assoc-in [:player-turn :action :station-type] station-type)
+      (assoc-in [:player-turn :action :stations-queue] [])
+      (assoc-in [:player-turn :action :activated-stations] #{})
+      (assoc-in [:player-turn :phase] :choose-activate-station)))
 
 ;; --- card drawing and post-action phases ---
 

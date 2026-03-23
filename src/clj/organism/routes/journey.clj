@@ -293,6 +293,11 @@
                           1 (or (:left  choices) (:none choices))
                           2 (or (:right choices) (:none choices)))))))
 
+              ;; Pick the first available station to activate
+              :choose-activate-station
+              (or (first (vals (dissoc choices :done)))
+                  (:done choices))
+
               ;; Tower heading: aim toward a tile with a beacon, else straight
               :choose-activate-tower-heading
               (let [beaconed (filter #(get-in state [:board % :beacon]) (keys (:board state)))]

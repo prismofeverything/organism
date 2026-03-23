@@ -58,10 +58,10 @@
 ;; ── Reachability ─────────────────────────────────────────────────────────────────
 
 (defn reachable
-  "Nodes reachable from source within max-range steps."
+  "Nodes reachable from source within max-range steps. Returns vec of node IDs."
   [topology source max-range can-jump? elements]
   (if (<= max-range 1)
-    (get-in topology [:adjacencies source] [])
+    (vec (get-in topology [:adjacencies source] []))
     ;; BFS
     (loop [frontier [[source 0]] visited #{source} result []]
       (if (empty? frontier)
@@ -81,12 +81,14 @@
                          ;; Can't pass through occupied, but it's a valid target
                          (conj acc [nb (inc dist)]))))
                    [] neighbors)
-                  new-nodes (map first new-entries)
-                  new-visited (into visited new-nodes)
-                  new-result (into result (filter #(pos? (second %)) new-entries))]
-              (recur (into (vec rest-frontier) new-entries)
+                  new-ids (mapv first new-entries)
+                  new-visited (into visited new-ids)]
+              (recur (into (vec rest-frontier)
+                           (if can-jump?
+                             new-entries
+                             (filterv (fn [[nb _]] (nil? (get elements nb))) new-entries)))
                      new-visited
-                     (mapv first new-result)))))))))
+                     (into result new-ids)))))))))
 
 ;; ── Target checking ──────────────────────────────────────────────────────────────
 

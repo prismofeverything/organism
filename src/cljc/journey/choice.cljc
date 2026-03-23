@@ -164,6 +164,25 @@
      (fn [stype] (game/start-activate state stype))
      (game/activatable-station-types state player))))
 
+(defn choose-activate-station-choices
+  "Player picks which station of the chosen type to activate next.
+   Shows positions on the board. :done finishes activation."
+  [state]
+  (let [player       (game/current-player state)
+        station-type (get-in state [:player-turn :action :station-type])
+        activated    (get-in state [:player-turn :action :activated-stations] #{})
+        ;; Find stations of this type with the player's sundiver, excluding already activated
+        available    (remove activated
+                            (game/stations-of-type-with-sundiver state player station-type))]
+    (cond-> {:done (assoc-in state [:player-turn :phase] :draw-cards)}
+      (seq available)
+      (into (map (fn [pos]
+                   [pos (-> state
+                            (assoc-in [:player-turn :action :stations-queue] [pos])
+                            (update-in [:player-turn :action :activated-stations] (fnil conj #{}) pos)
+                            game/begin-next-station)])
+                 available)))))
+
 (defn choose-activate-owner-bonus-choices
   "After activator finishes base actions, owner decides how many bonus actions to take (0..bonus-total).
    Cap the offered range to what the owner can actually execute based on station type."
@@ -802,6 +821,7 @@
                   :choose-fly-to             (choose-fly-to-choices state)
                   :choose-convert            (choose-convert-choices state)
                   :choose-activate                  (choose-activate-choices state)
+                  :choose-activate-station           (choose-activate-station-choices state)
                   :choose-activate-self-bonus       (choose-activate-self-bonus-choices state)
                   :choose-activate-owner-bonus      (choose-activate-owner-bonus-choices state)
                   :choose-activate-matrix-beacon    (choose-activate-matrix-beacon-choices state)
@@ -853,6 +873,7 @@
        :choose-fly-to             (choose-fly-to-choices state)
        :choose-convert            (choose-convert-choices state)
        :choose-activate                  (choose-activate-choices state)
+       :choose-activate-station           (choose-activate-station-choices state)
        :choose-activate-self-bonus       (choose-activate-self-bonus-choices state)
        :choose-activate-owner-bonus      (choose-activate-owner-bonus-choices state)
        :choose-activate-matrix-beacon    (choose-activate-matrix-beacon-choices state)

@@ -633,13 +633,20 @@
 
 (def ^:const cipher-hex-size 26)
 
+(def ^:private cipher-initial-color
+  "The initial pre-populated color for each cipher direction."
+  (zipmap game/hex-directions game/tile-colors))
+
 (defn cipher-hex [cipher pos highlight? on-click]
   (let [[cx cy]  (let [[q r] pos]
                    [(* cipher-hex-size 1.5 q)
                     (* cipher-hex-size sqrt3 (+ (* 0.5 q) r))])
         entry    (get cipher pos {})
         colors   (keep (fn [[c players]] (when (seq players) c)) (:colors entry))
-        bg       (if (= pos [0 0]) "#1A1830" "#0C0C1E")]
+        ;; Show a subtle tint of the initial color for each direction
+        init-color (get cipher-initial-color pos)
+        init-tint  (when init-color (str (get world-outer init-color "#555") "33"))
+        bg       (if (= pos [0 0]) "#1A1830" (or init-tint "#0C0C1E"))]
     [:g {:key      (str "c" pos)
          :transform (str "translate(" cx "," cy ")")
          :on-click (when on-click #(on-click pos))
@@ -734,23 +741,27 @@
        [:ellipse {:cx 0 :cy 0 :rx (* s 0.9) :ry (* s 0.28)
                   :fill "none" :stroke fill :stroke-width (* s 0.16)
                   :transform "rotate(-25)"}]]
-    ;; 1 = Matter (green): solid diamond
-    1 [:polygon {:points (str "0,"  (- s) " " s ",0 0," s " " (- s) ",0")
-                 :fill fill}]
-    ;; 2 = Time (silver): hourglass
-    2 (let [w (* s 0.7) h (* s 0.9)]
-        [:path {:d (str "M" (- w) "," (- h) " L" w "," (- h)
-                    " L0,0 L" w "," h " L" (- w) "," h " L0,0 Z")
-                :fill fill}])
-    ;; 3 = Energy (blue): lightning bolt
-    3 (let [w (* s 0.45) h (* s 0.95)]
-        [:path {:d (str "M" (- w) "," (- h)
-                    " L" (* w 0.15) "," (* h -0.1)
-                    " L" (- (* w 0.5)) "," (* h 0.05)
-                    " L" w "," h
-                    " L" (* w -0.15) "," (* h 0.1)
-                    " L" (* w 0.5) "," (* h -0.05) " Z")
-                :fill fill}])
+    ;; 1 = Matter (green): pulsating — concentric rings radiating outward
+    1 [:g
+       [:circle {:cx 0 :cy 0 :r (* s 0.3) :fill fill}]
+       [:circle {:cx 0 :cy 0 :r (* s 0.55) :fill "none" :stroke fill :stroke-width (* s 0.12)}]
+       [:circle {:cx 0 :cy 0 :r (* s 0.85) :fill "none" :stroke fill :stroke-width (* s 0.08)}]]
+    ;; 2 = Time (silver): spiral
+    2 (let [points (for [i (range 0 (* 2.5 Math/PI) 0.15)
+                         :let [r (* s 0.1 (+ 1 (* 2.2 (/ i (* 2.5 Math/PI)))))
+                               x (* r (Math/cos i))
+                               y (* r (Math/sin i))]]
+                     (str x "," y))]
+        [:polyline {:points (str/join " " points)
+                    :fill "none" :stroke fill :stroke-width (* s 0.16)
+                    :stroke-linecap "round"}])
+    ;; 3 = Dyad (blue): two circles on ends of a pole
+    3 (let [r (* s 0.25) d (* s 0.6)]
+        [:g
+         [:line {:x1 (- d) :y1 0 :x2 d :y2 0
+                 :stroke fill :stroke-width (* s 0.14)}]
+         [:circle {:cx (- d) :cy 0 :r r :fill fill}]
+         [:circle {:cx d :cy 0 :r r :fill fill}]])
     ;; 4 = Flare (red): 4-pointed starburst
     4 (let [o (* s 0.9) i (* s 0.28)]
         [:polygon {:points (str "0," (- o) " " i "," (- i)
