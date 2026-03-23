@@ -255,6 +255,44 @@
 
 ;; ── Generate (simulation replay with choice log) ─────────────────────────────
 
+;; Memoized list-row component: only re-renders when selected? changes.
+;; The parent's for-loop still runs in O(n) but creates only cheap
+;; [component ...] vectors; the actual DOM work runs for ≤2 rows per tick.
+(def ^:private history-row
+  (r/create-class
+   {:display-name "history-row"
+    :should-component-update
+    (fn [_ [_ _ _ _ old-sel?] [_ _ _ _ new-sel?]]
+      (not= old-sel? new-sel?))
+    :reagent-render
+    (fn [i {:keys [step player phase choice]} player-colors selected? group-start? show-sep? on-click]
+      (let [ck (get player-colors player :sun)
+            fc (board/pf ck)]
+        [:div
+         (when show-sep?
+           [:div {:style {:height "1px" :margin "3px 0"
+                          :background (str fc "33")}}])
+         (when group-start?
+           [:div {:style {:padding "4px 10px 1px" :color fc
+                          :opacity (if selected? 1.0 0.45)
+                          :font-size "9px" :font-family "monospace"
+                          :letter-spacing "1px"}}
+            (str "▸ " (or player "—"))])
+         [:div
+          {:id       (str "hist-item-" i)
+           :on-click on-click
+           :style {:padding "4px 10px 4px 14px" :cursor "pointer"
+                   :border-left (str "2px solid "
+                                     (if selected? fc (str fc "44")))
+                   :background (if selected? (str fc "0F") "transparent")}}
+          [:div {:style {:color (if selected? fc (str fc "88"))
+                         :font-size "12px" :font-family "monospace"}}
+           (str "·" step "  " (name phase))]
+          [:div {:style {:color (if selected? "#778899" "#2A3A44")
+                         :font-size "10px" :font-family "monospace"
+                         :word-break "break-all"}}
+           choice]]]))}))
+
 (defn generate-page []
   (r/with-let
       [history       (when (exists? js/generateHistory)
@@ -347,41 +385,16 @@
                 (.scrollIntoView el #js {:block "nearest" :behavior "instant"})))
             [:div {:style {:flex "1" :overflow-y "auto" :padding "4px 0"}}
              (for [i (range (dec n) -1 -1)]
-               (let [{:keys [step player phase choice]} (nth history i)
-                     ck           (get player-colors player :sun)
-                     fc           (board/pf ck)
-                     selected?    (= i sel)
-                     ;; group-start = first item of this player's run from the top
-                     ;; = player differs from the item one step newer (i+1)
+               (let [{:keys [player] :as entry} (nth history i)
                      above-player (:player (when (< i (dec n)) (nth history (inc i))))
-                     group-start? (not= player above-player)]
-                 [:div {:key i}
-                  (when (and group-start? (< i (dec n)))
-                    [:div {:style {:height "1px" :margin "3px 0"
-                                   :background (str fc "33")}}])
-                  (when group-start?
-                    [:div {:style {:padding "4px 10px 1px" :color fc
-                                   :opacity (if selected? 1.0 0.45)
-                                   :font-size "9px" :font-family "monospace"
-                                   :letter-spacing "1px"}}
-                     (str "▸ " (or player "—"))])
-                  [:div
-                   {:id       (str "hist-item-" i)
-                    :on-click #(do (stop-interval!)
-                                   (reset! playing? false)
-                                   (reset! history-focus? true)
-                                   (reset! selected i))
-                    :style {:padding "4px 10px 4px 14px" :cursor "pointer"
-                            :border-left (str "2px solid "
-                                             (if selected? fc (str fc "44")))
-                            :background (if selected? (str fc "0F") "transparent")}}
-                   [:div {:style {:color (if selected? fc (str fc "88"))
-                                  :font-size "12px" :font-family "monospace"}}
-                    (str "·" step "  " (name phase))]
-                   [:div {:style {:color (if selected? "#778899" "#2A3A44")
-                                  :font-size "10px" :font-family "monospace"
-                                  :word-break "break-all"}}
-                    choice]]]))])]])
+                     group-start? (not= player above-player)
+                     show-sep?    (and group-start? (< i (dec n)))]
+                 ^{:key i}
+                 [history-row i entry player-colors (= i sel) group-start? show-sep?
+                  #(do (stop-interval!)
+                       (reset! playing? false)
+                       (reset! history-focus? true)
+                       (reset! selected i))]))])]])
 
       (finally
         (stop-interval!)

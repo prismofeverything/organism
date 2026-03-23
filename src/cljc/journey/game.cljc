@@ -91,7 +91,9 @@
      (make-card suit value))))
 
 (declare add-hex hex-neighbors matrix-beacon-positions
-         total-spendable-sundivers stations-of-type-with-sundiver station-action-counts)
+         total-spendable-sundivers stations-of-type-with-sundiver station-action-counts
+         auto-activate-converted-station begin-actor-actions become-captain
+         trigger-loss)
 
 ;; --- cipher ---
 ;; A mini hex grid: center [0 0] plus the 6 neighbor offsets from hex-directions.
@@ -313,14 +315,17 @@
 
 (defn explore
   "Draw a world from the bag, place a new tile of that color at pos,
-   add one sundiver there for player, and mark only that sundiver immobile."
+   add one sundiver there for player, and mark only that sundiver immobile.
+   If the bag is empty, triggers a loss instead."
   [state player pos]
-  (let [[bag color] (draw-from-bag (:bag state))
-        tile (assoc-in (make-tile color) [:sundivers player] 1)]
-    (-> state
-        (assoc :bag bag)
-        (assoc-in [:board pos] tile)
-        (mark-immobile player pos))))
+  (if (bag-empty? (:bag state))
+    (trigger-loss state)
+    (let [[bag color] (draw-from-bag (:bag state))
+          tile (assoc-in (make-tile color) [:sundivers player] 1)]
+      (-> state
+          (assoc :bag bag)
+          (assoc-in [:board pos] tile)
+          (mark-immobile player pos)))))
 
 (defn launch-sundiver
   "Transfer one sundiver from player's habitat to pos.
@@ -509,7 +514,8 @@
    :tower   :towers})
 
 (defn convert
-  "Return sundivers to reserve, place station at target, record level, advance phase."
+  "Return sundivers to reserve, place station at target, record level, then
+   auto-activate the new station once before drawing cards."
   [state player station-type target sundiver-positions]
   (let [level (region-level state target)
         state (reduce
@@ -524,7 +530,35 @@
         (assoc-in [:players player :stations target] {:type station-type :level level})
         (update-in [:players player :reserve (station-reserve-key station-type)] dec)
         (assoc-in [:player-turn :action :cards-to-draw] level)
-        (assoc-in [:player-turn :phase] :draw-cards))))
+        (auto-activate-converted-station player station-type target))))
+
+(defn auto-activate-converted-station
+  "Trigger one automatic activation of a newly converted station.
+   If the player lacks resources for even 1 activation, goes straight to :draw-cards."
+  [state player station-type target]
+  (let [feasible? (case station-type
+                    :matrix
+                    (let [positions (count (matrix-beacon-positions state player))
+                          spendable (total-spendable-sundivers state player)
+                          beacons   (get-in state [:players player :reserve :beacons] 0)]
+                      (and (pos? positions) (pos? spendable) (pos? beacons)))
+                    :tower
+                    (pos? (total-spendable-sundivers state player))
+                    :foundry true)]
+    (if feasible?
+      (-> state
+          (cond-> (= station-type :tower) (become-captain player))
+          (assoc-in [:player-turn :action :station-type] station-type)
+          (assoc-in [:player-turn :action :stations-queue] [])
+          (assoc-in [:player-turn :action :current-station] target)
+          (assoc-in [:player-turn :action :current-owner] player)
+          (assoc-in [:player-turn :action :bonus-total] 0)
+          (assoc-in [:player-turn :action :beacons-joined] 0)
+          (assoc-in [:player-turn :action :activator-actions] 1)
+          (assoc-in [:player-turn :action :owner-actions] 0)
+          (assoc-in [:player-turn :choice-player] nil)
+          (begin-actor-actions :activator))
+      (assoc-in state [:player-turn :phase] :draw-cards))))
 
 ;; --- activate action ---
 

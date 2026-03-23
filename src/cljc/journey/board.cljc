@@ -1,7 +1,8 @@
 (ns journey.board
   (:require
    [clojure.string :as str]
-   [journey.game :as game]))
+   [journey.game :as game]
+   #?(:cljs [reagent.core :as r])))
 
 ;; ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -23,10 +24,15 @@
 
 ;; ── Color palette ─────────────────────────────────────────────────────────────
 
-;; Tile hex backgrounds: dark but saturated tints (distinct from player piece colors)
+;; Tile hex backgrounds: lighter, less-saturated tints
 (def tile-bg
-  {:sun    "#4A3208" :silver "#18183A" :green  "#122012"
-   :blue   "#0E1A3C" :purple "#1C0A30" :void   "#0E0C28"})
+  {:sun    "#d92f11" :silver "#b3b3b3" :green  "#119650"
+   :blue   "#8892cb" :purple "#7e24b3" :void   "#000000"})
+
+;; ;; Tile hex backgrounds: lighter, less-saturated tints
+;; (def tile-bg
+;;   {:sun    "#382C16" :silver "#28283C" :green  "#1E2E1E"
+;;    :blue   "#1A2238" :purple "#251830" :void   "#181828"})
 
 (def tile-border
   {:sun    "#B08820" :silver "#5050A0" :green  "#1E6A1E"
@@ -34,17 +40,32 @@
 
 ;; World token (nested circles on each tile)
 (def world-outer
-  {:sun    "#A86C04" :silver "#5858A0" :green  "#166016"
-   :blue   "#0A3E90" :purple "#4A0E90" :void   "#160A70"})
+  {:sun    "#e89c23" :silver "#d3d3d3" :green  "#31b670"
+   :blue   "#a8b2eb" :purple "#9e44d3" :void   "#333333"})
 
+;; World token (nested circles on each tile)
 (def world-inner
-  {:sun    "#FFCA18" :silver "#9898C8" :green  "#28A828"
-   :blue   "#1468D8" :purple "#7E1EC8" :void   "#2812B0"})
+  {:sun    "#dbeb05" :silver "#ffffff" :green  "#71f6b0"
+   :blue   "#d8e2fb" :purple "#ce74f3" :void   "#666666"})
 
-;; Player pieces: same hue, significantly brighter/lighter
+;; (def world-inner
+;;   {:sun    "#FFCA18" :silver "#9898C8" :green  "#28A828"
+;;    :blue   "#1468D8" :purple "#7E1EC8" :void   "#2812B0"})
+
+;; ;; Player pieces: same hue, significantly brighter/lighter
+;; (def player-fill
+;;   {:sun    "#e89c23" :silver "#dbdbdb" :green  "#83c1a4"
+;;    :blue   "#aab2e0" :purple "#a76dc9" :void   "#4a4a4a"})
+
+;; Tile hex backgrounds: lighter, less-saturated tints
 (def player-fill
-  {:sun    "#FFD030" :silver "#C0C0E4" :green  "#40CC40"
-   :blue   "#2898FF" :purple "#B038F0" :void   "#5438D8"})
+  {:sun    "#e93f21" :silver "#c3c3c3" :green  "#42af7d"
+   :blue   "#98a2db" :purple "#8e34c3" :void   "#000000"})
+
+;; ;; Player pieces: same hue, significantly brighter/lighter
+;; (def player-fill
+;;   {:sun    "#FFD030" :silver "#C0C0E4" :green  "#40CC40"
+;;    :blue   "#2898FF" :purple "#B038F0" :void   "#5438D8"})
 
 (def player-stroke
   {:sun    "#FFEE80" :silver "#E0E0FF" :green  "#88FF88"
@@ -124,11 +145,13 @@
 ;; ── Beacon (pentagon) ─────────────────────────────────────────────────────────
 
 (defn beacon-shape [color-key]
+  ;; Pentagon centered on the tile, overlaid on the world token
   [:polygon
-   {:points (poly-pts 0 -24 7 5 (- (/ Math/PI 2)))
+   {:points (poly-pts 0 0 10 5 (- (/ Math/PI 2)))
     :fill   (pf color-key)
     :stroke (ps color-key)
-    :stroke-width 1.2}])
+    :stroke-width 1.4
+    :opacity 0.92}])
 
 ;; ── Station shapes ────────────────────────────────────────────────────────────
 
@@ -138,15 +161,16 @@
           :fill (pf ck) :stroke (ps ck) :stroke-width 1.3}])
 
 (defn matrix-shape [ck]
-  ;; Lotus: 6 small circles around a center
+  ;; Lotus side-view: 5 narrow petal-ellipses fanning from a base
   [:g
-   (for [i (range 6)
-         :let [a  (* i (/ Math/PI 3))
-               px (* 5.5 (Math/cos a))
-               py (* 5.5 (Math/sin a))]]
-     [:circle {:key i :cx px :cy py :r 3.6
-               :fill (pf ck) :stroke (ps ck) :stroke-width 0.7 :opacity 0.92}])
-   [:circle {:cx 0 :cy 0 :r 3 :fill (pf ck) :stroke (ps ck) :stroke-width 1}]])
+   (for [[idx [rot px py]] (map-indexed vector
+                             [[-38 -7 2] [-18 -3.5 -1] [0 0 -3] [18 3.5 -1] [38 7 2]])]
+     [:ellipse {:key idx :cx px :cy py :rx 2.6 :ry 7.5
+                :transform (str "rotate(" rot "," px "," py ")")
+                :fill (pf ck) :stroke (ps ck) :stroke-width 0.7 :opacity 0.9}])
+   ;; Curved base cup
+   [:path {:d "M -9,7 Q 0,4 9,7"
+           :fill "none" :stroke (ps ck) :stroke-width 1.2 :opacity 0.7}]])
 
 (defn tower-shape [ck]
   ;; Flared base + narrow neck + bulbous top
@@ -224,7 +248,7 @@
                     (str "×" n)]))]))))
       player-order)]))
 
-;; ── Ark (ring) ────────────────────────────────────────────────────────────────
+;; ── Ark (ring + heading arrow at its edge) ───────────────────────────────────
 
 (defn ark-ring []
   [:circle {:cx 0 :cy 0 :r 30
@@ -233,6 +257,28 @@
             :stroke-width 5
             :stroke-dasharray "10 3"
             :opacity 0.9}])
+
+(defn ark-heading-arrow
+  "Bird-wing chevron at the ark ring edge pointing in heading-dir.
+   Path designed pointing right (+X); rotated to match heading direction."
+  [heading-dir]
+  (let [[dq dr] heading-dir
+        [dx dy] (hex->pixel [dq dr])
+        angle   (* (/ 180 Math/PI) (Math/atan2 dy dx))]
+    [:g {:transform (str "rotate(" angle ")")}
+     [:path
+      {:d (str "M 43,0 "
+               "C 38,-3 33,-8 28,-12 "   ; right leading edge sweeps back
+               "L 23,-15 "               ; right wingtip flares backward-outward
+               "C 25,-12 27,-7 28,-2 "   ; right trailing edge curves to notch
+               "L 28,2 "                 ; center notch (chevron indent)
+               "C 27,7 25,12 23,15 "     ; left trailing edge
+               "L 28,12 "               ; left wingtip
+               "C 33,8 38,3 43,0 Z")     ; left leading edge back to nose
+       :fill         captain-fill
+       :stroke       captain-stroke
+       :stroke-width 1.0
+       :opacity      0.95}]]))
 
 ;; ── Heading token (directional arrow) ────────────────────────────────────────
 
@@ -266,23 +312,46 @@
 
 ;; ── Gate indicators ───────────────────────────────────────────────────────────
 
-(defn gate-indicators [state pos player-order player-colors]
-  [:g
-   (for [player   player-order
-         :let     [gates (get-in state [:players player :gates pos] #{})]
-         neighbor gates
-         :when    (contains? (:board state) neighbor)
-         :let     [dir-vec (game/subtract-hex pos neighbor)
-                   valid?  (some #(= % dir-vec) game/hex-directions)]
-         :when    valid?
-         :let     [[ex ey] (edge-offset dir-vec)
-                   fc      (pf (get player-colors player :sun))]]
-     [:line {:key (str player neighbor)
-             :x1 0 :y1 0 :x2 ex :y2 ey
-             :stroke fc :stroke-width 2.5 :opacity 0.6}])])
+(defn render-all-gates
+  "Board-level gate ovals rendered after all tile backgrounds so they
+   never get buried under a neighbour's hex polygon."
+  [state player-order player-colors]
+  (let [board (:board state)]
+    [:g
+     (for [[pos _]  board
+           :let     [[cx cy] (hex->pixel pos)]
+           player   player-order
+           :let     [gates (get-in state [:players player :gates pos] #{})]
+           neighbor gates
+           ;; Each edge drawn once (from the lexicographically smaller tile)
+           :when    (and (contains? board neighbor)
+                         (neg? (compare pos neighbor)))
+           :let     [dir-vec (game/subtract-hex pos neighbor)
+                     valid?  (some #(= % dir-vec) game/hex-directions)]
+           :when    valid?
+           :let     [[ex ey] (edge-offset dir-vec)
+                     gx      (+ cx ex)
+                     gy      (+ cy ey)
+                     angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
+                     fc      (pf (get player-colors player :sun))
+                     sc      (ps (get player-colors player :sun))]]
+       [:ellipse {:key       (str pos player neighbor)
+                  :cx        gx  :cy gy
+                  :rx        8   :ry 13
+                  :transform (str "rotate(" angle "," gx "," gy ")")
+                  :fill      fc
+                  :stroke    sc
+                  :stroke-width 0.8
+                  :opacity   0.65}])]))
 
 ;; ── Cipher-match edge dots ────────────────────────────────────────────────────
 
+;; When this tile's color is in the cipher center AND a neighbor's color matches
+;; the cipher position in that direction, render a half-oval arc at the shared edge.
+;; Path (pre-transform, outward = +x after rotate(angle)):
+;;   M 0,-13  A 8,13 0 0,0  0,13  Z
+;; Traces the inward half of an ellipse matching the gate oval (rx=8, ry=13).
+;; Two such arcs from adjacent tiles form a full oval ring around any gate.
 (defn cipher-match-dots [state pos color-key]
   (let [center-colors (get-in state [:cipher [0 0] :colors] {})]
     (when (contains? center-colors color-key)
@@ -292,28 +361,33 @@
                     cipher-colors  (get-in state [:cipher dir :colors] {})]
              :when (and neighbor-color (contains? cipher-colors neighbor-color))
              :let  [[ex ey] (edge-offset dir)
-                    dot-c   (get world-inner neighbor-color "#FFF")]]
-         [:circle {:key (str dir)
-                   :cx ex :cy ey :r 4.5
-                   :fill dot-c :stroke "#FFF" :stroke-width 0.6 :opacity 0.9}])])))
+                    angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
+                    arc-c   (get world-inner neighbor-color "#FFF")]]
+         [:path {:key       (str dir)
+                 :d         "M 0,-13 A 8,13 0 0,0 0,13 Z"
+                 :transform (str "translate(" ex "," ey ") rotate(" angle ")")
+                 :fill      arc-c
+                 :stroke    "#FFF"
+                 :stroke-width 0.8
+                 :opacity   0.72}])])))
 
 ;; ── Single tile ───────────────────────────────────────────────────────────────
 
-(defn render-tile
-  [state pos tile player-order player-colors ark-pos heading-pos heading-dir highlight? on-click]
+(defn- render-tile*
+  "Inner tile render. cipher-dots is the pre-computed cipher-match-dots hiccup (or nil)."
+  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click]
   (let [[cx cy] (hex->pixel pos)
         color   (:color tile)
-        bg      (get tile-bg color "#0A0A12")
-        bdr     (get tile-border color "#222")]
+        bg      (get tile-bg color "#141420")]
     [:g {:key      (str pos)
          :transform (str "translate(" cx "," cy ")")
          :on-click  (when on-click #(on-click pos))
          :style    {:cursor (when on-click "pointer")}}
-     ;; Hex background
+     ;; Hex background — no border; small gap (hex-size-1) provides visual separation
      [:polygon {:points       (hex-pts-str (- hex-size 1))
                 :fill         bg
-                :stroke       (if highlight? "#FFD030" bdr)
-                :stroke-width (if highlight? 2.5 1)}]
+                :stroke       (if highlight? "#FFD030" "none")
+                :stroke-width (if highlight? 2.5 0)}]
      ;; Highlight glow outer ring
      (when highlight?
        [:polygon {:points (hex-pts-str (- hex-size 1))
@@ -321,25 +395,50 @@
                   :stroke "#FFD030"
                   :stroke-width 7
                   :opacity 0.2}])
-     ;; Gate lines (under world token)
-     [gate-indicators state pos player-order player-colors]
      ;; World token (nested circles)
      [world-token color]
-     ;; Beacon (pentagon, shown above world token)
+     ;; Beacon (pentagon) centered on tile, overlaid on world token
      (when-let [bk (:beacon tile)]
        [beacon-shape (get player-colors bk)])
-     ;; Station (foundry / matrix / tower) — shifted down to leave room for beacon
+     ;; Station below the world token
      (when-let [s (:station tile)]
-       [:g {:transform "translate(0,14)"}
+       [:g {:transform "translate(0,26)"}
         [station-shape (assoc s :color-key (get player-colors (:player s) :sun))]])
-     ;; Ark ring overlay
-     (when (= pos ark-pos) [ark-ring])
-     ;; Heading marker overlay
-     (when (= pos heading-pos) [heading-marker heading-dir])
+     ;; Ark ring + heading arrow (at ring edge) when Ark is on this tile
+     (when (= pos ark-pos)
+       [:g [ark-ring] [ark-heading-arrow heading-dir]])
      ;; Sundivers (triangles grouped by player)
      [sundivers-on-tile tile player-order player-colors]
-     ;; Cipher-match edge dots
-     [cipher-match-dots state pos color]]))
+     ;; Cipher-match edge dots (pre-computed)
+     cipher-dots]))
+
+;; In ClojureScript, wrap as a memoized React class component.
+;; A tile only re-renders when its data, cipher-dots, highlight, or ark presence changes.
+;; Most tiles are unchanged on most steps, so this avoids O(tiles) SVG work per frame.
+#?(:cljs
+   (def render-tile
+     (r/create-class
+      {:display-name "render-tile"
+       :should-component-update
+       (fn [_ old-argv new-argv]
+         ;; argv = [component-fn pos tile cipher-dots player-order player-colors
+         ;;         ark-pos heading-dir highlight? on-click]
+         (let [pos     (nth old-argv 1)
+               old-tile (nth old-argv 2)  new-tile (nth new-argv 2)
+               old-cd   (nth old-argv 3)  new-cd   (nth new-argv 3)
+               old-ark  (nth old-argv 6)  new-ark  (nth new-argv 6)
+               old-hd   (nth old-argv 7)  new-hd   (nth new-argv 7)
+               old-hl   (nth old-argv 8)  new-hl   (nth new-argv 8)]
+           (or (not= old-tile new-tile)
+               (not= old-cd   new-cd)
+               (not= old-hl   new-hl)
+               ;; Ark arrived at or departed from this tile
+               (not= (= pos old-ark) (= pos new-ark))
+               ;; Heading changed while ark is here
+               (and (= pos new-ark) (not= old-hd new-hd)))))
+       :reagent-render render-tile*}))
+   :clj
+   (def render-tile render-tile*))
 
 ;; ── Ghost hex (heading into unexplored space) ────────────────────────────────
 
@@ -368,7 +467,7 @@
                 :stroke-dasharray "4 3"
                 :opacity      0.55}]
      [ark-ring]
-     [heading-marker heading-dir]]))
+     [ark-heading-arrow heading-dir]]))
 
 ;; ── Board ─────────────────────────────────────────────────────────────────────
 
@@ -376,20 +475,21 @@
   [state player-order player-colors pos-highlights on-hex-click]
   (let [board       (:board state)
         ark-pos     (:ark state)
-        heading-pos (:heading-token state)
         heading-dir (game/heading-direction state)]
     [:g
      ;; Floating ark when it sits on unexplored space
      (when (and ark-pos (not (contains? board ark-pos)))
        [ark-ghost ark-pos heading-dir])
-     ;; Tiles
-     (for [[pos tile] board]
-       [render-tile state pos tile player-order player-colors ark-pos heading-pos heading-dir
+     ;; Tiles (backgrounds, world tokens, pieces)
+     ;; cipher-dots is pre-computed here so render-tile doesn't depend on full state,
+     ;; enabling shouldComponentUpdate to skip tiles whose data hasn't changed.
+     (for [[pos tile] board
+           :let [cipher-dots (cipher-match-dots state pos (:color tile))]]
+       [render-tile pos tile cipher-dots player-order player-colors ark-pos heading-dir
         (contains? pos-highlights pos)
         (when (contains? pos-highlights pos) on-hex-click)])
-     ;; Ghost hex at heading-token if unexplored
-     (when (and heading-pos (not (contains? board heading-pos)))
-       [ghost-hex heading-pos heading-dir])]))
+     ;; Gate ovals in a separate pass — always above all tile backgrounds
+     [render-all-gates state player-order player-colors]]))
 
 ;; ── Cipher display ────────────────────────────────────────────────────────────
 

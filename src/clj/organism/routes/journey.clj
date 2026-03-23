@@ -81,6 +81,24 @@
 (defn- has-own-stations? [state]
   (seq (get-in state [:players (game/current-player state) :stations])))
 
+(defn- beacon-positions
+  "All board positions that currently have a beacon."
+  [state]
+  (filter #(get-in state [:board % :beacon]) (keys (:board state))))
+
+(defn- effective-ark-dist
+  "Minimum distance the ark achieves to the nearest beacon by moving in dir.
+   When the direct next position is unexplored, also considers wrap-target
+   (since :choose-ark-advance will offer :wrap as an option)."
+  [state ark dir beacons]
+  (let [direct-pos  (game/add-hex ark dir)
+        direct-dist (apply min (map #(game/hex-distance direct-pos %) beacons))]
+    (if (game/get-tile state direct-pos)
+      direct-dist
+      (let [wrap-pos  (game/wrap-target state ark dir)
+            wrap-dist (apply min (map #(game/hex-distance wrap-pos %) beacons))]
+        (min direct-dist wrap-dist)))))
+
 (defn- agent-step
   "Pick one goal-oriented choice and return [choice-key next-state]."
   [state]
@@ -134,19 +152,68 @@
               :flare-beacon-join   (:join choices (:skip choices))
               :captain-beacon-join (:join choices (:skip choices))
 
-              :choose-ark-advance          (:direct choices)
+              ;; Prefer wrap when it gets the ark closer to a beacon; else direct.
+              :choose-ark-advance
+              (let [bs (beacon-positions state)]
+                (if (seq bs)
+                  (let [ark        (:ark state)
+                        dir        (game/heading-direction state)
+                        direct-pos (:heading-token state)
+                        wrap-pos   (game/wrap-target state ark dir)
+                        d-direct   (apply min (map #(game/hex-distance direct-pos %) bs))
+                        d-wrap     (apply min (map #(game/hex-distance wrap-pos   %) bs))]
+                    (if (< d-wrap d-direct)
+                      (or (:wrap choices) (:direct choices))
+                      (:direct choices)))
+                  (:direct choices)))
               :choose-flare-advance        (:direct choices)
               :choose-drift-flare-advance  (:direct choices)
 
               :draw-drift-card (:draw choices)
 
-              ;; Vary ark heading by player index — each player sweeps a different arc
+              ;; Priority 1: steer toward the nearest beacon (shortest hex path).
+              ;; Priority 2: wrap back over explored space (tiles in back half).
+              ;; Priority 3: vary by player index (spread the arcs apart).
               :choose-captain-drift
-              (let [r (mod (+ (player-idx state) (:round state 0)) 3)]
-                (case r
-                  0 (:none  choices)
-                  1 (or (:left  choices) (:none choices))
-                  2 (or (:right choices) (:none choices))))
+              (let [ark     (:ark state)
+                    dir     (game/heading-direction state)
+                    idx     (game/direction-index dir)
+                    board   (:board state)
+                    beacons (filter #(get-in board [% :beacon]) (keys board))
+
+                    ;; Turn option that gets the ark closest to the nearest beacon,
+                    ;; accounting for wrap as an option when the next cell is unexplored.
+                    beacon-turn
+                    (when (seq beacons)
+                      (let [d-none  (effective-ark-dist state ark dir                     beacons)
+                            d-left  (effective-ark-dist state ark (game/rotate-ccw dir)   beacons)
+                            d-right (effective-ark-dist state ark (game/rotate-cw  dir)   beacons)
+                            best-d  (min d-none d-left d-right)]
+                        (cond
+                          (= best-d d-none)  (:none  choices)
+                          (= best-d d-left)  (or (:left  choices) (:none choices))
+                          :else              (or (:right choices) (:none choices)))))
+
+                    ;; Back-half tile check (fallback when no beacons)
+                    at       (fn [o] (contains? board (game/add-hex ark (nth game/hex-directions (mod (+ idx o) 6)))))
+                    cw-back  (at 2)
+                    behind   (at 3)
+                    ccw-back (at 4)]
+
+                (or beacon-turn
+                    (cond
+                      (and cw-back (not ccw-back)) (or (:right choices) (:none choices))
+                      (and ccw-back (not cw-back)) (or (:left  choices) (:none choices))
+                      (or cw-back behind ccw-back)
+                      (if (even? (player-idx state))
+                        (or (:left  choices) (:none choices))
+                        (or (:right choices) (:none choices)))
+                      :else
+                      (let [r (mod (+ (player-idx state) (:round state 0)) 3)]
+                        (case r
+                          0 (:none  choices)
+                          1 (or (:left  choices) (:none choices))
+                          2 (or (:right choices) (:none choices)))))))
 
               ;; Tower heading: aim toward a tile with a beacon, else straight
               :choose-activate-tower-heading
@@ -158,9 +225,11 @@
               ;; Land whenever possible
               :choose-land (:land choices (:continue choices))
 
-              ;; Cipher: prefer center, then spread via player index
+              ;; Cipher: skip if no affordable positions; prefer center [0 0] when free,
+              ;; else pick a free (cost-0) position, else spread via player index.
               :cipher
-              (or (get choices [0 0])
+              (or (:skip choices)
+                  (get choices [0 0])
                   (pick-varied state (vals choices)))
 
               ;; Matrix beacon: prefer tile on the ark's heading path, else no-station tile
@@ -198,15 +267,12 @@
                                   :state  next-s})))
           history)))))
 
-(def cached-history
-  (delay (pr-str (generate-history))))
-
 (defn generate-page
   [request]
   (layout/render
    request
    "journey/generate.html"
-   {:generate-history @cached-history}))
+   {:generate-history (pr-str (generate-history))}))
 
 (defn journey-routes
   [db]

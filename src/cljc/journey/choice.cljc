@@ -144,9 +144,21 @@
      (game/activatable-station-types state player))))
 
 (defn choose-activate-owner-bonus-choices
-  "After activator finishes base actions, owner decides how many bonus actions to take (0..bonus-total)."
+  "After activator finishes base actions, owner decides how many bonus actions to take (0..bonus-total).
+   Cap the offered range to what the owner can actually execute based on station type."
   [state]
-  (let [bonus-total (get-in state [:player-turn :action :bonus-total] 0)]
+  (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
+        owner        (get-in state [:player-turn :action :current-owner])
+        station-type (get-in state [:player-turn :action :station-type])
+        max-feasible (case station-type
+                       :matrix
+                       (let [positions (count (game/matrix-beacon-positions state owner))
+                             spendable (game/total-spendable-sundivers state owner)
+                             beacons   (get-in state [:players owner :reserve :beacons] 0)]
+                         (min bonus-total positions spendable beacons))
+                       :tower
+                       (min bonus-total (game/total-spendable-sundivers state owner))
+                       bonus-total)]
     (into {}
           (map
            (fn [n]
@@ -154,7 +166,7 @@
                     (assoc-in [:player-turn :action :owner-actions] n)
                     (assoc-in [:player-turn :choice-player] nil)
                     (game/begin-actor-actions :owner))])
-           (range (inc bonus-total))))))
+           (range (inc max-feasible))))))
 
 (defn choose-activate-self-bonus-choices
   "Activating their own station: choose 0..bonus bonus actions on top of base."
@@ -615,28 +627,35 @@
 
 (defn choose-cipher-choices
   "Each pending-cipher beacon is placed at one of the 7 cipher positions.
-   If placing adds a new color to a position, the cost is paid first."
+   Only positions the player can afford are offered (cost <= spendable sundivers).
+   If no position is affordable, the beacon is skipped and the queue advances."
   [state]
   (let [queue (get-in state [:player-turn :cipher-queue] [])]
     (if (empty? queue)
       {:done (game/begin-next-player-turn state)}
-      (let [{:keys [player color from-bag?]} (first queue)]
-        (into {}
-              (map
-               (fn [pos]
-                 [pos (let [cost (game/cipher-placement-cost state pos color)]
-                        (if (zero? cost)
-                          (-> state
-                              (game/cipher-place-beacon player pos color from-bag?)
-                              advance-cipher)
-                          (-> state
-                              (assoc-in [:player-turn :cipher-pending-player] player)
-                              (assoc-in [:player-turn :cipher-pending-pos] pos)
-                              (assoc-in [:player-turn :cipher-pending-color] color)
-                              (assoc-in [:player-turn :cipher-pending-from-bag] from-bag?)
-                              (assoc-in [:player-turn :cipher-spend-remaining] cost)
-                              (assoc-in [:player-turn :phase] :cipher-spend))))])
-               (keys (:cipher state))))))))
+      (let [{:keys [player color from-bag?]} (first queue)
+            spendable (game/total-spendable-sundivers state player)
+            choices
+            (into {}
+                  (keep
+                   (fn [pos]
+                     (let [cost (game/cipher-placement-cost state pos color)]
+                       (when (<= cost spendable)
+                         [pos (if (zero? cost)
+                                (-> state
+                                    (game/cipher-place-beacon player pos color from-bag?)
+                                    advance-cipher)
+                                (-> state
+                                    (assoc-in [:player-turn :cipher-pending-player] player)
+                                    (assoc-in [:player-turn :cipher-pending-pos] pos)
+                                    (assoc-in [:player-turn :cipher-pending-color] color)
+                                    (assoc-in [:player-turn :cipher-pending-from-bag] from-bag?)
+                                    (assoc-in [:player-turn :cipher-spend-remaining] cost)
+                                    (assoc-in [:player-turn :phase] :cipher-spend)))])))
+                   (keys (:cipher state))))]
+        (if (seq choices)
+          choices
+          {:skip (advance-cipher state)})))))
 
 (defn choose-cipher-spend-choices
   "Spend sundivers one at a time to pay for placing a new color at a cipher position."

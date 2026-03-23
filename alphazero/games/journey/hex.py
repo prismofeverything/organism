@@ -42,6 +42,12 @@ def direction_index(d: tuple[int, int]) -> int | None:
         return None
 
 
+def direction_diff(d1: int, d2: int) -> int:
+    """Minimum angular distance between two direction indices, in 60° steps (0–3)."""
+    diff = (d2 - d1) % 6
+    return min(diff, 6 - diff)
+
+
 def rotate_cw(d: tuple[int, int]) -> tuple[int, int]:
     """Rotate direction 60° clockwise."""
     idx = direction_index(d)

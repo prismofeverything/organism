@@ -69,6 +69,7 @@ class Trainer:
         games_per_iteration: int = 50,
         mcts_simulations: int = 400,
         temperature_threshold: int = 30,
+        max_steps_per_game: int = 400,
         # Training params
         replay_buffer_capacity: int = 100_000,
         min_buffer_size: int = 1_000,
@@ -99,6 +100,7 @@ class Trainer:
         self.games_per_iteration = games_per_iteration
         self.mcts_simulations = mcts_simulations
         self.temperature_threshold = temperature_threshold
+        self.max_steps_per_game = max_steps_per_game
         self.min_buffer_size = min_buffer_size
         self.batch_size = batch_size
         self.train_steps_per_iter = train_steps_per_iter
@@ -144,6 +146,7 @@ class Trainer:
                 self.network,
                 num_simulations=self.mcts_simulations,
                 temperature_threshold=self.temperature_threshold,
+                max_steps=self.max_steps_per_game,
             )
             self.replay_buffer.push(samples)
             total_steps += len(samples)
@@ -203,6 +206,7 @@ if __name__ == "__main__":
     parser.add_argument("--games",    type=int, default=50)
     parser.add_argument("--blocks",   type=int, default=10)
     parser.add_argument("--filters",  type=int, default=128)
+    parser.add_argument("--max-steps", type=int, default=400)
     parser.add_argument("--checkpoint", default="checkpoints/journey")
     args = parser.parse_args()
 
@@ -216,5 +220,6 @@ if __name__ == "__main__":
         num_filters=args.filters,
         games_per_iteration=args.games,
         mcts_simulations=args.sims,
+        max_steps_per_game=args.max_steps,
     )
     trainer.run(num_iterations=args.iters)
