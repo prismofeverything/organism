@@ -167,8 +167,13 @@
               (when (and current-state
                          (not (:game-over current-state))
                          (contains? bots (choice-player current-state)))
-                ;; Use find-state-raw to get choices, then agent-step to pick
-                (when-let [[ck next-state] ((resolve-agent-step) current-state)]
+                ;; Use agent-step to pick, with fallback to first choice if agent can't decide
+                (let [step-result (or ((resolve-agent-step) current-state)
+                                     ;; Fallback: pick first choice from raw phase
+                                     (let [[_ cs] (choice/find-state-raw current-state)]
+                                       (when (seq cs)
+                                         [(first (keys cs)) (first (vals cs))])))]
+                (when-let [[ck next-state] step-result]
                   (let [effective (bot-advance next-state)]
                     (swap! games
                            (fn [gs]
@@ -177,7 +182,7 @@
                                  (assoc-in [:games play-key :history] []))))
                     (broadcast-state! play-key)
                     (save-state! db play-key ck)
-                    (recur))))))))
+                    (recur)))))))))
       (catch Exception e
         (log/error "Bot turn error" play-key (.getMessage e))))))
 

@@ -140,13 +140,18 @@ def measure_simulation_metrics(
             terminated += 1
             total_length += n_steps
             rewards = game.rewards(state)
-            winner = state["winner"]
-            if winner and winner in win_counts:
+            winner = state.get("winner")
+            if winner is not None and winner in win_counts:
                 win_counts[winner] += 1
 
-        # Captures
-        for p in game._players:
-            captures_sum += state["captures"].get(p, 0)
+        # Captures (v1/v2 use state["captures"], v3 uses state["globals"]["counter_N"])
+        if "captures" in state:
+            for p in game._players:
+                captures_sum += state["captures"].get(p, 0)
+        elif "globals" in state:
+            for p in game._players:
+                p_idx = int(p) if isinstance(p, str) else p
+                captures_sum += state["globals"].get(f"counter_{p_idx}", 0)
 
     n = max(n_games, 1)
     n_term = max(terminated, 1)

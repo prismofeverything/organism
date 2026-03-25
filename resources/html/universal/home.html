@@ -69,7 +69,33 @@
   <body>
     <div class="home-layout">
       <div class="cover-panel">
-        <span class="cover-title">Universal</span>
+        <a href="/universal" style="display:flex; align-items:center; justify-content:center; text-decoration:none;">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"
+               style="height:60vh; width:auto;">
+            <defs>
+              <radialGradient id="tg" cx="50%" cy="40%">
+                <stop offset="0%" stop-color="#8866CC"/>
+                <stop offset="100%" stop-color="#44226A"/>
+              </radialGradient>
+            </defs>
+            <path d="M 100,38
+                     C 148,38 186,62 186,100
+                     C 186,138 148,162 100,162
+                     C 52,162 14,138 14,100
+                     C 14,62 52,38 100,38 Z
+                     M 100,68
+                     C 72,68 50,82 50,100
+                     C 50,118 72,132 100,132
+                     C 128,132 150,118 150,100
+                     C 150,82 128,68 100,68 Z"
+                  fill="url(#tg)" fill-rule="evenodd"
+                  stroke="#AA88DD" stroke-width="1.5"/>
+            <ellipse cx="100" cy="104" rx="46" ry="28"
+                     fill="none" stroke="#22113A" stroke-width="3" opacity="0.5"/>
+            <ellipse cx="100" cy="96" rx="46" ry="28"
+                     fill="none" stroke="#BB99EE" stroke-width="1" opacity="0.3"/>
+          </svg>
+        </a>
       </div>
 
       <nav class="nav-panel">
@@ -80,6 +106,7 @@
           <a class="nav-link" href="/universal/play">play</a>
 
           <span class="nav-label">explore</span>
+          <a class="nav-link" href="/universal/rules">rules</a>
           <a class="nav-link" href="/universal/observe">observe</a>
 
           <span class="nav-label" style="margin-top:2rem"></span>
@@ -90,6 +117,7 @@
           <a class="nav-link" href="/login?redirect=/universal">login / register</a>
 
           <span class="nav-label">explore</span>
+          <a class="nav-link" href="/universal/rules">rules</a>
           <a class="nav-link" href="/universal/observe">observe</a>
           <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
         {% endif %}

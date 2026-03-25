@@ -19,6 +19,22 @@
 
 (def orange "rgb(225, 195, 61)")
 
+(def ^:private word-pool
+  ["amber" "arrow" "blade" "bloom" "briar" "brook" "cedar" "chain" "cliff"
+   "coral" "crane" "crown" "dawn" "delta" "drift" "dusk" "echo" "ember"
+   "fable" "fern" "flame" "flint" "frost" "gale" "ghost" "gleam" "grove"
+   "haven" "hawk" "haze" "helm" "heron" "husk" "ivory" "jade" "knot"
+   "larch" "lark" "leaf" "light" "lunar" "marsh" "mist" "moss" "nexus"
+   "oak" "onyx" "orbit" "pearl" "pike" "plume" "pulse" "quartz" "raven"
+   "reef" "ridge" "river" "root" "rune" "sage" "shard" "shell" "shore"
+   "silk" "slate" "solar" "spark" "spire" "star" "steam" "stone" "storm"
+   "swift" "thorn" "tide" "torch" "trail" "vale" "vault" "vine" "void"
+   "wander" "wave" "weald" "wisp" "wolf" "wren" "zenith"])
+
+(defn- generate-game-key []
+  (let [pick #(nth word-pool (rand-int (count word-pool)))]
+    (str (pick) "-" (pick) "-" (pick))))
+
 (def font-choice
   "BlinkMacSystemFont,-apple-system,\"Segoe UI\",Roboto,Oxygen,Ubuntu,Cantarell,\"Fira Sans\",\"Droid Sans\",\"Helvetica Neue\",Helvetica,Arial,sans-serif")
 
@@ -106,6 +122,8 @@
   (r/atom []))
 
 (declare update-messages!)
+(declare apply-invocation!)
+(declare connect-create-ws!)
 
 (def max-players 10)
 
@@ -173,6 +191,8 @@
 
 (defn send-create!
   [invocation]
+  (reset! board-invocation invocation)
+  (apply-invocation! invocation)
   (when @ws/ws-channel
     (ws/send-transit-message!
      {:type "create"
@@ -1817,6 +1837,9 @@
 
 (defn send-player-name!
   [index player-name]
+  (swap! player-order assoc index player-name)
+  (swap! board-invocation update :players
+         (fn [players] (assoc (vec players) index player-name)))
   (when @ws/ws-channel
     (ws/send-transit-message!
      {:type "player-name"
@@ -1927,8 +1950,20 @@
       :on-click
       (fn [event]
         (if valid?
-          (ws/send-transit-message!
-           {:type "trigger-creation"})
+          (let [game-key (if (empty? @create-game-key)
+                           (let [k (generate-game-key)]
+                             (reset! create-game-key k)
+                             k)
+                           @create-game-key)
+                trigger! (fn []
+                           (ws/send-transit-message!
+                            {:type "create"
+                             :invocation @board-invocation})
+                           (ws/send-transit-message!
+                            {:type "trigger-creation"}))]
+            (if @ws/ws-channel
+              (trigger!)
+              (connect-create-ws! game-key trigger!)))
           (dom/redirect!
            (str js/playerPath "/" js/playerKey))))}]))
 
@@ -2050,13 +2085,16 @@
     (map (partial mutation-choice color invocation) possible-mutations)]])
 
 (defn connect-create-ws!
-  [game-key]
-  (when-not (empty? game-key)
-    (ws/close-websocket!)
-    (let [protocol (if (= (.-protocol js/location) "https:") "wss:" "ws:")]
-      (ws/make-websocket!
-       (str protocol "//" (.-host js/location) "/ws/game/" game-key)
-       update-messages!))))
+  ([game-key]
+   (connect-create-ws! game-key nil))
+  ([game-key on-open]
+   (when-not (empty? game-key)
+     (ws/close-websocket!)
+     (let [protocol (if (= (.-protocol js/location) "https:") "wss:" "ws:")]
+       (ws/make-websocket!
+        (str protocol "//" (.-host js/location) "/ws/organism/play/" game-key)
+        update-messages!
+        on-open)))))
 
 (defn game-name-input
   [color]

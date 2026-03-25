@@ -9,6 +9,7 @@
    [immutant.web.async :as async]
    [organism.universal.game :as game]
    [organism.universal.game-v2 :as game-v2]
+   [organism.universal.game-v3 :as game-v3]
    [organism.universal.ruleset-v2 :as rs2])
   (:import
    [java.io ByteArrayOutputStream]))
@@ -133,18 +134,30 @@
 
 ;; ── Message handlers ────────────────────────────────────────────────────────────
 
+(defn- v3-ruleset? [rs]
+  (= "v3" (:version rs)))
+
 (defn- create-game-dispatch
-  "Create a game from either v1 or v2 ruleset."
+  "Create a game from v1, v2, or v3 ruleset."
   [ruleset-map]
-  (if (rs2/v2-ruleset? ruleset-map)
+  (cond
+    (v3-ruleset? ruleset-map)
+    (let [{:keys [topology state]} (game-v3/create-game ruleset-map)]
+      {:board topology :state state})
+    (rs2/v2-ruleset? ruleset-map)
     (let [{:keys [topology state]} (game-v2/create-game ruleset-map)]
       {:board topology :state state})
+    :else
     (let [{:keys [board state]} (game/create-game ruleset-map)]
       {:board board :state state})))
 
 (defn- compute-legal-actions [ruleset board state]
-  (if (rs2/v2-ruleset? ruleset)
+  (cond
+    (v3-ruleset? ruleset)
+    (game-v3/legal-actions ruleset board state)
+    (rs2/v2-ruleset? ruleset)
     (game-v2/legal-actions ruleset board state)
+    :else
     (game/legal-actions ruleset board state)))
 
 (defn handle-create! [play-key message]

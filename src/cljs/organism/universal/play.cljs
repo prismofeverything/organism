@@ -8,9 +8,11 @@
    [organism.websockets :as ws]
    [organism.universal.game :as game]
    [organism.universal.game-v2 :as game-v2]
+   [organism.universal.game-v3 :as game-v3]
    [organism.universal.ruleset :as rs]
    [organism.universal.ruleset-v2 :as rs2]
-   [organism.universal.topology :as topo]))
+   [organism.universal.topology :as topo]
+   [organism.universal.describe :as desc]))
 
 ;; ── State atoms ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,39 @@
 (defonce legal-actions-atom (r/atom {}))
 ;; When multiple actions to same target, show a picker
 (defonce action-picker (r/atom nil)) ; {:from space :to space :actions [...]}
+
+(defn- v3-ruleset? [rs] (= "v3" (:version rs)))
+
+(defn- v3-elements
+  "Extract elements from v3 state in a format compatible with the renderer.
+   Returns {node-id → {:player \"0\" :type 0 :food 0}}."
+  [state]
+  (when-let [nodes (:nodes state)]
+    (reduce-kv
+     (fn [m node nd]
+       (if (and nd (>= (get nd :owner -1) 0))
+         (assoc m node {:player (str (:owner nd))
+                        :type (get nd :piece_type 0)
+                        :food (get nd "resource_0" (get nd :resource_0 0))})
+         m))
+     {} nodes)))
+
+(defn- v3-free-food
+  "Extract free resources from v3 state (resources on unoccupied nodes)."
+  [state]
+  (when-let [nodes (:nodes state)]
+    (reduce-kv
+     (fn [m node nd]
+       (if (and nd (neg? (get nd :owner -1)))
+         (let [food (get nd "resource_0" (get nd :resource_0 0))]
+           (if (pos? food) (assoc m node food) m))
+         m))
+     {} nodes)))
+
+(defn- get-current-player [state ruleset]
+  (if (and ruleset (v3-ruleset? ruleset))
+    (str (get-in state [:globals "current_player"] 0))
+    (:current-player state)))
 (defonce history-atom (r/atom []))  ; [{:step :player :action :round} ...]
 (defonce history-selected (r/atom nil))
 
@@ -308,14 +343,20 @@
         ruleset @ruleset-atom
         board @board-atom]
     (when (and state ruleset board)
-      (let [v2? (rs2/v2-ruleset? ruleset)
-            adjacencies (if v2? (:adjacencies board) (:adjacencies board))
-            topology-type (if v2? (get-in ruleset [:board :topology]) "ring")
-            coords (when v2? (:coords board))
-            grid-size (when v2? (:grid-size board))
-            rings (when-not v2? (:rings board))
+      (let [non-v1? (or (rs2/v2-ruleset? ruleset) (v3-ruleset? ruleset))
+            adjacencies (:adjacencies board)
+            topology-type (cond
+                            (v3-ruleset? ruleset) (get-in ruleset [:schema :topology_type] "hex")
+                            (rs2/v2-ruleset? ruleset) (get-in ruleset [:board :topology])
+                            :else "ring")
+            coords (when non-v1? (:coords board))
+            grid-size (when non-v1? (:grid-size board))
+            rings (when-not non-v1? (:rings board))
             locations (compute-locations topology-type coords grid-size rings adjacencies)
-            my-turn? (= (:current-player state) @player-key)
+            current-p (if (v3-ruleset? ruleset)
+                        (str (get-in state [:globals "current_player"] 0))
+                        (:current-player state))
+            my-turn? (= current-p @player-key)
             actions (when my-turn? @legal-actions-atom)
             indexed (when (seq actions) (index-actions actions))
             sel @selected-element
@@ -382,25 +423,27 @@
                   [render-action-label tx ty i n atype])])))
 
          ;; Free food
-         (for [[space amount] (:free-food state)
-               :when (pos? amount)
-               :let [[x y] (get locations space)]
-               :when x]
-           ^{:key (str "ff-" (pr-str space))}
-           [:g
-            [:circle {:cx x :cy (+ y 8) :r 5
-                      :fill "#ffe066" :opacity 0.6}]
-            (when (> amount 1)
-              [:text {:x (+ x 7) :y (+ y 12) :font-size "8" :fill "#aa8" :opacity 0.8}
-               (str amount)])])
+         (let [free-food (if (v3-ruleset? ruleset) (v3-free-food state) (:free-food state))]
+           (for [[space amount] free-food
+                 :when (and amount (pos? amount))
+                 :let [[x y] (get locations space)]
+                 :when x]
+             ^{:key (str "ff-" (pr-str space))}
+             [:g
+              [:circle {:cx x :cy (+ y 8) :r 5
+                        :fill "#ffe066" :opacity 0.6}]
+              (when (> amount 1)
+                [:text {:x (+ x 7) :y (+ y 12) :font-size "8" :fill "#aa8" :opacity 0.8}
+                 (str amount)])]))
 
          ;; Elements
-         (for [[space el] (:elements state)
-               :let [[x y] (get locations space)
-                     is-mine? (= (:player el) @player-key)
-                     can-act? (and indexed (contains? (:from-spaces indexed) space))
-                     is-sel? (= space sel)]
-               :when x]
+         (let [elements (if (v3-ruleset? ruleset) (v3-elements state) (:elements state))]
+           (for [[space el] elements
+                 :let [[x y] (get locations space)
+                       is-mine? (= (:player el) @player-key)
+                       can-act? (and indexed (contains? (:from-spaces indexed) space))
+                       is-sel? (= space sel)]
+                 :when x]
            ^{:key (str "el-" (pr-str space))}
            [:g {:on-click #(handle-click! space)
                 :cursor (when can-act? "pointer")}
@@ -408,7 +451,7 @@
             ;; Selected indicator
             (when is-sel?
               [:circle {:cx x :cy y :r (+ space-radius 1)
-                        :fill "none" :stroke "#fff" :stroke-width 2.5}])])
+                        :fill "none" :stroke "#fff" :stroke-width 2.5}])]))
 
          ;; Unselected: show small pips on all actionable pieces showing what they can do
          (when (and indexed (not sel))
@@ -462,9 +505,13 @@
 (defn conflict-explanation
   "Human-readable conflict table."
   [ruleset]
-  (let [v2? (rs2/v2-ruleset? ruleset)
-        n (if v2? (get-in ruleset [:pieces :num-types]) (:num-types ruleset))
-        conflict (when v2? (get-in ruleset [:interactions :conflict]))
+  (let [v2? (or (rs2/v2-ruleset? ruleset) (v3-ruleset? ruleset))
+        n (cond (v3-ruleset? ruleset) (get-in ruleset [:schema :num_piece_types])
+                v2? (get-in ruleset [:pieces :num-types])
+                :else (:num-types ruleset))
+        conflict (cond (v3-ruleset? ruleset) (vec (:conflict_table ruleset))
+                       v2? (get-in ruleset [:interactions :conflict])
+                       :else nil)
         type-name (fn [t] (str "Type " t))]
     (when (and n (> n 1))
       [:div {:style {:margin-top "8px"}}
@@ -490,9 +537,9 @@
   (let [ruleset @ruleset-atom
         state @game-state]
     (when ruleset
-      (let [current (when state (:current-player state))
+      (let [current (when state (get-current-player state ruleset))
             winner (when state (:winner state))
-            my-turn? (= current @player-key)]
+            my-turn? (= (str current) @player-key)]
         [:div {:style {:width "240px" :background "#0a0a14"
                        :border-right "1px solid #1a1a2e"
                        :overflow-y "auto" :padding "12px"
@@ -502,9 +549,19 @@
          ;; Game title
          [:div {:style {:font-size "14px" :color "#fff" :margin-bottom "10px"
                         :border-bottom "1px solid #222" :padding-bottom "8px"}}
-          (str (:board-symmetry ruleset) "-fold, "
-               (:num-rings ruleset) " rings, "
-               (:num-types ruleset) " types")]
+          (cond
+            (v3-ruleset? ruleset)
+            (str (get-in ruleset [:schema :topology_type]) " "
+                 (get-in ruleset [:schema :topology_size]) ", "
+                 (get-in ruleset [:schema :num_piece_types]) " types")
+            (rs2/v2-ruleset? ruleset)
+            (str (get-in ruleset [:board :topology]) " "
+                 (get-in ruleset [:board :size]) ", "
+                 (get-in ruleset [:pieces :num-types]) " types")
+            :else
+            (str (:board-symmetry ruleset) "-fold, "
+                 (:num-rings ruleset) " rings, "
+                 (:num-types ruleset) " types"))]
 
          ;; Turn status
          (when state
@@ -525,42 +582,63 @@
             [:div {:style {:color "#666" :font-size "10px" :margin-bottom "4px"
                            :text-transform "uppercase" :letter-spacing "1px"}}
              "Players"]
-            (for [p (:turn-order state)]
-              (let [is-me? (= p @player-key)
-                    is-current? (= p current)
-                    pop (count (filter #(= p (:player %)) (vals (:elements state))))
-                    caps (get-in state [:captures p] 0)]
+            (let [players (if (v3-ruleset? ruleset)
+                           (mapv str (range (get-in ruleset [:schema :num_players] 2)))
+                           (or (:turn-order state) (:turn_order state) ["0" "1"]))]
+              (for [p players]
+                (let [is-me? (= (str p) @player-key)
+                      is-current? (= (str p) (str current))
+                      elements (if (v3-ruleset? ruleset) (v3-elements state) (:elements state))
+                      pop (count (filter #(= (str p) (str (:player %))) (vals elements)))
+                      caps (if (v3-ruleset? ruleset)
+                             (get-in state [:globals (str "counter_" p)] 0)
+                             (get-in state [:captures p] 0))]
                 ^{:key p}
                 [:div {:style {:color (player-color p) :padding "2px 0"
                                :font-weight (if is-current? "bold" "normal")
                                :opacity (if is-current? 1.0 0.6)}}
                  (str (if is-me? "▸ YOU" (str "  P" p))
                       "  " pop " units  " caps " captures"
-                      (when (= (:win-type ruleset) :captures)
-                        (str "/" (:win-threshold ruleset))))]))])
+                      (when (and (not (v3-ruleset? ruleset))
+                                  (= (:win-type ruleset) :captures))
+                        (str "/" (:win-threshold ruleset))))])))])
 
          ;; Rules explanation
-         (let [v2? (rs2/v2-ruleset? ruleset)]
+         (let [v2? (or (rs2/v2-ruleset? ruleset) (v3-ruleset? ruleset))]
            [:div {:style {:border-top "1px solid #222" :padding-top "8px" :margin-top "4px"}}
             [:div {:style {:color "#666" :font-size "10px" :margin-bottom "6px"
                            :text-transform "uppercase" :letter-spacing "1px"}}
              "Rules"]
 
             [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
-             (if v2?
-               (str "Board: " (get-in ruleset [:board :topology]) " size " (get-in ruleset [:board :size]))
+             (cond
+               (v3-ruleset? ruleset)
+               (str "Board: " (get-in ruleset [:schema :topology_type]) " size "
+                    (get-in ruleset [:schema :topology_size]))
+               (rs2/v2-ruleset? ruleset)
+               (str "Board: " (get-in ruleset [:board :topology]) " size "
+                    (get-in ruleset [:board :size]))
+               :else
                (str "Board: " (:board-symmetry ruleset) "-fold symmetry with "
                     (:num-rings ruleset) " rings"))]
 
             [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
-             (let [epp (if v2? (get-in ruleset [:pieces :elements-per-player]) (:elements-per-player ruleset))
-                   nt (if v2? (get-in ruleset [:pieces :num-types]) (:num-types ruleset))]
-               (str "Each player starts with " epp " pieces (" nt " types)"))]
+             (let [nt (cond (v3-ruleset? ruleset) (get-in ruleset [:schema :num_piece_types])
+                            v2? (get-in ruleset [:pieces :num-types])
+                            :else (:num-types ruleset))]
+               (str nt " piece types, " (get-in ruleset [:schema :num_players]
+                                                (or (:num-players ruleset) 2)) " players"))]
 
             [:div {:style {:margin-bottom "6px" :color "#aaa" :font-size "11px"}}
-             (let [wc (if v2? (get-in ruleset [:win :condition]) (name (:win-type ruleset)))
-                   wt (if v2? (get-in ruleset [:win :threshold]) (:win-threshold ruleset))
-                   tl (when v2? (get-in ruleset [:win :turn-limit]))]
+             (let [wc (cond (v3-ruleset? ruleset) "turn limit"
+                            v2? (get-in ruleset [:win :condition])
+                            :else (some-> (:win-type ruleset) name))
+                   wt (cond (v3-ruleset? ruleset) (:turn_limit ruleset)
+                            v2? (get-in ruleset [:win :threshold])
+                            :else (:win-threshold ruleset))
+                   tl (cond (v3-ruleset? ruleset) (:turn_limit ruleset)
+                            v2? (get-in ruleset [:win :turn-limit])
+                            :else nil)]
                (str "Win by: "
                     (case wc
                       "captures"       (str "capturing " wt " enemy pieces")
@@ -619,7 +697,8 @@
            [:button {:style {:margin-top "12px" :padding "6px 16px" :width "100%"
                              :background "#222" :color "#ccc" :border "1px solid #444"
                              :cursor "pointer" :border-radius "4px" :font-family "monospace"}
-                     :on-click #(send-action! (if (rs2/v2-ruleset? ruleset)
+                     :on-click #(send-action! (if (or (rs2/v2-ruleset? ruleset)
+                                                        (v3-ruleset? ruleset))
                                                 ["pass" nil nil]
                                                 [:pass nil nil]))}
             "Pass turn"])]))))
@@ -630,16 +709,28 @@
   "Human-readable description of an action."
   [[action-type from-sp to-sp & args]]
   (let [fmt-sp (fn [sp] (cond (nil? sp) "—"
-                               (number? sp) (str sp)
+                               (number? sp) (str "node " sp)
                                :else (str (first sp) ":" (second sp))))]
-    (case action-type
-      :move      (str "Move " (fmt-sp from-sp) " → " (fmt-sp to-sp))
-      :eat       (str "Eat at " (fmt-sp to-sp))
-      :grow      (str "Grow type " (first args) " at " (fmt-sp to-sp))
-      :capture   (str "Capture at " (fmt-sp to-sp))
+    (cond
+      ;; V3: action-type is an integer (rule slot index) or "pass"
+      (number? action-type)
+      (str "Rule " action-type ": " (fmt-sp from-sp) " → " (fmt-sp to-sp))
+      (= action-type "pass")
+      "Pass"
+      ;; V2: action-type is a string
+      (string? action-type)
+      (str action-type " " (fmt-sp from-sp) " → " (fmt-sp to-sp))
+      ;; V1: action-type is a keyword
+      :else
+      (case action-type
+        :move      (str "Move " (fmt-sp from-sp) " → " (fmt-sp to-sp))
+        :eat       (str "Eat at " (fmt-sp to-sp))
+        :grow      (str "Grow type " (first args) " at " (fmt-sp to-sp))
+        :capture   (str "Capture at " (fmt-sp to-sp))
       :circulate (str "Feed " (fmt-sp from-sp) " → " (fmt-sp to-sp))
       :pass      "Pass"
-      (str action-type))))
+      (str action-type)))))
+
 
 (defn history-panel []
   (let [entries @history-atom]
@@ -698,18 +789,28 @@
    [:div {:style {:color "#777" :font-size "11px" :margin-top "3px"}}
     description]
    [:div {:style {:color "#555" :font-size "10px" :margin-top "3px"}}
-    (if (rs2/v2-ruleset? ruleset)
+    (cond
+      (v3-ruleset? ruleset)
+      (let [s (:schema ruleset)]
+        (str (or (:topology_type s) "?") " "
+             (or (:topology_size s) "") "  "
+             (:num_piece_types s) "t  "
+             (:num_players s) "p  "
+             (count (:rules ruleset)) " rules  "
+             (or (:turn_limit ruleset) "") " limit"))
+      (rs2/v2-ruleset? ruleset)
       (str (get-in ruleset [:board :topology]) " "
            (get-in ruleset [:board :size]) "  "
            (get-in ruleset [:pieces :num-types]) "t  "
            (:num-players ruleset) "p  "
            (str/join "+" (:action-names ruleset)) "  "
            (get-in ruleset [:win :condition]) ">" (get-in ruleset [:win :threshold]))
+      :else
       (str (:board-symmetry ruleset) "-fold  "
            (:num-rings ruleset) "r  "
            (:num-types ruleset) "t  "
            (:num-players ruleset) "p  "
-           (name (:win-type ruleset)) ">" (:win-threshold ruleset)))]])
+           (some-> (:win-type ruleset) name) ">" (:win-threshold ruleset)))]])
 
 (defn create-view []
   (let [rs @create-ruleset
@@ -721,13 +822,22 @@
      [:div {:style {:color "#666" :font-size "12px" :margin-bottom "20px"}}
       "Games discovered by evolutionary search + AlphaZero depth evaluation"]
 
+     ;; V3 games (rules as programs — Go, Organism)
+     [:div {:style {:margin-bottom "16px"}}
+      [:div {:style {:color "#cc88ff" :font-size "10px" :margin-bottom "8px"
+                     :text-transform "uppercase" :letter-spacing "1.5px"}}
+       (str (count rs2/discovered-v3-games) " canonical games (rules as programs)")]
+      (for [{:keys [ruleset] game-name :name :as game} rs2/discovered-v3-games]
+        ^{:key (str "v3-" game-name)}
+        [game-card game (= ruleset rs)])]
+
      ;; V2 discovered games (new topologies)
      [:div {:style {:margin-bottom "16px"}}
       [:div {:style {:color "#88aaff" :font-size "10px" :margin-bottom "8px"
                      :text-transform "uppercase" :letter-spacing "1.5px"}}
        (str (count rs2/discovered-v2-games) " new-topology games (square, hex, torus)")]
-      (for [{:keys [name ruleset] :as game} rs2/discovered-v2-games]
-        ^{:key (str "v2-" name)}
+      (for [{:keys [ruleset] game-name :name :as game} rs2/discovered-v2-games]
+        ^{:key (str "v2-" game-name)}
         [game-card game (= ruleset rs)])]
 
      ;; V1 discovered games (ring boards)
@@ -785,25 +895,33 @@
 ;; ── WebSocket handling ──────────────────────────────────────────────────────────
 
 (defn- build-board-for [rs]
-  "Build board data for either v1 or v2 ruleset."
-  (if (rs2/v2-ruleset? rs)
+  "Build board data for v1, v2, or v3 ruleset."
+  (cond
+    (v3-ruleset? rs)
+    (let [schema (:schema rs)]
+      (topo/build-topology (or (:topology_type schema) "hex")
+                           (or (:topology_size schema) 4)
+                           (or (:topology_symmetry schema) 4)))
+    (rs2/v2-ruleset? rs)
     (topo/build-topology (get-in rs [:board :topology])
                          (get-in rs [:board :size])
                          (get-in rs [:board :symmetry] 4))
+    :else
     (game/build-board rs)))
 
 (defn- compute-legal-actions [rs board state]
-  "Compute legal actions for either v1 or v2."
-  (if (rs2/v2-ruleset? rs)
-    (game-v2/legal-actions rs board state)
-    (game/legal-actions rs board state)))
+  "Compute legal actions for v1, v2, or v3."
+  (cond
+    (v3-ruleset? rs)  (game-v3/legal-actions rs board state)
+    (rs2/v2-ruleset? rs) (game-v2/legal-actions rs board state)
+    :else             (game/legal-actions rs board state)))
 
 (defn- process-state-update! [state action-str]
   (let [me @player-key
-        current (:current-player state)
+        current (get-current-player state @ruleset-atom)
         my-turn? (= current me)
         prev-state @game-state
-        acted-player (when prev-state (:current-player prev-state))]
+        acted-player (when prev-state (get-current-player prev-state @ruleset-atom))]
     ;; Add to history
     (when (and prev-state acted-player
                (or (not= current acted-player) (:winner state)))
@@ -863,19 +981,540 @@
     [game-board]]
    [history-panel]])
 
+;; ── Rules catalog page ─────────────────────────────────────────────────────────
+
+(defn- rule-card-view
+  "Render a single rule as a card."
+  [idx {:keys [predicate effect requires-piece label]}]
+  (let [card (desc/rule->card {:predicate predicate :effect effect :requires-piece requires-piece})]
+    [:div {:style {:background "#151520" :border "1px solid #222" :border-radius "6px"
+                   :padding "10px 14px" :margin-bottom "6px"}}
+     [:div {:style {:display "flex" :align-items "center" :margin-bottom "4px"}}
+      [:span {:style {:background "#333" :color "#aaa" :border-radius "3px"
+                      :padding "1px 6px" :font-size "10px" :margin-right "8px"}}
+       (str "Rule " (inc idx))]
+      (when requires-piece
+        [:span {:style {:color "#666" :font-size "10px"}} "requires own piece"])]
+     (when label
+       [:div {:style {:color "#ccbb88" :font-size "12px" :margin-bottom "4px"
+                      :font-style "italic"}}
+        label])
+     [:div {:style {:color "#88aacc" :font-size "12px" :margin-bottom "2px"}}
+      (str "When: " (or (:when card) "always"))]
+     [:div {:style {:color "#aaccaa" :font-size "12px"}}
+      (str "Then: " (or (:then card) "nothing"))]]))
+
+(defn- interaction-card-view
+  [{:keys [trigger predicate effect label]}]
+  [:div {:style {:background "#1a1518" :border "1px solid #2a2025" :border-radius "6px"
+                 :padding "10px 14px" :margin-bottom "6px"}}
+   [:div {:style {:display "flex" :align-items "center" :margin-bottom "4px"}}
+    [:span {:style {:background "#442233" :color "#cc88aa" :border-radius "3px"
+                    :padding "1px 6px" :font-size "10px" :margin-right "8px"}}
+     "Auto"]
+    [:span {:style {:color "#666" :font-size "10px"}} (str "trigger: " trigger)]]
+   (when label
+     [:div {:style {:color "#ccbb88" :font-size "12px" :margin-bottom "4px"
+                    :font-style "italic"}}
+      label])
+   [:div {:style {:color "#cc88aa" :font-size "12px" :margin-bottom "2px"}}
+    (str "When: " (or (desc/pred->text predicate) "always"))]
+   [:div {:style {:color "#aaccaa" :font-size "12px"}}
+    (str "Then: " (or (desc/effect->text effect) "nothing"))]])
+
+;; ── Visual diagrams for rules page ───────────────────────────────────────────
+
+(def ^:private rule-colors
+  ["#4488ff" "#44cc88" "#ffaa44" "#ff4488" "#aa44ff"
+   "#44cccc" "#cccc44" "#cc8844" "#88ff44"])
+
+(defn- turn-flow-diagram
+  "SVG turn flow: phases as nodes with arrows."
+  [game]
+  (let [phases (or (:phases game)
+                   [{:name "Act" :description "Choose and execute one action"}])
+        n (count phases)
+        w 320
+        h (+ 60 (* n 50))
+        node-x 160
+        start-y 35]
+    [:svg {:width w :height h :viewBox (str "0 0 " w " " h)
+           :style {:background "none"}}
+     ;; Phase nodes + arrows
+     (for [[idx phase] (map-indexed vector phases)
+           :let [y (+ start-y (* idx 50))
+                 color (nth rule-colors (mod idx (count rule-colors)))]]
+       ^{:key idx}
+       [:g
+        ;; Arrow from previous
+        (when (pos? idx)
+          [:line {:x1 node-x :y1 (- y 28) :x2 node-x :y2 (- y 12)
+                  :stroke "#333" :stroke-width 1.5
+                  :marker-end "url(#arrowhead)"}])
+        ;; Node
+        [:rect {:x 30 :y (- y 12) :width 260 :height 26 :rx 6
+                :fill "#111118" :stroke color :stroke-width 1.5 :opacity 0.9}]
+        [:text {:x 45 :y (+ y 4) :font-size "11" :fill color
+                :font-family "monospace"}
+         (:name phase)]
+        (when-let [d (:decider phase)]
+          (when (not= d "current player")
+            [:text {:x 275 :y (+ y 4) :font-size "9" :fill "#666"
+                    :text-anchor "end" :font-family "monospace"}
+             d]))])
+     ;; Loop-back arrow for simple games
+     (when (<= n 2)
+       [:g
+        [:path {:d (str "M " (+ node-x 130) " " (+ start-y (* (dec n) 50) 14)
+                    " C " (+ node-x 160) " " (+ start-y (* (dec n) 50) 40)
+                    " " (+ node-x 160) " " (- start-y 30)
+                    " " (+ node-x 130) " " (- start-y 12))
+                :fill "none" :stroke "#333" :stroke-width 1
+                :stroke-dasharray "4 3"}]
+        [:text {:x (+ node-x 155) :y (+ start-y (* (dec n) 50) -5)
+                :font-size "9" :fill "#444" :font-family "monospace"}
+         "next player"]])
+     ;; Arrowhead marker
+     [:defs
+      [:marker {:id "arrowhead" :markerWidth 8 :markerHeight 6
+                :refX 8 :refY 3 :orient "auto"}
+       [:path {:d "M0,0 L8,3 L0,6 Z" :fill "#555"}]]]]))
+
+(defn- conflict-grid
+  "SVG colored grid for type conflicts."
+  [conflict num-types]
+  (when (and (seq conflict) (> num-types 1))
+    (let [cell 28 pad 40
+          w (+ pad (* num-types cell))
+          h (+ pad (* num-types cell))
+          colors {0 "#222" 1 "#2a4a2a" 2 "#4a2a2a" 3 "#4a3a1a"}
+          labels {0 "" 1 ">" 2 "<" 3 "X"}]
+      [:svg {:width w :height h :viewBox (str "0 0 " w " " h)
+             :style {:background "none"}}
+       ;; Header labels
+       (for [i (range num-types)]
+         ^{:key (str "h" i)}
+         [:g
+          [:text {:x (+ pad (* i cell) (/ cell 2)) :y 12
+                  :text-anchor "middle" :font-size "10" :fill "#888"
+                  :font-family "monospace"}
+           (str "T" i)]
+          [:text {:x 12 :y (+ pad (* i cell) (/ cell 2) 4)
+                  :text-anchor "middle" :font-size "10" :fill "#888"
+                  :font-family "monospace"}
+           (str "T" i)]])
+       ;; Cells
+       (for [i (range num-types)
+             j (range num-types)
+             :let [raw (if (= i j) 0
+                         (let [a (min i j) b (max i j)
+                               idx (loop [x 0 k 0]
+                                     (if (= k a) (+ x (- b a 1))
+                                       (recur (+ x (- num-types 1 k)) (inc k))))]
+                           (nth conflict idx 0)))
+                   ;; Flip display: if raw=2 and i>j, attacker wins
+                   display (cond (= i j) 0
+                                 (= raw 1) (if (< i j) 1 2)
+                                 (= raw 2) (if (< i j) 2 1)
+                                 :else raw)]]
+         ^{:key (str i "-" j)}
+         [:g
+          [:rect {:x (+ pad (* j cell)) :y (+ pad (* i cell) -12)
+                  :width (dec cell) :height (dec cell) :rx 3
+                  :fill (get colors display "#222")}]
+          [:text {:x (+ pad (* j cell) (/ cell 2))
+                  :y (+ pad (* i cell) (/ cell 2) -2)
+                  :text-anchor "middle" :font-size "12" :fill "#aaa"
+                  :font-family "monospace"}
+           (get labels display "")]])])))
+
+(defn- infer-rule-labels
+  "Infer meaningful source/target/action labels from the predicate+effect ASTs."
+  [{:keys [predicate effect requires-piece]}]
+  (let [;; Walk predicate to find target type
+        tgt-label (cond
+                    (some #{desc/P_EMPTY} (flatten predicate)) "empty"
+                    (and (some #{desc/P_OWNER_IS} (flatten predicate))
+                         (some #{desc/ENEMY} (flatten predicate))) "enemy"
+                    (and (some #{desc/P_OWNER_IS} (flatten predicate))
+                         (not (some #{desc/ENEMY} (flatten predicate)))) "ally"
+                    :else "space")
+        ;; Infer action from effect
+        eff-op (if (sequential? effect) (first effect) 0)
+        action (case (int eff-op)
+                 1 "remove" 2 "place" 3 "move" 4 "swap" 5 "push"
+                 6 "resource" 7 "transfer" 8 "collect" 9 "score"
+                 11 "capture" 12 "score" 13 "draw" 17 "cipher" 19 "link"
+                 20 (let [sub-op (first (second effect))]
+                      (case (int (or sub-op 0))
+                        1 "capture" 3 "move" 6 "grow" 11 "capture"
+                        "combo"))
+                 21 "conditional" 22 "phase"
+                 "act")
+        src-label (if requires-piece "yours" "board")]
+    {:src src-label :tgt tgt-label :action action}))
+
+(defn- rule-mini-diagram
+  "Small SVG showing a rule's source → effect → target pattern."
+  [idx rule]
+  (let [color (nth rule-colors (mod idx (count rule-colors)))
+        {:keys [src tgt action]} (infer-rule-labels rule)
+        requires-piece (:requires-piece rule)
+        w 160 h 52]
+    [:svg {:width w :height h :viewBox (str "0 0 " w " " h)
+           :style {:background "none"}}
+     ;; Source node
+     [:g
+      [:circle {:cx 28 :cy 26 :r 16
+                :fill (if requires-piece "#1a2030" "#111118")
+                :stroke (if requires-piece color "#444") :stroke-width 1.5}]
+      [:text {:x 28 :y 30 :text-anchor "middle" :font-size "8" :fill (if requires-piece color "#888")
+              :font-family "monospace"} src]]
+     ;; Arrow with action label
+     [:line {:x1 48 :y1 26 :x2 104 :y2 26
+             :stroke color :stroke-width 1.5 :stroke-dasharray "4 2"
+             :marker-end "url(#arrowhead)"}]
+     [:text {:x 76 :y 18 :text-anchor "middle" :font-size "9" :fill color
+             :font-weight "bold" :font-family "monospace"}
+      action]
+     ;; Target node
+     [:circle {:cx 120 :cy 26 :r 16 :fill "#111118"
+               :stroke (case tgt "enemy" "#ff6666" "ally" "#66ff66" "empty" "#666" "#444")
+               :stroke-width 1.5
+               :stroke-dasharray (when (= tgt "empty") "3 2")}]
+     [:text {:x 120 :y 30 :text-anchor "middle" :font-size "8"
+             :fill (case tgt "enemy" "#ff8888" "ally" "#88ff88" "#888")
+             :font-family "monospace"} tgt]
+     ;; Arrowhead
+     [:defs
+      [:marker {:id "arrowhead" :markerWidth 8 :markerHeight 6
+                :refX 8 :refY 3 :orient "auto"}
+       [:path {:d "M0,0 L8,3 L0,6 Z" :fill "#555"}]]]]))
+
+(defn- board-topology-preview
+  "Small SVG preview of the board shape."
+  [schema]
+  (let [topo-str (str (:topology schema))
+        w 320 h 200]
+    [:svg {:width w :height h :viewBox (str "0 0 " w " " h)
+           :style {:background "none"}}
+     (cond
+       ;; Square grid
+       (str/includes? topo-str "square")
+       (let [n (min 7 (or (when (number? (:size schema)) (:size schema)) 5))
+             cell (/ 160 n) off 80]
+         [:g
+          ;; Grid lines
+          (for [i (range (inc n))]
+            ^{:key (str "h" i)}
+            [:line {:x1 off :y1 (+ 20 (* i cell)) :x2 (+ off (* n cell)) :y2 (+ 20 (* i cell))
+                    :stroke "#333" :stroke-width 0.5}])
+          (for [i (range (inc n))]
+            ^{:key (str "v" i)}
+            [:line {:x1 (+ off (* i cell)) :y1 20 :x2 (+ off (* i cell)) :y2 (+ 20 (* n cell))
+                    :stroke "#333" :stroke-width 0.5}])
+          ;; Intersections
+          (for [r (range n) c (range n)]
+            ^{:key (str r "-" c)}
+            [:circle {:cx (+ off (* c cell) (/ cell 2))
+                      :cy (+ 20 (* r cell) (/ cell 2))
+                      :r 3 :fill "#2a2a3e"}])])
+
+       ;; Hex grid
+       (or (str/includes? topo-str "hex") (str/includes? topo-str "infinite"))
+       (let [radius 3 s 22 cx 160 cy 100]
+         [:g
+          (for [q (range (- radius) radius)
+                r (range (- radius) radius)
+                :when (< (Math/abs (+ q r)) radius)
+                :let [x (+ cx (* s 1.5 q))
+                      y (+ cy (* s (js/Math.sqrt 3) (+ r (* 0.5 q))))]]
+            ^{:key (str q "," r)}
+            [:g
+             [:circle {:cx x :cy y :r 8 :fill "#1a1a2e" :stroke "#333" :stroke-width 0.5}]
+             ;; Lines to neighbors
+             (for [[dq dr] [[1 0] [0 1] [1 -1]]
+                   :let [nq (+ q dq) nr (+ r dr)]
+                   :when (< (Math/abs (+ nq nr)) radius)
+                   :let [nx (+ cx (* s 1.5 nq))
+                         ny (+ cy (* s (js/Math.sqrt 3) (+ nr (* 0.5 nq))))]]
+               ^{:key (str dq "," dr)}
+               [:line {:x1 x :y1 y :x2 nx :y2 ny
+                       :stroke "#222" :stroke-width 0.5}])])])
+
+       ;; Ring/radial
+       (str/includes? topo-str "radial")
+       (let [cx 160 cy 100 rings 4 sym 5]
+         [:g
+          ;; Center
+          [:circle {:cx cx :cy cy :r 4 :fill "#2a2a3e" :stroke "#444" :stroke-width 0.5}]
+          ;; Rings
+          (for [ring (range 1 rings)
+                :let [radius (* ring 22)
+                      n-spaces (* ring sym)]]
+            ^{:key ring}
+            [:g
+             [:circle {:cx cx :cy cy :r radius :fill "none" :stroke "#1a1a2e" :stroke-width 0.5}]
+             (for [step (range n-spaces)
+                   :let [angle (- (* step (/ (* 2 js/Math.PI) n-spaces)) (/ js/Math.PI 2))
+                         x (+ cx (* radius (js/Math.cos angle)))
+                         y (+ cy (* radius (js/Math.sin angle)))]]
+               ^{:key step}
+               [:circle {:cx x :cy y :r 3 :fill "#2a2a3e" :stroke "#444" :stroke-width 0.5}])])])
+
+       ;; Triangle
+       (str/includes? topo-str "triangle")
+       (let [n 5 cell 30 off 80]
+         [:g
+          (for [r (range n) c (range n)
+                :let [x (+ off (* c cell) (if (odd? r) (/ cell 2) 0))
+                      y (+ 30 (* r cell 0.87))]]
+            ^{:key (str r "-" c)}
+            [:circle {:cx x :cy y :r 3 :fill "#2a2a3e" :stroke "#444" :stroke-width 0.5}])])
+
+       ;; Default: simple nodes
+       :else
+       [:g
+        (for [i (range 12)
+              :let [angle (* i (/ (* 2 js/Math.PI) 12))
+                    x (+ 160 (* 60 (js/Math.cos angle)))
+                    y (+ 100 (* 60 (js/Math.sin angle)))]]
+          ^{:key i}
+          [:circle {:cx x :cy y :r 4 :fill "#2a2a3e" :stroke "#444" :stroke-width 0.5}])])
+
+     ;; Label
+     [:text {:x 160 :y (- h 4) :text-anchor "middle" :font-size "10" :fill "#555"
+             :font-family "monospace"}
+      (str (:topology schema))]]))
+
+(defn- game-diagrams
+  "Right column: visual diagrams for a game encoding."
+  [game]
+  (let [{:keys [rules conflict schema]} game
+        num-types (or (:pieces schema) 1)]
+    [:div {:style {:display "flex" :flex-direction "column" :gap "16px"}}
+     ;; Board topology preview
+     [:div
+      [:div {:style {:color "#555" :font-size "10px" :text-transform "uppercase"
+                     :letter-spacing "1px" :margin-bottom "6px"}} "Board"]
+      [board-topology-preview schema]]
+
+     ;; Turn flow
+     [:div
+      [:div {:style {:color "#555" :font-size "10px" :text-transform "uppercase"
+                     :letter-spacing "1px" :margin-bottom "6px"}} "Turn flow"]
+      [turn-flow-diagram game]]
+
+     ;; Rule patterns
+     (when (seq rules)
+       [:div
+        [:div {:style {:color "#555" :font-size "10px" :text-transform "uppercase"
+                       :letter-spacing "1px" :margin-bottom "6px"}} "Rule patterns"]
+        [:div {:style {:display "flex" :flex-wrap "wrap" :gap "4px"}}
+         (for [[idx rule] (map-indexed vector rules)]
+           ^{:key idx}
+           [rule-mini-diagram idx rule])]])
+
+     ;; Conflict matrix
+     (when (seq conflict)
+       [:div
+        [:div {:style {:color "#555" :font-size "10px" :text-transform "uppercase"
+                       :letter-spacing "1px" :margin-bottom "6px"}} "Conflict matrix"]
+        ;; Convert conflict list to flat vector for the grid
+        (let [n (if (number? num-types) num-types
+                  (+ 1 (apply max (map :b conflict))))
+              flat (vec (repeat (* n (dec n) (/ 1 2)) 0))
+              ;; fill from conflict descriptions
+              lookup {"coexist" 0 "type 0 beats type 2" 1
+                      "type A wins" 1 "type B wins" 2
+                      "mutual destruction" 3}]
+          [conflict-grid
+           (mapv (fn [{:keys [outcome]}]
+                   (cond
+                     (str/includes? (str outcome) "beats") 1
+                     (str/includes? (str outcome) "mutual") 3
+                     (str/includes? (str outcome) "coexist") 0
+                     :else 0))
+                 conflict)
+           n])])
+
+     ;; Description length bar
+     [:div
+      [:div {:style {:color "#555" :font-size "10px" :text-transform "uppercase"
+                     :letter-spacing "1px" :margin-bottom "6px"}} "Parsimony"]
+      (let [bits (:description-bits game 100)
+            max-bits 800
+            pct (min 100 (* 100 (/ bits max-bits)))]
+        [:div {:style {:position "relative" :height "24px" :background "#111118"
+                       :border-radius "4px" :border "1px solid #222" :overflow "hidden"}}
+         [:div {:style {:position "absolute" :left 0 :top 0 :height "100%"
+                        :width (str pct "%")
+                        :background (cond (< bits 150) "#2a4a2a"
+                                          (< bits 400) "#3a3a1a"
+                                          :else "#4a2a2a")
+                        :border-radius "4px"}}]
+         [:span {:style {:position "absolute" :left "8px" :top "4px"
+                         :font-size "11px" :color "#ccc" :font-family "monospace"}}
+          (str bits " bits")]
+         [:span {:style {:position "absolute" :right "8px" :top "4px"
+                         :font-size "10px" :color "#666" :font-family "monospace"}}
+          (cond (< bits 150) "minimal"
+                (< bits 300) "compact"
+                (< bits 500) "moderate"
+                :else "complex")]])]]))
+
+(defn- game-encoding-view
+  "Full visualization of one game's encoding."
+  [{:keys [subtitle description schema rules interactions
+           terminations conflict description-bits notes] game-name :name :as game}]
+  [:div {:style {:background "#0d0d18" :border "1px solid #1a1a2e" :border-radius "8px"
+                 :padding "20px" :margin-bottom "20px"}}
+   ;; Header
+   [:div {:style {:display "flex" :justify-content "space-between" :align-items "baseline"
+                  :margin-bottom "4px"}}
+    [:h2 {:style {:color "#fff" :font-size "20px" :margin 0}} game-name]
+    [:span {:style {:color "#555" :font-size "12px"}}
+     (str description-bits " bits")]]
+   [:div {:style {:color "#888" :font-size "13px" :margin-bottom "8px"}} subtitle]
+   [:div {:style {:color "#777" :font-size "12px" :margin-bottom "14px"
+                  :line-height "1.5"}}
+    description]
+
+   ;; Two-column layout: text (left) + diagrams (right)
+   [:div {:style {:display "flex" :gap "24px"}}
+    ;; LEFT COLUMN: text descriptions
+    [:div {:style {:flex "1" :min-width "300px"}}
+
+   ;; Schema summary
+   [:div {:style {:display "flex" :gap "16px" :margin-bottom "14px" :flex-wrap "wrap"}}
+    (for [[k v] [["Board" (:topology schema)]
+                 ["Nodes" (:size schema)]
+                 ["Types" (:pieces schema)]
+                 ["Players" (:players schema)]
+                 ["Resources" (:resources schema 0)]]]
+      ^{:key k}
+      [:div {:style {:background "#111118" :border "1px solid #222" :border-radius "4px"
+                     :padding "4px 10px"}}
+       [:span {:style {:color "#666" :font-size "10px" :text-transform "uppercase"
+                       :letter-spacing "1px"}} k]
+       [:div {:style {:color "#ddd" :font-size "14px"}} (str v)]])]
+
+   ;; Extended state structures
+   (when-let [ext (:extended schema)]
+     (when (and ext (not= ext "none"))
+       [:div {:style {:margin-bottom "10px" :color "#8888cc" :font-size "12px"
+                      :padding "6px 10px" :background "#12121e" :border-radius "4px"
+                      :border "1px solid #1a1a30"}}
+        ext]))
+
+   ;; Turn phases (for complex games like Journey)
+   (when-let [phases (:phases game)]
+     [:div {:style {:margin-bottom "14px"}}
+      [:div {:style {:color "#666" :font-size "10px" :text-transform "uppercase"
+                     :letter-spacing "1px" :margin-bottom "6px"}}
+       (str (count phases) " turn phases")]
+      (for [[idx {:keys [phase-name decider description] :as phase}] (map-indexed vector phases)]
+        ^{:key idx}
+        [:div {:style {:background "#111520" :border "1px solid #1a2030" :border-radius "6px"
+                       :padding "8px 12px" :margin-bottom "4px"}}
+         [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "3px"}}
+          [:span {:style {:background "#1a2a4a" :color "#88aadd" :border-radius "3px"
+                          :padding "1px 6px" :font-size "10px"}}
+           (str "Phase " (inc idx))]
+          [:span {:style {:color "#ccc" :font-size "13px"}} (:name phase)]
+          (when (and decider (not= decider "current player"))
+            [:span {:style {:color "#666" :font-size "10px"}} (str "(" decider ")")])]
+         [:div {:style {:color "#888" :font-size "11px"}} description]])])
+
+   ;; Rules
+   [:div {:style {:margin-bottom "12px"}}
+    [:div {:style {:color "#666" :font-size "10px" :text-transform "uppercase"
+                   :letter-spacing "1px" :margin-bottom "6px"}}
+     (str (count rules) " player action" (when (> (count rules) 1) "s"))]
+    (for [[idx rule] (map-indexed vector rules)]
+      ^{:key idx}
+      [rule-card-view idx rule])]
+
+   ;; Interactions
+   (when (seq interactions)
+     [:div {:style {:margin-bottom "12px"}}
+      [:div {:style {:color "#666" :font-size "10px" :text-transform "uppercase"
+                     :letter-spacing "1px" :margin-bottom "6px"}}
+       "Automatic interactions"]
+      (for [[idx ir] (map-indexed vector interactions)]
+        ^{:key idx}
+        [interaction-card-view ir])])
+
+   ;; Conflict table
+   (when (seq conflict)
+     [:div {:style {:margin-bottom "12px"}}
+      [:div {:style {:color "#666" :font-size "10px" :text-transform "uppercase"
+                     :letter-spacing "1px" :margin-bottom "6px"}}
+       "Type conflicts"]
+      (for [{:keys [a b outcome]} conflict]
+        ^{:key (str a "-" b)}
+        [:div {:style {:color "#999" :font-size "12px" :padding "2px 0"}}
+         (str "Type " a " vs Type " b ": " outcome)])])
+
+   ;; Win conditions
+   [:div {:style {:margin-bottom "12px"}}
+    [:div {:style {:color "#666" :font-size "10px" :text-transform "uppercase"
+                   :letter-spacing "1px" :margin-bottom "6px"}}
+     "Win conditions"]
+    (for [[idx t] (map-indexed vector terminations)]
+      ^{:key idx}
+      [:div {:style {:color "#ccaa66" :font-size "12px" :padding "2px 0"}}
+       (or (:text t) (desc/term->text (:predicate t)))])]
+
+   ;; Notes (if any)
+   (when-let [notes (:notes game)]
+     [:div {:style {:margin-top "8px" :padding "10px 14px" :background "#111118"
+                    :border "1px solid #1a1a22" :border-radius "6px"
+                    :color "#666" :font-size "11px" :line-height "1.5"
+                    :font-style "italic"}}
+      notes])]
+
+    ;; RIGHT COLUMN: visual diagrams
+    [:div {:style {:width "340px" :flex-shrink "0"}}
+     [game-diagrams game]]]])
+
+(defn rules-catalog-view []
+  [:div {:style {:color "#ccc" :font-family "monospace" :padding "30px 40px"
+                 :max-width "1100px" :margin "0 auto" :min-height "100vh"
+                 :background "#111"}}
+   [:h1 {:style {:color "#fff" :margin-bottom "4px"}} "Game Encodings"]
+   [:div {:style {:color "#666" :font-size "12px" :margin-bottom "24px"}}
+    "Each game is encoded as (state schema, rules, interactions, win conditions). "
+    "Rules are predicate/effect programs composed from universal primitives."]
+
+   ;; Navigation
+   [:div {:style {:margin-bottom "20px" :display "flex" :gap "8px"}}
+    [:a {:href "/universal" :style {:color "#4488ff" :font-size "12px"}} "< back to games"]]
+
+   ;; Game list
+   (for [game desc/all-encodings]
+     ^{:key (:name game)}
+     [game-encoding-view game])])
+
 (defn mount-components []
   (let [play-key (.-playKey js/window)
-        is-create (.-isCreate js/window)]
+        is-create (.-isCreate js/window)
+        is-rules (.-isRules js/window)]
 
     ;; Human is always player "0" in universal games
     (reset! player-key "0")
 
-    (if is-create
+    (cond
+      is-rules
+      (rdom/render [rules-catalog-view]
+                (.getElementById js/document "universal"))
+
+      is-create
       (rdom/render [create-view]
                 (.getElementById js/document "universal"))
 
-      (do
-        (let [host (.-host js/location)
+      :else
+      (do (let [host (.-host js/location)
               protocol (if (= "https:" (.-protocol js/location)) "wss" "ws")
               url (str protocol "://" host "/ws/universal/play/" play-key)]
           (ws/make-websocket! url receive-message!))

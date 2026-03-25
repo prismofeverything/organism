@@ -73,6 +73,13 @@
       :preferences preferences
       :player-games (pr-str player-games)})))
 
+(defn rules-page
+  [request]
+  (layout/render
+   request
+   "universal/rules.html"
+   {:session-player (get-in request [:session :player])}))
+
 (defn universal-routes
   [db]
   ["/universal"
@@ -81,6 +88,7 @@
    ["" {:get home-page}]
    ["/create" {:get create-page
                :middleware [require-auth]}]
+   ["/rules" {:get rules-page}]
    ["/play" {:get (partial play-list-page db)
              :middleware [require-auth]}]
    ["/play/:play" {:get play-page}]

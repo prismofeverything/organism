@@ -12,6 +12,12 @@
 (def movement-min 3)
 (def movement-max 8)
 
+(def ^:private generate-words
+  ["solar" "lunar" "stellar" "cosmic" "astral" "void" "nebula" "nova"                                                                "drift" "pulse" "ember" "spark" "flame" "frost" "tide" "storm"
+   "crystal" "prism" "cipher" "rune" "glyph" "sigil" "nexus" "apex"
+   "echo" "arc" "flux" "bloom" "shade" "gleam" "veil" "haze"])
+
+
 ;; --- hex lattice ---
 ;; Axial coordinates [q r]. All six neighbor directions.
 

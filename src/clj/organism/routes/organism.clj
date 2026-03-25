@@ -13,14 +13,16 @@
       (response/redirect (str "/login?redirect=" (:uri request))))))
 
 (defn play-list-page
-  "Show the logged-in player's games for organism."
+  "Show the logged-in player's games — reuses the player page."
   [db request]
   (let [player (get-in request [:session :player])
+        preferences (persist/find-player-preferences db player)
         player-games (persist/load-player-games db player "organism")]
     (layout/render
      request
-     "organism/games.html"
-     {:session-player player
+     "organism/player.html"
+     {:player player
+      :preferences preferences
       :player-games (pr-str player-games)})))
 
 (defn create-page

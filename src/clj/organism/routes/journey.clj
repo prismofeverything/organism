@@ -113,9 +113,10 @@
         (min direct-dist wrap-dist)))))
 
 (defn agent-step
-  "Pick one goal-oriented choice and return [choice-key next-state]."
+  "Pick one goal-oriented choice and return [choice-key next-state].
+   Uses find-state-raw to avoid stale .cljc auto-advance issues."
   [state]
-  (let [[phase choices] (choice/find-state state)]
+  (let [[phase choices] (choice/find-state-raw state)]
     (when (seq choices)
       (let [next-s
             (case phase
@@ -181,25 +182,40 @@
                 (get choices best))
 
               ;; Fly to: prefer conversion-enabling tiles, then spread out, then non-wrap.
+              ;; Avoid going back to the fly-from position to prevent back-and-forth.
               :choose-fly-to
               (let [player   (game/current-player state)
+                    from-pos (get-in state [:player-turn :action :fly-from])
                     non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
-                    conv     (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)
-                    fewest   (when (and (not conv) (seq non-wrap))
+                    ;; Exclude the fly-from position to avoid immediate reversal
+                    non-back (if from-pos (dissoc non-wrap from-pos) non-wrap)
+                    targets  (if (seq non-back) non-back non-wrap)
+                    conv     (some #(when (enables-conversion? state (val %)) (val %)) targets)
+                    fewest   (when (and (not conv) (seq targets))
                                (let [k (apply min-key
                                          #(get-in state [:board % :sundivers player] 0)
-                                         (keys non-wrap))]
-                                 (get non-wrap k)))]
-                (or conv fewest (pick-varied state (vals non-wrap)) (pick-varied state (vals choices))))
+                                         (keys targets))]
+                                 (get targets k)))]
+                (or conv fewest (pick-varied state (vals targets)) (pick-varied state (vals choices))))
 
               ;; Take max bonus actions to fully utilise stations
               :choose-activate-self-bonus  (get choices (apply max (keys choices)))
               :choose-activate-owner-bonus (get choices (apply max (keys choices)))
               :choose-activate-tower-join  (:join choices (:skip choices))
               :choose-activate-tower-spend (first (vals choices))
+              :choose-activate-tower-join-spend (first (vals choices))
+              :choose-activate-matrix-spend (first (vals choices))
 
-              :flare-beacon-join   (:join choices (:skip choices))
-              :captain-beacon-join (:join choices (:skip choices))
+              :flare-beacon-join       (:join choices (:skip choices))
+              :flare-beacon-join-spend (first (vals choices))
+              :captain-beacon-join     (:join choices (:skip choices))
+              :captain-beacon-join-spend (first (vals choices))
+              :cipher-spend            (first (vals choices))
+
+              ;; Auto-advance trivial phases
+              :draw-cards       (first (vals choices))
+              :keep-card        (or (:continue choices) (first (vals (dissoc choices :keep-held)))
+                                    (first (vals choices)))
 
               ;; Landing first; then prefer wrap if it gets ark closer to a beacon.
               :choose-ark-advance
@@ -245,11 +261,12 @@
                     beacons  (filter #(get-in board [% :beacon]) (keys board))
 
                     ;; Turn that gets ark closest to any landable tile (highest priority)
+                    ;; Note: turn-heading maps :left→rotate-cw, :right→rotate-ccw (SVG Y-down)
                     landing-turn
                     (when (seq landings)
                       (let [d-none  (effective-ark-dist state ark dir                   landings)
-                            d-left  (effective-ark-dist state ark (game/rotate-ccw dir) landings)
-                            d-right (effective-ark-dist state ark (game/rotate-cw  dir) landings)
+                            d-left  (effective-ark-dist state ark (game/rotate-cw  dir) landings)
+                            d-right (effective-ark-dist state ark (game/rotate-ccw dir) landings)
                             best-d  (min d-none d-left d-right)]
                         (when-not (= d-none d-left d-right)
                           (cond
@@ -262,8 +279,8 @@
                     beacon-turn
                     (when (seq beacons)
                       (let [d-none  (effective-ark-dist state ark dir                     beacons)
-                            d-left  (effective-ark-dist state ark (game/rotate-ccw dir)   beacons)
-                            d-right (effective-ark-dist state ark (game/rotate-cw  dir)   beacons)
+                            d-left  (effective-ark-dist state ark (game/rotate-cw  dir)   beacons)
+                            d-right (effective-ark-dist state ark (game/rotate-ccw dir)   beacons)
                             best-d  (min d-none d-left d-right)]
                         (when-not (= d-none d-left d-right)
                           (cond
@@ -280,8 +297,8 @@
                 (or landing-turn
                     beacon-turn
                     (cond
-                      (and cw-back (not ccw-back)) (or (:right choices) (:none choices))
-                      (and ccw-back (not cw-back)) (or (:left  choices) (:none choices))
+                      (and cw-back (not ccw-back)) (or (:left  choices) (:none choices))
+                      (and ccw-back (not cw-back)) (or (:right choices) (:none choices))
                       (or cw-back behind ccw-back)
                       (if (even? (player-idx state))
                         (or (:left  choices) (:none choices))
@@ -351,7 +368,7 @@
       (if (:game-over s)
         history
         (if-let [[ck next-s] (agent-step s)]
-          (let [[phase _] (choice/find-state s)]
+          (let [[phase _] (choice/find-state-raw s)]
             (recur next-s
                    (inc i)
                    (conj history {:step   (inc i)

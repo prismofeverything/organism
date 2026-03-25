@@ -1,0 +1,151 @@
+=== Search V3 Results — Rules as Programs (top 15) ===
+
+#1  rad4t4p2r5  (gen 3)
+  Topology:    radial size=4
+  Pieces:      4 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 368 bits)
+  Turns:       3/turn, limit=50
+  Conflict:    (3, 1, 3, 1, 1, 1)
+  Metrics:     term=1.00 bal=0.00 B=21.0 len=302 interact=0.01 mech=0.00 KR=367.6b logGT=399.6 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.09  Balance=0.00  Interaction=0.006
+
+#2  rad4t4p2r5  (gen 6)
+  Topology:    radial size=4
+  Pieces:      4 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 362 bits)
+  Turns:       3/turn, limit=50
+  Conflict:    (3, 1, 3, 1, 1, 1)
+  Metrics:     term=1.00 bal=0.00 B=20.8 len=302 interact=0.01 mech=0.00 KR=361.6b logGT=398.1 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.10  Balance=0.00  Interaction=0.006
+
+#3  rad4t4p2r5  (gen 1)
+  Topology:    radial size=4
+  Pieces:      4 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 368 bits)
+  Turns:       3/turn, limit=50
+  Conflict:    (3, 1, 3, 1, 1, 1)
+  Metrics:     term=1.00 bal=0.00 B=20.3 len=302 interact=0.01 mech=0.00 KR=367.6b logGT=394.6 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.07  Balance=0.00  Interaction=0.006
+
+#4  rad4t4p2r5  (gen 5)
+  Topology:    radial size=4
+  Pieces:      4 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 368 bits)
+  Turns:       3/turn, limit=50
+  Conflict:    (3, 1, 3, 1, 1, 1)
+  Metrics:     term=1.00 bal=0.00 B=20.2 len=302 interact=0.01 mech=0.00 KR=367.6b logGT=394.1 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=1.07  Balance=0.00  Interaction=0.006
+
+#5  tri4t4p2r2  (gen 9)
+  Topology:    triangle size=4
+  Pieces:      4 types, 2p
+  Resources:   0 slots
+  Rules:       2 (description: 164 bits)
+  Turns:       2/turn, limit=75
+  Conflict:    (0, 0, 1, 3, 1, 2)
+  Metrics:     term=1.00 bal=0.60 B=18.2 len=302 interact=0.00 mech=0.00 KR=164.1b logGT=380.7 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=2.32  Balance=0.60  Interaction=0.003
+
+#6  tri4t4p2r2  (gen 10)
+  Topology:    triangle size=4
+  Pieces:      4 types, 2p
+  Resources:   0 slots
+  Rules:       2 (description: 161 bits)
+  Turns:       2/turn, limit=75
+  Conflict:    (0, 0, 1, 3, 1, 2)
+  Metrics:     term=1.00 bal=0.00 B=17.7 len=302 interact=0.00 mech=0.00 KR=161.1b logGT=377.0 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=2.34  Balance=0.00  Interaction=0.003
+
+#7  tri3t2p2r3  (gen 0)
+  Topology:    triangle size=3
+  Pieces:      2 types, 2p
+  Resources:   1 slots
+  Rules:       3 (description: 301 bits)
+  Turns:       2/turn, limit=30
+  Conflict:    (2,)
+  Metrics:     term=1.00 bal=0.00 B=28.7 len=122 interact=0.03 mech=0.00 KR=301.5b logGT=177.9 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.59  Balance=0.00  Interaction=0.033
+
+#8  tri3t2p2r4  (gen 3)
+  Topology:    triangle size=3
+  Pieces:      2 types, 2p
+  Resources:   1 slots
+  Rules:       4 (description: 324 bits)
+  Turns:       2/turn, limit=30
+  Conflict:    (2,)
+  Metrics:     term=1.00 bal=0.00 B=22.2 len=122 interact=0.05 mech=0.00 KR=323.6b logGT=164.9 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.51  Balance=0.00  Interaction=0.055
+
+#9  tri3t2p2r4  (gen 5)
+  Topology:    triangle size=3
+  Pieces:      2 types, 2p
+  Resources:   1 slots
+  Rules:       4 (description: 324 bits)
+  Turns:       2/turn, limit=30
+  Conflict:    (2,)
+  Metrics:     term=1.00 bal=0.00 B=16.1 len=122 interact=0.06 mech=0.00 KR=323.6b logGT=147.9 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.46  Balance=0.00  Interaction=0.065
+
+#10  squ4t2p2r5  (gen 8)
+  Topology:    square size=4
+  Pieces:      2 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 344 bits)
+  Turns:       3/turn, limit=50
+  Conflict:    (0,)
+  Metrics:     term=1.00 bal=0.87 B=45.0 len=70 interact=0.14 mech=0.00 KR=343.6b logGT=115.4 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.34  Balance=0.87  Interaction=0.141
+
+#11  squ4t2p2r5  (gen 7)
+  Topology:    square size=4
+  Pieces:      2 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 344 bits)
+  Turns:       3/turn, limit=50
+  Conflict:    (0,)
+  Metrics:     term=1.00 bal=0.80 B=43.3 len=59 interact=0.15 mech=0.00 KR=343.6b logGT=97.3 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.28  Balance=0.80  Interaction=0.152
+
+#12  tri3t2p2r4  (gen 5)
+  Topology:    triangle size=3
+  Pieces:      2 types, 2p
+  Resources:   1 slots
+  Rules:       4 (description: 324 bits)
+  Turns:       1/turn, limit=30
+  Conflict:    (2,)
+  Metrics:     term=1.00 bal=0.00 B=26.7 len=62 interact=0.07 mech=0.00 KR=323.6b logGT=88.8 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.27  Balance=0.00  Interaction=0.068
+
+#13  rad4t4p2r5  (gen 10)
+  Topology:    radial size=4
+  Pieces:      4 types, 2p
+  Resources:   2 slots
+  Rules:       5 (description: 395 bits)
+  Turns:       1/turn, limit=75
+  Conflict:    (0, 1, 3, 1, 1, 0)
+  Metrics:     term=1.00 bal=1.00 B=97.0 len=28 interact=0.07 mech=0.00 KR=394.8b logGT=56.4 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.14  Balance=1.00  Interaction=0.070
+
+#14  tri6t4p2r3  (gen 0)
+  Topology:    triangle size=6
+  Pieces:      4 types, 2p
+  Resources:   1 slots
+  Rules:       3 (description: 269 bits)
+  Turns:       1/turn, limit=100
+  Conflict:    (0, 2, 3, 1, 2, 1)
+  Metrics:     term=0.00 bal=0.00 B=1.3 len=600 interact=0.01 mech=0.00 KR=269.4b logGT=59.1 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.22  Balance=0.00  Interaction=0.010
+
+#15  tri6t4p2r2  (gen 6)
+  Topology:    triangle size=6
+  Pieces:      4 types, 2p
+  Resources:   1 slots
+  Rules:       2 (description: 199 bits)
+  Turns:       1/turn, limit=100
+  Conflict:    (0, 2, 3, 1, 2, 1)
+  Metrics:     term=0.00 bal=0.00 B=1.3 len=600 interact=0.01 mech=0.00 KR=199.2b logGT=58.2 | elo=0 tvr=0.00 hard=0.000
+  Depth=0  Complexity=0.29  Balance=0.00  Interaction=0.009

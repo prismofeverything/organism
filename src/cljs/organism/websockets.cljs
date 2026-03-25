@@ -22,14 +22,18 @@
     (throw (js/Error. "websocket not available"))))
 
 (defn make-websocket!
-  [url receive-handler]
-  (println "connecting to websocket")
-  (if-let [channel (js/WebSocket. url)]
-    (do
-      (set! (.-onmessage channel) (receive-transit-message! receive-handler))
-      (reset! ws-channel channel)
-      (println "websocket connection established with " url))
-    (throw (js/Error. "websocket connection FAILED with " url))))
+  ([url receive-handler]
+   (make-websocket! url receive-handler nil))
+  ([url receive-handler on-open]
+   (println "connecting to websocket")
+   (if-let [channel (js/WebSocket. url)]
+     (do
+       (set! (.-onmessage channel) (receive-transit-message! receive-handler))
+       (when on-open
+         (set! (.-onopen channel) (fn [_] (on-open))))
+       (reset! ws-channel channel)
+       (println "websocket connection established with " url))
+     (throw (js/Error. "websocket connection FAILED with " url)))))
 
 (defn close-websocket!
   []

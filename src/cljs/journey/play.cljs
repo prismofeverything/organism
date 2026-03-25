@@ -283,6 +283,22 @@
                                     :when dest-pos]
                                 [dest-pos [:wrap edge-pos]]))
             wrap-dest-set   (set (keys wrap-dest->key))
+            ;; Drift/heading phases: show direction targets on board instead of buttons
+            is-drift?       (#{:choose-captain-drift :choose-activate-tower-heading} (:phase srv))
+            heading-dir     (when ark (game/heading-direction state))
+            drift-dest->key (when (and is-drift? ark heading-dir)
+                              (let [dirs {:none  heading-dir
+                                          :left  (game/rotate-cw heading-dir)
+                                          :right (game/rotate-ccw heading-dir)}]
+                                (into {}
+                                      (for [[k d] dirs
+                                            :when (contains? choices k)]
+                                        [(game/add-hex ark d) k]))))
+            drift-dest-set  (if drift-dest->key (set (keys drift-dest->key)) #{})
+            ;; Remove drift choices from buttons (they show on the board)
+            btn-choices     (if is-drift?
+                              (filterv #(not (#{:none :left :right} (:choice-key %))) btn-choices)
+                              btn-choices)
             ;; Convert sundiver highlights depend on pending selection
             conv-sundivers  (if pending
                               ;; Highlight all sundivers for the pending options
@@ -290,7 +306,7 @@
                               ;; Highlight all sundivers for all conversions
                               (set (mapcat (fn [[_ opts]] (mapcat :sundivers opts)) conv-groups)))
             ;; Merge all highlights
-            all-pos-hl      (into pos-hl wrap-dest-set)
+            all-pos-hl      (into (into pos-hl wrap-dest-set) drift-dest-set)
             on-click        (when active?
                               (fn [pos-or-key]
                                 (cond
@@ -311,6 +327,7 @@
                                   ;; [:fly pos] from sundiver click
                                   (and (vector? pos-or-key) (= :fly (first pos-or-key)))
                                   (send-action! pos-or-key)
+                                  (contains? drift-dest->key pos-or-key) (send-action! (get drift-dest->key pos-or-key))
                                   (contains? pos-hl pos-or-key)          (send-action! pos-or-key)
                                   (contains? wrap-dest->key pos-or-key)  (send-action! (get wrap-dest->key pos-or-key))
                                   :else                                  (send-action! pos-or-key))))
@@ -332,18 +349,88 @@
          ;; Board area
          [:div {:style {:flex "1" :position "relative" :overflow "hidden"}}
           ;; Phase/turn indicator strip
-          [:div {:style {:position "absolute" :top "6px" :left "8px"
-                         :color "#334455" :font-size "11px"
-                         :font-family "monospace" :z-index 10}}
-           (game-phase-label state)
-           (when active? " ← YOUR TURN")
-           (let [remaining (get-in state [:player-turn :action :moves-remaining])
-                 total     (game/move-points state (game/current-player state))]
-             (when (and remaining (#{:choose-move} (:phase srv)))
-               [:span {:style {:color "#667788" :margin-left "8px"}}
-                (str "moves: " remaining "/" total)]))
-           (when bot-thinking?
-             [:span {:style {:color "#667744" :margin-left "8px"}} "Bot thinking…"])]
+          (let [srv-phase   (:phase srv)
+                cp-name     (choice-player state)
+                p-colors    (board/build-player-colors (:turn-order state))
+                cp-ck       (get p-colors cp-name :sun)
+                cp-fg       (board/ptb cp-ck)
+                cp-bg       (str cp-fg "22")
+                cp-border   (str cp-fg "55")
+                action-type (get-in state [:player-turn :action-type])
+                station-type (get-in state [:player-turn :action :station-type])
+                summary
+                (case srv-phase
+                  :choose-action-type  "choose an action: move, convert, or activate"
+                  :choose-move         (let [rem (get-in state [:player-turn :action :moves-remaining] 0)
+                                             tot (game/move-points state (game/current-player state))]
+                                         (str "move sundivers (" rem "/" tot " remaining)"))
+                  :choose-fly-to       "choose where to fly"
+                  :choose-convert      "choose a conversion pattern"
+                  :choose-activate     "choose a station type to activate"
+                  :choose-activate-station "choose a station to activate"
+                  :choose-activate-self-bonus "choose how many bonus actions to take"
+                  :choose-activate-owner-bonus "choose how many owner bonus actions to take"
+                  :choose-activate-matrix-beacon "place a beacon"
+                  :choose-activate-matrix-spend "spend a sundiver to pay for the beacon"
+                  :choose-activate-tower-heading "choose the Ark's heading"
+                  :choose-activate-tower-join "join a beacon to the cipher?"
+                  :choose-activate-tower-join-spend "spend a sundiver to join"
+                  :choose-activate-tower-spend "spend a sundiver to pay for the tower action"
+                  :choose-captain-drift "choose the Ark's drift direction"
+                  :choose-ark-advance   "the Ark reaches unexplored space"
+                  :choose-flare-advance "a flare advances the Ark into unexplored space"
+                  :choose-drift-flare-advance "drift flare advances the Ark"
+                  :choose-land          "land the Ark?"
+                  :cipher               "place a beacon on the cipher"
+                  :cipher-spend         "spend a sundiver to pay for cipher placement"
+                  :keep-card            "choose a card to keep"
+                  :flare-beacon-join    "join a beacon to the cipher?"
+                  :flare-beacon-join-spend "spend a sundiver to join"
+                  :captain-beacon-join  "join a beacon to the cipher?"
+                  :captain-beacon-join-spend "spend a sundiver to join"
+                  :draw-cards           "drawing cards…"
+                  :draw-drift-card      "drawing drift card…"
+                  :game-over            "game over"
+                  (when srv-phase (name srv-phase)))]
+            [:div {:style {:position "absolute" :top "-24px" :left "50%"
+                           :transform "translateX(-50%)"
+                           :color "#AABBCC" :font-size "12px"
+                           :font-family "monospace" :z-index 10
+                           :background cp-bg
+                           :border (str "1px solid " cp-border)
+                           :border-top "none"
+                           :border-radius "50%"
+                           :padding "30px 36px 14px"
+                           :text-align "center"
+                           :display "flex" :flex-direction "column"
+                           :align-items "center" :gap "6px"}}
+             ;; Top line: player name + context + summary
+             [:div {:style {:white-space "nowrap"}}
+              [:span {:style {:color cp-fg :font-weight "bold"}} cp-name]
+              (when action-type
+                [:span {:style {:color (str cp-fg "88") :margin-left "6px"}}
+                 (str "(" (name action-type)
+                      (when station-type (str " " (name station-type)))
+                      ")")])
+              (when summary
+                [:span {:style {:color (str cp-fg "AA") :margin-left "8px"}} summary])
+              (when active?
+                [:span {:style {:color "#88CCAA" :margin-left "8px"}} "← your turn"])]
+             ;; Choice buttons row
+             (when (seq buttons)
+               [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap"
+                              :justify-content "center"}}
+                (for [[i {:keys [label on-click]}] (map-indexed vector buttons)]
+                  [:button {:key i :on-click on-click
+                            :style {:background (str cp-fg "22")
+                                    :color cp-fg
+                                    :border (str "1px solid " cp-border)
+                                    :border-radius "4px"
+                                    :padding "4px 14px"
+                                    :cursor "pointer"
+                                    :font-family "monospace"
+                                    :font-size "12px"}}
+                   label])])])
           ;; Game-over banner
           (when-let [go (:game-over state)]
             [:div {:style {:position "absolute"
@@ -365,9 +452,12 @@
                 (for [[p sc] (:scores go)]
                   [:div {:key p :style {:margin-top "4px"}}
                    (str p ": " sc " pts")])]
-               [:div (str "Loss — captain: " (:captain go))])])
+               [:div
+                [:div (str "Loss — captain: " (:captain go))]
+                [:div {:style {:margin-top "8px" :color "#889"}}
+                 (str "Flares: " (:flares-drawn state 0) "/13")]])])
           ;; SVG board
-          [board-view state all-pos-hl on-click buttons
+          [board-view state all-pos-hl on-click nil
            {:fly-highlights fly-hl :chosen-pos chosen-pos :active-player my
             :conv-groups conv-groups :conv-sundivers conv-sundivers
             :pending-convert pending
