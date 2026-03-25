@@ -68,7 +68,8 @@
   {:uberjar {:omit-source true
              :prep-tasks ["compile"
                           ["cljsbuild" "once" "organism"]
-                          ["cljsbuild" "once" "journey"]]
+                          ["cljsbuild" "once" "journey"]
+                          ["cljsbuild" "once" "universal"]]
              :cljsbuild
              {:builds
               {:organism
@@ -77,6 +78,7 @@
                 {:output-dir "target/cljsbuild/public/js"
                  :output-to "target/cljsbuild/public/js/organism.js"
                  :source-map "target/cljsbuild/public/js/organism.js.map"
+                 :main "organism.organism"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
@@ -90,6 +92,19 @@
                  :output-to "target/cljsbuild/public/js/journey.js"
                  :source-map "target/cljsbuild/public/js/journey.js.map"
                  :main "journey.journey"
+                 :optimizations :advanced
+                 :pretty-print false
+                 :infer-externs true
+                 :closure-warnings
+                 {:externs-validation :off :non-standard-jsdoc :off}
+                 :externs ["react/externs/react.js"]}}
+               :universal
+               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
+                :compiler
+                {:output-dir "target/cljsbuild/public/js/universal-prod"
+                 :output-to "target/cljsbuild/public/js/universal.js"
+                 :source-map "target/cljsbuild/public/js/universal.js.map"
+                 :main "organism.universal"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
