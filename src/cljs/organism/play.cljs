@@ -2700,10 +2700,14 @@
             (if (< cursor total)
               (set-history-advance! total cursor))))))
     "create"
-    (do
-      (reset! board-invocation (:invocation received))
-      (reset! chat (:chat received))
-      (apply-invocation! @board-invocation))
+    (if js/isCreate
+      ;; On the create page, local state is authoritative — don't let
+      ;; the server's default overwrite what the user configured
+      nil
+      (do
+        (reset! board-invocation (:invocation received))
+        (reset! chat (:chat received))
+        (apply-invocation! @board-invocation)))
     "player-name"
     (let [{:keys [index player]} received]
       (swap! player-order assoc index player)

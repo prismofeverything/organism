@@ -135,17 +135,16 @@
 (defn compute-locations
   "Compute pixel positions for all board spaces. Dispatches on topology type."
   [topology-type coords grid-size rings adjacencies]
-  (case topology-type
-    ;; V2 topologies
-    ("square" "torus_square")
-    (reduce (fn [m node] (assoc m node (square-node->pixel coords grid-size node)))
-            {} (keys coords))
-
-    ("hex" "torus_hex")
-    (reduce (fn [m node] (assoc m node (hex-node->pixel coords grid-size node)))
-            {} (keys coords))
-
-    ;; V1 ring topology (default)
+  (if (and coords (seq coords))
+    ;; Coord-based rendering (v2/v3 — all topologies including radial)
+    (let [pixel-fn (case topology-type
+                     ("hex" "torus_hex" "radial" "ring" "triangle")
+                     (partial hex-node->pixel coords grid-size)
+                     ;; default: square layout
+                     (partial square-node->pixel coords grid-size))]
+      (reduce (fn [m node] (assoc m node (pixel-fn node)))
+              {} (keys coords)))
+    ;; V1 ring topology (no coords — uses [color step] tuples)
     (reduce (fn [m space] (assoc m space (ring-space->pixel rings space)))
             {} (keys adjacencies))))
 
