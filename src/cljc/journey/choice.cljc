@@ -89,23 +89,22 @@
 (defn choose-fly-to-choices
   [state]
   (let [player      (game/current-player state)
-        from-pos    (get-in state [:player-turn :action :fly-from])]
+        from-pos    (get-in state [:player-turn :action :fly-from])
+        after       (fn [s]
+                      (-> s
+                          (update-in [:player-turn :action] dissoc :fly-from)
+                          use-move-point))]
     (into {}
           (mapcat
            (fn [to-pos]
              (let [owner (game/gate-owner state from-pos to-pos)
-                   after (fn [s] (-> s
-                                     (update-in [:player-turn :action] dissoc :fly-from)
-                                     use-move-point))
                    base-entry [to-pos (after (if owner
                                                (game/fly-through-gate state player from-pos to-pos)
                                                (game/fly-sundiver state player from-pos to-pos)))]]
                (if (and (nil? owner) (nil? (game/get-tile state to-pos))
-                        ;; Only wrap when no tiles exist further along this ray
                         (not (some #(and (game/on-ray? from-pos (nth game/hex-directions (game/adjacent-direction from-pos to-pos)) %)
                                          (> (game/hex-distance from-pos %) 1))
                                    (keys (:board state)))))
-                 ;; Edge of known space: also offer wrap
                  (let [dir-idx  (game/adjacent-direction from-pos to-pos)
                        fly-dir  (nth game/hex-directions dir-idx)
                        wrap-pos (game/wrap-target state from-pos fly-dir)]
@@ -179,13 +178,14 @@
       (into (map (fn [pos]
                    [pos (-> state
                             (assoc-in [:player-turn :action :stations-queue] [pos])
+                            (assoc-in [:player-turn :action :free-activation?] false)
                             (update-in [:player-turn :action :activated-stations] (fnil conj #{}) pos)
                             game/begin-next-station)])
                  available)))))
 
 (defn choose-activate-owner-bonus-choices
-  "After activator finishes base actions, owner decides how many bonus actions to take (0..bonus-total).
-   Cap the offered range to what the owner can actually execute based on station type."
+  "After activator finishes base actions, owner decides to decline (0) or take full bonus.
+   No partial bonus — all or nothing."
   [state]
   (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
         owner        (get-in state [:player-turn :action :current-owner])
@@ -198,7 +198,8 @@
                          (min bonus-total positions spendable beacons))
                        :tower
                        (min bonus-total (game/total-spendable-sundivers state owner))
-                       bonus-total)]
+                       bonus-total)
+        options (if (pos? max-feasible) [0 max-feasible] [0])]
     (into {}
           (map
            (fn [n]
@@ -206,12 +207,11 @@
                     (assoc-in [:player-turn :action :owner-actions] n)
                     (assoc-in [:player-turn :choice-player] nil)
                     (game/begin-actor-actions :owner))])
-           (range (inc max-feasible))))))
+           options))))
 
 (defn choose-activate-self-bonus-choices
-  "Activating their own station: choose 0..bonus bonus actions on top of base.
-   Cap the offered range to what the player can actually execute — mirrors the
-   same feasibility guard already applied in choose-activate-owner-bonus-choices."
+  "Activating their own station: choose to decline (0) or take full bonus.
+   No partial bonus — it's all or nothing."
   [state]
   (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
         base         (get-in state [:player-turn :action :activator-actions] 0)
@@ -225,14 +225,18 @@
                          (max 0 (min bonus-total (- positions base) (- spendable base) (- beacons base))))
                        :tower
                        (max 0 (min bonus-total (- (game/total-spendable-sundivers state player) base)))
-                       bonus-total)]
+                       bonus-total)
+        ;; Only offer 0 (decline) and max-feasible (take full bonus)
+        options (if (pos? max-feasible)
+                  [0 max-feasible]
+                  [0])]
     (into {}
           (map
            (fn [n]
              [n (-> state
                     (assoc-in [:player-turn :action :activator-actions] (+ base n))
                     (game/begin-actor-actions :activator))])
-           (range (inc max-feasible))))))
+           options))))
 
 ;; --- activate helpers ---
 
@@ -293,14 +297,20 @@
 
 (defn choose-activate-matrix-beacon-choices
   [state]
-  (let [player (actor-player state)]
-    (into {}
-          (map
-           (fn [pos]
-             [pos (-> state
-                      (game/place-beacon player pos)
-                      (assoc-in [:player-turn :phase] :choose-activate-matrix-spend))])
-           (game/matrix-beacon-positions state player)))))
+  (let [player    (actor-player state)
+        positions (game/matrix-beacon-positions state player)
+        choices   (into {}
+                        (map
+                         (fn [pos]
+                           [pos (-> state
+                                    (game/place-beacon player pos)
+                                    (assoc-in [:player-turn :phase] :choose-activate-matrix-spend))])
+                         positions))]
+    ;; If no valid positions, skip remaining actions and advance
+    (if (seq choices)
+      choices
+      (let [actor (current-actor state)]
+        {:skip (game/advance-after-actions state actor)}))))
 
 (defn choose-activate-matrix-spend-choices
   [state]
@@ -469,7 +479,9 @@
   (let [player  (game/current-player state)
         captain (:captain-flame state)]
     (if (= player captain)
-      (assoc-in state [:player-turn :phase] :choose-captain-drift)
+      (-> state
+          (assoc-in [:player-turn :choice-player] nil)
+          (assoc-in [:player-turn :phase] :choose-captain-drift))
       (enter-cipher-phase state))))
 
 (defn choose-keep-card-choices

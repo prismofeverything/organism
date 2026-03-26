@@ -1,5 +1,6 @@
 (ns organism.routes.journey
   (:require
+   [clojure.string :as str]
    [organism.layout :as layout]
    [organism.persist :as persist]
    [organism.persist-journey :as persist-j]
@@ -59,7 +60,7 @@
 (defn observe-page
   [db request]
   (let [player (get-in request [:session :player])
-        games (persist/load-observe-games db)]
+        games (persist-j/load-observe-games db)]
     (layout/render
      request
      "journey/observe.html"
@@ -84,6 +85,18 @@
   "True if moving to this next-state opens at least one conversion for current player."
   [state next-s]
   (seq (game/find-conversions next-s (game/current-player state))))
+
+(defn- enables-matrix-conversion?
+  "True if moving to this next-state opens a matrix conversion for current player."
+  [state next-s]
+  (some #(= :matrix (:type %))
+        (game/find-conversions next-s (game/current-player state))))
+
+(defn- enables-tower-conversion?
+  "True if moving to this next-state opens a tower conversion for current player."
+  [state next-s]
+  (some #(= :tower (:type %))
+        (game/find-conversions next-s (game/current-player state))))
 
 (defn- pick-varied
   "Pick from a seq of candidate values, varying by player index for spread."
@@ -133,11 +146,16 @@
                     (when real-move? move-next)
                     (first (vals choices))))
 
-              ;; Prefer tower → matrix → foundry
+              ;; Prefer tower → matrix → foundry.
+              ;; But if no beacons on the board yet, prioritize matrix to place beacons.
               :choose-convert
-              (let [of-type (fn [t] (some #(when (= t (:type (key %))) (val %)) choices))]
-                (or (of-type :tower) (of-type :matrix) (of-type :foundry)
-                    (first (vals choices))))
+              (let [of-type  (fn [t] (some #(when (= t (:type (key %))) (val %)) choices))
+                    has-beacons? (some #(get-in state [:board % :beacon]) (keys (:board state)))]
+                (if has-beacons?
+                  (or (of-type :tower) (of-type :matrix) (of-type :foundry)
+                      (first (vals choices)))
+                  (or (of-type :matrix) (of-type :tower) (of-type :foundry)
+                      (first (vals choices)))))
 
               ;; choose-move now has inlined launch [q r] / [:wrap ...] / [:fly pos] / :done
               ;; Prefer fly when 3+ on board; otherwise launch (any hex pos) to build presence.
@@ -165,8 +183,13 @@
               :choose-launch-destination
               (let [player   (game/current-player state)
                     non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
-                    conv     (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)
-                    ;; Prefer tile where this player has fewest sundivers (spread out)
+                    no-beacons? (empty? (beacon-positions state))
+                    ;; No beacons: prioritize matrix patterns. With beacons: prioritize tower patterns.
+                    conv     (if no-beacons?
+                               (or (some #(when (enables-matrix-conversion? state (val %)) (val %)) non-wrap)
+                                   (some #(when (enables-conversion? state (val %)) (val %)) non-wrap))
+                               (or (some #(when (enables-tower-conversion? state (val %)) (val %)) non-wrap)
+                                   (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)))
                     fewest   (when (and (not conv) (seq non-wrap))
                                (let [k (apply min-key
                                          #(get-in state [:board % :sundivers player] 0)
@@ -187,10 +210,14 @@
               (let [player   (game/current-player state)
                     from-pos (get-in state [:player-turn :action :fly-from])
                     non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
-                    ;; Exclude the fly-from position to avoid immediate reversal
                     non-back (if from-pos (dissoc non-wrap from-pos) non-wrap)
                     targets  (if (seq non-back) non-back non-wrap)
-                    conv     (some #(when (enables-conversion? state (val %)) (val %)) targets)
+                    no-beacons? (empty? (beacon-positions state))
+                    conv     (if no-beacons?
+                               (or (some #(when (enables-matrix-conversion? state (val %)) (val %)) targets)
+                                   (some #(when (enables-conversion? state (val %)) (val %)) targets))
+                               (or (some #(when (enables-tower-conversion? state (val %)) (val %)) targets)
+                                   (some #(when (enables-conversion? state (val %)) (val %)) targets)))
                     fewest   (when (and (not conv) (seq targets))
                                (let [k (apply min-key
                                          #(get-in state [:board % :sundivers player] 0)
@@ -325,19 +352,30 @@
               ;; Land whenever possible
               :choose-land (:land choices (:continue choices))
 
-              ;; Cipher: always place if affordable. Score by new board matches;
-              ;; prefer new activations, but join existing colors too.
-              ;; Only skip when no placeable positions (can't pay).
+              ;; Cipher: center is REQUIRED for any matches to show. Place center first,
+              ;; then balance between more center colors (landing) and outer (match points).
               :cipher
               (let [{:keys [color]} (first (get-in state [:player-turn :cipher-queue] []))
                     board     (:board state)
+                    ;; How many active colors are already at center?
+                    center-n  (count (filter (fn [[_ ps]] (seq ps))
+                                            (get-in state [:cipher [0 0] :colors] {})))
                     score     (fn [pos]
                                 (if (game/cipher-color-active? state pos color)
-                                  0
+                                  0  ;; already active here, no new value
                                   (if (= pos [0 0])
-                                    (count (filter #(= color (:color %)) (vals board)))
-                                    (count (filter #(= color (get-in board [(game/add-hex % pos) :color]))
-                                                   (keys board))))))
+                                    ;; Center: critical when empty, still valuable with 1-2 colors
+                                    (let [tiles-of-color (count (filter #(= color (:color %)) (vals board)))]
+                                      (cond
+                                        (zero? center-n)    9999  ;; MUST place center first
+                                        (< center-n 3)      (* tiles-of-color 2)
+                                        :else               (max 1 (quot tiles-of-color 4))))
+                                    ;; Outer: match points, valuable once center exists
+                                    (let [matches (count (filter #(= color (get-in board [(game/add-hex % pos) :color]))
+                                                                 (keys board)))]
+                                      (if (zero? center-n)
+                                        (max 1 matches)  ;; low priority until center exists
+                                        (* matches 3))))))
                     placeable (dissoc choices :skip)]
                 (if (and color (seq placeable))
                   (get choices (apply max-key score (keys placeable)))
@@ -355,35 +393,51 @@
           (let [ck (some (fn [[k v]] (when (= v next-s) k)) choices)]
             [ck next-s]))))))
 
-;; ── Generate page (smart simulation with full choice history) ─────────────────────────────────────────
+;; ── Generate page — creates an all-bot game and redirects to play page ──────
 
-(defn generate-history
-  "Simulate a 5-player game using the smart agent until game-over.
-   Returns a vector of {:step :player :phase :choice :state} entries."
-  []
-  (let [players ["alice" "bob" "carol" "dave" "eve"]
-        state0  (game/initial-state players)
-        initial {:step 0 :player nil :phase :initial :choice "—" :state state0}]
-    (loop [s state0 i 0 history [initial]]
-      (if (:game-over s)
-        history
-        (if-let [[ck next-s] (agent-step s)]
-          (let [[phase _] (choice/find-state-raw s)]
-            (recur next-s
-                   (inc i)
-                   (conj history {:step   (inc i)
-                                  :player (game/current-player s)
-                                  :phase  phase
-                                  :choice (pr-str ck)
-                                  :state  next-s})))
-          history)))))
+(def generate-bot-names
+  "Fixed bot names for generated games. In the future, each can be a different trained model."
+  ["oroboros" "helios" "selene" "atlas" "aurora"])
+
+(def ^:private generate-words
+  ["solar" "lunar" "stellar" "cosmic" "astral" "void" "nebula" "nova"
+   "drift" "pulse" "ember" "spark" "flame" "frost" "tide" "storm"
+   "crystal" "prism" "cipher" "rune" "glyph" "sigil" "nexus" "apex"
+   "echo" "arc" "flux" "bloom" "shade" "gleam" "veil" "haze"])
+
+(defn- generate-game-name []
+  (let [words (repeatedly 3 #(rand-nth generate-words))]
+    (str "generate-" (str/join "-" words))))
 
 (defn generate-page
-  [request]
-  (layout/render
-   request
-   "journey/generate.html"
-   {:generate-history (pr-str (generate-history))}))
+  "Create an all-bot game with fast turns and render the play page directly.
+   Each reload creates a fresh game."
+  [db request]
+  (let [players  generate-bot-names
+        bot-set  (set players)
+        game-key (generate-game-name)
+        state    (game/initial-state players)
+        player-key (get-in request [:session :player])]
+    (swap! journey-ws/games
+           assoc-in [:games game-key]
+           {:key           game-key
+            :state         state
+            :initial-state state
+            :history       []
+            :bots          bot-set
+            :players       (vec players)
+            :bot-delay     150
+            :chat          []
+            :channels      #{}})
+    (persist-j/save-game! db game-key state bot-set (vec players) state)
+    (journey-ws/run-bot-turns! db game-key)
+    ;; Render the play page template directly with the generated key
+    (layout/render
+     request
+     "journey/play.html"
+     {:player player-key
+      :play game-key
+      :preferences "{}"})))
 
 (defn create-game!
   "POST handler: create a new game in the games atom, persist to DB, and return the play key."
@@ -425,4 +479,4 @@
    ["/play/:play" {:get (partial play-page db)}]
    ["/play/:play/" {:get (partial play-page db)}]
    ["/observe" {:get (partial observe-page db)}]
-   ["/generate" {:get generate-page}]])
+   ["/generate" {:get (partial generate-page db)}]])

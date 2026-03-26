@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CREATE GAME</title>
+  </head>
+  <body>
+    <div id="oroboros">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "";
+      var playKey = "";
+      var isCreate = true;
+      var gameLibraryJson = {{library-json|safe}};
+    </script>
+    {% script "/js/oroboros.js" %}
+  </body>
+</html>

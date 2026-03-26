@@ -21,8 +21,6 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from .abstract_game import AbstractGame
-from .ruleset import RuleSet
 
 
 @dataclass
@@ -59,14 +57,17 @@ def _random_action(actions: dict) -> tuple:
     keys = list(actions.keys())
     if len(keys) > 1:
         # prefer non-pass actions
-        T   = None  # we don't need T for filtering here
-        non_pass = [k for k in keys if k != max(keys)]
+        def is_pass(k):
+            if isinstance(k, (list, tuple)):
+                return k[0] == "pass" or (isinstance(k[0], str) and k[0] == "pass")
+            return False
+        non_pass = [k for k in keys if not is_pass(k)]
         if non_pass:
             keys = non_pass
     return random.choice(keys)
 
 
-def _play_random_game(game: AbstractGame, max_steps: int) -> tuple[dict, int]:
+def _play_random_game(game, max_steps: int) -> tuple[dict, int]:
     """Play one fully random game.  Returns (final_state, n_steps)."""
     state = game.initial_state()
     for step in range(max_steps):
@@ -122,8 +123,15 @@ def measure_simulation_metrics(
 
             # Mechanism coverage: track action type slots used
             for act_idx in actions:
-                at = act_idx // (game.N * game.N)
-                action_types_used.add(at)
+                if isinstance(act_idx, (list, tuple)):
+                    # V3: key is [slot, src, tgt] or ["pass", nil, nil]
+                    slot = act_idx[0]
+                    if isinstance(slot, int):
+                        action_types_used.add(slot)
+                elif isinstance(act_idx, int):
+                    # V1/V2: key is integer = slot * N * N + src * N + tgt
+                    at = act_idx // (game.N * game.N)
+                    action_types_used.add(at)
 
             # Take action
             chosen_idx = _random_action(actions)
@@ -144,7 +152,7 @@ def measure_simulation_metrics(
             if winner is not None and winner in win_counts:
                 win_counts[winner] += 1
 
-        # Captures (v1/v2 use state["captures"], v3 uses state["globals"]["counter_N"])
+        # Captures (uses state["globals"]["counter_N"])
         if "captures" in state:
             for p in game._players:
                 captures_sum += state["captures"].get(p, 0)
@@ -172,22 +180,16 @@ def measure_simulation_metrics(
 
     capture_rate = captures_sum / (n * max(mean_length, 1))
 
-    # Mechanism coverage — works for both v1 (has can_move etc) and v2 (has action_names)
-    if hasattr(rs, 'can_move'):
-        # v1 RuleSet
-        available_slots: set[int] = set()
-        if rs.can_move:           available_slots.add(0)
-        if rs.can_eat:            available_slots.add(1)
-        if rs.can_grow:
-            for t in range(T):    available_slots.add(2 + t)
-        if rs.can_capture:        available_slots.add(T + 2)
-        if rs.can_circulate:      available_slots.add(T + 3)
+    # Mechanism coverage: one slot per rule + pass
+    if hasattr(rs, 'rules'):
+        n_at = len(rs.rules) + 1  # +1 for PASS
+    elif hasattr(rs, 'action_names'):
+        n_at = len(rs.action_names)
+    elif hasattr(game, '_action_types'):
+        n_at = len(game._action_types)
     else:
-        # v2 RuleSetV2 — action slots are 0..n_action_types-1
-        n_at = len(getattr(rs, 'action_names', [])) if hasattr(rs, 'action_names') else 0
-        if n_at == 0 and hasattr(game, '_action_types'):
-            n_at = len(game._action_types)
-        available_slots = set(range(n_at))
+        n_at = 0
+    available_slots: set[int] = set(range(n_at))
 
     used_available = action_types_used & available_slots
     mechanism_coverage = len(used_available) / max(len(available_slots), 1)

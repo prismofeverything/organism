@@ -590,6 +590,7 @@
                       (assoc-in [:player-turn :action :bonus-total] bonus)
                       (assoc-in [:player-turn :action :beacons-joined] 0)
                       (assoc-in [:player-turn :action :owner-actions] 0)
+                      (assoc-in [:player-turn :action :free-activation?] true)
                       (assoc-in [:player-turn :choice-player] nil))]
         ;; Own station with bonus: ask how many bonus actions to take first
         (if (and same? (pos? bonus))
@@ -706,15 +707,22 @@
       (update-in [:players player :reserve :beacons] #(max 0 (dec %)))))
 
 (defn matrix-beacon-positions
-  "Valid positions to place a matrix beacon: the Ark, the space behind the Ark,
-   the two flanking spaces, and any board space where player has a sundiver.
+  "Valid positions to place a matrix beacon: the Ark's position, the space directly
+   behind the Ark, the two rear-flanking spaces (back-left and back-right),
+   and any board space where player has a sundiver.
    Position must have a world tile with no existing beacon."
   [state player]
   (let [ark     (:ark state)
         dir     (heading-direction state)
         dir-idx (direction-index dir)
-        behind  (add-hex ark (nth hex-directions (mod (+ dir-idx 3) 6)))
-        specials (into #{ark behind (add-hex ark (rotate-ccw dir)) (add-hex ark (rotate-cw dir))}
+        ;; Behind = opposite of heading
+        opp-dir (nth hex-directions (mod (+ dir-idx 3) 6))
+        behind  (add-hex ark opp-dir)
+        ;; Rear flanks = the two positions adjacent to both ark and behind
+        ;; These are offset ±2 from heading (i.e., ±1 from opposite)
+        rear-l  (add-hex ark (nth hex-directions (mod (+ dir-idx 2) 6)))
+        rear-r  (add-hex ark (nth hex-directions (mod (+ dir-idx 4) 6)))
+        specials (into #{ark behind rear-l rear-r}
                        (filter #(pos? (get-in state [:board % :sundivers player] 0))
                                (keys (:board state))))]
     (filterv
@@ -793,22 +801,27 @@
 
 (defn wrap-target
   "Target position for wrapping when moving from from-pos in direction dir.
-   Returns the farthest board tile at distance >= (radius-1) in the opposite direction,
-   or exactly (radius-1) steps in the opposite direction if none exists.
-   The radius counts inclusively (current space = 1), so radius 9 = 8 steps away."
+   Wrapping-radius acts as a minimum distance. Returns whichever is farther:
+   the farthest board tile along the opposite ray, or (radius-1) steps back."
   [state from-pos dir]
   (let [radius    (get state :wrapping-radius default-wrapping-radius)
         steps     (dec radius)
         opp-dir   (nth hex-directions (mod (+ (direction-index dir) 3) 6))
-        far-tiles (filter #(and (on-ray? from-pos opp-dir %)
-                                (>= (hex-distance from-pos %) steps))
+        ;; Minimum position: radius-1 steps in opposite direction
+        [q r]     from-pos
+        [dq dr]   opp-dir
+        min-pos   [(+ q (* steps dq)) (+ r (* steps dr))]
+        min-dist  steps
+        ;; Farthest tile along the opposite ray
+        ray-tiles (filter #(on-ray? from-pos opp-dir %)
                           (keys (:board state)))
-        farthest  (when (seq far-tiles)
-                    (apply max-key #(hex-distance from-pos %) far-tiles))]
-    (or farthest
-        (let [[q r] from-pos
-              [dq dr] opp-dir]
-          [(+ q (* steps dq)) (+ r (* steps dr))]))))
+        farthest  (when (seq ray-tiles)
+                    (apply max-key #(hex-distance from-pos %) ray-tiles))
+        far-dist  (if farthest (hex-distance from-pos farthest) 0)]
+    ;; Use whichever is farther: the farthest tile or the minimum radius
+    (if (> far-dist min-dist)
+      farthest
+      min-pos)))
 
 (defn discover-beacon
   "Consume the world token and beacon from the tile; keep the hex with any station/sundivers.
@@ -874,15 +887,18 @@
                       :tower  :choose-activate-tower-heading))))))
 
 (defn- return-sundiver-from-station
-  "Return the activator's sundiver from the current station to their habitat."
+  "Return the activator's sundiver from the current station to their habitat.
+   Skipped for free activations after conversion (no sundiver was required)."
   [state]
-  (let [player (current-player state)
-        pos    (get-in state [:player-turn :action :current-station])]
-    (if (and pos (pos? (get-in state [:board pos :sundivers player] 0)))
-      (-> state
-          (update-in [:board pos :sundivers player] dec)
-          (update-in [:players player :habitat :sundivers] inc))
-      state)))
+  (if (get-in state [:player-turn :action :free-activation?])
+    state
+    (let [player (current-player state)
+          pos    (get-in state [:player-turn :action :current-station])]
+      (if (and pos (pos? (get-in state [:board pos :sundivers player] 0)))
+        (-> state
+            (update-in [:board pos :sundivers player] dec)
+            (update-in [:players player :habitat :sundivers] inc))
+        state))))
 
 (defn advance-after-actions
   "After current actor finishes:

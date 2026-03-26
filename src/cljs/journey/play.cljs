@@ -39,9 +39,20 @@
 (defonce play-history
   (r/atom []))
 
+;; nil = viewing live (latest), number = viewing historical step
+(defonce history-view-step
+  (r/atom nil))
+
 ;; When non-nil, the player has clicked a convert ghost station and must pick
 ;; which sundiver arrangement to use. Value: {:target pos :type t :options [conv...]}
 (defonce pending-convert
+  (r/atom nil))
+
+(defonce cipher-expanded?
+  (r/atom false))
+
+;; {:pos cipher-pos :color color-key} when hovering a beacon on cipher
+(defonce cipher-hover
   (r/atom nil))
 
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
@@ -78,7 +89,8 @@
     (nil? k)           "habitat"
     (= k :none)        "straight"
     (keyword? k)       (name k)
-    (integer? k)       (str k " bonus")
+    (and (integer? k) (zero? k)) "decline bonus"
+    (integer? k)       (str "take bonus " k)
     (hex-pos? k)       (str "[" (first k) "," (second k) "]")
     (wrap-choice? k)   (str "wrap → " (choice-label (second k)))
     (fly-from? k)      (str "fly from " (choice-label (second k)))
@@ -140,7 +152,7 @@
   "Wraps render-game with mouse-drag pan and keyboard/slider zoom.
    Arrow keys pan; PageUp/PageDown zoom; drag the starfield to pan.
    Optional: on-navigate, fly-highlights, chosen-pos."
-  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click]}]]
+  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click cipher-on-beacon-hover cipher-expanded? cipher-on-toggle cipher-hover cipher-queue-color]}]]
   (r/with-let
     [pan-x (r/atom 0)
      pan-y (r/atom 0)
@@ -177,6 +189,11 @@
        :pending-convert pending-convert
        :cipher-highlights cipher-highlights
        :cipher-on-click cipher-on-click
+       :cipher-on-beacon-hover cipher-on-beacon-hover
+       :cipher-expanded? cipher-expanded?
+       :cipher-on-toggle cipher-on-toggle
+       :cipher-hover cipher-hover
+       :cipher-queue-color cipher-queue-color
        :on-bg-mouse-down
        (fn [e]
          (.preventDefault e)
@@ -244,11 +261,18 @@
     (str (name (or phase :?)) " — " cp)))
 
 (defn play-page []
-  (let [state   @game-state
-        my      @player-key
-        bots    @bots-set
-        undo?   @can-undo?
-        history @play-history]
+  (let [live-state @game-state
+        my         @player-key
+        bots       @bots-set
+        undo?      @can-undo?
+        history    @play-history
+        view-step  @history-view-step
+        n          (count history)
+        ;; If viewing a historical step, use that state; otherwise live
+        viewing-history? (and view-step (< view-step (dec n)))
+        state      (if (and viewing-history? (< view-step n))
+                     (:state (nth history view-step))
+                     live-state)]
     (if (nil? state)
       [:div {:style {:color "#556" :padding "40px" :font-family "monospace"}}
        [:p "Waiting for game state…"]]
@@ -258,7 +282,7 @@
             choices     (if srv
                           (into {} (map (fn [k] [k state]) (:keys srv)))
                           {})
-            active?           (my-turn? state my)
+            active?           (and (not viewing-history?) (my-turn? state my))
             cp                (choice-player state)
             bot-thinking?     (and (not active?) (contains? bots cp) (not (:game-over state)))
             ;; Detect cipher phase: cipher positions go to cipher display, not board
@@ -274,15 +298,20 @@
               (partition-choices board-choices)
               [#{} #{} #{} {} []])
             pending         @pending-convert
-            ;; Compute actual wrap destination positions and map them to choice keys
+            ;; Compute actual wrap destination positions and map them to choice keys.
+            ;; Origin depends on context: ark for launch wraps, fly-from for fly wraps.
             ark             (:ark state)
-            wrap-dest->key  (into {}
-                              (for [edge-pos wrap-hl
-                                    :let [dir      (mapv - edge-pos ark)
-                                          dest-pos (game/wrap-target state ark dir)]
-                                    :when dest-pos]
-                                [dest-pos [:wrap edge-pos]]))
-            wrap-dest-set   (set (keys wrap-dest->key))
+            fly-from        (get-in state [:player-turn :action :fly-from])
+            wrap-origin     (or fly-from ark)
+            wrap-dest->key  (when wrap-origin
+                              (into {}
+                                (for [edge-pos wrap-hl
+                                      :let [dir      (mapv - edge-pos wrap-origin)
+                                            dest-pos (game/wrap-target state wrap-origin dir)]
+                                      :when (and dest-pos
+                                                 (some #(= % dir) game/hex-directions))]
+                                  [dest-pos [:wrap edge-pos]])))
+            wrap-dest-set   (set (keys (or wrap-dest->key {})))
             ;; Drift/heading phases: show direction targets on board instead of buttons
             is-drift?       (#{:choose-captain-drift :choose-activate-tower-heading} (:phase srv))
             heading-dir     (when ark (game/heading-direction state))
@@ -305,7 +334,7 @@
                               (set (mapcat :sundivers (:options pending)))
                               ;; Highlight all sundivers for all conversions
                               (set (mapcat (fn [[_ opts]] (mapcat :sundivers opts)) conv-groups)))
-            ;; Merge all highlights
+            ;; Merge all highlights (cipher hover matches computed in render-game)
             all-pos-hl      (into (into pos-hl wrap-dest-set) drift-dest-set)
             on-click        (when active?
                               (fn [pos-or-key]
@@ -329,7 +358,8 @@
                                   (send-action! pos-or-key)
                                   (contains? drift-dest->key pos-or-key) (send-action! (get drift-dest->key pos-or-key))
                                   (contains? pos-hl pos-or-key)          (send-action! pos-or-key)
-                                  (contains? wrap-dest->key pos-or-key)  (send-action! (get wrap-dest->key pos-or-key))
+                                  (and wrap-dest->key (contains? wrap-dest->key pos-or-key))
+                                  (send-action! (get wrap-dest->key pos-or-key))
                                   :else                                  (send-action! pos-or-key))))
             chosen-pos        (get-in state [:player-turn :action :fly-from])
             undo-btn          (when (and active? undo?)
@@ -381,8 +411,16 @@
                   :choose-flare-advance "a flare advances the Ark into unexplored space"
                   :choose-drift-flare-advance "drift flare advances the Ark"
                   :choose-land          "land the Ark?"
-                  :cipher               "place a beacon on the cipher"
-                  :cipher-spend         "spend a sundiver to pay for cipher placement"
+                  :cipher               (let [entry (first (get-in state [:player-turn :cipher-queue] []))
+                                              cname (when entry (name (:color entry)))]
+                                          (if cname
+                                            (str "place a " cname " beacon on the cipher")
+                                            "place a beacon on the cipher"))
+                  :cipher-spend         (let [entry (first (get-in state [:player-turn :cipher-queue] []))
+                                              cname (when entry (name (:color entry)))]
+                                          (if cname
+                                            (str "spend a sundiver to place " cname " beacon")
+                                            "spend a sundiver to pay for cipher placement"))
                   :keep-card            "choose a card to keep"
                   :flare-beacon-join    "join a beacon to the cipher?"
                   :flare-beacon-join-spend "spend a sundiver to join"
@@ -463,35 +501,80 @@
             :pending-convert pending
             :cipher-highlights (when active? cipher-positions)
             :cipher-on-click (when (and active? is-cipher?)
-                               (fn [pos] (send-action! pos)))}]]
+                               (fn [pos] (send-action! pos)))
+            :cipher-on-beacon-hover (fn [pos color]
+                                      (reset! cipher-hover
+                                              (when pos {:pos pos :color color})))
+            :cipher-expanded? @cipher-expanded?
+            :cipher-on-toggle #(swap! cipher-expanded? not)
+            :cipher-hover @cipher-hover
+            :cipher-queue-color (when is-cipher?
+                                  (:color (first (get-in state [:player-turn :cipher-queue] []))))}]]
          ;; History panel (right side)
-         [:div {:style {:width "250px" :display "flex" :flex-direction "column"
-                        :background "#05060F" :border-left "1px solid #141830"}}
-          ;; Header
-          [:div {:style {:padding "6px 10px 5px"
-                         :border-bottom "1px solid #141830"
-                         :display "flex" :align-items "center"}}
-           [:span {:style {:flex "1" :color "#334455" :font-size "9px"
-                           :font-family "monospace" :letter-spacing "1.5px"
-                           :text-transform "uppercase"}}
-            (str "step " (dec n))]]
-          ;; Scrollable step list
-          (do
-            (r/after-render
-             #(when-let [el (.getElementById js/document (str "hist-item-" (dec n)))]
-                (.scrollIntoView el #js {:block "nearest" :behavior "instant"})))
-            [:div {:style {:flex "1" :overflow-y "auto" :padding "4px 0"}}
-             (for [i (range (dec n) -1 -1)]
-               (let [{:keys [player phase] :as entry} (nth history i)
-                     above-player (:player (when (< i (dec n)) (nth history (inc i))))
-                     group-start? (not= player above-player)
-                     show-sep?    (and group-start? (< i (dec n)))
-                     selected?    (= i (dec n))]
-                 ^{:key i}
-                 [history-row i entry player-colors selected? group-start? show-sep?
-                  nil]))])]  ;; close for, [:div scroll], do, [:div panel]
-         ]                  ;; close [:div flex-outer]
-        ))))                ;; close inner let, if, outer let, defn
+         (let [sel       (or view-step (dec n))
+               btn-style {:background "none" :border "1px solid #1E2A3A"
+                          :border-radius "3px" :color "#556677"
+                          :font-size "11px" :cursor "pointer"
+                          :padding "2px 6px" :font-family "monospace"}]
+           [:div {:style {:width "250px" :display "flex" :flex-direction "column"
+                          :background "#05060F" :border-left "1px solid #141830"}}
+            ;; Header with step counter
+            [:div {:style {:padding "4px 10px 3px"
+                           :border-bottom "1px solid #141830"
+                           :display "flex" :align-items "center"}}
+             [:span {:style {:flex "1" :color "#334455" :font-size "9px"
+                             :font-family "monospace" :letter-spacing "1.5px"
+                             :text-transform "uppercase"}}
+              (str "step " sel " / " (dec n))]
+             (when viewing-history?
+               [:span {:style {:color "#886644" :font-size "9px" :font-family "monospace"}}
+                "viewing history"])]
+            ;; Playback controls
+            [:div {:style {:display "flex" :justify-content "center" :gap "4px"
+                           :padding "4px 8px" :border-bottom "1px solid #141830"}}
+             ;; Rewind to beginning
+             [:button {:style btn-style
+                       :on-click #(reset! history-view-step 0)}
+              "⏮"]
+             ;; Back one step
+             [:button {:style btn-style
+                       :on-click #(swap! history-view-step
+                                         (fn [s] (max 0 (dec (or s (dec n))))))}
+              "◀"]
+             ;; Play/pause (jump to live)
+             [:button {:style (merge btn-style
+                                     (when-not viewing-history?
+                                       {:color "#88CCAA" :border-color "#2A4A3A"}))
+                       :on-click #(reset! history-view-step nil)}
+              (if viewing-history? "▶ live" "● live")]
+             ;; Forward one step
+             [:button {:style btn-style
+                       :on-click #(swap! history-view-step
+                                         (fn [s] (let [ns (inc (or s (dec n)))]
+                                                   (if (>= ns (dec n)) nil ns))))}
+              "▶"]
+             ;; Jump to latest
+             [:button {:style btn-style
+                       :on-click #(reset! history-view-step nil)}
+              "⏭"]]
+            ;; Scrollable step list
+            (do
+              (r/after-render
+               #(when-let [el (.getElementById js/document (str "hist-item-" sel))]
+                  (.scrollIntoView el #js {:block "nearest" :behavior "instant"})))
+              [:div {:style {:flex "1" :overflow-y "auto" :padding "4px 0"}}
+               (for [i (range (dec n) -1 -1)]
+                 (let [{:keys [player phase] :as entry} (nth history i)
+                       above-player (:player (when (< i (dec n)) (nth history (inc i))))
+                       group-start? (not= player above-player)
+                       show-sep?    (and group-start? (< i (dec n)))
+                       selected?    (= i sel)]
+                   ^{:key i}
+                   [history-row i entry player-colors selected? group-start? show-sep?
+                    #(reset! history-view-step i)]))])])
+         ]
+        ))))
+
 
 ;; ── Create / Observe pages ────────────────────────────────────────────────────
 
@@ -595,11 +678,79 @@
           "Create Game"]]))))
 
 (defn observe-page []
-  [:div {:style {:color "#AABBCC" :padding "48px"
-                 :font-family "monospace" :background "#04040E"
-                 :min-height "100vh"}}
-   [:h2 {:style {:color "#7AAAE0"}} "JOURNEY — Observe"]
-   [play-page]])
+  (let [games @observe-games]
+    [:div {:style {:color "#AABBCC" :padding "48px"
+                   :font-family "monospace" :background "#04040E"
+                   :min-height "100vh"}}
+     [:div {:style {:display "flex" :align-items "center" :margin-bottom "32px"}}
+      [:h2 {:style {:color "#7AAAE0" :flex "1" :margin 0}} "JOURNEY — Observe"]
+      [:a {:href "/journey"
+           :style {:color "#556677" :text-decoration "none" :font-size "13px"}}
+       "← home"]]
+     (if (seq games)
+       [:div {:style {:display "flex" :flex-direction "column" :gap "12px"}}
+        (for [g games]
+          (let [k       (or (:key g) (str g))
+                players (or (:players g) [])
+                bots    (or (:bots g) #{})
+                cp      (:current-player g)
+                round   (:round g)
+                flares  (:flares g)]
+            [:div {:key k
+                   :style {:display "flex" :align-items "center" :gap "10px"
+                           :flex-wrap "wrap"}}
+             ;; Game info bubble
+             [:a {:href (str "/journey/play/" k)
+                  :style {:display "inline-block" :padding "8px 16px"
+                          :background "#0A0E1C" :border "1px solid #2A4A80"
+                          :border-radius "20px" :color "#7AAAE0"
+                          :text-decoration "none" :font-size "13px"
+                          :font-weight "bold"
+                          :transition "background 0.15s"}
+                  :on-mouse-over #(set! (.. % -currentTarget -style -background) "#10182A")
+                  :on-mouse-out  #(set! (.. % -currentTarget -style -background) "#0A0E1C")}
+              k]
+             ;; Game stats
+             (when (or round flares)
+               [:span {:style {:color "#445566" :font-size "10px"}}
+                (str (when round (str "r" round))
+                     (when (and round flares) " · ")
+                     (when flares (str "flares " flares "/13")))])
+             ;; Current turn indicator
+             (when cp
+               [:span {:style {:color "#556677" :font-size "10px"}}
+                (str "turn: " cp)])
+             ;; Player bubbles
+             (for [p players]
+               (let [is-bot? (contains? bots p)]
+                 [:a {:key p
+                      :href (str "/player/" p)
+                      :style {:display "inline-block" :padding "5px 12px"
+                              :background (if is-bot? "#0A1210" "#0A0E1C")
+                              :border (str "1px solid " (if is-bot? "#1A3A2A" "#1A2A40"))
+                              :border-radius "16px"
+                              :color (if is-bot? "#66AA88" "#AACCEE")
+                              :text-decoration "none" :font-size "11px"
+                              :transition "background 0.15s"}
+                      :on-mouse-over #(set! (.. % -currentTarget -style -background)
+                                            (if is-bot? "#102818" "#10182A"))
+                      :on-mouse-out  #(set! (.. % -currentTarget -style -background)
+                                            (if is-bot? "#0A1210" "#0A0E1C"))}
+                  (str p (when is-bot? " ⚙"))]))]))]
+       [:div {:style {:text-align "center" :padding "60px 0"}}
+        [:p {:style {:color "#445566" :font-size "16px" :margin-bottom "16px"}}
+         "No active games to observe."]
+        [:div {:style {:display "flex" :gap "12px" :justify-content "center"}}
+         [:a {:href "/journey/create"
+              :style {:color "#7AAAE0" :padding "8px 20px"
+                      :border "1px solid #2A4A80" :border-radius "4px"
+                      :text-decoration "none"}}
+          "Create a game"]
+         [:a {:href "/journey/generate"
+              :style {:color "#7AAAE0" :padding "8px 20px"
+                      :border "1px solid #2A4A80" :border-radius "4px"
+                      :text-decoration "none"}}
+          "Generate a game"]]])]))
 
 ;; ── WebSocket messages ────────────────────────────────────────────────────────
 
@@ -726,7 +877,13 @@
 
          ;; Board — no on-navigate; Up/Down always pan when history is not focused
          [:div {:style {:flex "1" :overflow "hidden"}}
-          [board-view state #{} nil nil]]
+          [board-view state #{} nil nil
+           {:cipher-on-beacon-hover (fn [pos color]
+                                      (reset! cipher-hover
+                                              (when pos {:pos pos :color color})))
+            :cipher-expanded? @cipher-expanded?
+            :cipher-on-toggle #(swap! cipher-expanded? not)
+            :cipher-hover @cipher-hover}]]
 
          ;; History panel — mousedown stops propagation so outer blur doesn't fire
          [:div {:style         {:width "250px" :display "flex" :flex-direction "column"
@@ -778,11 +935,11 @@
 
 (defn page-container []
   (cond
-    js/isGenerate [generate-page]
-    js/isObserve  [observe-page]
-    js/isCreate   [create-page]
-    js/playKey    [play-page]
-    :else         [:div]))
+    (and (exists? js/isGenerate) js/isGenerate) [generate-page]
+    (and (exists? js/isObserve)  js/isObserve)  [observe-page]
+    (and (exists? js/isCreate)   js/isCreate)   [create-page]
+    (and (exists? js/playKey)    js/playKey)     [play-page]
+    :else [:div]))
 
 ;; ── Init ──────────────────────────────────────────────────────────────────────
 

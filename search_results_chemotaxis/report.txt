@@ -1,0 +1,107 @@
+=== Chemotactic Search Results (top 15) ===
+Population: 36, Archive: 50, Evaluations: 508
+
+#1  rad5t2p2r4  (lineage 5, age 11)
+  Topology:  radial size=5
+  Schema:    2t 2p 0res 2counters
+  Rules:     4 (373 bits)
+  Richness:  285.0
+  Metrics:   term=0.00 bal=0.00 B=38.3 len=600 interact=0.00 mech=0.00 KR=373.0b logGT=949.9 | elo=0 tvr=0.00 hard=0.000
+
+#2  rad6t1p2r5  (lineage 11572, age 2)
+  Topology:  radial size=6
+  Schema:    1t 2p 2res 3counters
+  Rules:     5 (384 bits)
+  Richness:  252.7
+  Metrics:   term=1.00 bal=1.00 B=65.0 len=454 interact=0.05 mech=0.00 KR=384.0b logGT=822.1 | elo=0 tvr=0.00 hard=0.000
+
+#3  squ6t1p2r5  (lineage 11572, age 3)
+  Topology:  square size=6
+  Schema:    1t 2p 2res 3counters
+  Rules:     5 (384 bits)
+  Richness:  234.2
+  Metrics:   term=1.00 bal=0.73 B=49.6 len=453 interact=0.01 mech=0.00 KR=384.0b logGT=768.1 | elo=0 tvr=0.00 hard=0.000
+
+#4  rad5t2p2r4  (lineage 5, age 10)
+  Topology:  radial size=5
+  Schema:    2t 2p 0res 2counters
+  Rules:     4 (373 bits)
+  Richness:  190.5
+  Metrics:   term=1.00 bal=0.00 B=38.0 len=402 interact=0.00 mech=0.00 KR=373.0b logGT=635.0 | elo=0 tvr=0.00 hard=0.000
+
+#5  rad5t2p2r4  (lineage 5, age 9)
+  Topology:  radial size=5
+  Schema:    2t 2p 0res 2counters
+  Rules:     4 (373 bits)
+  Richness:  189.9
+  Metrics:   term=1.00 bal=0.00 B=37.5 len=402 interact=0.00 mech=0.00 KR=373.0b logGT=632.9 | elo=0 tvr=0.00 hard=0.000
+
+#6  tri4t1p2r4  (lineage 2092, age 3)
+  Topology:  triangle size=4
+  Schema:    1t 2p 0res 2counters
+  Rules:     4 (263 bits)
+  Richness:  170.7
+  Metrics:   term=1.00 bal=0.00 B=18.0 len=452 interact=0.02 mech=0.00 KR=263.3b logGT=567.9 | elo=0 tvr=0.00 hard=0.000
+
+#7  rad3t3p2r4  (lineage 8, age 8)
+  Topology:  radial size=3
+  Schema:    3t 2p 2res 2counters
+  Rules:     4 (276 bits)
+  Richness:  166.9
+  Metrics:   term=1.00 bal=0.00 B=17.0 len=452 interact=0.00 mech=0.00 KR=276.0b logGT=556.2 | elo=0 tvr=0.00 hard=0.000
+
+#8  rad3t3p2r3  (lineage 8, age 9)
+  Topology:  radial size=3
+  Schema:    3t 2p 2res 2counters
+  Rules:     3 (231 bits)
+  Richness:  166.9
+  Metrics:   term=1.00 bal=0.00 B=17.0 len=452 interact=0.00 mech=0.00 KR=231.4b logGT=556.2 | elo=0 tvr=0.00 hard=0.000
+
+#9  rad3t3p2r4  (lineage 8, age 7)
+  Topology:  radial size=3
+  Schema:    3t 2p 2res 2counters
+  Rules:     4 (242 bits)
+  Richness:  159.2
+  Metrics:   term=1.00 bal=0.47 B=16.0 len=431 interact=0.07 mech=0.00 KR=242.2b logGT=518.1 | elo=0 tvr=0.00 hard=0.000
+
+#10  rad3t3p2r4  (lineage 8, age 6)
+  Topology:  radial size=3
+  Schema:    3t 2p 2res 2counters
+  Rules:     4 (248 bits)
+  Richness:  135.8
+  Metrics:   term=1.00 bal=0.67 B=15.8 len=364 interact=0.08 mech=0.00 KR=248.2b logGT=435.9 | elo=0 tvr=0.00 hard=0.000
+
+#11  rad6t2p2r5  (lineage 3247, age 9)
+  Topology:  radial size=6
+  Schema:    2t 2p 1res 3counters
+  Rules:     5 (353 bits)
+  Richness:  133.9
+  Metrics:   term=1.00 bal=1.00 B=130.9 len=202 interact=0.03 mech=0.00 KR=353.5b logGT=427.6 | elo=0 tvr=0.00 hard=0.000
+
+#12  rad3t3p2r4  (lineage 8, age 5)
+  Topology:  radial size=3
+  Schema:    3t 2p 2res 2counters
+  Rules:     4 (248 bits)
+  Richness:  133.7
+  Metrics:   term=1.00 bal=0.73 B=16.3 len=353 interact=0.09 mech=0.00 KR=248.2b logGT=427.2 | elo=0 tvr=0.00 hard=0.000
+
+#13  rad6t2p2r5  (lineage 3247, age 8)
+  Topology:  radial size=6
+  Schema:    2t 2p 1res 3counters
+  Rules:     5 (353 bits)
+  Richness:  133.6
+  Metrics:   term=1.00 bal=0.67 B=137.6 len=202 interact=0.03 mech=0.00 KR=353.5b logGT=432.0 | elo=0 tvr=0.00 hard=0.000
+
+#14  rad6t2p2r5  (lineage 3247, age 7)
+  Topology:  radial size=6
+  Schema:    2t 2p 1res 3counters
+  Rules:     5 (353 bits)
+  Richness:  132.7
+  Metrics:   term=1.00 bal=0.67 B=133.0 len=202 interact=0.03 mech=0.00 KR=353.5b logGT=429.0 | elo=0 tvr=0.00 hard=0.000
+
+#15  hex5t3p2r5  (lineage 7, age 15)
+  Topology:  hex size=5
+  Schema:    3t 2p 0res 3counters
+  Rules:     5 (476 bits)
+  Richness:  126.8
+  Metrics:   term=1.00 bal=0.67 B=89.3 len=207 interact=0.12 mech=0.00 KR=476.3b logGT=403.8 | elo=0 tvr=0.00 hard=0.000

@@ -9,7 +9,7 @@
 (def ^:const hex-size   50)   ; circumradius (center → corner)
 (def ^:const sqrt3      (Math/sqrt 3))
 (def ^:const tau        (* 2 Math/PI))
-(def ^:const panel-r    65)   ; player panel circle radius
+(def ^:const panel-r    80)   ; player panel circle radius
 
 ;; ── Player color assignment ───────────────────────────────────────────────────
 
@@ -184,14 +184,23 @@
            :fill "none" :stroke (ps ck) :stroke-width 1.2 :opacity 0.7}]])
 
 (defn tower-shape [ck]
-  ;; Flared base + narrow neck + bulbous top
+  ;; Space needle tower: flat bottom, narrow waist, ridge higher up, round dome top
   [:g
-   [:polygon {:points "-7,10 7,10 4,4 -4,4"
-              :fill (pf ck) :stroke (ps ck) :stroke-width 0.9}]
-   [:rect {:x -2.2 :y 0 :width 4.4 :height 4
-           :fill (pf ck) :stroke (ps ck) :stroke-width 0.9}]
-   [:circle {:cx 0 :cy -4 :r 5.5
-             :fill (pf ck) :stroke (ps ck) :stroke-width 1.2}]])
+   [:path {:d (str "M -7,10 L 7,10 "          ;; flat bottom
+                   "L 4,4 L 2.5,0 "           ;; right side tapers in
+                   "L 2,-3 "                   ;; narrow waist
+                   "L 7,-5 L 7,-7 "           ;; ridge flares right (higher)
+                   "L 2,-8 "                   ;; ridge back to narrow
+                   "L 2,-10 "                  ;; neck to dome
+                   "L -2,-10 "                 ;; across to left
+                   "L -2,-8 "                  ;; left neck
+                   "L -7,-7 L -7,-5 "         ;; ridge flares left
+                   "L -2,-3 "                  ;; left waist
+                   "L -2.5,0 L -4,4 Z")       ;; left side back to base
+           :fill (pf ck) :stroke (ps ck) :stroke-width 1.2}
+    ;; Round dome on top
+    [:circle {:cx 0 :cy -13 :r 5
+              :fill (pf ck) :stroke (ps ck) :stroke-width 1.2}]]])
 
 (defn level-platforms
   "Render n flat platform boxes stacked below the station icon.
@@ -350,8 +359,9 @@
 ;; ── Gate indicators ───────────────────────────────────────────────────────────
 
 (defn render-all-gates
-  "Board-level gate ovals rendered after all tile backgrounds so they
-   never get buried under a neighbour's hex polygon."
+  "Board-level gate ovals rendered after all tile backgrounds.
+   Rotated 90° so the oval bridges across the edge between tiles,
+   with a background fill that erases the hex gap."
   [state player-order player-colors]
   (let [board (:board state)]
     [:g
@@ -372,14 +382,14 @@
                      angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
                      fc      (pf (get player-colors player :sun))
                      sc      (ps (get player-colors player :sun))]]
-       [:ellipse {:key       (str pos player neighbor)
-                  :cx        gx  :cy gy
-                  :rx        8   :ry 13
-                  :transform (str "rotate(" angle "," gx "," gy ")")
-                  :fill      fc
-                  :stroke    sc
-                  :stroke-width 0.8
-                  :opacity   0.65}])]))
+       [:rect {:key       (str pos player neighbor)
+               :x        (- gx 8)  :y (- gy 13)
+               :width     16  :height 26
+               :rx        3   :ry 3
+               :transform (str "rotate(" angle "," gx "," gy ")")
+               :fill      fc
+               :stroke    sc
+               :stroke-width 1.2}])]))
 
 ;; ── Cipher-match edge dots ────────────────────────────────────────────────────
 
@@ -408,10 +418,13 @@
                     angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
                     arc-c   (get world-outer neighbor-color "#FFF")]]
          [:path {:key          (str dir)
-                 :d            "M 0,-16 A 11,16 0 0,0 0,16 L 0,13 A 8,13 0 0,1 0,-13 Z"
+                 ;; Half-annulus wrapping around the gate rectangle (16×26 → half-w=8, half-h=13)
+                 ;; Outer: rx=13, ry=19 (well outside gate), Inner: rx=9, ry=15 (just inside gate edge)
+                 :d            "M 0,-19 A 13,19 0 0,0 0,19 L 0,15 A 9,15 0 0,1 0,-15 Z"
                  :transform    (str "translate(" ex "," ey ") rotate(" angle ")")
                  :fill         arc-c
-                 :stroke       "none"
+                 :stroke       arc-c
+                 :stroke-width 1.5
                  :opacity      0.8}])]))
 
 ;; ── Single tile ───────────────────────────────────────────────────────────────
@@ -419,8 +432,9 @@
 (defn- render-tile*
   "Inner tile render. cipher-dots is the pre-computed cipher-match-dots hiccup (or nil).
    highlight? can be :gold (launch/destination), :chosen (selected sundiver), or nil.
-   sundiver-hl is {:highlight-player p :highlight-color c} or nil."
-  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click sundiver-hl]
+   sundiver-hl is {:highlight-player p :highlight-color c} or nil.
+   match-count is the number of cipher direction matches (0-6)."
+  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click sundiver-hl match-count]
   (let [[cx cy] (hex->pixel pos)
         color   (:color tile)
         bg      (get tile-bg color "#141420")
@@ -428,17 +442,46 @@
                    :gold   "#FFD030"
                    :fly    "#30C8FF"
                    :chosen "#30FF90"
-                   nil)]
+                   nil)
+        landable-5? (= match-count 5)
+        landable-6? (>= match-count 6)]
     [:g {:key      (str pos)
          :transform (str "translate(" cx "," cy ")")
          :on-click  (when on-click #(on-click pos))
          :style    {:cursor (when on-click "pointer")}}
+     ;; 6-match: outer golden halo
+     (when landable-6?
+       [:polygon {:points (hex-pts-str (+ hex-size 4))
+                  :fill "none"
+                  :stroke "#FFD030"
+                  :stroke-width 4
+                  :opacity 0.6}])
+     ;; 5-match: white glow ring
+     (when landable-5?
+       [:polygon {:points (hex-pts-str (+ hex-size 2))
+                  :fill "none"
+                  :stroke "#FFFFFF"
+                  :stroke-width 3
+                  :opacity 0.35}])
      ;; Hex background
      [:polygon {:points       (hex-pts-str (- hex-size 1))
                 :fill         bg
-                :stroke       (or hl-color "none")
-                :stroke-width (if hl-color 2.5 0)}]
-     ;; Highlight glow outer ring
+                :stroke       (cond
+                                hl-color      hl-color
+                                landable-6?   "#FFD030"
+                                landable-5?   "#FFFFFF88"
+                                :else         "none")
+                :stroke-width (cond
+                                hl-color    2.5
+                                landable-6? 2
+                                landable-5? 1.5
+                                :else       0)}]
+     ;; 6-match: inner glow fill
+     (when landable-6?
+       [:polygon {:points (hex-pts-str (- hex-size 2))
+                  :fill "#FFD030"
+                  :opacity 0.08}])
+     ;; Choice highlight glow outer ring
      (when hl-color
        [:polygon {:points (hex-pts-str (- hex-size 1))
                   :fill "none"
@@ -473,18 +516,20 @@
        :should-component-update
        (fn [_ old-argv new-argv]
          ;; argv = [component-fn pos tile cipher-dots player-order player-colors
-         ;;         ark-pos heading-dir highlight? on-click sundiver-hl]
+         ;;         ark-pos heading-dir highlight? on-click sundiver-hl match-count]
          (let [pos     (nth old-argv 1)
                old-tile (nth old-argv 2)  new-tile (nth new-argv 2)
                old-cd   (nth old-argv 3)  new-cd   (nth new-argv 3)
                old-ark  (nth old-argv 6)  new-ark  (nth new-argv 6)
                old-hd   (nth old-argv 7)  new-hd   (nth new-argv 7)
                old-hl   (nth old-argv 8)  new-hl   (nth new-argv 8)
-               old-shl  (nth old-argv 10 nil) new-shl (nth new-argv 10 nil)]
+               old-shl  (nth old-argv 10 nil) new-shl (nth new-argv 10 nil)
+               old-mc   (nth old-argv 11 0)  new-mc  (nth new-argv 11 0)]
            (or (not= old-tile new-tile)
                (not= old-cd   new-cd)
                (not= old-hl   new-hl)
                (not= old-shl  new-shl)
+               (not= old-mc   new-mc)
                ;; Ark arrived at or departed from this tile
                (not= (= pos old-ark) (= pos new-ark))
                ;; Heading changed while ark is here
@@ -559,12 +604,18 @@
                        is-conv-s? {:highlight-player active-player :highlight-color "#FFD030"}
                        :else      nil)
                  ;; Hex click: launch/destination (not fly — fly is on the sundiver itself)
-                 hex-click (when (or hl is-conv-t?) on-hex-click)]]
+                 hex-click (when (or hl is-conv-t?) on-hex-click)
+                 ;; Count cipher matches for landing highlight (only if center color active)
+                 mc (if (and (:color tile)
+                             (game/cipher-color-active? state [0 0] (:color tile)))
+                      (game/count-cipher-matches state pos)
+                      0)]]
        ^{:key (str pos)}
        [render-tile pos tile cipher-dots player-order player-colors ark-pos heading-dir
         hl
         (or hex-click (when (and is-fly? (not hl)) on-hex-click))
-        shl])
+        shl
+        mc])
      ;; Ghost hexes for highlighted positions that don't have tiles yet
      (for [pos pos-highlights
            :when (not (contains? board pos))
@@ -633,24 +684,22 @@
 
 (def ^:const cipher-hex-size 26)
 
-(def ^:private cipher-initial-color
-  "The initial pre-populated color for each cipher direction."
-  (zipmap game/hex-directions game/tile-colors))
-
-(defn cipher-hex [cipher pos highlight? on-click]
+(defn cipher-hex [cipher pos highlight? on-click on-beacon-hover cipher-queue-color]
   (let [[cx cy]  (let [[q r] pos]
                    [(* cipher-hex-size 1.5 q)
                     (* cipher-hex-size sqrt3 (+ (* 0.5 q) r))])
         entry    (get cipher pos {})
         colors   (keep (fn [[c players]] (when (seq players) c)) (:colors entry))
-        ;; Show a subtle tint of the initial color for each direction
-        init-color (get cipher-initial-color pos)
-        init-tint  (when init-color (str (get world-outer init-color "#555") "33"))
-        bg       (if (= pos [0 0]) "#1A1830" (or init-tint "#0C0C1E"))]
+        bg       "#0C0C1E"]
     [:g {:key      (str "c" pos)
          :transform (str "translate(" cx "," cy ")")
          :on-click (when on-click #(on-click pos))
-         :style    {:cursor (when on-click "pointer")}}
+         ;; During cipher placement, hovering a hex shows preview of where matches would appear
+         :on-mouse-enter (when (and cipher-queue-color on-beacon-hover)
+                           #(on-beacon-hover pos cipher-queue-color))
+         :on-mouse-leave (when (and cipher-queue-color on-beacon-hover)
+                           #(on-beacon-hover nil nil))
+         :style    {:cursor (when (or on-click cipher-queue-color) "pointer")}}
      [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
                 :fill bg
                 :stroke (if highlight? "#FFD030" "#2A2A4A")
@@ -658,7 +707,7 @@
      (when highlight?
        [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
                   :fill "none" :stroke "#FFD030" :stroke-width 5 :opacity 0.2}])
-     ;; Color dots
+     ;; Color beacon dots — with hover support
      (let [n (count colors)]
        (for [[i c] (map-indexed vector colors)
              :let  [a   (if (= n 1) 0 (* i (/ tau n)))
@@ -668,19 +717,24 @@
                    :cx (* r (Math/cos a))
                    :cy (* r (Math/sin a))
                    :r  (if (= n 1) (* cipher-hex-size 0.35) (* cipher-hex-size 0.22))
-                   :fill icf}]))
+                   :fill icf
+                   :style {:cursor "pointer"}
+                   :on-mouse-enter (when on-beacon-hover #(on-beacon-hover pos c))
+                   :on-mouse-leave (when on-beacon-hover #(on-beacon-hover nil nil))}]))
      (when (= pos [0 0])
        [:text {:x 0 :y 1
                :text-anchor "middle"
                :dominant-baseline "middle"
-               :fill "#445" :font-size "7" :font-family "monospace"}
+               :fill "#445" :font-size "7" :font-family "monospace"
+               :style {:pointer-events "none"}}
         "C"])]))
 
-(defn render-cipher [cipher & [{:keys [highlights on-click]}]]
-  [:g
-   (for [pos (into [[0 0]] game/hex-directions)
-         :let [hl? (and highlights (contains? highlights pos))]]
-     [cipher-hex cipher pos hl? (when hl? on-click)])])
+(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover expanded? cipher-queue-color]}]]
+  (let [s (if expanded? 2.0 1.0)]
+    [:g {:transform (when expanded? (str "scale(" s ")"))}
+     (for [pos (into [[0 0]] game/hex-directions)
+           :let [hl? (and highlights (contains? highlights pos))]]
+       [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color])]))
 
 ;; ── Scoring overlay (game-over landing) ──────────────────────────────────────
 
@@ -776,17 +830,20 @@
 
 (defn render-player-area
   [state player-key player-colors captain y-offset _panel-w]
-  (let [pstate   (get-in state [:players player-key] {})
-        hab      (get-in pstate [:habitat :sundivers] 0)
-        res      (:reserve pstate {})
-        ck       (get player-colors player-key :sun)
-        fc       (pf ck)
-        sc       (ps ck)
-        is-cap   (= player-key captain)
-        on-turn? (= player-key (game/current-player state))
-        ;; Circle center within this panel's local coords
-        cx       panel-r
-        cy       panel-r]
+  (let [pstate       (get-in state [:players player-key] {})
+        hab          (get-in pstate [:habitat :sundivers] 0)
+        res          (:reserve pstate {})
+        ck           (get player-colors player-key :sun)
+        fc           (pf ck)
+        sc           (ps ck)
+        is-cap       (= player-key captain)
+        on-turn?     (= player-key (game/current-player state))
+        player-order (:turn-order state)
+        n-players    (count player-order)
+        pidx         (.indexOf (vec player-order) player-key)
+        sundiver-rot (+ 90 (* pidx (/ 360.0 n-players)))
+        cx           panel-r
+        cy           panel-r]
     [:g {:key (str "p" player-key)
          :transform (str "translate(0," y-offset ")")}
      ;; Circle backing
@@ -796,50 +853,76 @@
                :stroke-width (if on-turn? 3 1.5)}]
      ;; Captain flame (top-right quadrant)
      (when is-cap
-       [:g {:transform (str "translate(" (+ cx 38) "," (- cy 40) ")")}
+       [:g {:transform (str "translate(" (+ cx 50) "," (- cy 52) ")")}
         [captain-flame]])
      ;; Player name
-     [:text {:x cx :y (- cy 40)
+     [:text {:x cx :y (- cy 52)
              :text-anchor "middle"
-             :fill fc :font-size "11" :font-weight "bold" :font-family "monospace"}
+             :fill fc :font-size "12" :font-weight "bold" :font-family "monospace"}
       player-key]
-     ;; Habitat sundivers — up to 7 per row, two rows if needed
-     [:g {:transform (str "translate(" cx "," (- cy 24) ")")}
-      (let [row1 (min hab 7)
-            row2 (max 0 (- hab 7))
-            row-x (fn [n i] (- (* i 10) (* (dec (max n 1)) 5)))]
-        [:g
-         ;; First row
-         (for [i (range row1)
-               :let [ox (row-x row1 i)]]
-           [:polygon {:key i :points (tri-pts ox 0 7)
-                      :fill fc :stroke sc :stroke-width 0.7}])
-         ;; Second row (when hab > 7)
-         (for [i (range row2)
-               :let [ox (row-x row2 i)]]
-           [:polygon {:key (+ 7 i) :points (tri-pts ox 12 7)
-                      :fill fc :stroke sc :stroke-width 0.7}])])]
+     ;; Habitat sundivers — up to 7 per row, rotated to match board direction
+     (let [rot  sundiver-rot
+           row1 (min hab 7)
+           row2 (max 0 (- hab 7))
+           row-x (fn [n i] (- (* i 10) (* (dec (max n 1)) 5)))]
+       [:g {:transform (str "translate(" cx "," (- cy 34) ")")}
+        ;; First row
+        (for [i (range row1)
+              :let [ox (row-x row1 i)]]
+          [:g {:key i :transform (str "translate(" ox ",0) rotate(" rot ")")}
+           [:polygon {:points (tri-pts 0 0 7)
+                      :fill fc :stroke sc :stroke-width 0.7}]])
+        ;; Second row (when hab > 7)
+        (for [i (range row2)
+              :let [ox (row-x row2 i)]]
+          [:g {:key (+ 7 i) :transform (str "translate(" ox ",12) rotate(" rot ")")}
+           [:polygon {:points (tri-pts 0 0 7)
+                      :fill fc :stroke sc :stroke-width 0.7}]])])
      ;; Move points
-     [:text {:x cx :y (+ cy 2)
+     [:text {:x cx :y (- cy 4)
              :text-anchor "middle"
              :fill "#88AACC" :font-size "9" :font-family "monospace"}
       (str "move " (game/move-points state player-key))]
-     ;; Reserve counts — full names, two per line
-     [:text {:x cx :y (+ cy 16)
-             :text-anchor "middle" :fill "#6A8A6A" :font-size "7" :font-family "monospace"}
-      (str "sundivers: " (:sundivers res 0) "  beacons: " (:beacons res 0))]
-     [:text {:x cx :y (+ cy 27)
-             :text-anchor "middle" :fill "#6A8A6A" :font-size "7" :font-family "monospace"}
-      (str "foundries: " (:foundries res 0) "  matrixes: " (:matrixes res 0))]
-     [:text {:x cx :y (+ cy 38)
-             :text-anchor "middle" :fill "#6A8A6A" :font-size "7" :font-family "monospace"}
-      (str "towers: " (:towers res 0) "  gates: " (:gates res 0))]
+     ;; Reserve counts — icon + number, 3 columns × 2 rows
+     (let [items [;; Row 1: sundivers, beacons, gates
+                  [{:icon :sundiver :n (:sundivers res 0)}
+                   {:icon :beacon   :n (:beacons res 0)}
+                   {:icon :gate     :n (:gates res 0)}]
+                  ;; Row 2: foundries, matrixes, towers
+                  [{:icon :foundry  :n (:foundries res 0)}
+                   {:icon :matrix   :n (:matrixes res 0)}
+                   {:icon :tower    :n (:towers res 0)}]]
+           col-w 36
+           x-start (- cx (* col-w 1))]
+       [:g {:transform (str "translate(0," (+ cy 12) ")")}
+        (for [[row-i row] (map-indexed vector items)
+              [col-i {:keys [icon n]}] (map-indexed vector row)
+              :let [x (+ x-start (* col-i col-w))
+                    y (* row-i 22)]]
+          [:g {:key (str icon) :transform (str "translate(" x "," y ")")}
+           ;; Icon
+           (case icon
+             :sundiver [:g {:transform (str "rotate(" sundiver-rot ")")}
+                        [:polygon {:points (tri-pts 0 0 5) :fill fc :stroke sc :stroke-width 0.5}]]
+             :beacon   [:g {:transform "scale(0.6)"} [beacon-shape fc]]
+             :gate     [:ellipse {:cx 0 :cy 0 :rx 5 :ry 3
+                                  :fill "none" :stroke fc :stroke-width 1.2}]
+             :foundry  [:g {:transform "scale(0.5)"}
+                         [station-shape {:type :foundry :color-key ck :level 0}]]
+             :matrix   [:g {:transform "scale(0.5)"}
+                         [station-shape {:type :matrix :color-key ck :level 0}]]
+             :tower    [:g {:transform "scale(0.5)"}
+                         [station-shape {:type :tower :color-key ck :level 0}]])
+           ;; Number
+           [:text {:x 9 :y 4
+                   :fill "#6A8A6A" :font-size "9" :font-family "monospace"}
+            (str n)]])])
      ;; Held card — small playing card with suit color and icon
      (when-let [card (get-in pstate [:held-card])]
        (let [suit   (:suit card)
              scolor (get game/suit-colors suit "#555")
              cw 22 ch 30
-             cx0 (- cx (/ cw 2)) cy0 (+ cy 44)]
+             cx0 (- cx (/ cw 2)) cy0 (+ cy 52)]
          [:g
           [:rect {:x cx0 :y cy0 :width cw :height ch :rx 3
                   :fill scolor :stroke "#FFFFFF33" :stroke-width 0.8}]
@@ -956,13 +1039,25 @@
      :on-bg-mouse-down — handler for mouse-down on the background (for panning)"
   [state pos-highlights on-hex-click choice-buttons
    & [{:keys [pan-x pan-y zoom on-bg-mouse-down fly-highlights chosen-pos active-player
-              conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click]
+              conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click
+              cipher-on-beacon-hover cipher-expanded? cipher-on-toggle cipher-hover
+              cipher-queue-color]
        :or   {pan-x 0 pan-y 0 zoom 1.0}}]]
   (let [player-order  (:turn-order state)
         player-colors (build-player-colors player-order)
         captain       (:captain-flame state)
         current       (game/current-player state)
-        [bcx bcy]     (board-centroid (:board state))]
+        [bcx bcy]     (board-centroid (:board state))
+        ;; Compute cipher hover match highlights
+        board         (:board state)
+        cipher-match-hl
+        (when cipher-hover
+          (let [{:keys [pos color]} cipher-hover]
+            (if (= pos [0 0])
+              (set (filter #(= color (:color (get board %))) (keys board)))
+              (set (filter #(= color (:color (get board (game/add-hex % pos))))
+                           (keys board))))))
+        pos-highlights (into (or pos-highlights #{}) (or cipher-match-hl #{}))]
     [:svg {:xmlns   "http://www.w3.org/2000/svg"
            :viewBox (str "0 0 " vw " " vh)
            :width   "100%" :height "100%"
@@ -992,14 +1087,19 @@
       (when (= :landing (get-in state [:game-over :type]))
         [render-scoring-overlay state player-colors])]
 
-     ;; ── Cipher (fixed position, not panned/zoomed)
-     [:g {:transform (str "translate(" cipher-x "," cipher-y ")")}
-      [:text {:x 0 :y -78
+     ;; ── Cipher (fixed position, not panned/zoomed) — click to expand/collapse
+     [:g {:transform (str "translate(" cipher-x "," cipher-y ")")
+          :on-click (when cipher-on-toggle cipher-on-toggle)
+          :style {:cursor "pointer"}}
+      [:text {:x 0 :y (if cipher-expanded? -140 -78)
               :text-anchor "middle"
               :fill "#445566"
               :font-size "10" :font-family "monospace" :letter-spacing "2"}
        "CIPHER"]
-      [render-cipher (:cipher state) {:highlights cipher-highlights :on-click cipher-on-click}]
+      [render-cipher (:cipher state) {:highlights cipher-highlights :on-click cipher-on-click
+                                       :on-beacon-hover cipher-on-beacon-hover
+                                       :expanded? cipher-expanded?
+                                       :cipher-queue-color cipher-queue-color}]
       ;; Cipher queue: show pending beacons to place
       (let [queue (get-in state [:player-turn :cipher-queue] [])]
         (when (seq queue)
@@ -1010,41 +1110,49 @@
                    :font-size "8" :font-family "monospace" :letter-spacing "1"}
             "QUEUE"]
            ;; Arrow pointing right at the first item, from its left side
-           (let [first-x (* (- 0 (/ (dec (count queue)) 2.0)) 40)]
+           (let [first-x (* (- 0 (/ (dec (count queue)) 2.0)) 46)]
              [:path {:d "M 0,-4 L 8,0 L 0,4 Z"
                      :fill "#FFD030" :opacity 0.8
                      :transform (str "translate(" (- first-x 28) ",7)")}])
            (for [[i {:keys [player color]}] (map-indexed vector queue)
-                 :let [x (* (- i (/ (dec (count queue)) 2.0)) 40)
+                 :let [x (* (- i (/ (dec (count queue)) 2.0)) 46)
                        wc (get world-outer color "#555")
                        ic (get world-inner color "#333")
                        pc (pf (get player-colors player :sun))
                        first? (zero? i)]]
              [:g {:key i :transform (str "translate(" x ",8)")}
-              ;; World tile circle (color of the discovered world)
-              [:circle {:cx 0 :cy 0 :r 14
-                        :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2 1)}]
-              [:circle {:cx 0 :cy 0 :r 9 :fill ic}]
+              ;; World tile circle (color of the discovered world) — large so color is clear
+              [:circle {:cx 0 :cy 0 :r 18
+                        :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2.5 1)}]
+              [:circle {:cx 0 :cy 0 :r 12 :fill ic}]
               ;; Player beacon pentagon on top
               [:g {:transform "translate(0,-1)"}
                [beacon-shape pc]]])]))]
 
-     ;; ── Player panels (fixed, left column)
-     [:g {:transform (str "translate(" panel-x ",0)")}
-      (map-indexed
-       (fn [i player]
-         (let [py (+ 10 (* i (+ panel-h panel-gap)))]
-           ^{:key player}
-           [render-player-area state player player-colors captain py panel-w]))
-       player-order)]
+     ;; ── Player panels (left side, wraps to second column if needed)
+     (let [max-h    (- vh 20)
+           col-step (+ panel-h panel-gap)
+           per-col  (max 1 (int (/ max-h col-step)))]
+       [:g {:transform (str "translate(" panel-x ",0)")}
+        (map-indexed
+         (fn [i player]
+           (let [col (quot i per-col)
+                 row (mod i per-col)
+                 px  (* col (+ panel-w 12))
+                 py  (+ 10 (* row col-step))]
+             ^{:key player}
+             [:g {:transform (str "translate(" px ",0)")}
+              [render-player-area state player player-colors captain py panel-w]]))
+         player-order)])
 
-     ;; ── Game info + deck (below player circles on the left)
-     (let [info-y  (+ 10 (* (count player-order) (+ panel-h panel-gap)))
-           deck-n  (count (:deck state))
-           discard (:discard state)
-           top     (peek discard)]
+     ;; ── Game info (below last column of player panels)
+     (let [max-h    (- vh 20)
+           col-step (+ panel-h panel-gap)
+           per-col  (max 1 (int (/ max-h col-step)))
+           last-col-count (let [n (count player-order)] (mod n per-col))
+           rows-in-last   (if (zero? last-col-count) per-col last-col-count)
+           info-y  (+ 10 (* rows-in-last col-step))]
        [:g {:transform (str "translate(" (+ panel-x panel-r) "," info-y ")")}
-        ;; Turn & round info
         [:text {:x 0 :y 0
                 :text-anchor "middle"
                 :fill (pf (get player-colors current :sun))
@@ -1054,25 +1162,37 @@
                 :text-anchor "middle"
                 :fill "#334455"
                 :font-size "9" :font-family "monospace"}
-         (str "Round " (:round state 0)
-              "  Flares " (:flares-drawn state 0) "/13")]
-        ;; Deck stack (face-down) + top discard (face-up)
-        [:g {:transform "translate(-20,30)"}
-         ;; Stacked card backs
+         (str "Round " (:round state 0))]])
+
+     ;; ── Deck + flares (bottom-right corner)
+     (let [deck-n  (count (:deck state))
+           discard (:discard state)
+           top     (peek discard)
+           flares  (:flares-drawn state 0)]
+       [:g {:transform (str "translate(" (- vw 180) "," (- vh 70) ")")}
+        ;; Flare icon + count
+        [:g {:transform "translate(0,0)"}
+         [:g {:transform "scale(1.8)"}
+          [suit-icon 4 "#DD3322" 7]]
+         [:text {:x 20 :y 6
+                 :fill "#DD3322" :font-size "16" :font-weight "bold" :font-family "monospace"}
+          (str flares "/13")]]
+        ;; Deck stack
+        [:g {:transform "translate(100,0)"}
          (for [i (range (min 3 (max 1 (quot deck-n 10))))]
-           [:rect {:key i :x (- i) :y (- i) :width 24 :height 34 :rx 3
+           [:rect {:key i :x (- i) :y (- 17 i) :width 28 :height 40 :rx 3
                    :fill "#1A1A30" :stroke "#3A3A5A" :stroke-width 0.8}])
-         [:text {:x 12 :y 21
+         [:text {:x 14 :y 8
                  :text-anchor "middle"
-                 :fill "#667788" :font-size "9" :font-weight "bold" :font-family "monospace"}
+                 :fill "#667788" :font-size "12" :font-weight "bold" :font-family "monospace"}
           (str deck-n)]]
-        ;; Top of discard (face-up)
+        ;; Top of discard
         (when top
-          [:g {:transform "translate(14,30)"}
-           [:rect {:x 0 :y 0 :width 24 :height 34 :rx 3
+          [:g {:transform "translate(138,0)"}
+           [:rect {:x 0 :y -17 :width 28 :height 40 :rx 3
                    :fill (get game/suit-colors (:suit top) "#555")
                    :stroke "#FFFFFF33" :stroke-width 0.8}]
-           [:g {:transform "translate(12,17)"}
+           [:g {:transform "translate(14,6)"}
             [suit-icon (:suit top) "#FFF" 7]]])])
 
      ;; ── Choice buttons (non-position choices)

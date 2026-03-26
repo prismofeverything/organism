@@ -60,7 +60,7 @@
   [redirect]
   (cond
     (and redirect (clojure.string/starts-with? redirect "/journey"))  "JOURNEY"
-    (and redirect (clojure.string/starts-with? redirect "/universal")) "UNIVERSAL"
+    (and redirect (clojure.string/starts-with? redirect "/oroboros")) "UNIVERSAL"
     :else "ORGANISM"))
 
 (defn login-page

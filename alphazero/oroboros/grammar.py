@@ -1,268 +1,391 @@
-"""Grammar: valid parameter space + sampling + mutation + crossover.
+"""Grammar: generate, mutate, and crossover rule-programs.
 
-The Grammar defines the search space. Each method returns a RuleSet that
-obeys all structural constraints (e.g., conflict tuple length matches num_types).
+Creates random valid games where rules are (predicate, effect) AST pairs
+composed from primitives. No predefined action catalog.
 """
 
 from __future__ import annotations
 import random
-from typing import Callable
+import math
 
-from .ruleset import (
-    RuleSet,
-    BOARD_SYMMETRIES, NUM_RINGS, NUM_TYPES, ELEMENTS_PER_PLAYER,
-    FOOD_INITIAL, WIN_TYPES, WIN_THRESHOLDS, NUM_PLAYERS, CONFLICT_VALUES,
-)
+from .schema import *
+from .interpreter import predicate_max_range
 
 
-def _random_conflict(num_types: int) -> tuple:
-    n_pairs = num_types * (num_types - 1) // 2
-    return tuple(random.choice(CONFLICT_VALUES) for _ in range(n_pairs))
+# ── Domains ───────────────────────────────────────────────────────────────────
 
+from .tiling import BASE_TYPES, TILING_SIZES, SYMMETRIES, BOUNDARIES, MODIFIERS, MOD_PARAMS
 
-def _conflict_for_types(conflict: tuple, new_n: int) -> tuple:
-    """Resize conflict tuple to match new_n types, padding or truncating."""
-    n_pairs = new_n * (new_n - 1) // 2
-    lst = list(conflict)
-    while len(lst) < n_pairs:
-        lst.append(random.choice(CONFLICT_VALUES))
-    return tuple(lst[:n_pairs])
+PIECE_TYPES = [1, 2, 3, 4]
+PLAYER_COUNTS = [2, 3]
+RESOURCE_SLOTS = [0, 1, 2]
+GLOBAL_COUNTERS = [2, 3, 4]
+CONFLICT_VALUES = [0, 1, 2, 3]
+PLACEMENTS = ["spread", "cluster", "random"]
+TURN_LIMITS = [30, 50, 75, 100]
+ACTIONS_PER_TURN = [1, 2, 3]
 
-
-def _validate(rs: RuleSet) -> bool:
-    """Return True iff the ruleset is structurally valid and non-degenerate."""
-    # Conflict tuple must have exactly the right length
-    if len(rs.conflict) != rs.num_conflict_pairs():
-        return False
-    # Must have at least one action available
-    has_action = rs.can_move or rs.can_eat or rs.can_grow or rs.can_capture or rs.can_circulate
-    if not has_action:
-        return False
-    # Food-dependent actions require food
-    if not rs.food_enabled and (rs.can_eat or rs.can_grow or rs.can_circulate):
-        return False
-    # Win threshold must be achievable
-    if rs.win_type == "captures":
-        # Max captures = all opponent pieces (each player can capture at most this many)
-        max_captures = rs.elements_per_player * (rs.num_players - 1)
-        if rs.win_threshold > max_captures:
-            return False
-    elif rs.win_type == "population":
-        # Population can only increase via grow; without it, can't exceed starting count
-        if not rs.can_grow and rs.win_threshold > rs.elements_per_player:
-            return False
-    return True
+MAX_RULES = 5
+MIN_RULES = 1
+MAX_PRED_DEPTH = 2
+MAX_EFF_DEPTH = 2
 
 
 class Grammar:
-    """Defines and samples the ruleset search space."""
+    """Generate and mutate rule-program games."""
 
-    # Mutable fields and their domains (for targeted mutation)
-    _FIELDS: list[tuple[str, list]] = [
-        ("board_symmetry",      BOARD_SYMMETRIES),
-        ("num_rings",           NUM_RINGS),
-        ("num_types",           NUM_TYPES),
-        ("elements_per_player", ELEMENTS_PER_PLAYER),
-        ("food_enabled",        [True, False]),
-        ("food_initial",        FOOD_INITIAL),
-        ("can_move",            [True, False]),
-        ("can_eat",             [True, False]),
-        ("can_grow",            [True, False]),
-        ("can_capture",         [True, False]),
-        ("can_circulate",       [True, False]),
-        ("win_type",            WIN_TYPES),
-        ("win_threshold",       WIN_THRESHOLDS),
-        ("num_players",         NUM_PLAYERS),
-    ]
-
-    def __init__(
-        self,
-        max_attempts: int = 50,
-        num_players: int | None = None,   # fix if not None
-    ):
+    def __init__(self, max_attempts: int = 100, fixed_players: int | None = None):
         self.max_attempts = max_attempts
-        self.fixed_num_players = num_players
+        self.fixed_players = fixed_players
 
-    def sample(self) -> RuleSet:
-        """Sample a uniformly random valid ruleset."""
+    def sample(self) -> RuleSetV3:
+        """Generate a random valid game."""
         for _ in range(self.max_attempts):
-            n_types = random.choice(NUM_TYPES)
-            food_on = random.choice([True, False])
-            rs = RuleSet(
-                board_symmetry=random.choice(BOARD_SYMMETRIES),
-                num_rings=random.choice(NUM_RINGS),
-                num_types=n_types,
-                elements_per_player=random.choice(ELEMENTS_PER_PLAYER),
-                food_enabled=food_on,
-                food_initial=random.choice(FOOD_INITIAL) if food_on else 0,
-                can_move=True,                      # always keep move
-                can_eat=food_on and random.choice([True, False]),
-                can_grow=food_on and random.choice([True, False]),
-                can_capture=random.choice([True, False]),
-                can_circulate=food_on and random.choice([True, False]),
-                conflict=_random_conflict(n_types),
-                win_type=random.choice(WIN_TYPES),
-                win_threshold=random.choice(WIN_THRESHOLDS),
-                num_players=self.fixed_num_players or random.choice(NUM_PLAYERS),
+            schema = self._random_schema()
+            conflict = self._random_conflict(schema.num_piece_types)
+            n_rules = random.randint(MIN_RULES, MAX_RULES)
+            rules = tuple(self._random_rule(schema) for _ in range(n_rules))
+            interactions = self._random_interactions(schema)
+            terminations = self._random_terminations(schema)
+
+            rs = RuleSetV3(
+                schema=schema,
+                conflict_table=conflict,
+                rules=rules,
+                interactions=interactions,
+                terminations=terminations,
+                actions_per_turn=random.choice(ACTIONS_PER_TURN),
+                turn_limit=random.choice(TURN_LIMITS),
+                placement=random.choice(PLACEMENTS),
             )
-            if _validate(rs):
+            if validate_coverage(rs) and self._quick_viable(rs):
                 return rs
-        # Fallback: return Organism-like ruleset
-        return self.organism_like()
+        return self._fallback()
 
-    def _build_mutant(self, rs: RuleSet, fname: str, new_val) -> RuleSet | None:
-        """Build a mutant RuleSet by setting one field. Returns None if invalid."""
-        kwargs = rs.to_dict()
-        kwargs["conflict"] = tuple(kwargs["conflict"])
-        kwargs[fname] = new_val
-
-        if fname == "num_types":
-            kwargs["conflict"] = _conflict_for_types(rs.conflict, new_val)
-        if fname == "food_enabled" and not new_val:
-            kwargs["can_eat"] = False
-            kwargs["can_grow"] = False
-            kwargs["can_circulate"] = False
-
-        candidate = RuleSet(**kwargs)
-        return candidate if _validate(candidate) else None
-
-    def mutate(
-        self,
-        rs: RuleSet,
-        field: str | None = None,
-        field_weights: dict[str, float] | None = None,
-        value_weights: dict[str, dict] | None = None,
-    ) -> RuleSet:
-        """Mutate one field.  Retries until the result is valid.
-
-        Args:
-            field_weights: Optional bias for field selection — {field_name: weight}.
-            value_weights: Optional bias for value selection — {field_name: {value: weight}}.
-        """
+    def mutate(self, rs: RuleSetV3) -> RuleSetV3:
+        """Mutate one component."""
+        ops = [
+            self._mut_schema, self._mut_conflict, self._mut_rule_pred,
+            self._mut_rule_eff, self._mut_add_rule, self._mut_remove_rule,
+            self._mut_termination, self._mut_turns,
+        ]
         for _ in range(self.max_attempts):
-            if field is None:
-                fname, domain = self._pick_field(field_weights)
-            else:
-                fname = field
-                domain = dict(self._FIELDS)[fname]
-
-            current = getattr(rs, fname)
-            choices = [v for v in domain if v != current]
-            if not choices:
-                continue
-            new_val = self._pick_value(fname, choices, value_weights)
-
-            candidate = self._build_mutant(rs, fname, new_val)
-            if candidate is not None:
+            candidate = random.choice(ops)(rs)
+            if validate_coverage(candidate) and self._quick_viable(candidate):
                 return candidate
         return rs
 
-    def mutate_tracked(
-        self,
-        rs: RuleSet,
-        field_weights: dict[str, float] | None = None,
-        value_weights: dict[str, dict] | None = None,
-    ) -> tuple[RuleSet, str, object, object]:
-        """Like mutate(), but returns (child, field_name, old_value, new_value)."""
+    def crossover(self, a: RuleSetV3, b: RuleSetV3) -> RuleSetV3:
+        """Mix rules from two parents."""
+        schema = random.choice([a.schema, b.schema])
+        # Resize conflict table for chosen schema
+        T = schema.num_piece_types
+        n_pairs = T * (T - 1) // 2
+        ca = list(a.conflict_table)
+        cb = list(b.conflict_table)
+        while len(ca) < n_pairs: ca.append(random.choice(CONFLICT_VALUES))
+        while len(cb) < n_pairs: cb.append(random.choice(CONFLICT_VALUES))
+        conflict = tuple(random.choice([ca[i], cb[i]]) for i in range(n_pairs))
+
+        # Mix rules
+        all_rules = list(a.rules) + list(b.rules)
+        n = random.randint(MIN_RULES, min(len(all_rules), MAX_RULES))
+        rules = tuple(random.sample(all_rules, n))
+
         for _ in range(self.max_attempts):
-            fname, domain = self._pick_field(field_weights)
-            current = getattr(rs, fname)
-            choices = [v for v in domain if v != current]
-            if not choices:
-                continue
-            new_val = self._pick_value(fname, choices, value_weights)
-
-            candidate = self._build_mutant(rs, fname, new_val)
-            if candidate is not None:
-                return candidate, fname, current, new_val
-        return rs, "", None, None  # unchanged
-
-    def mutate_to(self, rs: RuleSet, field: str, value) -> RuleSet | None:
-        """Deterministically set one field to a specific value. Returns None if invalid."""
-        return self._build_mutant(rs, field, value)
-
-    def _pick_field(self, weights: dict[str, float] | None) -> tuple[str, list]:
-        """Select a mutation field, optionally biased by weights."""
-        if weights is None:
-            return random.choice(self._FIELDS)
-        fields = self._FIELDS
-        w = [max(weights.get(f, 1.0), 0.05) for f, _ in fields]
-        total = sum(w)
-        r = random.random() * total
-        cumulative = 0.0
-        for i, (fname, domain) in enumerate(fields):
-            cumulative += w[i]
-            if r <= cumulative:
-                return fname, domain
-        return fields[-1]
-
-    def _pick_value(self, fname: str, choices: list, weights: dict[str, dict] | None) -> object:
-        """Select a mutation value, optionally biased by value weights."""
-        if weights is None or fname not in weights:
-            return random.choice(choices)
-        vw = weights[fname]
-        w = [max(vw.get(v, 1.0), 0.1) for v in choices]
-        total = sum(w)
-        r = random.random() * total
-        cumulative = 0.0
-        for i, v in enumerate(choices):
-            cumulative += w[i]
-            if r <= cumulative:
-                return v
-        return choices[-1]
-
-    def crossover(self, rs1: RuleSet, rs2: RuleSet) -> RuleSet:
-        """Uniform crossover, retrying until valid."""
-        for _ in range(self.max_attempts):
-            kwargs: dict = {}
-            for fname, _ in self._FIELDS:
-                kwargs[fname] = random.choice([getattr(rs1, fname), getattr(rs2, fname)])
-            # Reconcile conflict length with chosen num_types
-            n = kwargs["num_types"]
-            c1 = _conflict_for_types(rs1.conflict, n)
-            c2 = _conflict_for_types(rs2.conflict, n)
-            kwargs["conflict"] = tuple(
-                random.choice([a, b]) for a, b in zip(c1, c2)
+            candidate = RuleSetV3(
+                schema=schema, conflict_table=conflict, rules=rules,
+                interactions=random.choice([a.interactions, b.interactions]),
+                terminations=random.choice([a.terminations, b.terminations]),
+                actions_per_turn=random.choice([a.actions_per_turn, b.actions_per_turn]),
+                turn_limit=random.choice([a.turn_limit, b.turn_limit]),
+                placement=random.choice([a.placement, b.placement]),
             )
-            candidate = RuleSet(**kwargs)
-            if _validate(candidate):
+            if validate_coverage(candidate):
                 return candidate
-        return self.mutate(rs1)
+        return self.mutate(a)
 
-    # ── named presets ─────────────────────────────────────────────────────────
+    # ── Random generation ─────────────────────────────────────────────────────
 
-    def organism_like(self) -> RuleSet:
-        """Closest to the full Organism game (5-ring, 5-sym, 3 types, 5 players)."""
-        return RuleSet(
-            board_symmetry=5, num_rings=5, num_types=3, elements_per_player=3,
-            food_enabled=True, food_initial=1,
-            can_move=True, can_eat=True, can_grow=True,
-            can_capture=False, can_circulate=True,
-            conflict=(1, 2, 1),
-            win_type="captures", win_threshold=5,
-            num_players=5,
+    def _random_schema(self) -> StateSchema:
+        np = self.fixed_players or random.choice(PLAYER_COUNTS)
+        modifier = random.choice(MODIFIERS)
+        return StateSchema(
+            topology_type=random.choice(BASE_TYPES),
+            topology_size=random.choice(TILING_SIZES),
+            topology_symmetry=random.choice(SYMMETRIES),
+            topology_boundary=random.choice(BOUNDARIES),
+            topology_modifier=modifier,
+            topology_mod_param=random.choice(MOD_PARAMS) if modifier != "none" else 0,
+            num_piece_types=random.choice(PIECE_TYPES),
+            num_players=np,
+            num_resource_slots=random.choice(RESOURCE_SLOTS),
+            num_global_counters=max(np, random.choice(GLOBAL_COUNTERS)),
         )
 
-    def minimal_go_like(self) -> RuleSet:
-        """Minimal placement + capture game (no food, 1 type, capture win). 2p × 4e → threshold=3."""
-        return RuleSet(
-            board_symmetry=4, num_rings=4, num_types=1, elements_per_player=4,
-            food_enabled=False, food_initial=0,
-            can_move=True, can_eat=False, can_grow=False,
-            can_capture=True, can_circulate=False,
-            conflict=(3,),           # same type → mutual destruction
-            win_type="captures", win_threshold=3,
-            num_players=2,
+    def _random_conflict(self, num_types: int) -> tuple:
+        n_pairs = num_types * (num_types - 1) // 2
+        return tuple(random.choice(CONFLICT_VALUES) for _ in range(n_pairs))
+
+    def _random_rule(self, schema: StateSchema) -> Rule:
+        """Generate a rule with a spatial constraint + random predicate/effect."""
+        # Always include a spatial constraint to bound branching
+        spatial = random.choice([
+            (P_ADJACENT,),
+            (P_DISTANCE_LEQ, 2),
+        ])
+        extra_pred = self._random_predicate(schema, depth=0)
+        predicate = (P_AND, spatial, extra_pred)
+        effect = self._random_effect(schema, depth=0)
+        requires_piece = random.random() < 0.75
+        return Rule(predicate=predicate, effect=effect, requires_piece=requires_piece)
+
+    def _random_predicate(self, schema: StateSchema, depth: int) -> tuple:
+        if depth >= MAX_PRED_DEPTH or random.random() < 0.5:
+            return self._random_leaf_pred(schema)
+        op = random.choice([P_AND, P_OR])
+        return (op,
+                self._random_predicate(schema, depth + 1),
+                self._random_predicate(schema, depth + 1))
+
+    def _random_leaf_pred(self, schema: StateSchema) -> tuple:
+        which = random.choice([SRC, TGT])
+        pool = [
+            (P_EMPTY, TGT),
+            (P_OCCUPIED, TGT),
+            (P_OWNER_IS, SRC, SELF),
+            (P_OWNER_IS, TGT, ENEMY),
+            (P_OWNER_IS, TGT, SELF),
+            (P_TRUE,),
+        ]
+        if schema.num_piece_types > 1:
+            pool.append((P_TYPE_IS, which, random.randrange(schema.num_piece_types)))
+            pool.append((P_TYPE_BEATS,))
+            pool.append((P_SAME_TYPE,))
+            pool.append((P_DIFF_TYPE,))
+        for slot in range(schema.num_resource_slots):
+            pool.append((P_RESOURCE_GEQ, which, slot, random.choice([1, 2, 3])))
+        for gi in range(schema.num_global_counters):
+            pool.append((P_GLOBAL_GEQ, gi, random.choice([2, 3, 5])))
+        return random.choice(pool)
+
+    def _random_effect(self, schema: StateSchema, depth: int) -> tuple:
+        if depth >= MAX_EFF_DEPTH or random.random() < 0.6:
+            return self._random_leaf_eff(schema)
+        return (E_SEQ,
+                self._random_leaf_eff(schema),
+                self._random_effect(schema, depth + 1))
+
+    def _random_leaf_eff(self, schema: StateSchema) -> tuple:
+        pool = [
+            (E_REMOVE_PIECE, TGT),
+            (E_REMOVE_PIECE, SRC),
+            (E_MOVE_PIECE, SRC, TGT),
+            (E_PLACE_PIECE, TGT, SELF, random.randrange(max(schema.num_piece_types, 1))),
+            (E_PLACE_PIECE, TGT, SELF, COPY_SRC_TYPE),
+            (E_SWAP_PIECES,),
+            (E_PUSH_PIECE, TGT, SRC),
+        ]
+        for slot in range(schema.num_resource_slots):
+            pool.extend([
+                (E_ADD_RESOURCE, SRC, slot, -1),
+                (E_ADD_RESOURCE, TGT, slot, 1),
+                (E_TRANSFER_RES, SRC, TGT, slot, 1),
+                (E_COLLECT_RES, SRC, slot),
+            ])
+        for gi in range(schema.num_global_counters):
+            pool.append((E_INC_COUNTER, gi, 1))
+        return random.choice(pool)
+
+    def _random_interactions(self, schema: StateSchema) -> tuple:
+        if random.random() < 0.4:
+            return ()  # no automatic interactions
+        # Type-beats interaction (like the classic conflict table)
+        if schema.num_piece_types > 1:
+            return (InteractionRule(
+                trigger="adjacency",
+                predicate=(P_TYPE_BEATS,),
+                effect=(E_SEQ,
+                        (E_REMOVE_PIECE, TGT),
+                        (E_INC_COUNTER, 0, 1)),  # increment score
+            ),)
+        return ()
+
+    def _random_terminations(self, schema: StateSchema) -> tuple:
+        pool = []
+        # Counter threshold
+        for gi in range(min(schema.num_global_counters, schema.num_players)):
+            pool.append(TerminationSpec(
+                predicate=(T_COUNTER_GEQ, gi, random.choice([3, 5, 7])),
+                winner_mode=W_TRIGGERING_PLAYER,
+            ))
+        # Elimination
+        pool.append(TerminationSpec(
+            predicate=(T_ONE_PLAYER_LEFT,),
+            winner_mode=W_LAST_STANDING,
+        ))
+        # Population
+        pool.append(TerminationSpec(
+            predicate=(T_PIECE_COUNT_GEQ, SELF, random.choice([5, 7, 10])),
+            winner_mode=W_TRIGGERING_PLAYER,
+        ))
+        # Pick 1-2 conditions
+        chosen = random.sample(pool, min(2, len(pool)))
+        # Always add turn limit fallback
+        chosen.append(TerminationSpec(
+            predicate=(T_ROUND_GEQ, 100),
+            winner_mode=W_HIGHEST_COUNTER,
+            winner_arg=0,
+        ))
+        return tuple(chosen)
+
+    def _quick_viable(self, rs: RuleSetV3) -> bool:
+        """Fast sanity check."""
+        if not rs.rules:
+            return False
+        # At least one rule must modify pieces
+        for rule in rs.rules:
+            refs = fields_referenced(rule.effect)
+            if "owner" in refs or "piece_type" in refs:
+                return True
+        return False
+
+    def _fallback(self) -> RuleSetV3:
+        """Minimal valid game: move + capture on hex."""
+        schema = StateSchema(
+            topology_type="hex", topology_size=3,
+            num_piece_types=2, num_players=2,
+            num_resource_slots=0, num_global_counters=2,
+        )
+        return RuleSetV3(
+            schema=schema,
+            conflict_table=(1,),
+            rules=(
+                # "move": own piece at src, empty tgt, adjacent → relocate
+                Rule(
+                    predicate=(P_AND, (P_ADJACENT,),
+                               (P_AND, (P_OWNER_IS, SRC, SELF), (P_EMPTY, TGT))),
+                    effect=(E_MOVE_PIECE, SRC, TGT),
+                    requires_piece=True,
+                ),
+                # "capture": own piece at src, enemy tgt, adjacent, type beats → remove + score
+                Rule(
+                    predicate=(P_AND, (P_ADJACENT,),
+                               (P_AND, (P_OWNER_IS, TGT, ENEMY), (P_TYPE_BEATS,))),
+                    effect=(E_SEQ, (E_REMOVE_PIECE, TGT), (E_INC_COUNTER, 0, 1)),
+                    requires_piece=True,
+                ),
+            ),
+            terminations=(
+                TerminationSpec(predicate=(T_COUNTER_GEQ, 0, 3), winner_mode=W_TRIGGERING_PLAYER),
+                TerminationSpec(predicate=(T_ROUND_GEQ, 50), winner_mode=W_HIGHEST_COUNTER, winner_arg=0),
+            ),
+            turn_limit=50,
         )
 
-    def heterarchy_minimal(self) -> RuleSet:
-        """Minimal 3-type heterarchy, no food, direct capture. 2 players × 3 elements → threshold=3."""
-        return RuleSet(
-            board_symmetry=4, num_rings=4, num_types=3, elements_per_player=3,
-            food_enabled=False, food_initial=0,
-            can_move=True, can_eat=False, can_grow=False,
-            can_capture=True, can_circulate=False,
-            conflict=(1, 2, 1),
-            win_type="captures", win_threshold=3,
-            num_players=2,
-        )
+    # ── Mutation operators ────────────────────────────────────────────────────
+
+    def _mut_schema(self, rs: RuleSetV3) -> RuleSetV3:
+        s = rs.schema
+        field = random.choice(["topology_type", "topology_size", "topology_boundary",
+                                "topology_modifier", "num_piece_types",
+                                "num_resource_slots", "num_global_counters"])
+        kwargs = {
+            "topology_type": s.topology_type,
+            "topology_size": s.topology_size,
+            "topology_symmetry": s.topology_symmetry,
+            "topology_boundary": s.topology_boundary,
+            "topology_modifier": s.topology_modifier,
+            "topology_mod_param": s.topology_mod_param,
+            "num_piece_types": s.num_piece_types,
+            "num_players": s.num_players,
+            "num_resource_slots": s.num_resource_slots,
+            "num_global_counters": s.num_global_counters,
+        }
+        if field == "topology_type":
+            kwargs[field] = random.choice([t for t in BASE_TYPES if t != s.topology_type])
+        elif field == "topology_size":
+            kwargs[field] = random.choice([sz for sz in TILING_SIZES if sz != s.topology_size])
+        elif field == "topology_boundary":
+            kwargs[field] = "torus" if s.topology_boundary == "finite" else "finite"
+        elif field == "topology_modifier":
+            mod = random.choice([m for m in MODIFIERS if m != s.topology_modifier])
+            kwargs["topology_modifier"] = mod
+            kwargs["topology_mod_param"] = random.choice(MOD_PARAMS) if mod != "none" else 0
+        elif field == "num_piece_types":
+            new_t = random.choice([t for t in PIECE_TYPES if t != s.num_piece_types])
+            kwargs[field] = new_t
+            # Resize conflict table
+            n_pairs = new_t * (new_t - 1) // 2
+            ct = list(rs.conflict_table)
+            while len(ct) < n_pairs: ct.append(random.choice(CONFLICT_VALUES))
+            return RuleSetV3(**{**_rs_dict(rs), "schema": StateSchema(**kwargs),
+                                "conflict_table": tuple(ct[:n_pairs])})
+        elif field == "num_resource_slots":
+            kwargs[field] = random.choice([r for r in RESOURCE_SLOTS if r != s.num_resource_slots])
+        elif field == "num_global_counters":
+            kwargs[field] = random.choice([g for g in GLOBAL_COUNTERS if g != s.num_global_counters])
+        return RuleSetV3(**{**_rs_dict(rs), "schema": StateSchema(**kwargs)})
+
+    def _mut_conflict(self, rs: RuleSetV3) -> RuleSetV3:
+        ct = list(rs.conflict_table)
+        if ct:
+            idx = random.randrange(len(ct))
+            ct[idx] = random.choice([v for v in CONFLICT_VALUES if v != ct[idx]])
+        return RuleSetV3(**{**_rs_dict(rs), "conflict_table": tuple(ct)})
+
+    def _mut_rule_pred(self, rs: RuleSetV3) -> RuleSetV3:
+        if not rs.rules:
+            return rs
+        rules = list(rs.rules)
+        idx = random.randrange(len(rules))
+        old = rules[idx]
+        new_pred = (P_AND,
+                    random.choice([(P_ADJACENT,), (P_DISTANCE_LEQ, 2)]),
+                    self._random_predicate(rs.schema, 0))
+        rules[idx] = Rule(new_pred, old.effect, old.requires_piece)
+        return RuleSetV3(**{**_rs_dict(rs), "rules": tuple(rules)})
+
+    def _mut_rule_eff(self, rs: RuleSetV3) -> RuleSetV3:
+        if not rs.rules:
+            return rs
+        rules = list(rs.rules)
+        idx = random.randrange(len(rules))
+        old = rules[idx]
+        new_eff = self._random_effect(rs.schema, 0)
+        rules[idx] = Rule(old.predicate, new_eff, old.requires_piece)
+        return RuleSetV3(**{**_rs_dict(rs), "rules": tuple(rules)})
+
+    def _mut_add_rule(self, rs: RuleSetV3) -> RuleSetV3:
+        if len(rs.rules) >= MAX_RULES:
+            return rs
+        rules = list(rs.rules) + [self._random_rule(rs.schema)]
+        return RuleSetV3(**{**_rs_dict(rs), "rules": tuple(rules)})
+
+    def _mut_remove_rule(self, rs: RuleSetV3) -> RuleSetV3:
+        if len(rs.rules) <= MIN_RULES:
+            return rs
+        rules = list(rs.rules)
+        rules.pop(random.randrange(len(rules)))
+        return RuleSetV3(**{**_rs_dict(rs), "rules": tuple(rules)})
+
+    def _mut_termination(self, rs: RuleSetV3) -> RuleSetV3:
+        new_terms = self._random_terminations(rs.schema)
+        return RuleSetV3(**{**_rs_dict(rs), "terminations": new_terms})
+
+    def _mut_turns(self, rs: RuleSetV3) -> RuleSetV3:
+        new_apt = random.choice([a for a in ACTIONS_PER_TURN if a != rs.actions_per_turn])
+        return RuleSetV3(**{**_rs_dict(rs), "actions_per_turn": new_apt})
+
+
+def _rs_dict(rs: RuleSetV3) -> dict:
+    return {
+        "schema": rs.schema,
+        "conflict_table": rs.conflict_table,
+        "rules": rs.rules,
+        "interactions": rs.interactions,
+        "terminations": rs.terminations,
+        "actions_per_turn": rs.actions_per_turn,
+        "turn_limit": rs.turn_limit,
+        "placement": rs.placement,
+    }

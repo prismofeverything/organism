@@ -21,10 +21,9 @@ import time
 from dataclasses import dataclass, field
 
 from .schema import RuleSetV3, validate_coverage
-from .grammar_v3 import GrammarV3
-from .game_v3 import GameV3
-from .evaluator import GameMetrics, EvalConfig
-from .evaluator_v3 import evaluate_v3
+from .grammar import Grammar
+from .game import Game
+from .evaluator import GameMetrics, EvalConfig, evaluate
 
 
 @dataclass
@@ -47,6 +46,19 @@ class Bacterium:
         """Composite fitness: richness + novelty bonus for age."""
         return self.richness + self.age * 0.1
 
+    def objectives(self) -> dict[str, float]:
+        m = self.metrics
+        if m is None:
+            return {}
+        return {
+            "depth":       m.depth_score(),
+            "complexity":  m.complexity_ratio(),
+            "balance":     m.sim.balance_score,
+            "interaction": m.sim.interaction_rate,
+            "mechanism":   m.sim.mechanism_coverage,
+            "simplicity":  -m.sim.description_length,
+        }
+
     def label(self) -> str:
         s = self.ruleset.schema
         return (f"{s.topology_type[:3]}{s.topology_size}"
@@ -68,7 +80,7 @@ class ChemotacticSearch:
 
     def __init__(
         self,
-        grammar:        GrammarV3  | None = None,
+        grammar:        Grammar  | None = None,
         eval_config:    EvalConfig | None = None,
         max_population: int = 30,
         min_population: int = 8,
@@ -78,7 +90,7 @@ class ChemotacticSearch:
         checkpoint_dir: str = "chemotaxis_checkpoints",
         verbose:        bool = True,
     ):
-        self.grammar  = grammar or GrammarV3(fixed_players=2)
+        self.grammar  = grammar or Grammar(fixed_players=2)
         self.eval_cfg = eval_config or EvalConfig()
         self.max_pop  = max_population
         self.min_pop  = min_population
@@ -156,7 +168,7 @@ class ChemotacticSearch:
         """Evaluate a single bacterium."""
         t0 = time.time()
         try:
-            m = evaluate_v3(b.ruleset, self.eval_cfg)
+            m = evaluate(b.ruleset, self.eval_cfg)
             b.metrics = m
             b.richness = m.richness_score()
         except Exception as e:

@@ -24,8 +24,6 @@ from typing import ClassVar
 
 import numpy as np
 
-from .abstract_game import AbstractGame
-from .ruleset import RuleSet
 from .metrics import SimMetrics, measure_simulation_metrics
 
 
@@ -109,7 +107,7 @@ class GameMetrics:
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def _play_one_game(
-    game:      AbstractGame,
+    game,
     agent1,                   # callable(state) → action_idx
     agent2,                   # callable(state) → action_idx
     max_steps: int = 200,
@@ -204,15 +202,8 @@ def _measure_mechanism_coverage_trained(game, net, n_games: int = 10) -> float:
     """Fraction of available action type slots used by the trained agent."""
     from alphazero.mcts import MCTS
     mcts = MCTS(game, net, num_simulations=10)
-    T, N = game.T, game.N
-    available: set[int] = set()
-    rs = game.rs
-    if rs.can_move:     available.add(0)
-    if rs.can_eat:      available.add(1)
-    if rs.can_grow:
-        for t in range(T): available.add(2 + t)
-    if rs.can_capture:  available.add(T + 2)
-    if rs.can_circulate: available.add(T + 3)
+    N = game.N
+    n_rules = game._n_rules
 
     used: set[int] = set()
     for _ in range(n_games):
@@ -231,6 +222,8 @@ def _measure_mechanism_coverage_trained(game, net, n_games: int = 10) -> float:
             used.add(at)
             state = actions[idx]
 
+    # Available slots = one per rule + pass
+    available = set(range(n_rules + 1))
     return len(used & available) / max(len(available), 1)
 
 
@@ -253,21 +246,50 @@ class EvalConfig:
     az_eval_games: int   = 12   # games per Elo estimate
     az_blocks:     int   = 3    # ResNet depth
     az_filters:    int   = 32   # ResNet filters
-    device:        str   = "cpu"
+    device:        str   = ""     # "" = auto-detect (cuda if available, else cpu)
 
 
-def evaluate(ruleset: RuleSet, config: EvalConfig | None = None) -> GameMetrics:
+def _resolve_device(device: str) -> str:
+    """Auto-detect GPU if device is empty. Verifies the GPU actually works."""
+    if device:
+        return device
+    try:
+        import torch
+        if torch.cuda.is_available():
+            # Verify the GPU is actually usable by trying a small tensor op
+            try:
+                t = torch.zeros(1, device="cuda")
+                del t
+                return "cuda"
+            except Exception:
+                pass  # GPU exists but isn't compatible
+    except ImportError:
+        pass
+    return "cpu"
+
+
+def evaluate(ruleset: 'RuleSetV3', config: EvalConfig | None = None) -> GameMetrics:
     """Full evaluation pipeline for a ruleset."""
+    from .schema import RuleSetV3
+    from .game import Game
+
     if config is None:
         config = EvalConfig()
+    # Auto-detect device once
+    if not config.device:
+        config.device = _resolve_device(config.device)
     t0 = time.time()
 
-    game = AbstractGame(ruleset)
+    try:
+        game = Game(ruleset)
+    except Exception:
+        return GameMetrics(eval_time_s=time.time() - t0)
+
     metrics = GameMetrics()
 
     # ── Phase 1: simulation metrics ──────────────────────────────────────────
     metrics.sim = measure_simulation_metrics(
-        game, n_games=config.sim_n_games, max_steps=config.sim_max_steps
+        game, n_games=config.sim_n_games, max_steps=config.sim_max_steps,
     )
 
     if not metrics.sim.is_viable():
@@ -277,15 +299,14 @@ def evaluate(ruleset: RuleSet, config: EvalConfig | None = None) -> GameMetrics:
     # ── Phase 2: AlphaZero depth metrics ─────────────────────────────────────
     try:
         metrics.az = _evaluate_az(game, config)
-    except Exception as e:
-        # Non-fatal: return sim metrics even if AZ fails
+    except Exception:
         metrics.az = AZMetrics()
 
     metrics.eval_time_s = time.time() - t0
     return metrics
 
 
-def _evaluate_az(game: AbstractGame, cfg: EvalConfig) -> AZMetrics:
+def _evaluate_az(game, cfg: EvalConfig) -> AZMetrics:
     import torch
     from alphazero.network import AlphaZeroNetwork
     from alphazero.self_play import self_play_game, ReplayBuffer

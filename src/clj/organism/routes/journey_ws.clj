@@ -162,7 +162,7 @@
           (when (and state
                      (not (:game-over state))
                      (contains? bots (choice-player state)))
-            (Thread/sleep 500)
+            (Thread/sleep (get game-data :bot-delay 500))
             (let [current-state (:state (get-in @games [:games play-key]))]
               (when (and current-state
                          (not (:game-over current-state))

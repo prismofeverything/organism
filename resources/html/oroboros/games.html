@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UNIVERSAL - my games</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #111; color: #AABBCC; font-family: monospace; padding: 48px; }
+      h2 { color: #AA88DD; margin-bottom: 24px; }
+      .game-item {
+        display: block;
+        padding: 12px 16px;
+        margin-bottom: 8px;
+        background: #1A1A2A;
+        border: 1px solid #4A3A6A;
+        border-radius: 4px;
+        color: #CCBBEE;
+        text-decoration: none;
+        transition: background 0.15s;
+      }
+      .game-item:hover { background: #222244; }
+      .empty { color: #556677; }
+      .nav-link {
+        display: inline-block;
+        color: #556677;
+        font-size: 0.9rem;
+        margin-top: 24px;
+        text-decoration: none;
+      }
+      .nav-link:hover { color: #AABBCC; }
+    </style>
+  </head>
+  <body>
+    <h2>UNIVERSAL — {{session-player}}'s games</h2>
+
+    <div id="games-list"></div>
+
+    <a class="nav-link" href="/oroboros">← oroboros home</a>
+
+    <script type="text/javascript">
+      var playerGames = "{{player-games|addslashes|safe}}";
+      (function() {
+        var container = document.getElementById('games-list');
+        try {
+          var raw = playerGames;
+          if (!raw || raw === '[]' || raw === 'nil') {
+            container.innerHTML = '<p class="empty">No games yet. <a href="/oroboros/create" style="color:#AA88DD">Create one?</a></p>';
+            return;
+          }
+          var keys = [];
+          var re = /:key\s+"([^"]+)"/g;
+          var m;
+          while ((m = re.exec(raw)) !== null) keys.push(m[1]);
+          if (keys.length === 0) {
+            re = /:key\s+:([^\s\}]+)/g;
+            while ((m = re.exec(raw)) !== null) keys.push(m[1]);
+          }
+          if (keys.length === 0) {
+            container.innerHTML = '<p class="empty">No games yet. <a href="/oroboros/create" style="color:#AA88DD">Create one?</a></p>';
+            return;
+          }
+          var html = '';
+          for (var i = 0; i < keys.length; i++) {
+            html += '<a class="game-item" href="/oroboros/play/' + keys[i] + '">' + keys[i] + '</a>';
+          }
+          container.innerHTML = html;
+        } catch(e) {
+          container.innerHTML = '<p class="empty">Error loading games</p>';
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -99,6 +99,26 @@
         :winner (when go (first (:winners go)))
         :last-move-at (quot (System/currentTimeMillis) 1000)}))))
 
+(defn load-observe-games
+  "Load all active (non-complete) journey games for the observe page."
+  [db]
+  (let [all (db/find-all db :journey-games)]
+    (->> all
+         (map (fn [doc]
+                (let [state (when (:state doc) (read-string (:state doc)))
+                      players (when (:players doc) (read-string (:players doc)))
+                      bots (when (:bots doc) (read-string (:bots doc)))]
+                  {:key            (:key doc)
+                   :players        (or players [])
+                   :bots           (or bots #{})
+                   :current-player (when state (game/current-player state))
+                   :round          (when state (:round state 0))
+                   :flares         (when state (:flares-drawn state 0))
+                   :game-over      (when state (:game-over state))
+                   :updated        (:updated doc)})))
+         (remove :game-over)
+         (sort-by #(- (or (:updated %) 0))))))
+
 (defn load-game
   "Load a journey game from the database.
    Returns {:state :initial-state :bots :players :history} or nil.

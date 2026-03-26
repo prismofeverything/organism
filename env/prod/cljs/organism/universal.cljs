@@ -1,8 +1,8 @@
-(ns organism.universal
+(ns organism.oroboros
   (:require
     [cljs.spec.alpha :as s]
     [expound.alpha :as expound]
-    [organism.universal.play :as play]))
+    [organism.oroboros.play :as play]))
 
 (extend-protocol IPrintWithWriter
   js/Symbol

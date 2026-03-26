@@ -45,7 +45,7 @@
 
   ;; Run `lein dev` to start figwheel watching all game builds.
   ;; Add new game build IDs here when a new game is added to project.clj.
-  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "universal"]}
+  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "oroboros"]}
   
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
@@ -69,7 +69,7 @@
              :prep-tasks ["compile"
                           ["cljsbuild" "once" "organism"]
                           ["cljsbuild" "once" "journey"]
-                          ["cljsbuild" "once" "universal"]]
+                          ["cljsbuild" "once" "oroboros"]]
              :cljsbuild
              {:builds
               {:organism
@@ -98,13 +98,13 @@
                  :closure-warnings
                  {:externs-validation :off :non-standard-jsdoc :off}
                  :externs ["react/externs/react.js"]}}
-               :universal
+               :oroboros
                {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
                 :compiler
-                {:output-dir "target/cljsbuild/public/js/universal-prod"
-                 :output-to "target/cljsbuild/public/js/universal.js"
-                 :source-map "target/cljsbuild/public/js/universal.js.map"
-                 :main "organism.universal"
+                {:output-dir "target/cljsbuild/public/js/oroboros-prod"
+                 :output-to "target/cljsbuild/public/js/oroboros.js"
+                 :source-map "target/cljsbuild/public/js/oroboros.js.map"
+                 :main "organism.oroboros"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
@@ -156,14 +156,14 @@
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}
-                    :universal
+                    :oroboros
                     {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "organism.universal.play/mount-components"}
+                     :figwheel {:on-jsload "organism.oroboros.play/mount-components"}
                      :compiler
-                     {:main "organism.universal"
-                      :asset-path "/js/universal-out"
-                      :output-to "target/cljsbuild/public/js/universal.js"
-                      :output-dir "target/cljsbuild/public/js/universal-out"
+                     {:main "organism.oroboros"
+                      :asset-path "/js/oroboros-out"
+                      :output-to "target/cljsbuild/public/js/oroboros.js"
+                      :output-dir "target/cljsbuild/public/js/oroboros-out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}}}
