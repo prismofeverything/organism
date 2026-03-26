@@ -326,18 +326,29 @@
 ;; --- tower choice phases ---
 
 (defn choose-activate-tower-heading-choices
-  "Choose heading turn (:none/:left/:right), then advance Ark (with wrap if unexplored)."
+  "Choose where the Ark advances. For each heading (straight/left/right), shows the
+   destination tile. If unexplored, also shows the wrap destination. All as hex positions."
   [state]
-  (into {}
-        (map
-         (fn [turn-dir]
-           [turn-dir (let [s (game/turn-heading state turn-dir)]
-                       (if (game/get-tile s (:heading-token s))
-                         (-> s game/advance-ark tower-after-advance)
-                         (-> s
-                             (assoc-in [:player-turn :ark-advance-context] :tower)
-                             (assoc-in [:player-turn :phase] :choose-ark-advance))))])
-         [:none :left :right])))
+  (let [ark (:ark state)]
+    (into {}
+          (mapcat
+           (fn [turn-dir]
+             (let [s        (game/turn-heading state turn-dir)
+                   dest-pos (:heading-token s)
+                   explored? (game/get-tile s dest-pos)]
+               (if explored?
+                 ;; Explored: just advance there
+                 [[dest-pos (-> s game/advance-ark tower-after-advance)]]
+                 ;; Unexplored: offer both direct (explore) and wrap
+                 (let [dir      (game/heading-direction s)
+                       wrap-pos (game/wrap-target s ark dir)
+                       has-beyond? (some #(and (game/on-ray? ark dir %)
+                                               (> (game/hex-distance ark %) 1))
+                                         (keys (:board state)))]
+                   (cond-> [[dest-pos (-> s game/advance-ark tower-after-advance)]]
+                     (not has-beyond?)
+                     (conj [wrap-pos (-> s (game/advance-ark-to wrap-pos) tower-after-advance)]))))))
+           [:none :left :right]))))
 
 (defn finish-tower-join
   "Execute join after spending is resolved, then pay the tower action cost."
@@ -590,18 +601,26 @@
       (assoc-in state [:player-turn :phase] :draw-drift-card))))
 
 (defn choose-captain-drift-choices
-  "Captain may turn heading once (:none/:left/:right), then Ark advances (with wrap if unexplored)."
+  "Captain may turn heading. Shows destination tiles (including wrap if at edge)."
   [state]
-  (into {}
-        (map
-         (fn [turn-dir]
-           [turn-dir (let [s (game/turn-heading state turn-dir)]
-                       (if (game/get-tile s (:heading-token s))
-                         (-> s game/advance-ark handle-captain-drift-beacon)
-                         (-> s
-                             (assoc-in [:player-turn :ark-advance-context] :drift)
-                             (assoc-in [:player-turn :phase] :choose-ark-advance))))])
-         [:none :left :right])))
+  (let [ark (:ark state)]
+    (into {}
+          (mapcat
+           (fn [turn-dir]
+             (let [s        (game/turn-heading state turn-dir)
+                   dest-pos (:heading-token s)
+                   explored? (game/get-tile s dest-pos)]
+               (if explored?
+                 [[dest-pos (-> s game/advance-ark handle-captain-drift-beacon)]]
+                 (let [dir      (game/heading-direction s)
+                       wrap-pos (game/wrap-target s ark dir)
+                       has-beyond? (some #(and (game/on-ray? ark dir %)
+                                               (> (game/hex-distance ark %) 1))
+                                         (keys (:board state)))]
+                   (cond-> [[dest-pos (-> s game/advance-ark handle-captain-drift-beacon)]]
+                     (not has-beyond?)
+                     (conj [wrap-pos (-> s (game/advance-ark-to wrap-pos) handle-captain-drift-beacon)]))))))
+           [:none :left :right]))))
 
 (defn finish-captain-join
   [state]

@@ -312,30 +312,12 @@
                                                  (some #(= % dir) game/hex-directions))]
                                   [dest-pos [:wrap edge-pos]])))
             wrap-dest-set   (set (keys (or wrap-dest->key {})))
-            ;; Drift/heading phases: show direction targets on board instead of buttons
-            is-drift?       (#{:choose-captain-drift :choose-activate-tower-heading} (:phase srv))
-            heading-dir     (when ark (game/heading-direction state))
-            drift-dest->key (when (and is-drift? ark heading-dir)
-                              (let [dirs {:none  heading-dir
-                                          :left  (game/rotate-cw heading-dir)
-                                          :right (game/rotate-ccw heading-dir)}]
-                                (into {}
-                                      (for [[k d] dirs
-                                            :when (contains? choices k)]
-                                        [(game/add-hex ark d) k]))))
-            drift-dest-set  (if drift-dest->key (set (keys drift-dest->key)) #{})
-            ;; Remove drift choices from buttons (they show on the board)
-            btn-choices     (if is-drift?
-                              (filterv #(not (#{:none :left :right} (:choice-key %))) btn-choices)
-                              btn-choices)
             ;; Convert sundiver highlights depend on pending selection
             conv-sundivers  (if pending
-                              ;; Highlight all sundivers for the pending options
                               (set (mapcat :sundivers (:options pending)))
-                              ;; Highlight all sundivers for all conversions
                               (set (mapcat (fn [[_ opts]] (mapcat :sundivers opts)) conv-groups)))
             ;; Merge all highlights (cipher hover matches computed in render-game)
-            all-pos-hl      (into (into pos-hl wrap-dest-set) drift-dest-set)
+            all-pos-hl      (into pos-hl wrap-dest-set)
             on-click        (when active?
                               (fn [pos-or-key]
                                 (cond
@@ -356,7 +338,6 @@
                                   ;; [:fly pos] from sundiver click
                                   (and (vector? pos-or-key) (= :fly (first pos-or-key)))
                                   (send-action! pos-or-key)
-                                  (contains? drift-dest->key pos-or-key) (send-action! (get drift-dest->key pos-or-key))
                                   (contains? pos-hl pos-or-key)          (send-action! pos-or-key)
                                   (and wrap-dest->key (contains? wrap-dest->key pos-or-key))
                                   (send-action! (get wrap-dest->key pos-or-key))

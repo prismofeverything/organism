@@ -275,79 +275,39 @@
 
               :draw-drift-card (:draw choices)
 
-              ;; Priority 0: steer toward a landable tile (if any exist).
-              ;; Priority 1: steer toward the nearest beacon (shortest hex path).
-              ;; Priority 2: wrap back over explored space (tiles in back half).
-              ;; Priority 3: vary by player index (spread the arcs apart).
+              ;; Choices are now hex positions. Pick the one closest to landings, then beacons.
               :choose-captain-drift
-              (let [ark      (:ark state)
-                    dir      (game/heading-direction state)
-                    idx      (game/direction-index dir)
-                    board    (:board state)
+              (let [board    (:board state)
                     landings (game/available-landings state)
                     beacons  (filter #(get-in board [% :beacon]) (keys board))
-
-                    ;; Turn that gets ark closest to any landable tile (highest priority)
-                    ;; Note: turn-heading maps :left→rotate-cw, :right→rotate-ccw (SVG Y-down)
-                    landing-turn
-                    (when (seq landings)
-                      (let [d-none  (effective-ark-dist state ark dir                   landings)
-                            d-left  (effective-ark-dist state ark (game/rotate-cw  dir) landings)
-                            d-right (effective-ark-dist state ark (game/rotate-ccw dir) landings)
-                            best-d  (min d-none d-left d-right)]
-                        (when-not (= d-none d-left d-right)
-                          (cond
-                            (= best-d d-none)  (:none  choices)
-                            (= best-d d-left)  (or (:left  choices) (:none choices))
-                            :else              (or (:right choices) (:none choices))))))
-
-                    ;; Turn option that gets the ark closest to the nearest beacon,
-                    ;; accounting for wrap as an option when the next cell is unexplored.
-                    beacon-turn
-                    (when (seq beacons)
-                      (let [d-none  (effective-ark-dist state ark dir                     beacons)
-                            d-left  (effective-ark-dist state ark (game/rotate-cw  dir)   beacons)
-                            d-right (effective-ark-dist state ark (game/rotate-ccw dir)   beacons)
-                            best-d  (min d-none d-left d-right)]
-                        (when-not (= d-none d-left d-right)
-                          (cond
-                            (= best-d d-none)  (:none  choices)
-                            (= best-d d-left)  (or (:left  choices) (:none choices))
-                            :else              (or (:right choices) (:none choices))))))
-
-                    ;; Back-half tile check (fallback when no beacons)
-                    at       (fn [o] (contains? board (game/add-hex ark (nth game/hex-directions (mod (+ idx o) 6)))))
-                    cw-back  (at 2)
-                    behind   (at 3)
-                    ccw-back (at 4)]
-
-                (or landing-turn
-                    beacon-turn
-                    (cond
-                      (and cw-back (not ccw-back)) (or (:left  choices) (:none choices))
-                      (and ccw-back (not cw-back)) (or (:right choices) (:none choices))
-                      (or cw-back behind ccw-back)
-                      (if (even? (player-idx state))
-                        (or (:left  choices) (:none choices))
-                        (or (:right choices) (:none choices)))
-                      :else
-                      (let [r (mod (+ (player-idx state) (:round state 0)) 3)]
-                        (case r
-                          0 (:none  choices)
-                          1 (or (:left  choices) (:none choices))
-                          2 (or (:right choices) (:none choices)))))))
+                    pos-keys (filter #(and (vector? %) (= 2 (count %)) (number? (first %))) (keys choices))
+                    closest  (fn [targets]
+                               (when (and (seq targets) (seq pos-keys))
+                                 (let [best (apply min-key
+                                              (fn [p] (apply min (map #(game/hex-distance p %) targets)))
+                                              pos-keys)]
+                                   (get choices best))))]
+                (or (closest landings)
+                    (closest beacons)
+                    (first (vals choices))))
 
               ;; Pick the first available station to activate
               :choose-activate-station
               (or (first (vals (dissoc choices :done)))
                   (:done choices))
 
-              ;; Tower heading: aim toward a tile with a beacon, else straight
+              ;; Tower heading: choices are now hex positions. Pick closest to beacons.
               :choose-activate-tower-heading
-              (let [beaconed (filter #(get-in state [:board % :beacon]) (keys (:board state)))]
-                (if (seq beaconed)
-                  (or (:left choices) (:right choices) (:none choices))
-                  (:none choices)))
+              (let [board    (:board state)
+                    beacons  (filter #(get-in board [% :beacon]) (keys board))
+                    pos-keys (filter #(and (vector? %) (= 2 (count %)) (number? (first %))) (keys choices))
+                    closest  (fn [targets]
+                               (when (and (seq targets) (seq pos-keys))
+                                 (let [best (apply min-key
+                                              (fn [p] (apply min (map #(game/hex-distance p %) targets)))
+                                              pos-keys)]
+                                   (get choices best))))]
+                (or (closest beacons) (first (vals choices))))
 
               ;; Land whenever possible
               :choose-land (:land choices (:continue choices))
