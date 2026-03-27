@@ -31,10 +31,15 @@
         all-gate-connected
         (reduce
          (fn [acc p]
-           (into acc (get-in state [:players p :gates from-pos] #{})))
+           (let [gates (get-in state [:players p :gates from-pos] #{})]
+             (into acc gates)))
          #{}
          (:turn-order state))
         adjacent (set (game/hex-neighbors from-pos))]
+    (when (seq all-gate-connected)
+      (println "fly-destinations from:" from-pos
+               "gates:" all-gate-connected
+               "adjacent:" (count adjacent)))
     (into all-gate-connected adjacent)))
 
 (defn use-move-point
@@ -314,14 +319,19 @@
 
 (defn choose-activate-matrix-spend-choices
   [state]
-  (let [player (actor-player state)]
-    (into {}
-          (map
-           (fn [pos]
-             [pos (-> state
-                      (game/spend-sundiver player pos)
-                      decrement-matrix-and-continue)])
-           (game/sundiver-spend-positions state player)))))
+  (let [player    (actor-player state)
+        positions (game/sundiver-spend-positions state player)
+        choices   (into {}
+                        (map
+                         (fn [pos]
+                           [pos (-> state
+                                    (game/spend-sundiver player pos)
+                                    decrement-matrix-and-continue)])
+                         positions))]
+    (if (seq choices)
+      choices
+      (let [actor (current-actor state)]
+        {:skip (game/advance-after-actions state actor)}))))
 
 ;; --- tower choice phases ---
 
@@ -388,30 +398,42 @@
   [state]
   (let [actor      (get-in state [:player-turn :action :pending-join-actor])
         act-player (game/actor-player state actor)
-        remaining  (get-in state [:player-turn :action :join-spend-remaining] 0)]
-    (into {}
-          (map
-           (fn [pos]
-             [pos (let [s            (game/spend-sundiver state act-player pos)
-                        new-remaining (dec remaining)
-                        s            (assoc-in s [:player-turn :action :join-spend-remaining] new-remaining)]
-                    (if (zero? new-remaining)
-                      (finish-tower-join s)
-                      (assoc-in s [:player-turn :phase] :choose-activate-tower-join-spend)))])
-           (game/sundiver-spend-positions state act-player)))))
+        remaining  (get-in state [:player-turn :action :join-spend-remaining] 0)
+        positions  (game/sundiver-spend-positions state act-player)
+        choices    (into {}
+                         (map
+                          (fn [pos]
+                            [pos (let [s            (game/spend-sundiver state act-player pos)
+                                       new-remaining (dec remaining)
+                                       s            (assoc-in s [:player-turn :action :join-spend-remaining] new-remaining)]
+                                   (if (zero? new-remaining)
+                                     (finish-tower-join s)
+                                     (assoc-in s [:player-turn :phase] :choose-activate-tower-join-spend)))])
+                          positions))]
+    (if (seq choices)
+      choices
+      {:skip (-> state
+                 (update-in [:player-turn :action] dissoc :pending-join-actor :join-spend-remaining)
+                 (assoc-in [:player-turn :phase] :choose-activate-tower-spend))})))
 
 (defn choose-activate-tower-spend-choices
   "Spend 1 sundiver to pay for this tower action, then decrement and continue."
   [state]
-  (let [player (actor-player state)]
-    (into {}
-          (map
-           (fn [pos]
-             [pos (-> state
-                      (game/spend-sundiver player pos)
-                      (update-in [:player-turn :action (actor-actions-key state)] dec)
-                      tower-continue)])
-           (game/sundiver-spend-positions state player)))))
+  (let [player    (actor-player state)
+        positions (game/sundiver-spend-positions state player)
+        choices   (into {}
+                        (map
+                         (fn [pos]
+                           [pos (-> state
+                                    (game/spend-sundiver player pos)
+                                    (update-in [:player-turn :action (actor-actions-key state)] dec)
+                                    tower-continue)])
+                         positions))]
+    ;; If no spendable sundivers, skip remaining actions and advance
+    (if (seq choices)
+      choices
+      (let [actor (current-actor state)]
+        {:skip (game/advance-after-actions state actor)}))))
 
 ;; --- post-action: draw cards ---
 
@@ -693,7 +715,9 @@
                  (let [next-pos (:heading-token s)]
                    (if (game/get-tile s next-pos)
                      (process-drift-flare-advance s next-pos)
-                     (assoc-in s [:player-turn :phase] :choose-drift-flare-advance)))))
+                     (-> s
+                         (assoc-in [:player-turn :choice-player] (:captain-flame s))
+                         (assoc-in [:player-turn :phase] :choose-drift-flare-advance))))))
              (enter-cipher-phase s))}))
 
 (defn choose-captain-beacon-join-spend-choices

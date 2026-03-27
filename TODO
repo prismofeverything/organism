@@ -1,0 +1,8 @@
+When the game is won, reveal one hex on the cipher at a time
+the background of habitats/actions/history needs to be solid colored
+There could be something about visited hexes not being available to move in?
+click on game over and it goes to the right with the deck
+beacon colors on the board are not clear and don't contrast with the world token behind it, if it were just one solid color also
+stations don't need outlines?
+overall need to simplify the view
+All of the displays should not be transparent

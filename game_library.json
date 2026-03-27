@@ -1,5 +1,254 @@
 [
   {
+    "richness": 391.8829326233491,
+    "summary": "term=1.00 bal=0.72 B=615.6 len=452 interact=0.00 mech=1.00 KR=180.2b logGT=1260.7 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              8,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                0,
+                1,
+                -1
+              ],
+              [
+                8,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s6_t3_r5",
+    "age": 1
+  },
+  {
     "richness": 383.9029015043341,
     "summary": "term=1.00 bal=0.00 B=572.0 len=452 interact=0.00 mech=1.00 KR=241.0b logGT=1246.3 | elo=0 tvr=0.00 hard=0.000",
     "ruleset": {
@@ -34,6 +283,508 @@
             ],
             [
               1,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              8,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                0,
+                1,
+                -1
+              ],
+              [
+                8,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s5_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 380.3470752652545,
+    "summary": "term=1.00 bal=0.48 B=516.9 len=452 interact=0.00 mech=1.00 KR=203.5b logGT=1226.5 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              7,
+              0,
+              0,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              8,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                0,
+                1,
+                -1
+              ],
+              [
+                8,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s5_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 379.65851254699265,
+    "summary": "term=1.00 bal=0.08 B=528.6 len=452 interact=0.00 mech=1.00 KR=203.5b logGT=1230.8 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              7,
+              0,
+              0,
               1
             ]
           ],
@@ -1039,6 +1790,1834 @@
     },
     "region": "square_s5_t3_r5",
     "age": 3
+  },
+  {
+    "richness": 367.2858639168859,
+    "summary": "term=1.00 bal=0.56 B=410.7 len=452 interact=0.00 mech=1.00 KR=167.9b logGT=1181.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s6_t3_r4",
+    "age": 1
+  },
+  {
+    "richness": 367.2858639168859,
+    "summary": "term=1.00 bal=0.56 B=410.7 len=452 interact=0.00 mech=1.00 KR=167.9b logGT=1181.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s6_t3_r4",
+    "age": 2
+  },
+  {
+    "richness": 367.2858639168859,
+    "summary": "term=1.00 bal=0.56 B=410.7 len=452 interact=0.00 mech=1.00 KR=167.9b logGT=1181.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s6_t3_r4",
+    "age": 3
+  },
+  {
+    "richness": 365.8319511230746,
+    "summary": "term=1.00 bal=0.56 B=400.5 len=452 interact=0.00 mech=1.00 KR=167.9b logGT=1176.5 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s6_t3_r4",
+    "age": 1
+  },
+  {
+    "richness": 363.2580075392306,
+    "summary": "term=1.00 bal=0.48 B=386.2 len=452 interact=0.00 mech=1.00 KR=180.2b logGT=1169.2 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              8,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                0,
+                1,
+                -1
+              ],
+              [
+                8,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s5_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 359.900846653986,
+    "summary": "term=1.00 bal=0.40 B=377.7 len=452 interact=0.01 mech=0.83 KR=269.6b logGT=1164.9 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                20,
+                [
+                  7,
+                  1,
+                  0,
+                  1
+                ],
+                [
+                  9
+                ]
+              ],
+              [
+                1,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                1,
+                0,
+                1
+              ],
+              [
+                1,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s6_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 352.19908130967406,
+    "summary": "term=1.00 bal=0.24 B=326.5 len=452 interact=0.01 mech=1.00 KR=180.2b logGT=1136.2 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              8,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                0,
+                1,
+                -1
+              ],
+              [
+                8,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s5_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 336.7120015735663,
+    "summary": "term=1.00 bal=0.32 B=249.1 len=452 interact=0.01 mech=1.00 KR=196.5b logGT=1083.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 2,
+        "num_piece_types": 2,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  2
+                ]
+              ],
+              [
+                10
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              3,
+              1,
+              0
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              8,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                6,
+                0,
+                1,
+                -1
+              ],
+              [
+                8,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s5_t2_r5",
+    "age": 1
   },
   {
     "richness": 333.45646808874034,
@@ -5831,6 +8410,241 @@
       "placement": "cluster"
     },
     "region": "square_s5_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 278.4704779957774,
+    "summary": "term=1.00 bal=0.72 B=88.7 len=453 interact=0.01 mech=1.00 KR=191.5b logGT=882.5 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  4,
+                  0,
+                  0
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              -10
+            ],
+            [
+              5,
+              1,
+              0
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              7,
+              0,
+              1,
+              0,
+              1
+            ],
+            [
+              20,
+              [
+                3,
+                0,
+                1
+              ],
+              [
+                8,
+                0,
+                0
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  2,
+                  1
+                ]
+              ],
+              [
+                20,
+                [
+                  7,
+                  1,
+                  1,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            3,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            6,
+            0,
+            0,
+            -1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 75,
+      "placement": "cluster"
+    },
+    "region": "square_s5_t1_r4",
     "age": 1
   },
   {
@@ -12724,6 +15538,440 @@
       "placement": "cluster"
     },
     "region": "square_s5_t3_r5",
+    "age": 1
+  },
+  {
+    "richness": 211.9502768776719,
+    "summary": "term=0.00 bal=0.00 B=22.7 len=500 interact=0.02 mech=0.80 KR=384.3b logGT=678.5 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "triangle",
+        "topology_size": 5,
+        "topology_symmetry": 4,
+        "topology_boundary": "finite",
+        "topology_modifier": "staircase",
+        "topology_mod_param": 1,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                20,
+                [
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ],
+              [
+                21,
+                [
+                  8,
+                  0,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                2,
+                1
+              ],
+              [
+                20,
+                [
+                  7,
+                  0,
+                  0,
+                  3
+                ],
+                [
+                  3,
+                  1,
+                  1
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              0
+            ],
+            [
+              8,
+              0,
+              0
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              0,
+              1
+            ],
+            [
+              4
+            ]
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  1,
+                  0
+                ],
+                [
+                  8,
+                  0,
+                  5
+                ]
+              ],
+              [
+                20,
+                [
+                  3,
+                  1,
+                  1
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            9,
+            0,
+            1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 100,
+      "placement": "random"
+    },
+    "region": "triangle_s5_t1_r4",
+    "age": 1
+  },
+  {
+    "richness": 211.9502768776719,
+    "summary": "term=0.00 bal=0.00 B=22.7 len=500 interact=0.02 mech=0.80 KR=384.3b logGT=678.5 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "triangle",
+        "topology_size": 5,
+        "topology_symmetry": 4,
+        "topology_boundary": "finite",
+        "topology_modifier": "staircase",
+        "topology_mod_param": 1,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                20,
+                [
+                  1,
+                  1
+                ],
+                [
+                  0
+                ]
+              ],
+              [
+                21,
+                [
+                  8,
+                  0,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                2,
+                1
+              ],
+              [
+                20,
+                [
+                  7,
+                  0,
+                  0,
+                  3
+                ],
+                [
+                  3,
+                  1,
+                  1
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              0
+            ],
+            [
+              8,
+              0,
+              0
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              0,
+              1
+            ],
+            [
+              4
+            ]
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  3,
+                  1,
+                  0
+                ],
+                [
+                  8,
+                  0,
+                  5
+                ]
+              ],
+              [
+                20,
+                [
+                  3,
+                  1,
+                  1
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            9,
+            0,
+            1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 100,
+      "placement": "random"
+    },
+    "region": "triangle_s5_t1_r4",
     "age": 1
   },
   {
@@ -40122,6 +43370,141 @@
     "age": 2
   },
   {
+    "richness": 150.29639691571873,
+    "summary": "term=1.00 bal=0.00 B=39.0 len=302 interact=0.01 mech=0.60 KR=210.2b logGT=480.6 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "triangle",
+        "topology_size": 6,
+        "topology_symmetry": 3,
+        "topology_boundary": "torus",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              5
+            ]
+          ],
+          "effect": [
+            3,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              8,
+              1,
+              3
+            ]
+          ],
+          "effect": [
+            2,
+            1,
+            0,
+            -10
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              0
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            2,
+            1,
+            0,
+            -10
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            32,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 50,
+      "placement": "cluster"
+    },
+    "region": "triangle_s6_t1_r4",
+    "age": 1
+  },
+  {
     "rank": 1,
     "richness": 138.18441071703793,
     "objectives": {
@@ -47362,6 +50745,984 @@
     "age": 2
   },
   {
+    "richness": 73.70771882815036,
+    "summary": "term=1.00 bal=0.00 B=14.5 len=202 interact=0.00 mech=0.33 KR=404.3b logGT=234.6 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 4,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        3,
+        3,
+        3,
+        3,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                8,
+                1,
+                3
+              ],
+              [
+                8,
+                2,
+                3
+              ]
+            ]
+          ],
+          "effect": [
+            9,
+            3,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              2
+            ],
+            [
+              20,
+              [
+                9,
+                1,
+                1
+              ],
+              [
+                9,
+                1,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              1,
+              5
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              20,
+              [
+                4
+              ],
+              [
+                3,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                1,
+                1
+              ],
+              [
+                8,
+                3,
+                5
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  0
+                ],
+                [
+                  11
+                ]
+              ],
+              [
+                8,
+                1,
+                2
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              3,
+              0,
+              1
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 50,
+      "placement": "random"
+    },
+    "region": "square_s5_t4_r5",
+    "age": 1
+  },
+  {
+    "richness": 73.70771882815036,
+    "summary": "term=1.00 bal=0.00 B=14.5 len=202 interact=0.00 mech=0.33 KR=404.3b logGT=234.6 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 4,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        3,
+        3,
+        3,
+        3,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                8,
+                1,
+                3
+              ],
+              [
+                8,
+                2,
+                3
+              ]
+            ]
+          ],
+          "effect": [
+            9,
+            3,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              2
+            ],
+            [
+              20,
+              [
+                9,
+                1,
+                1
+              ],
+              [
+                9,
+                1,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              1,
+              5
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              20,
+              [
+                4
+              ],
+              [
+                3,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                1,
+                1
+              ],
+              [
+                8,
+                3,
+                5
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  0
+                ],
+                [
+                  11
+                ]
+              ],
+              [
+                8,
+                1,
+                2
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              3,
+              0,
+              1
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 50,
+      "placement": "random"
+    },
+    "region": "square_s5_t4_r5",
+    "age": 1
+  },
+  {
+    "richness": 73.70771882815036,
+    "summary": "term=1.00 bal=0.00 B=14.5 len=202 interact=0.00 mech=0.33 KR=404.3b logGT=234.6 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 4,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        3,
+        3,
+        3,
+        3,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                8,
+                1,
+                3
+              ],
+              [
+                8,
+                2,
+                3
+              ]
+            ]
+          ],
+          "effect": [
+            9,
+            3,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              2
+            ],
+            [
+              20,
+              [
+                9,
+                1,
+                1
+              ],
+              [
+                9,
+                1,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              1,
+              5
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              20,
+              [
+                4
+              ],
+              [
+                3,
+                0,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                1,
+                1
+              ],
+              [
+                8,
+                3,
+                5
+              ]
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  0
+                ],
+                [
+                  11
+                ]
+              ],
+              [
+                8,
+                1,
+                2
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              3,
+              0,
+              1
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 50,
+      "placement": "random"
+    },
+    "region": "square_s5_t4_r5",
+    "age": 1
+  },
+  {
+    "richness": 72.94616663602308,
+    "summary": "term=1.00 bal=0.08 B=13.9 len=182 interact=0.00 mech=1.00 KR=143.7b logGT=208.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "hex",
+        "topology_size": 4,
+        "topology_symmetry": 4,
+        "topology_boundary": "torus",
+        "topology_modifier": "holes",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        3,
+        2,
+        2,
+        3,
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              7,
+              0,
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              -10
+            ],
+            [
+              6,
+              0,
+              0,
+              -1
+            ]
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 30,
+      "placement": "random"
+    },
+    "region": "hex_s4_t4_r1",
+    "age": 1
+  },
+  {
+    "richness": 72.94616663602308,
+    "summary": "term=1.00 bal=0.08 B=13.9 len=182 interact=0.00 mech=1.00 KR=143.7b logGT=208.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "hex",
+        "topology_size": 4,
+        "topology_symmetry": 4,
+        "topology_boundary": "torus",
+        "topology_modifier": "holes",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        3,
+        2,
+        2,
+        3,
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              7,
+              0,
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              -10
+            ],
+            [
+              6,
+              0,
+              0,
+              -1
+            ]
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 30,
+      "placement": "random"
+    },
+    "region": "hex_s4_t4_r1",
+    "age": 1
+  },
+  {
+    "richness": 72.94616663602308,
+    "summary": "term=1.00 bal=0.08 B=13.9 len=182 interact=0.00 mech=1.00 KR=143.7b logGT=208.3 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "hex",
+        "topology_size": 4,
+        "topology_symmetry": 4,
+        "topology_boundary": "torus",
+        "topology_modifier": "holes",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        3,
+        2,
+        2,
+        3,
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              7,
+              0,
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              2,
+              1,
+              0,
+              -10
+            ],
+            [
+              6,
+              0,
+              0,
+              -1
+            ]
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 30,
+      "placement": "random"
+    },
+    "region": "hex_s4_t4_r1",
+    "age": 1
+  },
+  {
     "richness": 72.92093689947093,
     "summary": "term=1.00 bal=0.00 B=12.0 len=202 interact=0.00 mech=0.75 KR=262.0b logGT=218.1 | elo=0 tvr=0.00 hard=0.000",
     "ruleset": {
@@ -53246,6 +57607,827 @@
     "age": 2
   },
   {
+    "richness": 34.62645962063353,
+    "summary": "term=1.00 bal=0.96 B=22.6 len=52 interact=0.04 mech=0.80 KR=294.5b logGT=70.0 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 4,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        2,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              9
+            ]
+          ],
+          "effect": [
+            9,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                10
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              0
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                2,
+                1
+              ],
+              [
+                21,
+                [
+                  3,
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              6,
+              0,
+              0,
+              -1
+            ],
+            [
+              6,
+              1,
+              1,
+              1
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 1,
+      "turn_limit": 30,
+      "placement": "spread"
+    },
+    "region": "square_s4_t3_r4",
+    "age": 1
+  },
+  {
+    "richness": 34.62645962063353,
+    "summary": "term=1.00 bal=0.96 B=22.6 len=52 interact=0.04 mech=0.80 KR=294.5b logGT=70.0 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 4,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3,
+        2,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              9
+            ]
+          ],
+          "effect": [
+            9,
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                10
+              ],
+              [
+                2,
+                1
+              ]
+            ]
+          ],
+          "effect": [
+            8,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              0
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                2,
+                1
+              ],
+              [
+                21,
+                [
+                  3,
+                  1,
+                  1
+                ],
+                [
+                  1,
+                  1
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              6,
+              0,
+              0,
+              -1
+            ],
+            [
+              6,
+              1,
+              1,
+              1
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 1,
+      "turn_limit": 30,
+      "placement": "spread"
+    },
+    "region": "square_s4_t3_r4",
+    "age": 1
+  },
+  {
+    "richness": 32.08596872187498,
+    "summary": "term=1.00 bal=0.00 B=4.0 len=122 interact=0.00 mech=1.00 KR=240.0b logGT=73.6 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 5,
+        "topology_symmetry": 5,
+        "topology_boundary": "torus",
+        "topology_modifier": "staircase",
+        "topology_mod_param": 2,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        0,
+        1,
+        3,
+        0,
+        1,
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              21,
+              [
+                21,
+                [
+                  9
+                ],
+                [
+                  3,
+                  1,
+                  1
+                ]
+              ],
+              [
+                21,
+                [
+                  7,
+                  0,
+                  1,
+                  2
+                ],
+                [
+                  4,
+                  1,
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              6,
+              0,
+              0,
+              -1
+            ],
+            [
+              20,
+              [
+                5,
+                1,
+                0
+              ],
+              [
+                5,
+                1,
+                0
+              ]
+            ]
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            0,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            1,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 30,
+      "placement": "random"
+    },
+    "region": "square_s5_t4_r1",
+    "age": 1
+  },
+  {
+    "richness": 30.70870243114748,
+    "summary": "term=1.00 bal=0.00 B=4.0 len=122 interact=0.10 mech=0.67 KR=153.0b logGT=73.4 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 4,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "holes",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        2,
+        0,
+        1,
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              0,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            0,
+            1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            32,
+            0,
+            10
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 30,
+      "placement": "cluster"
+    },
+    "region": "square_s4_t4_r2",
+    "age": 1
+  },
+  {
+    "richness": 30.70870243114748,
+    "summary": "term=1.00 bal=0.00 B=4.0 len=122 interact=0.10 mech=0.67 KR=153.0b logGT=73.4 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 4,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "holes",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        2,
+        0,
+        1,
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              0,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            0,
+            1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            32,
+            0,
+            10
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 30,
+      "placement": "cluster"
+    },
+    "region": "square_s4_t4_r2",
+    "age": 1
+  },
+  {
+    "richness": 30.70870243114748,
+    "summary": "term=1.00 bal=0.00 B=4.0 len=122 interact=0.10 mech=0.67 KR=153.0b logGT=73.4 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 4,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "holes",
+        "topology_mod_param": 0,
+        "num_piece_types": 4,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        2,
+        0,
+        1,
+        3,
+        3,
+        1
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              0,
+              2
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            0,
+            1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            32,
+            0,
+            10
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 30,
+      "placement": "cluster"
+    },
+    "region": "square_s4_t4_r2",
+    "age": 1
+  },
+  {
     "richness": 25.1805509774073,
     "summary": "term=1.00 bal=0.60 B=33.1 len=14 interact=0.05 mech=0.83 KR=358.3b logGT=20.8 | elo=0 tvr=0.50 hard=18.401",
     "ruleset": {
@@ -54023,6 +59205,819 @@
       "turn_limit": 100,
       "placement": "random"
     }
+  },
+  {
+    "richness": 16.82687049611446,
+    "summary": "term=1.00 bal=0.96 B=13.4 len=11 interact=0.09 mech=0.67 KR=365.0b logGT=11.9 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "radial",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 2,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                4,
+                0,
+                0
+              ],
+              [
+                20,
+                [
+                  7,
+                  0,
+                  0,
+                  1
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              0,
+              5
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              4
+            ],
+            [
+              20,
+              [
+                2,
+                1,
+                0,
+                0
+              ],
+              [
+                8,
+                0,
+                0
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                3,
+                1,
+                0
+              ],
+              [
+                8,
+                1,
+                2
+              ]
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              4,
+              0,
+              0
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                20,
+                [
+                  11
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                11
+              ]
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 100,
+      "placement": "spread"
+    },
+    "region": "radial_s5_t2_r5",
+    "age": 1
+  },
+  {
+    "richness": 16.82687049611446,
+    "summary": "term=1.00 bal=0.96 B=13.4 len=11 interact=0.09 mech=0.67 KR=365.0b logGT=11.9 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "radial",
+        "topology_size": 5,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 2,
+        "num_players": 2,
+        "num_resource_slots": 2,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                4,
+                0,
+                0
+              ],
+              [
+                20,
+                [
+                  7,
+                  0,
+                  0,
+                  1
+                ],
+                [
+                  8,
+                  0,
+                  2
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              8,
+              0,
+              5
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              4
+            ],
+            [
+              20,
+              [
+                2,
+                1,
+                0,
+                0
+              ],
+              [
+                8,
+                0,
+                0
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                3,
+                1,
+                0
+              ],
+              [
+                8,
+                1,
+                2
+              ]
+            ]
+          ],
+          "effect": [
+            7,
+            0,
+            1,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              4,
+              0,
+              0
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                20,
+                [
+                  11
+                ],
+                [
+                  3,
+                  0,
+                  0
+                ]
+              ],
+              [
+                11
+              ]
+            ]
+          ],
+          "effect": [
+            4
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            7
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 100,
+      "placement": "spread"
+    },
+    "region": "radial_s5_t2_r5",
+    "age": 1
+  },
+  {
+    "richness": 15.863049219955116,
+    "summary": "term=1.00 bal=0.80 B=7.9 len=11 interact=0.07 mech=0.75 KR=200.2b logGT=10.0 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 3,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              3,
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                8,
+                0,
+                5
+              ],
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  8,
+                  1,
+                  3
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            32,
+            0,
+            10
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 100,
+      "placement": "random"
+    },
+    "region": "square_s3_t1_r3",
+    "age": 1
+  },
+  {
+    "richness": 15.863049219955116,
+    "summary": "term=1.00 bal=0.80 B=7.9 len=11 interact=0.07 mech=0.75 KR=200.2b logGT=10.0 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 3,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              3,
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                8,
+                0,
+                5
+              ],
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  8,
+                  1,
+                  3
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            32,
+            0,
+            10
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 100,
+      "placement": "random"
+    },
+    "region": "square_s3_t1_r3",
+    "age": 1
+  },
+  {
+    "richness": 15.863049219955116,
+    "summary": "term=1.00 bal=0.80 B=7.9 len=11 interact=0.07 mech=0.75 KR=200.2b logGT=10.0 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 3,
+        "topology_symmetry": 3,
+        "topology_boundary": "finite",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 1,
+        "num_players": 2,
+        "num_resource_slots": 1,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              2,
+              1
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              3,
+              1,
+              1
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              21,
+              [
+                8,
+                0,
+                5
+              ],
+              [
+                21,
+                [
+                  3,
+                  0,
+                  0
+                ],
+                [
+                  8,
+                  1,
+                  3
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            5,
+            1,
+            0
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            32,
+            0,
+            10
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 3,
+      "turn_limit": 100,
+      "placement": "random"
+    },
+    "region": "square_s3_t1_r3",
+    "age": 1
   },
   {
     "rank": 16,
@@ -59098,5 +65093,591 @@
     },
     "region": "triangle_s5_t1_r5",
     "age": 19
+  },
+  {
+    "richness": 7.912663609278066,
+    "summary": "term=0.00 bal=0.00 B=1.0 len=500 interact=0.00 mech=0.60 KR=307.2b logGT=6.1 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "triangle",
+        "topology_size": 6,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        0,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              4,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                20,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              20,
+              [
+                9,
+                0,
+                1
+              ],
+              [
+                9,
+                1,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  8,
+                  0,
+                  5
+                ],
+                [
+                  9
+                ]
+              ],
+              [
+                20,
+                [
+                  0
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            3,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              11
+            ]
+          ],
+          "effect": [
+            9,
+            0,
+            1
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 100,
+      "placement": "cluster"
+    },
+    "region": "triangle_s6_t3_r4",
+    "age": 1
+  },
+  {
+    "richness": 7.912663609278066,
+    "summary": "term=0.00 bal=0.00 B=1.0 len=500 interact=0.00 mech=0.60 KR=307.2b logGT=6.1 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "triangle",
+        "topology_size": 6,
+        "topology_symmetry": 6,
+        "topology_boundary": "torus",
+        "topology_modifier": "none",
+        "topology_mod_param": 0,
+        "num_piece_types": 3,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        1,
+        0,
+        2
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              4,
+              1,
+              2
+            ]
+          ],
+          "effect": [
+            1,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                0
+              ],
+              [
+                20,
+                [
+                  8,
+                  1,
+                  5
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              9,
+              1,
+              1
+            ],
+            [
+              20,
+              [
+                9,
+                0,
+                1
+              ],
+              [
+                9,
+                1,
+                1
+              ]
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  8,
+                  0,
+                  5
+                ],
+                [
+                  9
+                ]
+              ],
+              [
+                20,
+                [
+                  0
+                ],
+                [
+                  0
+                ]
+              ]
+            ]
+          ],
+          "effect": [
+            3,
+            0,
+            1
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              11
+            ]
+          ],
+          "effect": [
+            9,
+            0,
+            1
+          ],
+          "requires_piece": false
+        }
+      ],
+      "interactions": [],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            34
+          ],
+          "winner_mode": 3,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 2,
+      "turn_limit": 100,
+      "placement": "cluster"
+    },
+    "region": "triangle_s6_t3_r4",
+    "age": 1
+  },
+  {
+    "richness": 6.837451708231036,
+    "summary": "term=0.00 bal=0.00 B=1.0 len=500 interact=0.00 mech=0.60 KR=373.6b logGT=2.6 | elo=0 tvr=0.00 hard=0.000",
+    "ruleset": {
+      "schema": {
+        "topology_type": "square",
+        "topology_size": 3,
+        "topology_symmetry": 5,
+        "topology_boundary": "torus",
+        "topology_modifier": "asymmetric",
+        "topology_mod_param": 0,
+        "num_piece_types": 2,
+        "num_players": 2,
+        "num_resource_slots": 0,
+        "num_global_counters": 2,
+        "bags": [],
+        "decks": [],
+        "sub_boards": [],
+        "has_overlay_network": false
+      },
+      "conflict_table": [
+        3
+      ],
+      "rules": [
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                20,
+                [
+                  11
+                ],
+                [
+                  3,
+                  1,
+                  1
+                ]
+              ],
+              [
+                3,
+                0,
+                0
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  0
+                ],
+                [
+                  4,
+                  0,
+                  0
+                ]
+              ],
+              [
+                4,
+                1,
+                0
+              ]
+            ]
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              0
+            ],
+            [
+              2,
+              1,
+              0,
+              1
+            ]
+          ],
+          "requires_piece": true
+        },
+        {
+          "predicate": [
+            20,
+            [
+              5
+            ],
+            [
+              3,
+              1,
+              0
+            ]
+          ],
+          "effect": [
+            3,
+            0,
+            1
+          ],
+          "requires_piece": false
+        },
+        {
+          "predicate": [
+            20,
+            [
+              6,
+              2
+            ],
+            [
+              20,
+              [
+                21,
+                [
+                  8,
+                  0,
+                  5
+                ],
+                [
+                  8,
+                  0,
+                  5
+                ]
+              ],
+              [
+                8,
+                0,
+                2
+              ]
+            ]
+          ],
+          "effect": [
+            9,
+            0,
+            1
+          ],
+          "requires_piece": true
+        }
+      ],
+      "interactions": [
+        {
+          "trigger": "adjacency",
+          "predicate": [
+            9
+          ],
+          "effect": [
+            20,
+            [
+              1,
+              1
+            ],
+            [
+              9,
+              0,
+              1
+            ]
+          ]
+        }
+      ],
+      "terminations": [
+        {
+          "predicate": [
+            30,
+            1,
+            5
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            30,
+            0,
+            3
+          ],
+          "winner_mode": 0,
+          "winner_arg": 0
+        },
+        {
+          "predicate": [
+            33,
+            100
+          ],
+          "winner_mode": 1,
+          "winner_arg": 0
+        }
+      ],
+      "actions_per_turn": 1,
+      "turn_limit": 30,
+      "placement": "random"
+    },
+    "region": "square_s3_t2_r4",
+    "age": 1
   }
 ]

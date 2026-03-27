@@ -227,6 +227,8 @@
                   effective (loop [s next-state]
                               (let [p  (game/current-phase s)
                                     cs (second (choice/find-state-raw s))]
+                                (log/info "EFFECTIVE:" p "n-choices:" (count cs)
+                                          "protected?" (contains? protected-phases p))
                                 (if (and (= 1 (count cs))
                                          (not (contains? protected-phases p)))
                                   (recur (first (vals cs)))

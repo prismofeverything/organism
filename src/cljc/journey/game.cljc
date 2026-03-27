@@ -1005,8 +1005,8 @@
     (-> state
         (update :player-turn dissoc :pending-flares :pending-non-flares)
         (assoc-in [:player-turn :action :drawn-cards] (vec non-flares))
-        (cond-> (seq join-indices)
-          (assoc-in [:player-turn :choice-player] captain))
+        (assoc-in [:player-turn :choice-player]
+                  (if (seq join-indices) captain nil))
         (assoc-in [:player-turn :phase]
                   (if (seq join-indices) :flare-beacon-join :keep-card)))))
 
@@ -1040,7 +1040,9 @@
       (let [next-pos (:heading-token state)]
         (if (get-tile state next-pos)
           (advance-flare-ark-to state next-pos)
-          (assoc-in state [:player-turn :phase] :choose-flare-advance))))))
+          (-> state
+              (assoc-in [:player-turn :choice-player] (:captain-flame state))
+              (assoc-in [:player-turn :phase] :choose-flare-advance)))))))
 
 (defn process-draw-and-flares
   "Draw cards for end of action. Advances Ark once per flare drawn (with wrap option for

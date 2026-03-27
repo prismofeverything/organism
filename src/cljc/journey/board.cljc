@@ -48,34 +48,10 @@
   {:sun    "#dbeb05" :silver "#838383" :green  "#113610"
    :blue   "#aac2fb" :purple "#de94f3" :void   "#666666"})
 
-;; ;; World token (nested circles on each tile)
-;; (def world-outer
-;;   {:sun    "#e89c23" :silver "#d3d3d3" :green  "#31b670"
-;;    :blue   "#a8b2eb" :purple "#9e44d3" :void   "#333333"})
-
-;; ;; World token (nested circles on each tile)
-;; (def world-inner
-;;   {:sun    "#dbeb05" :silver "#ffffff" :green  "#71f6b0"
-;;    :blue   "#d8e2fb" :purple "#ce74f3" :void   "#666666"})
-
-;; (def world-inner
-;;   {:sun    "#FFCA18" :silver "#9898C8" :green  "#28A828"
-;;    :blue   "#1468D8" :purple "#7E1EC8" :void   "#2812B0"})
-
-;; ;; Player pieces: same hue, significantly brighter/lighter
-;; (def player-fill
-;;   {:sun    "#e89c23" :silver "#dbdbdb" :green  "#83c1a4"
-;;    :blue   "#aab2e0" :purple "#a76dc9" :void   "#4a4a4a"})
-
 ;; Tile hex backgrounds: lighter, less-saturated tints
 (def player-fill
   {:sun    "#e93f21" :silver "#c3c3c3" :green  "#42af7d"
    :blue   "#98a2db" :purple "#8e34c3" :void   "#000000"})
-
-;; ;; Player pieces: same hue, significantly brighter/lighter
-;; (def player-fill
-;;   {:sun    "#FFD030" :silver "#C0C0E4" :green  "#40CC40"
-;;    :blue   "#2898FF" :purple "#B038F0" :void   "#5438D8"})
 
 (def player-stroke
   {:sun    "#FFEE80" :silver "#E0E0FF" :green  "#88FF88"
@@ -250,8 +226,9 @@
 ;; SVG rotate(θ) on a triangle drawn pointing up (tip at y=-r):
 ;;   rotated tip = (r·sin θ, -r·cos θ)  so tip points outward at angle a when θ = 90 + a°
 
-(def ^:const sundiver-arc-r   30)   ; radius of placement ring
-(def ^:const sundiver-ang-step 12)  ; degrees between stacked sundivers
+(def ^:const sundiver-arc-r   27)   ; radius of placement ring (slightly overlaps world token)
+(def ^:const sundiver-ang-step 13)  ; degrees between stacked sundivers
+(def ^:const sundiver-ang-start 30)  ; degrees between stacked sundivers
 
 (defn sundivers-on-tile [tile player-order player-colors & [{:keys [highlight-player highlight-color on-sundiver-click]}]]
   (let [n-players (count player-order)]
@@ -265,7 +242,7 @@
                   sc         (ps ck)
                   hl?        (and highlight-player (= player highlight-player))
                   hl-c       (or highlight-color "#FFD030")
-                  base-deg   (* idx (/ 360.0 n-players))
+                  base-deg   (+ sundiver-ang-start (* idx (/ 360.0 n-players)))
                   show       (min n 5)
                   half-span  (* 0.5 (dec show) sundiver-ang-step)]
               [:g {:key player}
@@ -280,10 +257,10 @@
                                   (fn [e] (.stopPropagation e) (on-sundiver-click)))
                       :style {:cursor (when (and hl? on-sundiver-click) "pointer")}}
                   (when hl?
-                    [:polygon {:points (tri-pts 0 0 13)
+                    [:polygon {:points (tri-pts 0 0 17)
                                :fill "none" :stroke hl-c :stroke-width 2.5
                                :opacity 0.7}])
-                  [:polygon {:points (tri-pts 0 0 8)
+                  [:polygon {:points (tri-pts 0 0 12)
                              :fill fc :stroke sc :stroke-width 0.8}]])
                (when (> n 5)
                  (let [rad (* base-deg (/ Math/PI 180))]
@@ -488,23 +465,25 @@
                   :stroke hl-color
                   :stroke-width 7
                   :opacity 0.2}])
+     ;; Rendering order (bottom to top): matches → world tokens → beacons → stations → sundivers
+     ;; Cipher-match edge arcs
+     cipher-dots
      ;; World token (nested circles) — hidden once the beacon has been discovered
      (when (:world tile)
        [world-token color])
-     ;; Beacon (pentagon) centered on tile, overlaid on world token
+     ;; Beacon (pentagon) above center
      (when-let [bk (:beacon tile)]
-       [beacon-shape (get player-colors bk)])
-     ;; Station below the world token
+       [:g {:transform (str "translate(0," (if (:station tile) -10 0) ")")}
+        [beacon-shape (get player-colors bk)]])
+     ;; Station below beacon, together centered on tile
      (when-let [s (:station tile)]
-       [:g {:transform "translate(0,26)"}
+       [:g {:transform (str "translate(0," (if (:beacon tile) 14 10) ")")}
         [station-shape (assoc s :color-key (get player-colors (:player s) :sun))]])
      ;; Ark ring + heading arrow (at ring edge) when Ark is on this tile
      (when (= pos ark-pos)
        [:g [ark-ring] [ark-heading-arrow heading-dir]])
-     ;; Sundivers (triangles grouped by player)
-     [sundivers-on-tile tile player-order player-colors sundiver-hl]
-     ;; Cipher-match edge dots (pre-computed)
-     cipher-dots]))
+     ;; Sundivers (triangles grouped by player) — topmost
+     [sundivers-on-tile tile player-order player-colors sundiver-hl]]))
 
 ;; In ClojureScript, wrap as a memoized React class component.
 ;; A tile only re-renders when its data, cipher-dots, highlight, or ark presence changes.
@@ -583,7 +562,7 @@
         conv-targets (set (map first (keys conv-g)))
         pending     pending-convert]
     [:g
-     ;; Tiles (backgrounds, world tokens, pieces)
+     ;; Tiles (backgrounds, matches, world tokens, beacons, stations, sundivers)
      ;; cipher-dots is pre-computed here so render-tile doesn't depend on full state,
      ;; enabling shouldComponentUpdate to skip tiles whose data hasn't changed.
      (for [[pos tile] board
@@ -674,7 +653,7 @@
                [:circle {:cx 0 :cy 0 :r 16
                          :fill "none" :stroke "#FFD030" :stroke-width 2 :opacity 0.5}]
                [station-shape {:type stype :color-key (get player-colors active-player :sun) :level 0}]])])))
-     ;; Gate ovals in a separate pass — always above all tile backgrounds
+     ;; Gates above tile backgrounds but matches wrap around them
      [render-all-gates state player-order player-colors]
      ;; Floating ark on unexplored space — rendered last so it's always on top
      (when (and ark-pos (not (contains? board ark-pos)))
@@ -841,7 +820,7 @@
         player-order (:turn-order state)
         n-players    (count player-order)
         pidx         (.indexOf (vec player-order) player-key)
-        sundiver-rot (+ 90 (* pidx (/ 360.0 n-players)))
+        sundiver-rot (+ sundiver-ang-start (+ 90 (* pidx (/ 360.0 n-players))))
         cx           panel-r
         cy           panel-r]
     [:g {:key (str "p" player-key)
@@ -1025,7 +1004,7 @@
 (def panel-w        (* 2 panel-r))  ; 130 — diameter
 (def panel-h        (* 2 panel-r))  ; 130 — diameter
 (def panel-gap      16)
-(def cipher-x       1330)
+(def cipher-x       1150)
 (def cipher-y       150)
 
 (defn render-game
@@ -1118,16 +1097,16 @@
                  :let [x (* (- i (/ (dec (count queue)) 2.0)) 46)
                        wc (get world-outer color "#555")
                        ic (get world-inner color "#333")
-                       pc (pf (get player-colors player :sun))
+                       pck (get player-colors player :sun)
                        first? (zero? i)]]
              [:g {:key i :transform (str "translate(" x ",8)")}
               ;; World tile circle (color of the discovered world) — large so color is clear
               [:circle {:cx 0 :cy 0 :r 18
                         :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2.5 1)}]
               [:circle {:cx 0 :cy 0 :r 12 :fill ic}]
-              ;; Player beacon pentagon on top
+              ;; Player beacon pentagon on top — uses color KEY not fill value
               [:g {:transform "translate(0,-1)"}
-               [beacon-shape pc]]])]))]
+               [beacon-shape pck]]])]))]
 
      ;; ── Player panels (left side, wraps to second column if needed)
      (let [max-h    (- vh 20)
