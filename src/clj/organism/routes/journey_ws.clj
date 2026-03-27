@@ -59,7 +59,7 @@
 ;; ── Persistence helper ──────────────────────────────────────────────────────
 
 (defn- save-state!
-  "Persist current state. When choice-key is provided, also append it to the action log."
+  "Persist current state. When choice-key is provided, also append to action log."
   ([db play-key] (save-state! db play-key nil))
   ([db play-key choice-key]
    (let [game (get-in @games [:games play-key])]
@@ -288,7 +288,8 @@
                     :player  player
                     :bots    (vec (:bots game-data))
                     :chat    (:chat game-data)
-                    :history (vec (or (:saved-history game-data) []))}]
+                    ;; Send lightweight history (no states) — states are reconstructed via replay on demand
+                    :history (vec (map #(dissoc % :state) (or (:saved-history game-data) [])))}]
       (send! channel
              (if-let [state (:state game-data)]
                (let [[phase choices] (choice/find-state-raw state)]
@@ -309,14 +310,27 @@
                (update-in gs [:games] dissoc play-key)
                (assoc-in gs [:games play-key :channels] (set remaining)))))))
 
-(defn notify-clients! [{:keys [db play-key player]} _channel raw]
+(defn handle-replay-state! [db play-key _channel {:keys [step]}]
+  (let [game-data (get-in @games [:games play-key])
+        initial   (:initial-state game-data)]
+    (when initial
+      (let [actions (persist-j/load-actions db play-key)
+            ;; Replay up to the requested step
+            target-actions (take step actions)
+            result-state   (persist-j/replay initial target-actions)]
+        (send! _channel {:type "replay-state"
+                         :step step
+                         :state (pr-str result-state)})))))
+
+(defn notify-clients! [{:keys [db play-key player]} channel raw]
   (let [{:keys [type] :as message} (read-json raw)]
     (log/info "Journey MSG" type player)
     (case type
-      "create"  (handle-create! db play-key message)
-      "action"  (handle-action! db play-key player message)
-      "undo"    (handle-undo! db play-key player)
-      "chat"    (handle-chat! db play-key player message)
+      "create"       (handle-create! db play-key message)
+      "action"       (handle-action! db play-key player message)
+      "undo"         (handle-undo! db play-key player)
+      "chat"         (handle-chat! db play-key player message)
+      "replay-state" (handle-replay-state! db play-key channel message)
       (log/warn "Unknown journey message type" type))))
 
 ;; ── Route wiring ─────────────────────────────────────────────────────────────

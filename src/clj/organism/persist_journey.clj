@@ -18,6 +18,27 @@
   (db/insert! db (str "journey-actions-" game-key)
               {:choice (pr-str choice-key)}))
 
+(defn append-history-entry!
+  "Append a lightweight history entry to the game's history log."
+  [db game-key state]
+  (let [player (game/current-player state)
+        phase  (get-in state [:player-turn :phase])]
+    (db/insert! db (str "journey-history-" game-key)
+                {:step   0  ;; step number computed on load from position
+                 :player player
+                 :phase  (str phase)})))
+
+(defn load-history-entries
+  "Load the lightweight history log for a game."
+  [db game-key]
+  (let [records (db/query db (str "journey-history-" game-key) {})]
+    (vec (map-indexed
+          (fn [i record]
+            {:step i
+             :player (:player record)
+             :phase (keyword (subs (str (:phase record)) 1))})
+          records))))
+
 (defn load-actions
   "Load all choice keys for a game in order."
   [db game-key]
@@ -26,43 +47,66 @@
 
 ;; ── Replay ──────────────────────────────────────────────────────────────────
 
+(def ^:private replay-protected-phases
+  "Same protected phases as the server's effective loop."
+  #{:choose-action-type :choose-move :choose-convert
+    :choose-activate :choose-activate-station
+    :choose-activate-self-bonus :choose-activate-owner-bonus
+    :choose-land :game-over})
+
+(defn- effective-advance
+  "Apply the same effective loop as the server: advance through single-choice
+   non-protected phases. Uses find-state-raw (no stale auto-advance)."
+  [state]
+  (loop [s state]
+    (let [p  (game/current-phase s)
+          cs (second (choice/find-state-raw s))]
+      (if (and (= 1 (count cs))
+               (not (contains? replay-protected-phases p)))
+        (let [ns (first (vals cs))]
+          (if ns (recur ns) s))
+        s))))
+
 (defn replay
   "Replay a sequence of choice keys from an initial state.
-   Uses find-state (with auto-advance) to match how actions were recorded.
+   Uses find-state-raw + effective-advance to match how actions were recorded.
    Returns the final state, or stops early if a choice is invalid."
   [initial-state choice-keys]
   (reduce
    (fn [state ck]
-     (let [[_ choices] (choice/find-state state)
+     (let [[_ choices] (choice/find-state-raw state)
            next-state  (get choices ck)]
        (if next-state
-         next-state
+         (effective-advance next-state)
          (reduced state))))
    initial-state
    choice-keys))
 
 (defn replay-with-history
   "Replay choice keys from initial state, collecting history entries.
-   Uses find-state (with auto-advance) to match how actions were recorded.
-   Returns {:state final-state :history [{:step :player :phase} ...]}"
+   Uses find-state-raw + effective-advance to match server behavior.
+   Returns {:state final-state :history [{:step :player :phase :state} ...]}"
   [initial-state choice-keys]
   (loop [state   initial-state
          ks      choice-keys
          step    0
          history [{:step 0
                    :player (game/current-player initial-state)
-                   :phase  (get-in initial-state [:player-turn :phase])}]]
+                   :phase  (get-in initial-state [:player-turn :phase])
+                   :state  initial-state}]]
     (if (empty? ks)
       {:state state :history history}
-      (let [[phase choices] (choice/find-state state)
+      (let [[phase choices] (choice/find-state-raw state)
             next-state      (get choices (first ks))]
         (if next-state
-          (recur next-state
-                 (rest ks)
-                 (inc step)
-                 (conj history {:step    (inc step)
-                                :player  (game/current-player next-state)
-                                :phase   phase}))
+          (let [effective (effective-advance next-state)]
+            (recur effective
+                   (rest ks)
+                   (inc step)
+                   (conj history {:step    (inc step)
+                                  :player  (game/current-player effective)
+                                  :phase   (game/current-phase effective)
+                                  :state   effective})))
           {:state state :history history})))))
 
 ;; ── Game persistence ────────────────────────────────────────────────────────
@@ -122,7 +166,7 @@
 (defn load-game
   "Load a journey game from the database.
    Returns {:state :initial-state :bots :players :history} or nil.
-   Replays actions from initial-state to reconstruct full history."
+   Replays actions from initial-state to reconstruct full history with states."
   [db game-key]
   (when-let [doc (db/one db :journey-games {:key game-key})]
     (let [state   (when (:state doc) (read-string (:state doc)))

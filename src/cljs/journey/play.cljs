@@ -552,7 +552,12 @@
                        selected?    (= i sel)]
                    ^{:key i}
                    [history-row i entry player-colors selected? group-start? show-sep?
-                    #(reset! history-view-step i)]))])])
+                    (fn []
+                      (reset! history-view-step i)
+                      ;; If this entry has no state (pre-reload), request it from server
+                      (when-not (:state (nth history i))
+                        (ws/send-transit-message!
+                         {:type "replay-state" :step i})))]))])])
          ]
         ))))
 
@@ -781,6 +786,14 @@
           (let [saved (get received :history [])]
             (reset! play-history (vec saved))
             (append-history! s)))))
+
+    "replay-state"
+    (let [step  (get received :step)
+          state (get received :state)]
+      (when (and step state)
+        (let [s (reader/read-string state)]
+          ;; Patch the history entry with the replayed state
+          (swap! play-history assoc-in [step :state] s))))
 
     (js/console.log "unknown message" (pr-str received))))
 

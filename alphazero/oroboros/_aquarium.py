@@ -54,8 +54,11 @@ class Organism:
     age:          int = 0
     evaluated:    bool = False
     summary:      str = ""
-    # Region key for clustering
     region:       str = ""
+    # Gradient tracking
+    parent_richness: float = 0.0   # richness of the parent that spawned this
+    delta:           float = 0.0   # richness - parent_richness (computed after eval)
+    best_delta:      float = 0.0   # best delta seen in this lineage
 
     def to_dict(self) -> dict:
         return {
@@ -65,6 +68,9 @@ class Organism:
             "evaluated": self.evaluated,
             "summary": self.summary,
             "region": self.region,
+            "parent_richness": self.parent_richness,
+            "delta": self.delta,
+            "best_delta": self.best_delta,
         }
 
     @staticmethod
@@ -76,6 +82,9 @@ class Organism:
             evaluated=d.get("evaluated", False),
             summary=d.get("summary", ""),
             region=d.get("region", ""),
+            parent_richness=d.get("parent_richness", 0),
+            delta=d.get("delta", 0),
+            best_delta=d.get("best_delta", 0),
         )
 
 
@@ -160,19 +169,19 @@ class Aquarium:
             self._log(f"\n═══ Cycle {self.cycle} ═══ pop={len(self.population)} "
                       f"archive={len(self.archive)} evals={self.total_evals}")
 
-            # 1. Evaluate unevaluated organisms
-            self._evaluate_batch()
-
-            # 2. Age everyone
-            for o in self.population:
-                o.age += 1
-
-            # 3. Evolve: mutate the fit, cull the weak
+            # 1. Evolve: mutate the fit, cull the weak (creates unevaluated children)
             self._evolve()
 
-            # 4. Inject random seeds
+            # 2. Inject random seeds (also unevaluated)
             n_seed = max(1, int(len(self.population) * self.seed_rate))
             self._seed_population(n_seed)
+
+            # 3. Evaluate all unevaluated organisms (children + seeds)
+            self._evaluate_batch()
+
+            # 4. Age everyone
+            for o in self.population:
+                o.age += 1
 
             # 5. Update archive (keep peak representatives)
             self._update_archive()
@@ -235,24 +244,79 @@ class Aquarium:
             o.summary = m.summary()
             o.evaluated = True
             o.region = _region_key(o.ruleset_dict)
+            # Compute gradient: how much did this mutation improve over parent?
+            o.delta = o.richness - o.parent_richness
+            o.best_delta = max(o.best_delta, o.delta)
         except Exception as e:
             o.richness = 0
+            o.delta = -o.parent_richness
             o.evaluated = True
             o.summary = f"error: {e}"
         self.total_evals += 1
         elapsed = time.time() - t0
         if self.verbose:
-            self._log(f"  eval {o.region} rich={o.richness:.0f} ({elapsed:.1f}s)")
+            delta_str = f" Δ={o.delta:+.0f}" if o.parent_richness > 0 else ""
+            self._log(f"  eval {o.region} rich={o.richness:.0f}{delta_str} ({elapsed:.1f}s)")
+
+    def _niche_fitness(self, o: Organism) -> float:
+        """Fitness that rewards gradient, diversity, and absolute richness.
+
+        Three signals combined:
+          1. Richness (altitude): how good is this game absolutely?
+          2. Gradient (slope): did this mutation IMPROVE over its parent?
+             A Δ=+30 jump from a mediocre parent is more promising than
+             sitting at a known peak with Δ=0.
+          3. Diversity (loneliness): fewer neighbors in the same region = bonus.
+             Explores underrepresented areas of game space.
+
+        This ensures:
+          - Known peaks are retained (high richness)
+          - Rising slopes are followed (positive delta)
+          - Unexplored territory is valued (low region count)
+        """
+        region = o.region or _region_key(o.ruleset_dict)
+
+        # How many others in the same region?
+        same_region = sum(1 for p in self.population
+                          if (p.region or _region_key(p.ruleset_dict)) == region)
+
+        # 1. Richness (50% weight): absolute quality
+        richness_score = o.richness
+
+        # 2. Gradient (30% weight): reward positive deltas strongly,
+        #    and penalize negative deltas mildly
+        if o.delta > 0:
+            # Positive improvement — scale by relative magnitude
+            gradient_score = o.delta * 3.0
+        elif o.best_delta > 0:
+            # This mutation was bad but the lineage has shown promise
+            gradient_score = o.best_delta * 0.5
+        else:
+            gradient_score = 0.0
+
+        # 3. Diversity (20% weight): lonely regions get a bonus
+        diversity_score = 80.0 / max(same_region, 1)
+
+        return richness_score + gradient_score + diversity_score
 
     def _evolve(self):
-        """Mutate the fit, divide the best, cull the worst."""
+        """Cull by niche fitness, then mutate the best to fill freed slots.
+
+        Uses niche fitness: rewards being the best in your region AND
+        exploring lonely regions. This maintains diversity.
+        """
         if not self.population:
             return
 
-        # Sort by richness
-        self.population.sort(key=lambda o: o.richness, reverse=True)
+        # Sort by niche fitness (not pure richness)
+        self.population.sort(key=lambda o: self._niche_fitness(o), reverse=True)
 
-        # Top 50% mutate (biased exploration)
+        # Cull bottom 30%
+        n_cull = max(1, len(self.population) // 3)
+        self.population = self.population[:len(self.population) - n_cull]
+        self._log(f"  culled {n_cull}, pop now {len(self.population)}")
+
+        # Top 50% of survivors produce children
         n_top = max(1, len(self.population) // 2)
         new_organisms = []
         for o in self.population[:n_top]:
@@ -264,60 +328,101 @@ class Aquarium:
                 new_organisms.append(Organism(
                     ruleset_dict=child_rs.to_dict(),
                     region=_region_key(child_rs.to_dict()),
+                    parent_richness=o.richness,
+                    best_delta=o.best_delta,
                 ))
             except Exception:
                 pass
 
-        # Cull bottom 30%
-        n_cull = max(0, len(self.population) - self.max_pop + len(new_organisms))
-        if n_cull > 0:
-            # Remove from the bottom, but keep at least min viable
-            self.population = self.population[:len(self.population) - n_cull]
-
         self.population.extend(new_organisms)
+        self._log(f"  +{len(new_organisms)} children, pop now {len(self.population)}")
 
     def _seed_population(self, n: int):
-        """Inject n completely random organisms."""
+        """Inject random organisms, biased toward underrepresented topologies."""
+        # Count current topology distribution
+        topo_counts = {}
+        for o in self.population:
+            t = o.ruleset_dict.get("schema", {}).get("topology_type", "?")
+            topo_counts[t] = topo_counts.get(t, 0) + 1
+
+        all_topos = ["square", "hex", "triangle", "radial", "torus_square", "torus_hex"]
         for _ in range(n):
             if len(self.population) >= self.max_pop:
                 break
-            rs = self.grammar.sample()
+            # Pick underrepresented topology 50% of the time
+            if random.random() < 0.5 and topo_counts:
+                min_count = min(topo_counts.get(t, 0) for t in all_topos)
+                rare_topos = [t for t in all_topos if topo_counts.get(t, 0) <= min_count + 1]
+                target_topo = random.choice(rare_topos)
+                # Sample until we get the right topology (up to 10 tries)
+                for _ in range(10):
+                    rs = self.grammar.sample()
+                    if rs.schema.topology_type == target_topo:
+                        break
+                else:
+                    rs = self.grammar.sample()
+            else:
+                rs = self.grammar.sample()
+            rd = rs.to_dict()
             self.population.append(Organism(
-                ruleset_dict=rs.to_dict(),
-                region=_region_key(rs.to_dict()),
+                ruleset_dict=rd,
+                region=_region_key(rd),
             ))
+            t = rd.get("schema", {}).get("topology_type", "?")
+            topo_counts[t] = topo_counts.get(t, 0) + 1
 
     def _update_archive(self):
-        """Keep only the best representative per region.
+        """Keep peak representatives per region, ensuring topology diversity.
 
-        For each region (topology+size+types+rules), keep the top N by richness.
-        This prevents the archive from being dominated by clusters of similar games.
+        Two-level diversity:
+          1. Per exact region (topology+size+types+rules): keep top N
+          2. Per topology family: ensure every topology has representation
         """
-        # Add all evaluated organisms to candidate pool
         candidates = list(self.archive)
         for o in self.population:
             if o.evaluated and o.richness > 0:
                 candidates.append(o)
 
-        # Group by region
+        if not candidates:
+            return
+
+        # Group by exact region
         by_region: dict[str, list[Organism]] = {}
         for o in candidates:
             region = o.region or _region_key(o.ruleset_dict)
             by_region.setdefault(region, []).append(o)
 
-        # Keep top N per region
+        # Keep top N per exact region
         new_archive = []
         for region, organisms in by_region.items():
             organisms.sort(key=lambda o: o.richness, reverse=True)
             new_archive.extend(organisms[:self.max_per_region])
 
-        # Also keep global top regardless of region
+        # Ensure topology diversity: at least 5 games per topology family
+        by_topo: dict[str, list[Organism]] = {}
+        for o in candidates:
+            t = o.ruleset_dict.get("schema", {}).get("topology_type", "?")
+            by_topo.setdefault(t, []).append(o)
+
+        for topo, organisms in by_topo.items():
+            organisms.sort(key=lambda o: o.richness, reverse=True)
+            # Add top games from this topology if underrepresented
+            current = sum(1 for o in new_archive
+                          if o.ruleset_dict.get("schema", {}).get("topology_type") == topo)
+            for o in organisms[:max(5, self.max_per_region)]:
+                if current >= 5:
+                    break
+                if o not in new_archive:
+                    new_archive.append(o)
+                    current += 1
+
+        # Also keep global top 10 regardless
         all_sorted = sorted(candidates, key=lambda o: o.richness, reverse=True)
-        for o in all_sorted[:20]:
+        for o in all_sorted[:10]:
             if o not in new_archive:
                 new_archive.append(o)
 
-        # Cap total archive size
+        # Cap and sort
         new_archive.sort(key=lambda o: o.richness, reverse=True)
         self.archive = new_archive[:self.max_archive]
 
@@ -342,21 +447,41 @@ class Aquarium:
     def _report(self):
         if not self.verbose:
             return
-        # Region summary
+
+        # Topology diversity in population
+        pop_topos: dict[str, int] = {}
+        for o in self.population:
+            t = o.ruleset_dict.get("schema", {}).get("topology_type", "?")
+            pop_topos[t] = pop_topos.get(t, 0) + 1
+        self._log(f"\n  Population diversity: " +
+                  " ".join(f"{t}={c}" for t, c in sorted(pop_topos.items())))
+
+        # Archive summary
         regions: dict[str, list[float]] = {}
+        arch_topos: dict[str, int] = {}
         for o in self.archive:
-            regions.setdefault(o.region, []).append(o.richness)
+            r = o.region or _region_key(o.ruleset_dict)
+            regions.setdefault(r, []).append(o.richness)
+            t = o.ruleset_dict.get("schema", {}).get("topology_type", "?")
+            arch_topos[t] = arch_topos.get(t, 0) + 1
 
-        self._log(f"\n  Archive: {len(self.archive)} games in {len(regions)} regions")
-        top_regions = sorted(regions.items(), key=lambda x: max(x[1]), reverse=True)
-        for region, scores in top_regions[:8]:
-            self._log(f"    {region}: best={max(scores):.0f} count={len(scores)}")
+        self._log(f"  Archive: {len(self.archive)} games, {len(regions)} regions")
+        self._log(f"  Archive topologies: " +
+                  " ".join(f"{t}={c}" for t, c in sorted(arch_topos.items())))
 
-        # Top games
+        # Top games by richness
         top = sorted(self.archive, key=lambda o: o.richness, reverse=True)[:5]
-        self._log(f"  Top games:")
+        self._log(f"  Top by richness:")
         for o in top:
-            self._log(f"    {o.region} rich={o.richness:.0f} age={o.age}")
+            self._log(f"    {o.region} rich={o.richness:.0f} Δ={o.delta:+.0f} age={o.age}")
+
+        # Top games by gradient (steepest recent improvement)
+        rising = sorted([o for o in self.population if o.delta > 0],
+                        key=lambda o: o.delta, reverse=True)[:3]
+        if rising:
+            self._log(f"  Rising (best gradient):")
+            for o in rising:
+                self._log(f"    {o.region} rich={o.richness:.0f} Δ={o.delta:+.0f} (parent={o.parent_richness:.0f})")
 
     def _log(self, msg: str):
         if self.verbose:
@@ -367,12 +492,12 @@ def main():
     parser = argparse.ArgumentParser(description="Oroboros Aquarium: persistent game evolution")
     parser.add_argument("--cycles", type=int, default=10, help="Cycles to run (default 10)")
     parser.add_argument("--forever", action="store_true", help="Run indefinitely")
-    parser.add_argument("--pop", type=int, default=30, help="Max population size")
-    parser.add_argument("--archive", type=int, default=100, help="Max archive size")
+    parser.add_argument("--pop", type=int, default=100, help="Max population size")
+    parser.add_argument("--archive", type=int, default=200, help="Max archive size")
     parser.add_argument("--seed-rate", type=float, default=0.15, help="Fraction of random seeds per cycle")
     parser.add_argument("--az-iters", type=int, default=2, help="AlphaZero training iterations")
     parser.add_argument("--az-sims", type=int, default=8, help="MCTS simulations per move")
-    parser.add_argument("--workers", type=int, default=1, help="Parallel evaluation workers")
+    parser.add_argument("--workers", type=int, default=4, help="Parallel evaluation workers")
     args = parser.parse_args()
 
     # Auto-detect device
