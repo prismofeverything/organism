@@ -59,6 +59,12 @@
 (defonce game-over-collapsed?
   (r/atom false))
 
+;; Game-over landing animation state
+;; {:phase :zoom|:reveal|:done, :step 0, :revealed #{cipher-pos ...}, :landing-pos [q r]}
+(defonce landing-anim (r/atom nil))
+;; Track which game-over we've already animated (play-key or state identity)
+(defonce landing-anim-triggered (r/atom nil))
+
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
 
 (defn choice-player
@@ -150,6 +156,63 @@
 (defn on-button-click [choice-key]
   (send-action! choice-key))
 
+;; ── Board pan/zoom (shared so landing animation can drive them) ─────────────
+
+(defonce board-pan-x (r/atom 0))
+(defonce board-pan-y (r/atom 0))
+(defonce board-zoom  (r/atom 1.0))
+
+;; ── Landing animation ───────────────────────────────────────────────────────
+
+(defn compute-landing-matches
+  "Return a seq of cipher positions (center + directions) that match at landing-pos."
+  [state landing-pos]
+  (let [board      (:board state)
+        tile-color (get-in board [landing-pos :color])
+        center     (when (game/cipher-color-active? state [0 0] tile-color) [[0 0]])
+        dirs       (keep (fn [dir]
+                           (let [neighbor  (game/add-hex landing-pos dir)
+                                 n-color   (get-in board [neighbor :color])]
+                             (when (and n-color (game/cipher-color-active? state dir n-color))
+                               dir)))
+                         game/hex-directions)]
+    (vec (concat center dirs))))
+
+(defn start-landing-animation!
+  "Kick off the zoom → reveal → done sequence for a landing game-over."
+  [state]
+  (let [landing-pos (get-in state [:game-over :tile])
+        matches     (compute-landing-matches state landing-pos)
+        [tx ty]     (board/hex->pixel landing-pos)
+        [bcx bcy]   (board/board-centroid (:board state))
+        z           2.0]
+    ;; Phase 1: zoom to landing tile
+    ;; Transform: translate(780+panX, 450+panY) scale(z) translate(-bcx,-bcy)
+    ;; To center tile (tx,ty): panX = -z*(tx-bcx), panY = -z*(ty-bcy)
+    (reset! landing-anim {:phase :zoom :step 0 :revealed #{} :matches matches
+                          :landing-pos landing-pos})
+    (reset! board-zoom z)
+    (reset! board-pan-x (- (* z (- tx bcx))))
+    (reset! board-pan-y (- (* z (- ty bcy))))
+    ;; Phase 2: after zoom settles, start revealing beacons one by one
+    (js/setTimeout
+     (fn []
+       (let [ms (volatile! 0)]
+         (doseq [[i m] (map-indexed vector matches)]
+           (js/setTimeout
+            (fn []
+              (swap! landing-anim
+                     (fn [a] (-> a
+                                 (update :revealed conj m)
+                                 (assoc :step (inc i))))))
+            @ms)
+           (vswap! ms + 600))
+         ;; Phase 3: done
+         (js/setTimeout
+          (fn [] (swap! landing-anim assoc :phase :done))
+          (+ @ms 400))))
+     800)))
+
 ;; ── Interactive board view (pan / zoom) ──────────────────────────────────────
 
 (defn board-view
@@ -158,33 +221,30 @@
    Optional: on-navigate, fly-highlights, chosen-pos."
   [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click cipher-on-beacon-hover cipher-expanded? cipher-on-toggle cipher-hover cipher-queue-color]}]]
   (r/with-let
-    [pan-x (r/atom 0)
-     pan-y (r/atom 0)
-     zoom  (r/atom 1.0)
-     drag  (r/atom nil)
+    [drag  (r/atom nil)
      on-key
      (fn [e]
        (case (.-key e)
-         "ArrowLeft"  (swap! pan-x + 60)
-         "ArrowRight" (swap! pan-x - 60)
-         "ArrowUp"    (if on-navigate (on-navigate :up)   (swap! pan-y + 60))
-         "ArrowDown"  (if on-navigate (on-navigate :down) (swap! pan-y - 60))
-         "PageUp"     (swap! zoom #(min 4.0 (* % 1.15)))
-         "PageDown"   (swap! zoom #(max 0.2  (/ % 1.15)))
-         " "          (do (reset! pan-x 0) (reset! pan-y 0) (reset! zoom 1.0))
+         "ArrowLeft"  (swap! board-pan-x + 60)
+         "ArrowRight" (swap! board-pan-x - 60)
+         "ArrowUp"    (if on-navigate (on-navigate :up)   (swap! board-pan-y + 60))
+         "ArrowDown"  (if on-navigate (on-navigate :down) (swap! board-pan-y - 60))
+         "PageUp"     (swap! board-zoom #(min 4.0 (* % 1.15)))
+         "PageDown"   (swap! board-zoom #(max 0.2  (/ % 1.15)))
+         " "          (do (reset! board-pan-x 0) (reset! board-pan-y 0) (reset! board-zoom 1.0))
          nil))
      on-move
      (fn [e]
        (when-let [{:keys [mx my px py]} @drag]
-         (reset! pan-x (+ px (- (.-clientX e) mx)))
-         (reset! pan-y (+ py (- (.-clientY e) my)))))
+         (reset! board-pan-x (+ px (- (.-clientX e) mx)))
+         (reset! board-pan-y (+ py (- (.-clientY e) my)))))
      on-up (fn [_] (reset! drag nil))
      _     (do (js/document.addEventListener "keydown" on-key)
                (js/document.addEventListener "mousemove" on-move)
                (js/document.addEventListener "mouseup" on-up))]
     [:div {:style {:position "relative" :width "100%" :height "100%"}}
      [board/render-game state pos-highlights on-hex-click choice-buttons
-      {:pan-x @pan-x :pan-y @pan-y :zoom @zoom
+      {:pan-x @board-pan-x :pan-y @board-pan-y :zoom @board-zoom
        :fly-highlights fly-highlights
        :chosen-pos chosen-pos
        :active-player active-player
@@ -198,20 +258,21 @@
        :cipher-on-toggle cipher-on-toggle
        :cipher-hover cipher-hover
        :cipher-queue-color cipher-queue-color
+       :landing-revealed (:revealed @landing-anim)
        :on-bg-mouse-down
        (fn [e]
          (.preventDefault e)
          (reset! drag {:mx (.-clientX e) :my (.-clientY e)
-                       :px @pan-x :py @pan-y}))}]
+                       :px @board-pan-x :py @board-pan-y}))}]
      [:div {:style {:position "absolute" :bottom "16px" :left "16px"
                     :display "flex" :align-items "center" :gap "8px"}}
       [:input {:type "range" :min 20 :max 400 :step 5
-               :value (int (* @zoom 100))
-               :on-change #(reset! zoom (/ (js/parseInt (.. % -target -value)) 100))
+               :value (int (* @board-zoom 100))
+               :on-change #(reset! board-zoom (/ (js/parseInt (.. % -target -value)) 100))
                :style {:width "100px" :cursor "pointer"}}]
       [:span {:style {:color "#334455" :font-family "monospace" :font-size "10px"
                       :min-width "32px"}}
-       (str (int (* @zoom 100)) "%")]]]
+       (str (int (* @board-zoom 100)) "%")]]]
     (finally
       (js/document.removeEventListener "keydown" on-key)
       (js/document.removeEventListener "mousemove" on-move)
@@ -229,32 +290,33 @@
     :reagent-render
     (fn [i {:keys [step player phase choice]} player-colors selected? group-start? show-sep? on-click]
       (let [ck   (get player-colors player :sun)
-            fc   (board/ptb ck)
-            bg-c (if (= ck :void) "#8888AA" fc)]
+            fc   (board/pwi ck)
+            bg-c (board/ptb ck)]
         [:div
          (when show-sep?
            [:div {:style {:height "1px" :margin "3px 0"
-                          :background (str bg-c "66")}}])
+                          :background bg-c :opacity 0.4}}])
          (when group-start?
            [:div {:style {:padding "4px 10px 1px"
-                          :color (if selected? fc (str fc "99"))
+                          :color fc
                           :font-size "9px" :font-family "monospace"
                           :letter-spacing "1px"
-                          :background (str bg-c "44")}}
+                          :background bg-c :opacity (if selected? 1.0 0.7)}}
             (str "▸ " (or player "—"))])
          [:div
           {:id       (str "hist-item-" i)
            :on-click on-click
            :style {:padding "4px 10px 4px 14px" :cursor "pointer"
-                   :border-left (str "2px solid "
-                                     (if selected? bg-c (str bg-c "88")))
-                   :background (if selected? (str bg-c "60") (str bg-c "30"))}}
-          [:div {:style {:color (if selected? fc (str fc "CC"))
+                   :border-left (str "2px solid " bg-c)
+                   :background bg-c
+                   :opacity (if selected? 0.9 0.5)}}
+          [:div {:style {:color fc
                          :font-size "12px" :font-family "monospace"}}
            (str "·" (or step i) "  " (name (or phase :?)))]
-          [:div {:style {:color (if selected? (str fc "DD") (str fc "88"))
+          [:div {:style {:color fc
                          :font-size "10px" :font-family "monospace"
-                         :word-break "break-all"}}
+                         :word-break "break-all"
+                         :opacity 0.8}}
            choice]]]))}))
 
 ;; ── Play page ─────────────────────────────────────────────────────────────────
@@ -368,9 +430,9 @@
                 cp-name     (choice-player state)
                 p-colors    (board/build-player-colors (:turn-order state))
                 cp-ck       (get p-colors cp-name :sun)
-                cp-fg       (board/ptb cp-ck)
-                cp-bg       (str cp-fg "22")
-                cp-border   (str cp-fg "55")
+                cp-fg       (board/pwi cp-ck)
+                cp-bg       (board/ptb cp-ck)
+                cp-border   (board/pwo cp-ck)
                 action-type (get-in state [:player-turn :action-type])
                 station-type (get-in state [:player-turn :action :station-type])
                 summary
@@ -421,44 +483,45 @@
                                                         (:scores go))))
                                             (str "loss — flares " (:flares-drawn state 0) "/13")))
                   (when srv-phase (name srv-phase)))]
-            [:div {:style {:position "absolute" :top "-24px" :left "50%"
+            [:div {:style {:position "absolute" :top "-30px" :left "50%"
                            :transform "translateX(-50%)"
-                           :color "#AABBCC" :font-size "12px"
+                           :color "#AABBCC" :font-size "16px"
                            :font-family "monospace" :z-index 10
                            :background cp-bg
-                           :border (str "1px solid " cp-border)
+                           :border (str "2px solid " cp-border)
                            :border-top "none"
                            :border-radius "50%"
-                           :padding "30px 36px 14px"
+                           :padding "40px 48px 20px"
                            :text-align "center"
                            :display "flex" :flex-direction "column"
-                           :align-items "center" :gap "6px"}}
+                           :align-items "center" :gap "10px"}}
              ;; Top line: player name + context + summary
              [:div {:style {:white-space "nowrap"}}
-              [:span {:style {:color cp-fg :font-weight "bold"}} cp-name]
+              [:span {:style {:color cp-fg :font-weight "bold" :font-size "18px"}} cp-name]
               (when action-type
-                [:span {:style {:color (str cp-fg "88") :margin-left "6px"}}
+                [:span {:style {:color cp-fg :opacity 0.55 :margin-left "8px" :font-size "15px"}}
                  (str "(" (name action-type)
                       (when station-type (str " " (name station-type)))
                       ")")])
               (when summary
-                [:span {:style {:color (str cp-fg "AA") :margin-left "8px"}} summary])
+                [:span {:style {:color cp-fg :opacity 0.7 :margin-left "10px" :font-size "15px"}} summary])
               (when active?
-                [:span {:style {:color "#88CCAA" :margin-left "8px"}} "← your turn"])]
+                [:span {:style {:color "#88CCAA" :margin-left "10px" :font-size "15px" :font-weight "bold"}} "← your turn"])]
              ;; Choice buttons row
              (when (seq buttons)
-               [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap"
+               [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"
                               :justify-content "center"}}
                 (for [[i {:keys [label on-click]}] (map-indexed vector buttons)]
                   [:button {:key i :on-click on-click
-                            :style {:background (str cp-fg "22")
+                            :style {:background cp-bg
                                     :color cp-fg
-                                    :border (str "1px solid " cp-border)
-                                    :border-radius "4px"
-                                    :padding "4px 14px"
+                                    :border (str "2px solid " cp-border)
+                                    :border-radius "5px"
+                                    :padding "6px 20px"
                                     :cursor "pointer"
                                     :font-family "monospace"
-                                    :font-size "12px"}}
+                                    :font-size "15px"
+                                    :font-weight "bold"}}
                    label])])])
           ;; Game-over banner (click to collapse into status oval)
           (when (and (:game-over state) (not @game-over-collapsed?))
@@ -781,7 +844,12 @@
       (when state
         (let [s (reader/read-string state)]
           (reset! game-state s)
-          (append-history! s))))
+          (append-history! s)
+          ;; Trigger landing animation on game-over
+          (when (and (= :landing (get-in s [:game-over :type]))
+                     (not= @landing-anim-triggered (get-in s [:game-over :tile])))
+            (reset! landing-anim-triggered (get-in s [:game-over :tile]))
+            (start-landing-animation! s)))))
 
     "initialize"
     (do

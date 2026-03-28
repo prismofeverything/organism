@@ -65,6 +65,8 @@
 (defn pf  [ck] (get player-fill ck neutral-fill))
 (defn ps  [ck] (get player-stroke ck neutral-stroke))
 (defn ptb [ck] (get tile-bg ck neutral-fill))
+(defn pwi [ck] (get world-inner ck "#888"))
+(defn pwo [ck] (get world-outer ck "#666"))
 
 ;; ── Hex geometry ──────────────────────────────────────────────────────────────
 
@@ -135,17 +137,16 @@
   ;; Pentagon centered on the tile, overlaid on the world token
   [:polygon
    {:points (poly-pts 0 0 10 5 (- (/ Math/PI 2)))
-    :fill   (pf color-key)
-    :stroke (ps color-key)
-    :stroke-width 1.4
-    :opacity 0.92}])
+    :fill   (pwo color-key)
+    :stroke (pwi color-key)
+    :stroke-width 1.4}])
 
 ;; ── Station shapes ────────────────────────────────────────────────────────────
 
 (defn foundry-shape [ck]
   ;; Hemisphere: flat bottom at y=5, dome curving up
   [:path {:d "M -11,5 A 11,11 0 0 1 11,5 Z"
-          :fill (pf ck) :stroke (ps ck) :stroke-width 1.3}])
+          :fill (pwo ck) :stroke (pwi ck) :stroke-width 1.3}])
 
 (defn matrix-shape [ck]
   ;; Lotus side-view: 5 narrow petal-ellipses fanning from a base
@@ -154,10 +155,10 @@
                              [[-38 -7 2] [-18 -3.5 -1] [0 0 -3] [18 3.5 -1] [38 7 2]])]
      [:ellipse {:key idx :cx px :cy py :rx 2.6 :ry 7.5
                 :transform (str "rotate(" rot "," px "," py ")")
-                :fill (pf ck) :stroke (ps ck) :stroke-width 0.7 :opacity 0.9}])
+                :fill (pwo ck) :stroke (pwi ck) :stroke-width 0.7}])
    ;; Curved base cup
    [:path {:d "M -9,7 Q 0,4 9,7"
-           :fill "none" :stroke (ps ck) :stroke-width 1.2 :opacity 0.7}]])
+           :fill "none" :stroke (pwi ck) :stroke-width 1.2}]])
 
 (defn tower-shape [ck]
   ;; Space needle tower: flat bottom, narrow waist, ridge higher up, round dome top
@@ -173,10 +174,10 @@
                    "L -7,-7 L -7,-5 "         ;; ridge flares left
                    "L -2,-3 "                  ;; left waist
                    "L -2.5,0 L -4,4 Z")       ;; left side back to base
-           :fill (pf ck) :stroke (ps ck) :stroke-width 1.2}
+           :fill (pwo ck) :stroke (pwi ck) :stroke-width 1.2}
     ;; Round dome on top
     [:circle {:cx 0 :cy -13 :r 5
-              :fill (pf ck) :stroke (ps ck) :stroke-width 1.2}]]])
+              :fill (pwo ck) :stroke (pwi ck) :stroke-width 1.2}]]])
 
 (defn level-platforms
   "Render n flat platform boxes stacked below the station icon.
@@ -194,10 +195,9 @@
                   :width     20
                   :height    ph
                   :rx        2
-                  :fill      (pf ck)
-                  :stroke    (ps ck)
-                  :stroke-width 0.6
-                  :opacity   0.55}])
+                  :fill      (pwo ck)
+                  :stroke    (pwi ck)
+                  :stroke-width 0.6}])
         (range n))])))
 
 (defn station-shape [station]
@@ -238,8 +238,8 @@
         (let [n  (get-in tile [:sundivers player] 0)
               ck (get player-colors player :sun)]
           (when (pos? n)
-            (let [fc         (pf ck)
-                  sc         (ps ck)
+            (let [fc         (pwo ck)
+                  sc         (pwi ck)
                   hl?        (and highlight-player (= player highlight-player))
                   hl-c       (or highlight-color "#FFD030")
                   base-deg   (+ sundiver-ang-start (* idx (/ 360.0 n-players)))
@@ -357,8 +357,9 @@
                      gx      (+ cx ex)
                      gy      (+ cy ey)
                      angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
-                     fc      (pf (get player-colors player :sun))
-                     sc      (ps (get player-colors player :sun))]]
+                     ck      (get player-colors player :sun)
+                     fc      (pwo ck)
+                     sc      (pwi ck)]]
        [:rect {:key       (str pos player neighbor)
                :x        (- gx 8)  :y (- gy 13)
                :width     16  :height 26
@@ -426,38 +427,51 @@
          :transform (str "translate(" cx "," cy ")")
          :on-click  (when on-click #(on-click pos))
          :style    {:cursor (when on-click "pointer")}}
-     ;; 6-match: outer golden halo
+     ;; 6-match: brilliant golden radiance — multiple layered halos
      (when landable-6?
-       [:polygon {:points (hex-pts-str (+ hex-size 4))
-                  :fill "none"
-                  :stroke "#FFD030"
-                  :stroke-width 4
-                  :opacity 0.6}])
-     ;; 5-match: white glow ring
+       [:g {:filter "url(#glow6)"}
+        [:polygon {:points (hex-pts-str (+ hex-size 8))
+                   :fill "none"
+                   :stroke "#FFD030"
+                   :stroke-width 6}]
+        [:polygon {:points (hex-pts-str (+ hex-size 3))
+                   :fill "none"
+                   :stroke "#FFEE88"
+                   :stroke-width 3}]])
+     ;; 5-match: dramatic white glow
      (when landable-5?
-       [:polygon {:points (hex-pts-str (+ hex-size 2))
-                  :fill "none"
-                  :stroke "#FFFFFF"
-                  :stroke-width 3
-                  :opacity 0.35}])
+       [:g {:filter "url(#glow5)"}
+        [:polygon {:points (hex-pts-str (+ hex-size 5))
+                   :fill "none"
+                   :stroke "#FFFFFF"
+                   :stroke-width 4}]
+        [:polygon {:points (hex-pts-str (+ hex-size 2))
+                   :fill "none"
+                   :stroke "#AACCFF"
+                   :stroke-width 2}]])
      ;; Hex background
      [:polygon {:points       (hex-pts-str (- hex-size 1))
                 :fill         bg
                 :stroke       (cond
                                 hl-color      hl-color
                                 landable-6?   "#FFD030"
-                                landable-5?   "#FFFFFF88"
+                                landable-5?   "#FFFFFF"
                                 :else         "none")
                 :stroke-width (cond
                                 hl-color    2.5
-                                landable-6? 2
-                                landable-5? 1.5
+                                landable-6? 3
+                                landable-5? 2
                                 :else       0)}]
-     ;; 6-match: inner glow fill
+     ;; 6-match: inner golden fill
      (when landable-6?
        [:polygon {:points (hex-pts-str (- hex-size 2))
                   :fill "#FFD030"
-                  :opacity 0.08}])
+                  :opacity 0.15}])
+     ;; 5-match: inner white fill
+     (when landable-5?
+       [:polygon {:points (hex-pts-str (- hex-size 2))
+                  :fill "#AACCFF"
+                  :opacity 0.06}])
      ;; Choice highlight glow outer ring
      (when hl-color
        [:polygon {:points (hex-pts-str (- hex-size 1))
@@ -473,7 +487,7 @@
        [world-token color])
      ;; Beacon (pentagon) above center
      (when-let [bk (:beacon tile)]
-       [:g {:transform (str "translate(0," (if (:station tile) -10 0) ")")}
+       [:g {:transform "translate(0,-10)"}
         [beacon-shape (get player-colors bk)]])
      ;; Station below beacon, together centered on tile
      (when-let [s (:station tile)]
@@ -663,7 +677,7 @@
 
 (def ^:const cipher-hex-size 26)
 
-(defn cipher-hex [cipher pos highlight? on-click on-beacon-hover cipher-queue-color]
+(defn cipher-hex [cipher pos highlight? on-click on-beacon-hover cipher-queue-color revealed?]
   (let [[cx cy]  (let [[q r] pos]
                    [(* cipher-hex-size 1.5 q)
                     (* cipher-hex-size sqrt3 (+ (* 0.5 q) r))])
@@ -679,10 +693,17 @@
          :on-mouse-leave (when (and cipher-queue-color on-beacon-hover)
                            #(on-beacon-hover nil nil))
          :style    {:cursor (when (or on-click cipher-queue-color) "pointer")}}
+     ;; Revealed glow during landing animation
+     (when revealed?
+       [:g {:filter "url(#glow6)"}
+        [:polygon {:points (hex-pts-str (+ cipher-hex-size 4))
+                   :fill "none"
+                   :stroke "#FFD030"
+                   :stroke-width 4}]])
      [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
                 :fill bg
-                :stroke (if highlight? "#FFD030" "#2A2A4A")
-                :stroke-width (if highlight? 2.5 1)}]
+                :stroke (cond revealed? "#FFD030" highlight? "#FFD030" :else "#2A2A4A")
+                :stroke-width (cond revealed? 3 highlight? 2.5 :else 1)}]
      (when highlight?
        [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
                   :fill "none" :stroke "#FFD030" :stroke-width 5 :opacity 0.2}])
@@ -708,12 +729,13 @@
                :style {:pointer-events "none"}}
         "C"])]))
 
-(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover expanded? cipher-queue-color]}]]
+(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover expanded? cipher-queue-color landing-revealed]}]]
   (let [s (if expanded? 2.0 1.0)]
     [:g {:transform (when expanded? (str "scale(" s ")"))}
      (for [pos (into [[0 0]] game/hex-directions)
-           :let [hl? (and highlights (contains? highlights pos))]]
-       [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color])]))
+           :let [hl? (and highlights (contains? highlights pos))
+                 rev? (and landing-revealed (contains? landing-revealed pos))]]
+       [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color rev?])]))
 
 ;; ── Scoring overlay (game-over landing) ──────────────────────────────────────
 
@@ -813,8 +835,8 @@
         hab          (get-in pstate [:habitat :sundivers] 0)
         res          (:reserve pstate {})
         ck           (get player-colors player-key :sun)
-        fc           (pf ck)
-        sc           (ps ck)
+        fc           (pwi ck)
+        sc           (pwo ck)
         is-cap       (= player-key captain)
         on-turn?     (= player-key (game/current-player state))
         player-order (:turn-order state)
@@ -827,8 +849,8 @@
          :transform (str "translate(0," y-offset ")")}
      ;; Circle backing
      [:circle {:cx cx :cy cy :r panel-r
-               :fill (if on-turn? "#161222" "#080814")
-               :stroke (if on-turn? fc "#2A2A44")
+               :fill (if on-turn? (ptb ck) "#080814")
+               :stroke (if on-turn? fc sc)
                :stroke-width (if on-turn? 3 1.5)}]
      ;; Captain flame (top-right quadrant)
      (when is-cap
@@ -850,13 +872,13 @@
               :let [ox (row-x row1 i)]]
           [:g {:key i :transform (str "translate(" ox ",0) rotate(" rot ")")}
            [:polygon {:points (tri-pts 0 0 7)
-                      :fill fc :stroke sc :stroke-width 0.7}]])
+                      :fill sc :stroke fc :stroke-width 0.7}]])
         ;; Second row (when hab > 7)
         (for [i (range row2)
               :let [ox (row-x row2 i)]]
           [:g {:key (+ 7 i) :transform (str "translate(" ox ",12) rotate(" rot ")")}
            [:polygon {:points (tri-pts 0 0 7)
-                      :fill fc :stroke sc :stroke-width 0.7}]])])
+                      :fill sc :stroke fc :stroke-width 0.7}]])])
      ;; Move points
      [:text {:x cx :y (- cy 4)
              :text-anchor "middle"
@@ -882,10 +904,10 @@
            ;; Icon
            (case icon
              :sundiver [:g {:transform (str "rotate(" sundiver-rot ")")}
-                        [:polygon {:points (tri-pts 0 0 5) :fill fc :stroke sc :stroke-width 0.5}]]
-             :beacon   [:g {:transform "scale(0.6)"} [beacon-shape fc]]
+                        [:polygon {:points (tri-pts 0 0 5) :fill sc :stroke fc :stroke-width 0.5}]]
+             :beacon   [:g {:transform "scale(0.6)"} [beacon-shape ck]]
              :gate     [:ellipse {:cx 0 :cy 0 :rx 5 :ry 3
-                                  :fill "none" :stroke fc :stroke-width 1.2}]
+                                  :fill "none" :stroke (pwo ck) :stroke-width 1.2}]
              :foundry  [:g {:transform "scale(0.5)"}
                          [station-shape {:type :foundry :color-key ck :level 0}]]
              :matrix   [:g {:transform "scale(0.5)"}
@@ -990,6 +1012,25 @@
     [:feGaussianBlur {:stdDeviation "3" :result "blur"}]
     [:feMerge
      [:feMergeNode {:in "blur"}]
+     [:feMergeNode {:in "SourceGraphic"}]]]
+   ;; 5-match: soft white pulsing glow
+   [:filter {:id "glow5" :x "-50%" :y "-50%" :width "200%" :height "200%"}
+    [:feGaussianBlur {:stdDeviation "6" :result "blur1"}]
+    [:feGaussianBlur {:in "SourceGraphic" :stdDeviation "2" :result "blur2"}]
+    [:feMerge
+     [:feMergeNode {:in "blur1"}]
+     [:feMergeNode {:in "blur2"}]
+     [:feMergeNode {:in "SourceGraphic"}]]]
+   ;; 6-match: intense golden radiance
+   [:filter {:id "glow6" :x "-80%" :y "-80%" :width "260%" :height "260%"}
+    [:feGaussianBlur {:stdDeviation "10" :result "blur1"}]
+    [:feGaussianBlur {:in "SourceGraphic" :stdDeviation "4" :result "blur2"}]
+    [:feGaussianBlur {:in "SourceGraphic" :stdDeviation "1.5" :result "blur3"}]
+    [:feMerge
+     [:feMergeNode {:in "blur1"}]
+     [:feMergeNode {:in "blur1"}]
+     [:feMergeNode {:in "blur2"}]
+     [:feMergeNode {:in "blur3"}]
      [:feMergeNode {:in "SourceGraphic"}]]]])
 
 ;; ── Full game render ──────────────────────────────────────────────────────────
@@ -1020,7 +1061,7 @@
    & [{:keys [pan-x pan-y zoom on-bg-mouse-down fly-highlights chosen-pos active-player
               conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click
               cipher-on-beacon-hover cipher-expanded? cipher-on-toggle cipher-hover
-              cipher-queue-color]
+              cipher-queue-color landing-revealed]
        :or   {pan-x 0 pan-y 0 zoom 1.0}}]]
   (let [player-order  (:turn-order state)
         player-colors (build-player-colors player-order)
@@ -1078,7 +1119,8 @@
       [render-cipher (:cipher state) {:highlights cipher-highlights :on-click cipher-on-click
                                        :on-beacon-hover cipher-on-beacon-hover
                                        :expanded? cipher-expanded?
-                                       :cipher-queue-color cipher-queue-color}]
+                                       :cipher-queue-color cipher-queue-color
+                                       :landing-revealed landing-revealed}]
       ;; Cipher queue: show pending beacons to place
       (let [queue (get-in state [:player-turn :cipher-queue] [])]
         (when (seq queue)
