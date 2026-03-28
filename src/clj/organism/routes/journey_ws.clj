@@ -174,7 +174,19 @@
                                        (when (seq cs)
                                          [(first (keys cs)) (first (vals cs))])))]
                 (when-let [[ck next-state] step-result]
-                  (let [effective (bot-advance next-state)]
+                  ;; Track visited positions for bot fly logic
+                  (let [phase     (game/current-phase current-state)
+                        next-state (cond
+                                     ;; After fly-from: record the from-pos as visited
+                                     (and (vector? ck) (= :fly (first ck)))
+                                     (update-in next-state [:player-turn :action :bot-fly-visited]
+                                                (fnil conj #{}) (second ck))
+                                     ;; After fly-to: record the destination as visited
+                                     (= phase :choose-fly-to)
+                                     (update-in next-state [:player-turn :action :bot-fly-visited]
+                                                (fnil conj #{}) ck)
+                                     :else next-state)
+                        effective (bot-advance next-state)]
                     (swap! games
                            (fn [gs]
                              (-> gs

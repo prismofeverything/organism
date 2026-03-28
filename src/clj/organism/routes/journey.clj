@@ -205,13 +205,14 @@
                 (get choices best))
 
               ;; Fly to: prefer conversion-enabling tiles, then spread out, then non-wrap.
-              ;; Avoid going back to the fly-from position to prevent back-and-forth.
+              ;; Avoid ALL positions visited this turn (not just immediate fly-from).
               :choose-fly-to
               (let [player   (game/current-player state)
-                    from-pos (get-in state [:player-turn :action :fly-from])
+                    visited  (get-in state [:player-turn :action :bot-fly-visited] #{})
                     non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
-                    non-back (if from-pos (dissoc non-wrap from-pos) non-wrap)
-                    targets  (if (seq non-back) non-back non-wrap)
+                    ;; Exclude all positions visited this turn
+                    non-visited (into {} (remove #(contains? visited (key %)) non-wrap))
+                    targets  (if (seq non-visited) non-visited non-wrap)
                     no-beacons? (empty? (beacon-positions state))
                     conv     (if no-beacons?
                                (or (some #(when (enables-matrix-conversion? state (val %)) (val %)) targets)
@@ -324,18 +325,35 @@
                                 (if (game/cipher-color-active? state pos color)
                                   0  ;; already active here, no new value
                                   (if (= pos [0 0])
-                                    ;; Center: critical when empty, still valuable with 1-2 colors
-                                    (let [tiles-of-color (count (filter #(= color (:color %)) (vals board)))]
+                                    ;; Center: enables matches for all tiles of this color.
+                                    ;; Count how many ACTUAL new matches would appear
+                                    ;; (tiles of this color that have neighbors active at outer dirs)
+                                    (let [tiles-of-color (filter #(= color (:color (get board %))) (keys board))
+                                          new-matches    (count
+                                                          (for [tile-pos tiles-of-color
+                                                                dir      game/hex-directions
+                                                                :let [n-color (get-in board [(game/add-hex tile-pos dir) :color])]
+                                                                :when (and n-color
+                                                                           (game/cipher-color-active? state dir n-color))]
+                                                            1))]
                                       (cond
-                                        (zero? center-n)    9999  ;; MUST place center first
-                                        (< center-n 3)      (* tiles-of-color 2)
-                                        :else               (max 1 (quot tiles-of-color 4))))
-                                    ;; Outer: match points, valuable once center exists
-                                    (let [matches (count (filter #(= color (get-in board [(game/add-hex % pos) :color]))
-                                                                 (keys board)))]
+                                        (zero? center-n) (+ 9999 new-matches)  ;; MUST place center first
+                                        (< center-n 3)   (+ (* (count tiles-of-color) 2) new-matches)
+                                        :else            (max 1 (+ (quot (count tiles-of-color) 4) new-matches))))
+                                    ;; Outer: count ACTUAL new matches that would appear
+                                    ;; A match appears when: tile-color active at center AND neighbor-color active at dir
+                                    (let [actual-matches
+                                          (count
+                                           (for [tile-pos (keys board)
+                                                 :let [tile-color (:color (get board tile-pos))
+                                                       n-color    (get-in board [(game/add-hex tile-pos pos) :color])]
+                                                 :when (and (= n-color color)
+                                                            tile-color
+                                                            (game/cipher-color-active? state [0 0] tile-color))]
+                                             1))]
                                       (if (zero? center-n)
-                                        (max 1 matches)  ;; low priority until center exists
-                                        (* matches 3))))))
+                                        (max 1 actual-matches)
+                                        (* (max 1 actual-matches) 3))))))
                     placeable (dissoc choices :skip)]
                 (if (and color (seq placeable))
                   (get choices (apply max-key score (keys placeable)))

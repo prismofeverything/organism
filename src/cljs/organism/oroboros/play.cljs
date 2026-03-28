@@ -1383,15 +1383,138 @@
      ^{:key (:name game)}
      [game-encoding-view game])])
 
+;; ── Lineage visualization ──────────────────────────────────────────────────────
+
+(def topo-hues
+  {"square" 200 "hex" 120 "triangle" 60 "radial" 300
+   "torus_square" 210 "torus_hex" 140 "?" 0})
+
+(defn- hsl [hue sat light] (str "hsl(" hue "," sat "%," light "%)"))
+
+(defn- child-hue
+  "Derive child's hue from parent's, with a small random-ish shift."
+  [parent-hue child-id]
+  (mod (+ parent-hue (* 7 (mod child-id 13)) 3) 360))
+
+(defn lineages-view []
+  (let [raw-data (when (exists? js/lineageJson) (js->clj js/lineageJson :keywordize-keys true))
+        records (or (:records raw-data) [])
+        n (count records)
+        max-cycle (if (seq records) (apply max (map :cycle records)) 0)
+        ;; Build id→record lookup
+        by-id (reduce (fn [m r] (assoc m (:id r) r)) {} records)
+        ;; Assign hues: seeds get topology hue, children derive from parent
+        hues (loop [remaining (vec records) assigned {}]
+               (if (empty? remaining)
+                 assigned
+                 (let [r (first remaining)
+                       parent-hue (get assigned (:parent r))]
+                   (if (or (= -1 (:parent r)) parent-hue (nil? parent-hue))
+                     (let [h (if (= -1 (:parent r))
+                               ;; Seed: use topology hue + small offset by id
+                               (mod (+ (get topo-hues (:topology r "?") 180)
+                                       (* 5 (mod (:id r) 30))) 360)
+                               ;; Child: derive from parent
+                               (child-hue (or parent-hue 180) (:id r)))]
+                       (recur (rest remaining) (assoc assigned (:id r) h)))
+                     ;; Parent not yet assigned, skip to end
+                     (recur (conj (vec (rest remaining)) r) assigned)))))
+        ;; Layout: x = cycle (time), y = spread by id within cycle
+        x-scale (if (pos? max-cycle) (/ 1800.0 max-cycle) 10)
+        ;; Group by cycle for y positioning
+        by-cycle (group-by :cycle records)
+        positions (reduce
+                   (fn [m [cycle recs]]
+                     (let [n-in-cycle (count recs)
+                           y-spacing (min 20 (/ 700.0 (max n-in-cycle 1)))]
+                       (reduce
+                        (fn [m [idx r]]
+                          (assoc m (:id r)
+                                 [(+ 60 (* cycle x-scale))
+                                  (+ 40 (* idx y-spacing))]))
+                        m (map-indexed vector (sort-by :id recs)))))
+                   {} by-cycle)
+        view-w (+ 100 (* max-cycle x-scale))
+        view-h (+ 100 (* (apply max (cons 1 (map count (vals by-cycle)))) 20))]
+    [:div {:style {:color "#ccc" :font-family "monospace" :background "#0a0a14"
+                   :min-height "100vh" :padding "20px"}}
+     [:h1 {:style {:color "#fff" :margin-bottom "4px"}} "Game Lineages"]
+     [:div {:style {:color "#666" :font-size "12px" :margin-bottom "12px"}}
+      (str n " organisms across " (inc max-cycle) " cycles")]
+
+     ;; Legend
+     [:div {:style {:display "flex" :gap "12px" :margin-bottom "16px" :flex-wrap "wrap"}}
+      (for [[topo hue] topo-hues]
+        ^{:key topo}
+        [:span {:style {:display "flex" :align-items "center" :gap "4px"}}
+         [:span {:style {:width "10px" :height "10px" :border-radius "50%"
+                         :background (hsl hue 70 50)}}]
+         [:span {:style {:color "#888" :font-size "11px"}} topo]])]
+
+     ;; Navigation
+     [:div {:style {:margin-bottom "12px"}}
+      [:a {:href "/oroboros" :style {:color "#4488ff" :font-size "12px"}} "< back"]]
+
+     ;; SVG tree
+     [:div {:style {:overflow-x "auto" :overflow-y "auto" :max-height "80vh"
+                    :border "1px solid #1a1a2e" :border-radius "8px"}}
+      [:svg {:width view-w :height view-h
+             :viewBox (str "0 0 " view-w " " view-h)
+             :style {:background "#080812"}}
+
+       ;; Edges (parent → child)
+       (for [r records
+             :when (>= (:parent r) 0)
+             :let [p-pos (get positions (:parent r))
+                   c-pos (get positions (:id r))]
+             :when (and p-pos c-pos)]
+         ^{:key (str "e-" (:id r))}
+         [:line {:x1 (first p-pos) :y1 (second p-pos)
+                 :x2 (first c-pos) :y2 (second c-pos)
+                 :stroke (hsl (get hues (:id r) 180) 40 30)
+                 :stroke-width 0.5 :opacity 0.6}])
+
+       ;; Nodes
+       (for [r records
+             :let [[x y] (get positions (:id r) [0 0])
+                   hue (get hues (:id r) 180)
+                   alive? (:alive r)
+                   rich (:richness r 0)
+                   ;; Size by richness
+                   radius (+ 2 (min 6 (* 0.03 rich)))]]
+         ^{:key (str "n-" (:id r))}
+         [:circle {:cx x :cy y :r radius
+                   :fill (hsl hue (if alive? 80 30) (if alive? 55 25))
+                   :stroke (if alive? (hsl hue 90 70) "none")
+                   :stroke-width (if alive? 1.5 0)
+                   :opacity (if alive? 1.0 0.5)}
+          [:title (str "id=" (:id r) " " (:region r)
+                       "\nrichness=" (int rich)
+                       "\ncycle=" (:cycle r)
+                       (when (>= (:parent r) 0) (str "\nparent=" (:parent r))))]])
+
+       ;; Cycle labels along bottom
+       (for [c (range 0 (inc max-cycle) (max 1 (quot max-cycle 20)))]
+         ^{:key (str "cl-" c)}
+         [:text {:x (+ 60 (* c x-scale)) :y (- view-h 10)
+                 :text-anchor "middle" :font-size "9" :fill "#444"
+                 :font-family "monospace"}
+          (str c)])]]]))
+
 (defn mount-components []
   (let [play-key (.-playKey js/window)
         is-create (.-isCreate js/window)
-        is-rules (.-isRules js/window)]
+        is-rules (.-isRules js/window)
+        is-lineages (.-isLineages js/window)]
 
     ;; Human is always player "0" in universal games
     (reset! player-key "0")
 
     (cond
+      is-lineages
+      (rdom/render [lineages-view]
+                (.getElementById js/document "oroboros"))
+
       is-rules
       (rdom/render [rules-catalog-view]
                 (.getElementById js/document "oroboros"))

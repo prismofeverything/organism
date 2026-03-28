@@ -62,13 +62,27 @@ class Grammar:
                 return rs
         return self._fallback()
 
-    def mutate(self, rs: RuleSetV3) -> RuleSetV3:
-        """Mutate one component."""
-        ops = [
-            self._mut_schema, self._mut_conflict, self._mut_rule_pred,
-            self._mut_rule_eff, self._mut_add_rule, self._mut_remove_rule,
-            self._mut_termination, self._mut_turns,
-        ]
+    def mutate(self, rs: RuleSetV3, gentle: bool = False) -> RuleSetV3:
+        """Mutate one component. If gentle=True, prefer small tweaks."""
+        if gentle:
+            # Gentle: only tweak conflict values or turn structure (small changes)
+            ops = [
+                self._mut_conflict, self._mut_conflict, self._mut_turns,
+                self._mut_rule_pred,
+            ]
+        else:
+            # Normal: full range of mutations, weighted toward smaller changes
+            ops = [
+                self._mut_conflict,     # small: flip one conflict value
+                self._mut_conflict,     # (double weight)
+                self._mut_turns,        # small: change actions per turn
+                self._mut_rule_pred,    # medium: replace one rule predicate
+                self._mut_rule_eff,     # medium: replace one rule effect
+                self._mut_termination,  # medium: change win condition
+                self._mut_schema,       # large: change topology/types
+                self._mut_add_rule,     # large: add a rule
+                self._mut_remove_rule,  # large: remove a rule
+            ]
         for _ in range(self.max_attempts):
             candidate = random.choice(ops)(rs)
             if validate_coverage(candidate) and self._quick_viable(candidate):

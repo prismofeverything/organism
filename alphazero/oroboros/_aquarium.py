@@ -29,6 +29,7 @@ from pathlib import Path
 
 from .schema import RuleSetV3
 from .grammar import Grammar
+from . import lineage as lin
 from .game import Game
 from .evaluator import GameMetrics, EvalConfig, evaluate
 from .library import merge_into_library, load_library
@@ -36,7 +37,14 @@ from .library import merge_into_library, load_library
 def _evaluate_worker(ruleset: RuleSetV3, config: EvalConfig) -> tuple[float, str]:
     """Worker function for parallel evaluation (must be top-level for pickling)."""
     try:
-        m = evaluate(ruleset, config)
+        from .game import Game
+        from dataclasses import replace
+        game = Game(ruleset)
+        cfg = config
+        if game.N > 40:
+            cfg = replace(cfg, sim_n_games=15, sim_max_steps=300,
+                          az_iters=1, az_games=1, az_eval_games=4)
+        m = evaluate(ruleset, cfg)
         return m.richness_score(), m.summary()
     except Exception as e:
         return 0.0, f"error: {e}"
@@ -56,9 +64,12 @@ class Organism:
     summary:      str = ""
     region:       str = ""
     # Gradient tracking
-    parent_richness: float = 0.0   # richness of the parent that spawned this
-    delta:           float = 0.0   # richness - parent_richness (computed after eval)
-    best_delta:      float = 0.0   # best delta seen in this lineage
+    parent_richness: float = 0.0
+    delta:           float = 0.0
+    best_delta:      float = 0.0
+    # Lineage tracking
+    lineage_id:      int = -1      # unique ID in lineage.json
+    parent_lineage_id: int = -1    # parent's lineage_id (-1 for seeds)
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +82,8 @@ class Organism:
             "parent_richness": self.parent_richness,
             "delta": self.delta,
             "best_delta": self.best_delta,
+            "lineage_id": self.lineage_id,
+            "parent_lineage_id": self.parent_lineage_id,
         }
 
     @staticmethod
@@ -85,6 +98,8 @@ class Organism:
             parent_richness=d.get("parent_richness", 0),
             delta=d.get("delta", 0),
             best_delta=d.get("best_delta", 0),
+            lineage_id=d.get("lineage_id", -1),
+            parent_lineage_id=d.get("parent_lineage_id", -1),
         )
 
 
@@ -124,13 +139,21 @@ class Aquarium:
         self.verbose    = verbose
 
         self.population: list[Organism] = []
-        self.archive:    list[Organism] = []  # best representatives
+        self.archive:    list[Organism] = []
         self.cycle       = 0
         self.total_evals = 0
+        self.lineage     = lin.load_lineage()
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
     def save_state(self):
+        # Update lineage alive status
+        lin.mark_all_dead(self.lineage)
+        for o in self.population:
+            if o.lineage_id >= 0:
+                lin.mark_alive(self.lineage, o.lineage_id)
+        lin.save_lineage(self.lineage)
+
         data = {
             "cycle": self.cycle,
             "total_evals": self.total_evals,
@@ -235,18 +258,27 @@ class Aquarium:
             self._log(f"  Parallel eval failed ({e}), falling back to sequential")
             self._evaluate_sequential(organisms)
 
-    def _evaluate_one(self, o: Organism):
+    def _evaluate_one(self, o: Organism, timeout: float = 120.0):
         t0 = time.time()
         try:
             rs = RuleSetV3.from_dict(o.ruleset_dict)
-            m = evaluate(rs, self.eval_cfg)
+            # Use a shorter sim config for large boards to avoid timeouts
+            cfg = self.eval_cfg
+            game = Game(rs)
+            if game.N > 40:
+                # Large board: reduce sim games and skip AZ
+                from dataclasses import replace
+                cfg = replace(cfg, sim_n_games=15, sim_max_steps=300,
+                              az_iters=1, az_games=1, az_eval_games=4)
+            m = evaluate(rs, cfg)
             o.richness = m.richness_score()
             o.summary = m.summary()
             o.evaluated = True
             o.region = _region_key(o.ruleset_dict)
-            # Compute gradient: how much did this mutation improve over parent?
             o.delta = o.richness - o.parent_richness
             o.best_delta = max(o.best_delta, o.delta)
+            if o.lineage_id >= 0:
+                lin.update_richness(self.lineage, o.lineage_id, o.richness)
         except Exception as e:
             o.richness = 0
             o.delta = -o.parent_richness
@@ -300,21 +332,67 @@ class Aquarium:
         return richness_score + gradient_score + diversity_score
 
     def _evolve(self):
-        """Cull by niche fitness, then mutate the best to fill freed slots.
+        """Adaptive evolution: cull rate adapts to population health.
 
-        Uses niche fitness: rewards being the best in your region AND
-        exploring lonely regions. This maintains diversity.
+        - If many children improve over parents → smaller cull (exploitation)
+        - If few children improve → larger cull + more seeds (exploration)
+        - Young organisms get immunity (min 2 cycles before eligible for cull)
+        - Best-in-topology organisms are immune from culling
         """
         if not self.population:
             return
 
-        # Sort by niche fitness (not pure richness)
+        # Measure population health: what fraction of recent children improved?
+        recent_children = [o for o in self.population
+                           if o.parent_richness > 0 and o.age <= 3]
+        if recent_children:
+            improving = sum(1 for o in recent_children if o.delta > 0)
+            health = improving / len(recent_children)
+        else:
+            health = 0.5
+
+        # Adaptive cull rate: healthy population → gentle cull, sick → aggressive
+        cull_fraction = 0.15 + 0.15 * (1.0 - health)  # 15-30%
+        self._log(f"  health={health:.2f} cull_rate={cull_fraction:.0%}")
+
+        # Sort by niche fitness
         self.population.sort(key=lambda o: self._niche_fitness(o), reverse=True)
 
-        # Cull bottom 30%
-        n_cull = max(1, len(self.population) // 3)
-        self.population = self.population[:len(self.population) - n_cull]
-        self._log(f"  culled {n_cull}, pop now {len(self.population)}")
+        # Protect: young organisms (age < 2) and best-per-topology are immune
+        protected = set()
+        best_by_topo: dict[str, float] = {}
+        for o in self.population:
+            topo = o.ruleset_dict.get("schema", {}).get("topology_type", "?")
+            if topo not in best_by_topo or o.richness > best_by_topo[topo]:
+                best_by_topo[topo] = o.richness
+                protected.add(id(o))
+            if o.age < 2:
+                protected.add(id(o))
+
+        # Cull from the bottom, skipping protected
+        n_cull = max(1, int(len(self.population) * cull_fraction))
+        new_pop = []
+        culled = 0
+        for o in self.population:
+            if culled >= n_cull or id(o) in protected:
+                new_pop.append(o)
+            elif len(self.population) - culled <= len(best_by_topo):
+                # Don't cull below minimum viable (one per topology)
+                new_pop.append(o)
+            else:
+                culled += 1
+        # Reverse because we cull from the sorted bottom
+        # Actually we need to cull from the END (lowest fitness)
+        new_pop = []
+        cull_candidates = list(reversed(self.population))
+        culled = 0
+        for o in cull_candidates:
+            if culled < n_cull and id(o) not in protected:
+                culled += 1
+            else:
+                new_pop.append(o)
+        self.population = list(reversed(new_pop))
+        self._log(f"  culled {culled} (protected {len(protected)}), pop now {len(self.population)}")
 
         # Top 50% of survivors produce children
         n_top = max(1, len(self.population) // 2)
@@ -324,12 +402,21 @@ class Aquarium:
                 break
             try:
                 rs = RuleSetV3.from_dict(o.ruleset_dict)
-                child_rs = self.grammar.mutate(rs)
+                # High-richness parents get gentle mutation (preserve what works)
+                # Low-richness parents get normal mutation (explore more)
+                gentle = o.richness > 50
+                child_rs = self.grammar.mutate(rs, gentle=gentle)
+                child_dict = child_rs.to_dict()
+                child_region = _region_key(child_dict)
+                child_lid = lin.record_birth(
+                    self.lineage, o.lineage_id, self.cycle, child_dict, region=child_region)
                 new_organisms.append(Organism(
-                    ruleset_dict=child_rs.to_dict(),
-                    region=_region_key(child_rs.to_dict()),
+                    ruleset_dict=child_dict,
+                    region=child_region,
                     parent_richness=o.richness,
                     best_delta=o.best_delta,
+                    lineage_id=child_lid,
+                    parent_lineage_id=o.lineage_id,
                 ))
             except Exception:
                 pass
@@ -364,9 +451,13 @@ class Aquarium:
             else:
                 rs = self.grammar.sample()
             rd = rs.to_dict()
+            region = _region_key(rd)
+            lid = lin.record_birth(self.lineage, -1, self.cycle, rd, region=region)
             self.population.append(Organism(
                 ruleset_dict=rd,
-                region=_region_key(rd),
+                region=region,
+                lineage_id=lid,
+                parent_lineage_id=-1,
             ))
             t = rd.get("schema", {}).get("topology_type", "?")
             topo_counts[t] = topo_counts.get(t, 0) + 1
@@ -468,6 +559,13 @@ class Aquarium:
         self._log(f"  Archive: {len(self.archive)} games, {len(regions)} regions")
         self._log(f"  Archive topologies: " +
                   " ".join(f"{t}={c}" for t, c in sorted(arch_topos.items())))
+
+        # Age distribution
+        ages = [o.age for o in self.population]
+        if ages:
+            avg_age = sum(ages) / len(ages)
+            max_age = max(ages)
+            self._log(f"  Ages: avg={avg_age:.1f} max={max_age}")
 
         # Top games by richness
         top = sorted(self.archive, key=lambda o: o.richness, reverse=True)[:5]

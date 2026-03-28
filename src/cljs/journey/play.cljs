@@ -55,6 +55,10 @@
 (defonce cipher-hover
   (r/atom nil))
 
+;; When true, game-over info shows in the status oval instead of center banner
+(defonce game-over-collapsed?
+  (r/atom false))
+
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
 
 (defn choice-player
@@ -409,7 +413,13 @@
                   :captain-beacon-join-spend "spend a sundiver to join"
                   :draw-cards           "drawing cards…"
                   :draw-drift-card      "drawing drift card…"
-                  :game-over            "game over"
+                  :game-over            (let [go (:game-over state)]
+                                          (if (= :landing (:type go))
+                                            (str "landed! "
+                                                 (str/join ", "
+                                                   (map (fn [[p sc]] (str p ": " sc))
+                                                        (:scores go))))
+                                            (str "loss — flares " (:flares-drawn state 0) "/13")))
                   (when srv-phase (name srv-phase)))]
             [:div {:style {:position "absolute" :top "-24px" :left "50%"
                            :transform "translateX(-50%)"
@@ -450,31 +460,34 @@
                                     :font-family "monospace"
                                     :font-size "12px"}}
                    label])])])
-          ;; Game-over banner
-          (when-let [go (:game-over state)]
-            [:div {:style {:position "absolute"
-                           :top "40%" :left "50%"
-                           :transform "translate(-50%,-50%)"
-                           :background "#0A0E1C"
-                           :border "2px solid #3A5090"
-                           :border-radius "8px"
-                           :padding "32px 48px"
-                           :color "#AAC8EE"
-                           :font-family "monospace"
-                           :font-size "18px"
-                           :z-index 20
-                           :text-align "center"}}
-             [:div {:style {:font-size "22px" :margin-bottom "12px"}} "GAME OVER"]
-             (if (= :landing (:type go))
-               [:div
-                [:div (str "Landing at " (pr-str (:tile go)))]
-                (for [[p sc] (:scores go)]
-                  [:div {:key p :style {:margin-top "4px"}}
-                   (str p ": " sc " pts")])]
-               [:div
-                [:div (str "Loss — captain: " (:captain go))]
-                [:div {:style {:margin-top "8px" :color "#889"}}
-                 (str "Flares: " (:flares-drawn state 0) "/13")]])])
+          ;; Game-over banner (click to collapse into status oval)
+          (when (and (:game-over state) (not @game-over-collapsed?))
+            (let [go (:game-over state)]
+              [:div {:style {:position "absolute"
+                             :top "40%" :left "50%"
+                             :transform "translate(-50%,-50%)"
+                             :background "#0A0E1C"
+                             :border "2px solid #3A5090"
+                             :border-radius "8px"
+                             :padding "32px 48px"
+                             :color "#AAC8EE"
+                             :font-family "monospace"
+                             :font-size "18px"
+                             :z-index 20
+                             :text-align "center"
+                             :cursor "pointer"}
+                     :on-click #(reset! game-over-collapsed? true)}
+               [:div {:style {:font-size "22px" :margin-bottom "12px"}} "GAME OVER"]
+               (if (= :landing (:type go))
+                 [:div
+                  [:div (str "Landing at " (pr-str (:tile go)))]
+                  (for [[p sc] (:scores go)]
+                    [:div {:key p :style {:margin-top "4px"}}
+                     (str p ": " sc " pts")])]
+                 [:div
+                  [:div (str "Loss — captain: " (:captain go))]
+                  [:div {:style {:margin-top "8px" :color "#889"}}
+                   (str "Flares: " (:flares-drawn state 0) "/13")]])]))
           ;; SVG board
           [board-view state all-pos-hl on-click nil
            {:fly-highlights fly-hl :chosen-pos chosen-pos :active-player my

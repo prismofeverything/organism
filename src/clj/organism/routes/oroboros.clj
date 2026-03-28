@@ -85,6 +85,18 @@
    "oroboros/rules.html"
    {:session-player (get-in request [:session :player])}))
 
+(defn- load-lineage-json []
+  (let [f (io/file "lineage.json")]
+    (if (.exists f) (slurp f) "{\"records\":[]}")))
+
+(defn lineages-page
+  [request]
+  (layout/render
+   request
+   "oroboros/lineages.html"
+   {:session-player (get-in request [:session :player])
+    :lineage-json (load-lineage-json)}))
+
 (defn oroboros-routes
   [db]
   ["/oroboros"
@@ -94,6 +106,7 @@
    ["/create" {:get create-page
                :middleware [require-auth]}]
    ["/rules" {:get rules-page}]
+   ["/lineages" {:get lineages-page}]
    ["/play" {:get (partial play-list-page db)
              :middleware [require-auth]}]
    ["/play/:play" {:get play-page}]
