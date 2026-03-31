@@ -107,22 +107,48 @@
 (defn- has-own-stations? [state]
   (seq (get-in state [:players (game/current-player state) :stations])))
 
+(defn- has-tower-conversion? [state]
+  (some #(= :tower (:type %))
+        (game/find-conversions state (game/current-player state))))
+
+(defn- tower-available-in-reserve? [state]
+  (pos? (get-in state [:players (game/current-player state) :reserve :towers] 0)))
+
+(defn- move-could-enable-tower?
+  "True if any move choice leads to a state where a tower conversion becomes available."
+  [state move-next]
+  (when (and move-next (tower-available-in-reserve? state))
+    (let [[_ move-cs] (choice/find-state-raw move-next)]
+      (some (fn [[_k ns]] (when ns (enables-tower-conversion? state ns)))
+            move-cs))))
+
 (defn- beacon-positions
   "All board positions that currently have a beacon."
   [state]
   (filter #(get-in state [:board % :beacon]) (keys (:board state))))
 
+(defn- near-landable-positions
+  "Board positions with 4+ cipher matches where center color is active.
+   These are the tiles closest to becoming landing sites."
+  [state]
+  (filter (fn [pos]
+            (let [tile-color (get-in state [:board pos :color])]
+              (and tile-color
+                   (game/cipher-color-active? state [0 0] tile-color)
+                   (>= (game/count-cipher-matches state pos) 4))))
+          (keys (:board state))))
+
 (defn- effective-ark-dist
-  "Minimum distance the ark achieves to the nearest beacon by moving in dir.
+  "Minimum distance the ark achieves to the nearest target by moving in dir.
    When the direct next position is unexplored, also considers wrap-target
    (since :choose-ark-advance will offer :wrap as an option)."
-  [state ark dir beacons]
+  [state ark dir targets]
   (let [direct-pos  (game/add-hex ark dir)
-        direct-dist (apply min (map #(game/hex-distance direct-pos %) beacons))]
+        direct-dist (apply min (map #(game/hex-distance direct-pos %) targets))]
     (if (game/get-tile state direct-pos)
       direct-dist
       (let [wrap-pos  (game/wrap-target state ark dir)
-            wrap-dist (apply min (map #(game/hex-distance wrap-pos %) beacons))]
+            wrap-dist (apply min (map #(game/hex-distance wrap-pos %) targets))]
         (min direct-dist wrap-dist)))))
 
 (defn agent-step
@@ -133,17 +159,24 @@
     (when (seq choices)
       (let [next-s
             (case phase
-              ;; Priority: activate own stations → convert → move with real choices
-              ;; Move choices now have inlined hex positions and [:fly pos] keys instead of :launch/:fly
+              ;; Priority: activate → convert (but move first if it enables a tower) → move
               :choose-action-type
               (let [move-next   (:move choices)
                     ;; Use find-state-raw to peek at move choices without auto-advance
                     [_ move-cs] (when move-next (choice/find-state-raw move-next))
                     ;; Real move = has any hex pos (launch) or [:fly pos] keys (not just :done)
-                    real-move?  (some #(and (vector? %) (or (number? (first %)) (= :fly (first %)))) (keys move-cs))]
+                    real-move?  (some #(and (vector? %) (or (number? (first %)) (= :fly (first %)))) (keys move-cs))
+                    ;; If convert is available but no tower yet, check if moving first sets up a tower
+                    has-tower?  (has-tower-conversion? state)
+                    skip-convert-for-tower? (and (:convert choices)
+                                                 (not has-tower?)
+                                                 real-move?
+                                                 (move-could-enable-tower? state move-next))]
                 (or (when (has-own-stations? state) (:activate choices))
-                    (:convert choices)
+                    (when (and (:convert choices) (not skip-convert-for-tower?))
+                      (:convert choices))
                     (when real-move? move-next)
+                    (:convert choices)  ;; fallback: convert even if tower setup possible but no moves
                     (first (vals choices))))
 
               ;; Prefer tower → matrix → foundry.
@@ -245,51 +278,49 @@
               :keep-card        (or (:continue choices) (first (vals (dissoc choices :keep-held)))
                                     (first (vals choices)))
 
-              ;; Landing first; then prefer wrap if it gets ark closer to a beacon.
+              ;; Landing first; then beacons; then near-landable.
+              ;; Prefer wrap when it gets closer to the priority target.
               :choose-ark-advance
-              (let [landings (game/available-landings state)]
-                (if (seq landings)
+              (let [landings  (game/available-landings state)
+                    bs        (beacon-positions state)
+                    near-land (near-landable-positions state)
+                    targets   (cond (seq landings)  landings
+                                    (seq bs)        bs
+                                    (seq near-land) near-land
+                                    :else           nil)]
+                (if targets
                   (let [ark        (:ark state)
                         dir        (game/heading-direction state)
                         direct-pos (:heading-token state)
                         wrap-pos   (game/wrap-target state ark dir)
-                        d-fn       (fn [p] (apply min (map #(game/hex-distance p %) landings)))
+                        d-fn       (fn [p] (apply min (map #(game/hex-distance p %) targets)))
                         d-direct   (d-fn direct-pos)
                         d-wrap     (d-fn wrap-pos)]
                     (if (< d-wrap d-direct)
                       (or (:wrap choices) (:direct choices))
                       (:direct choices)))
-                  (let [bs (beacon-positions state)]
-                    (if (seq bs)
-                      (let [ark        (:ark state)
-                            dir        (game/heading-direction state)
-                            direct-pos (:heading-token state)
-                            wrap-pos   (game/wrap-target state ark dir)
-                            d-direct   (apply min (map #(game/hex-distance direct-pos %) bs))
-                            d-wrap     (apply min (map #(game/hex-distance wrap-pos   %) bs))]
-                        (if (< d-wrap d-direct)
-                          (or (:wrap choices) (:direct choices))
-                          (:direct choices)))
-                      (:direct choices)))))
+                  (:direct choices)))
               :choose-flare-advance        (:direct choices)
               :choose-drift-flare-advance  (:direct choices)
 
               :draw-drift-card (:draw choices)
 
-              ;; Choices are now hex positions. Pick the one closest to landings, then beacons.
+              ;; Choices are now hex positions. Pick closest to landings > beacons > near-landable.
               :choose-captain-drift
-              (let [board    (:board state)
-                    landings (game/available-landings state)
-                    beacons  (filter #(get-in board [% :beacon]) (keys board))
-                    pos-keys (filter #(and (vector? %) (= 2 (count %)) (number? (first %))) (keys choices))
-                    closest  (fn [targets]
-                               (when (and (seq targets) (seq pos-keys))
-                                 (let [best (apply min-key
-                                              (fn [p] (apply min (map #(game/hex-distance p %) targets)))
-                                              pos-keys)]
-                                   (get choices best))))]
+              (let [board     (:board state)
+                    landings  (game/available-landings state)
+                    near-land (near-landable-positions state)
+                    beacons   (filter #(get-in board [% :beacon]) (keys board))
+                    pos-keys  (filter #(and (vector? %) (= 2 (count %)) (number? (first %))) (keys choices))
+                    closest   (fn [targets]
+                                (when (and (seq targets) (seq pos-keys))
+                                  (let [best (apply min-key
+                                               (fn [p] (apply min (map #(game/hex-distance p %) targets)))
+                                               pos-keys)]
+                                    (get choices best))))]
                 (or (closest landings)
                     (closest beacons)
+                    (closest near-land)
                     (first (vals choices))))
 
               ;; Pick the first available station to activate
@@ -297,9 +328,12 @@
               (or (first (vals (dissoc choices :done)))
                   (:done choices))
 
-              ;; Tower heading: choices are now hex positions. Pick closest to beacons.
+              ;; Tower heading: choices are now hex positions.
+              ;; Priority: landings > near-landable > beacons
               :choose-activate-tower-heading
               (let [board    (:board state)
+                    landings (game/available-landings state)
+                    near-land (near-landable-positions state)
                     beacons  (filter #(get-in board [% :beacon]) (keys board))
                     pos-keys (filter #(and (vector? %) (= 2 (count %)) (number? (first %))) (keys choices))
                     closest  (fn [targets]
@@ -308,49 +342,53 @@
                                               (fn [p] (apply min (map #(game/hex-distance p %) targets)))
                                               pos-keys)]
                                    (get choices best))))]
-                (or (closest beacons) (first (vals choices))))
+                (or (closest landings) (closest beacons) (closest near-land) (first (vals choices))))
 
               ;; Land whenever possible
               :choose-land (:land choices (:continue choices))
 
               ;; Cipher: center is REQUIRED for any matches to show. Place center first,
               ;; then balance between more center colors (landing) and outer (match points).
+              ;; Heavily weight matches near the Ark (these contribute to landing).
               :cipher
               (let [{:keys [color]} (first (get-in state [:player-turn :cipher-queue] []))
                     board     (:board state)
+                    ark       (:ark state)
                     ;; How many active colors are already at center?
                     center-n  (count (filter (fn [[_ ps]] (seq ps))
                                             (get-in state [:cipher [0 0] :colors] {})))
+                    ;; Weight matches near the Ark much higher (3x for distance ≤ 2)
+                    ark-weight (fn [tile-pos]
+                                 (let [d (if ark (game/hex-distance tile-pos ark) 99)]
+                                   (cond (<= d 1) 5 (<= d 2) 3 (<= d 3) 2 :else 1)))
                     score     (fn [pos]
                                 (if (game/cipher-color-active? state pos color)
                                   0  ;; already active here, no new value
                                   (if (= pos [0 0])
                                     ;; Center: enables matches for all tiles of this color.
-                                    ;; Count how many ACTUAL new matches would appear
-                                    ;; (tiles of this color that have neighbors active at outer dirs)
+                                    ;; Count how many ACTUAL new matches would appear, weighted by Ark proximity
                                     (let [tiles-of-color (filter #(= color (:color (get board %))) (keys board))
-                                          new-matches    (count
+                                          new-matches    (apply +
                                                           (for [tile-pos tiles-of-color
                                                                 dir      game/hex-directions
                                                                 :let [n-color (get-in board [(game/add-hex tile-pos dir) :color])]
                                                                 :when (and n-color
                                                                            (game/cipher-color-active? state dir n-color))]
-                                                            1))]
+                                                            (ark-weight tile-pos)))]
                                       (cond
                                         (zero? center-n) (+ 9999 new-matches)  ;; MUST place center first
                                         (< center-n 3)   (+ (* (count tiles-of-color) 2) new-matches)
                                         :else            (max 1 (+ (quot (count tiles-of-color) 4) new-matches))))
-                                    ;; Outer: count ACTUAL new matches that would appear
-                                    ;; A match appears when: tile-color active at center AND neighbor-color active at dir
+                                    ;; Outer: count ACTUAL new matches that would appear, weighted by Ark proximity
                                     (let [actual-matches
-                                          (count
+                                          (apply +
                                            (for [tile-pos (keys board)
                                                  :let [tile-color (:color (get board tile-pos))
                                                        n-color    (get-in board [(game/add-hex tile-pos pos) :color])]
                                                  :when (and (= n-color color)
                                                             tile-color
                                                             (game/cipher-color-active? state [0 0] tile-color))]
-                                             1))]
+                                             (ark-weight tile-pos)))]
                                       (if (zero? center-n)
                                         (max 1 actual-matches)
                                         (* (max 1 actual-matches) 3))))))

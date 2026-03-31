@@ -41,12 +41,12 @@
 ;; World token (nested circles on each tile)
 (def world-outer
   {:sun    "#e89c23" :silver "#e3e3e3" :green  "#116630"
-   :blue   "#5562ab" :purple "#ae44e3" :void   "#333333"})
-
+   :blue   "#99b2eb" :purple "#ae44e3" :void   "#333333"})
+   ;; :blue   "#aac2fb" :purple "#ae44e3" :void   "#333333"
 ;; World token (nested circles on each tile)
 (def world-inner
   {:sun    "#dbeb05" :silver "#838383" :green  "#113610"
-   :blue   "#aac2fb" :purple "#de94f3" :void   "#666666"})
+   :blue   "#5562ab" :purple "#de94f3" :void   "#666666"})
 
 ;; Tile hex backgrounds: lighter, less-saturated tints
 (def player-fill
@@ -277,7 +277,7 @@
   [:circle {:cx 0 :cy 0 :r 30
             :fill "none"
             :stroke neutral-stroke
-            :stroke-width 5
+            :stroke-width 8
             :stroke-dasharray "10 3"
             :opacity 0.9}])
 
@@ -412,7 +412,7 @@
    highlight? can be :gold (launch/destination), :chosen (selected sundiver), or nil.
    sundiver-hl is {:highlight-player p :highlight-color c} or nil.
    match-count is the number of cipher direction matches (0-6)."
-  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click sundiver-hl match-count]
+  [pos tile cipher-dots player-order player-colors ark-pos heading-dir highlight? on-click sundiver-hl _match-count]
   (let [[cx cy] (hex->pixel pos)
         color   (:color tile)
         bg      (get tile-bg color "#141420")
@@ -420,58 +420,18 @@
                    :gold   "#FFD030"
                    :fly    "#30C8FF"
                    :chosen "#30FF90"
-                   nil)
-        landable-5? (= match-count 5)
-        landable-6? (>= match-count 6)]
+                   nil)]
     [:g {:key      (str pos)
          :transform (str "translate(" cx "," cy ")")
          :on-click  (when on-click #(on-click pos))
          :style    {:cursor (when on-click "pointer")}}
-     ;; 6-match: brilliant golden radiance — multiple layered halos
-     (when landable-6?
-       [:g {:filter "url(#glow6)"}
-        [:polygon {:points (hex-pts-str (+ hex-size 8))
-                   :fill "none"
-                   :stroke "#FFD030"
-                   :stroke-width 6}]
-        [:polygon {:points (hex-pts-str (+ hex-size 3))
-                   :fill "none"
-                   :stroke "#FFEE88"
-                   :stroke-width 3}]])
-     ;; 5-match: dramatic white glow
-     (when landable-5?
-       [:g {:filter "url(#glow5)"}
-        [:polygon {:points (hex-pts-str (+ hex-size 5))
-                   :fill "none"
-                   :stroke "#FFFFFF"
-                   :stroke-width 4}]
-        [:polygon {:points (hex-pts-str (+ hex-size 2))
-                   :fill "none"
-                   :stroke "#AACCFF"
-                   :stroke-width 2}]])
      ;; Hex background
      [:polygon {:points       (hex-pts-str (- hex-size 1))
                 :fill         bg
                 :stroke       (cond
-                                hl-color      hl-color
-                                landable-6?   "#FFD030"
-                                landable-5?   "#FFFFFF"
-                                :else         "none")
-                :stroke-width (cond
-                                hl-color    2.5
-                                landable-6? 3
-                                landable-5? 2
-                                :else       0)}]
-     ;; 6-match: inner golden fill
-     (when landable-6?
-       [:polygon {:points (hex-pts-str (- hex-size 2))
-                  :fill "#FFD030"
-                  :opacity 0.15}])
-     ;; 5-match: inner white fill
-     (when landable-5?
-       [:polygon {:points (hex-pts-str (- hex-size 2))
-                  :fill "#AACCFF"
-                  :opacity 0.06}])
+                                hl-color    hl-color
+                                :else       "none")
+                :stroke-width (if hl-color 2.5 0)}]
      ;; Choice highlight glow outer ring
      (when hl-color
        [:polygon {:points (hex-pts-str (- hex-size 1))
@@ -669,9 +629,42 @@
                [station-shape {:type stype :color-key (get player-colors active-player :sun) :level 0}]])])))
      ;; Gates above tile backgrounds but matches wrap around them
      [render-all-gates state player-order player-colors]
-     ;; Floating ark on unexplored space — rendered last so it's always on top
+     ;; Floating ark on unexplored space — rendered above gates
      (when (and ark-pos (not (contains? board ark-pos)))
-       [ark-ghost ark-pos heading-dir])]))
+       [ark-ghost ark-pos heading-dir])
+     ;; Landable glow overlay — rendered on top of everything so neighbors don't occlude it
+     (for [[pos tile] board
+           :let [mc (if (and (:color tile)
+                             (game/cipher-color-active? state [0 0] (:color tile)))
+                      (game/count-cipher-matches state pos)
+                      0)]
+           :when (>= mc 5)
+           :let [[px py] (hex->pixel pos)
+                 is-6? (>= mc 6)]]
+       [:g {:key (str "land-glow" pos)
+            :transform (str "translate(" px "," py ")")
+            :style {:pointer-events "none"}}
+        (if is-6?
+          ;; 6-match: brilliant golden radiance
+          [:g {:filter "url(#glow6)"}
+           [:polygon {:points (hex-pts-str (+ hex-size 8))
+                      :fill "none" :stroke "#FFD030" :stroke-width 6}]
+           [:polygon {:points (hex-pts-str (+ hex-size 3))
+                      :fill "none" :stroke "#FFEE88" :stroke-width 3}]
+           [:polygon {:points (hex-pts-str (- hex-size 1))
+                      :fill "none" :stroke "#FFD030" :stroke-width 3}]
+           [:polygon {:points (hex-pts-str (- hex-size 2))
+                      :fill "#FFD030" :opacity 0.15}]]
+          ;; 5-match: dramatic white glow
+          [:g {:filter "url(#glow5)"}
+           [:polygon {:points (hex-pts-str (+ hex-size 5))
+                      :fill "none" :stroke "#FFFFFF" :stroke-width 4}]
+           [:polygon {:points (hex-pts-str (+ hex-size 2))
+                      :fill "none" :stroke "#AACCFF" :stroke-width 2}]
+           [:polygon {:points (hex-pts-str (- hex-size 1))
+                      :fill "none" :stroke "#FFFFFF" :stroke-width 2}]
+           [:polygon {:points (hex-pts-str (- hex-size 2))
+                      :fill "#AACCFF" :opacity 0.06}]])])]))
 
 ;; ── Cipher display ────────────────────────────────────────────────────────────
 
