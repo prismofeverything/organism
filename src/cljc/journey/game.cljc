@@ -566,7 +566,7 @@
 (defn auto-activate-converted-station
   "Trigger one automatic activation of a newly converted station.
    Uses the station's level to determine base + bonus actions.
-   If the player lacks resources for even 1 activation, goes straight to :draw-cards."
+   If the player lacks resources for full base activation, goes straight to :draw-cards."
   [state player station-type target]
   (let [level     (get-in state [:board target :station :level] 0)
         {:keys [base bonus]} (station-action-counts level)
@@ -576,9 +576,9 @@
                     (let [positions (count (matrix-beacon-positions state player))
                           spendable (total-spendable-sundivers state player)
                           beacons   (get-in state [:players player :reserve :beacons] 0)]
-                      (and (pos? positions) (pos? spendable) (pos? beacons)))
+                      (and (>= positions base) (>= spendable base) (>= beacons base)))
                     :tower
-                    (pos? (total-spendable-sundivers state player))
+                    (>= (total-spendable-sundivers state player) base)
                     :foundry true)]
     (if feasible?
       (let [state (-> state
