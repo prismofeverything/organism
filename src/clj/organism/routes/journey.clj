@@ -107,6 +107,22 @@
 (defn- has-own-stations? [state]
   (seq (get-in state [:players (game/current-player state) :stations])))
 
+(defn- sundivers-low?
+  "True when the player's total sundivers (board + habitat + reserve) are critically low."
+  [state]
+  (let [player    (game/current-player state)
+        on-board  (on-board-count state player)
+        habitat   (get-in state [:players player :habitat :sundivers] 0)
+        reserve   (get-in state [:players player :reserve :sundivers] 0)
+        total     (+ on-board habitat reserve)]
+    (<= total 4)))
+
+(defn- has-foundry-conversion?
+  "True if a foundry conversion is currently available."
+  [state]
+  (some #(= :foundry (:type %))
+        (game/find-conversions state (game/current-player state))))
+
 (defn- has-tower-conversion? [state]
   (some #(= :tower (:type %))
         (game/find-conversions state (game/current-player state))))
@@ -160,6 +176,7 @@
       (let [next-s
             (case phase
               ;; Priority: activate → convert (but move first if it enables a tower) → move
+              ;; Exception: when sundivers are low, prioritize foundry conversion over activate
               :choose-action-type
               (let [move-next   (:move choices)
                     ;; Use find-state-raw to peek at move choices without auto-advance
@@ -171,24 +188,32 @@
                     skip-convert-for-tower? (and (:convert choices)
                                                  (not has-tower?)
                                                  real-move?
-                                                 (move-could-enable-tower? state move-next))]
-                (or (when (has-own-stations? state) (:activate choices))
+                                                 (move-could-enable-tower? state move-next))
+                    ;; When sundivers low, build a foundry ASAP
+                    need-foundry? (and (sundivers-low? state)
+                                       (:convert choices)
+                                       (has-foundry-conversion? state))]
+                (or (when need-foundry? (:convert choices))
+                    (when (has-own-stations? state) (:activate choices))
                     (when (and (:convert choices) (not skip-convert-for-tower?))
                       (:convert choices))
                     (when real-move? move-next)
-                    (:convert choices)  ;; fallback: convert even if tower setup possible but no moves
+                    (:convert choices)
                     (first (vals choices))))
 
               ;; Prefer tower → matrix → foundry.
-              ;; But if no beacons on the board yet, prioritize matrix to place beacons.
+              ;; But if no beacons yet, prioritize matrix. If sundivers low, prioritize foundry.
               :choose-convert
               (let [of-type  (fn [t] (some #(when (= t (:type (key %))) (val %)) choices))
-                    has-beacons? (some #(get-in state [:board % :beacon]) (keys (:board state)))]
-                (if has-beacons?
-                  (or (of-type :tower) (of-type :matrix) (of-type :foundry)
-                      (first (vals choices)))
-                  (or (of-type :matrix) (of-type :tower) (of-type :foundry)
-                      (first (vals choices)))))
+                    has-beacons? (some #(get-in state [:board % :beacon]) (keys (:board state)))
+                    low?     (sundivers-low? state)]
+                (cond
+                  low?         (or (of-type :foundry) (of-type :tower) (of-type :matrix)
+                                   (first (vals choices)))
+                  has-beacons? (or (of-type :tower) (of-type :matrix) (of-type :foundry)
+                                   (first (vals choices)))
+                  :else        (or (of-type :matrix) (of-type :tower) (of-type :foundry)
+                                   (first (vals choices)))))
 
               ;; choose-move now has inlined launch [q r] / [:wrap ...] / [:fly pos] / :done
               ;; Prefer fly when 3+ on board; otherwise launch (any hex pos) to build presence.

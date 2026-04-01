@@ -40,7 +40,7 @@
 
 ;; World token (nested circles on each tile)
 (def world-outer
-  {:sun    "#e89c23" :silver "#e3e3e3" :green  "#116630"
+  {:sun    "#e89c23" :silver "#e3e3e3" :green  "#227740"
    :blue   "#99b2eb" :purple "#ae44e3" :void   "#333333"})
    ;; :blue   "#aac2fb" :purple "#ae44e3" :void   "#333333"
 ;; World token (nested circles on each tile)
@@ -875,7 +875,7 @@
      ;; Move points
      [:text {:x cx :y (- cy 4)
              :text-anchor "middle"
-             :fill "#88AACC" :font-size "9" :font-family "monospace"}
+             :fill fc :font-size "9" :font-family "monospace"}
       (str "move " (game/move-points state player-key))]
      ;; Reserve counts — icon + number, 3 columns × 2 rows
      (let [items [;; Row 1: sundivers, beacons, gates
@@ -909,7 +909,7 @@
                          [station-shape {:type :tower :color-key ck :level 0}]])
            ;; Number
            [:text {:x 9 :y 4
-                   :fill "#6A8A6A" :font-size "9" :font-family "monospace"}
+                   :fill fc :font-size "9" :font-family "monospace"}
             (str n)]])])
      ;; Held card — small playing card with suit color and icon
      (when-let [card (get-in pstate [:held-card])]
@@ -1159,7 +1159,7 @@
               [render-player-area state player player-colors captain py panel-w]]))
          player-order)])
 
-     ;; ── Game info (below last column of player panels)
+     ;; ── Round info (below last column of player panels)
      (let [max-h    (- vh 20)
            col-step (+ panel-h panel-gap)
            per-col  (max 1 (int (/ max-h col-step)))
@@ -1168,11 +1168,6 @@
            info-y  (+ 10 (* rows-in-last col-step))]
        [:g {:transform (str "translate(" (+ panel-x panel-r) "," info-y ")")}
         [:text {:x 0 :y 0
-                :text-anchor "middle"
-                :fill (pf (get player-colors current :sun))
-                :font-size "10" :font-weight "bold" :font-family "monospace"}
-         (str "TURN: " current)]
-        [:text {:x 0 :y 14
                 :text-anchor "middle"
                 :fill "#334455"
                 :font-size "9" :font-family "monospace"}
