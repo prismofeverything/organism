@@ -1064,15 +1064,48 @@
         captain       (:captain-flame state)
         current       (game/current-player state)
         [bcx bcy]     (board-centroid (:board state))
-        ;; Compute cipher hover match highlights
+        ;; Compute cipher hover match highlights — only show ACTUAL new matches
+        ;; that would appear if the hovered beacon were placed.
+        ;; Returns {:tiles #{tile-pos ...} :edges #{[tile-pos dir] ...}}
         board         (:board state)
-        cipher-match-hl
+        cipher-match-info
         (when cipher-hover
           (let [{:keys [pos color]} cipher-hover]
             (if (= pos [0 0])
-              (set (filter #(= color (:color (get board %))) (keys board)))
-              (set (filter #(= color (:color (get board (game/add-hex % pos))))
-                           (keys board))))))
+              ;; Placing at center: activates this color at center.
+              ;; New matches: tiles of this color where a neighbor's color is already active at that dir.
+              (reduce
+               (fn [acc tile-pos]
+                 (if (= color (:color (get board tile-pos)))
+                   (reduce
+                    (fn [acc2 dir]
+                      (let [n-color (get-in board [(game/add-hex tile-pos dir) :color])]
+                        (if (and n-color (game/cipher-color-active? state dir n-color))
+                          (-> acc2
+                              (update :tiles conj tile-pos)
+                              (update :edges conj [tile-pos dir]))
+                          acc2)))
+                    acc game/hex-directions)
+                   acc))
+               {:tiles #{} :edges #{}}
+               (keys board))
+              ;; Placing at direction pos: activates this color at that direction.
+              ;; New matches: tiles whose color is active at center, where neighbor in dir pos = this color.
+              (reduce
+               (fn [acc tile-pos]
+                 (let [tile-color (:color (get board tile-pos))
+                       n-color    (get-in board [(game/add-hex tile-pos pos) :color])]
+                   (if (and (= n-color color)
+                            tile-color
+                            (game/cipher-color-active? state [0 0] tile-color))
+                     (-> acc
+                         (update :tiles conj tile-pos)
+                         (update :edges conj [tile-pos pos]))
+                     acc)))
+               {:tiles #{} :edges #{}}
+               (keys board)))))
+        cipher-match-hl (:tiles cipher-match-info)
+        cipher-match-edges (:edges cipher-match-info)
         pos-highlights (into (or pos-highlights #{}) (or cipher-match-hl #{}))]
     [:svg {:xmlns   "http://www.w3.org/2000/svg"
            :viewBox (str "0 0 " vw " " vh)
@@ -1101,7 +1134,21 @@
        {:fly-highlights fly-highlights :chosen-pos chosen-pos :active-player active-player
         :conv-groups conv-groups :conv-sundivers conv-sundivers :pending-convert pending-convert}]
       (when (= :landing (get-in state [:game-over :type]))
-        [render-scoring-overlay state player-colors])]
+        [render-scoring-overlay state player-colors])
+      ;; Cipher hover: glowing match arcs on the board
+      (when (seq cipher-match-edges)
+        [:g {:style {:pointer-events "none"}}
+         (for [[tile-pos dir] cipher-match-edges
+               :let [[tx ty] (hex->pixel tile-pos)
+                     [ex ey] (edge-offset dir)
+                     angle   (* (/ 180 Math/PI) (Math/atan2 ey ex))
+                     n-color (get-in board [(game/add-hex tile-pos dir) :color])
+                     arc-c   (get world-outer (or n-color :sun) "#FFF")]]
+           [:g {:key (str "chm" tile-pos dir)
+                :transform (str "translate(" (+ tx ex) "," (+ ty ey) ") rotate(" angle ")")
+                :filter "url(#glow5)"}
+            [:path {:d "M 0,-19 A 13,19 0 0,0 0,19 L 0,15 A 9,15 0 0,1 0,-15 Z"
+                    :fill arc-c :stroke arc-c :stroke-width 2 :opacity 0.9}]])])]
 
      ;; ── Cipher (fixed position, not panned/zoomed, always expanded)
      [:g {:transform (str "translate(" cipher-x "," cipher-y ")")}

@@ -236,24 +236,28 @@
                     (:done choices)
                     (first (vals choices))))
 
-              ;; Launch: prefer conversion-enabling tiles, then spread out
-              ;; (fewest of this player's sundivers), then non-wrap, wrap as last resort.
+              ;; Launch: prefer conversion-enabling, then closer to beacons/landings, then spread out.
               :choose-launch-destination
-              (let [player   (game/current-player state)
-                    non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
+              (let [non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
                     no-beacons? (empty? (beacon-positions state))
-                    ;; No beacons: prioritize matrix patterns. With beacons: prioritize tower patterns.
                     conv     (if no-beacons?
                                (or (some #(when (enables-matrix-conversion? state (val %)) (val %)) non-wrap)
                                    (some #(when (enables-conversion? state (val %)) (val %)) non-wrap))
                                (or (some #(when (enables-tower-conversion? state (val %)) (val %)) non-wrap)
                                    (some #(when (enables-conversion? state (val %)) (val %)) non-wrap)))
-                    fewest   (when (and (not conv) (seq non-wrap))
+                    landings  (game/available-landings state)
+                    beacons   (beacon-positions state)
+                    near-land (near-landable-positions state)
+                    strategic (cond (seq landings)  landings
+                                    (seq beacons)   beacons
+                                    (seq near-land) near-land
+                                    :else           nil)
+                    closest  (when (and (not conv) strategic (seq non-wrap))
                                (let [k (apply min-key
-                                         #(get-in state [:board % :sundivers player] 0)
+                                         (fn [p] (apply min (map #(game/hex-distance p %) strategic)))
                                          (keys non-wrap))]
                                  (get non-wrap k)))]
-                (or conv fewest (pick-varied state (vals non-wrap)) (pick-varied state (vals choices))))
+                (or conv closest (pick-varied state (vals non-wrap)) (pick-varied state (vals choices))))
 
               ;; Fly from the position with most sundivers (spread them out)
               :choose-fly-from
@@ -262,11 +266,10 @@
                                   (keys choices))]
                 (get choices best))
 
-              ;; Fly to: prefer conversion-enabling tiles, then spread out, then non-wrap.
+              ;; Fly to: prefer conversion-enabling, then closer to beacons/landings, then spread out.
               ;; Avoid ALL positions visited this turn (not just immediate fly-from).
               :choose-fly-to
-              (let [player   (game/current-player state)
-                    visited  (get-in state [:player-turn :action :bot-fly-visited] #{})
+              (let [visited  (get-in state [:player-turn :action :bot-fly-visited] #{})
                     non-wrap (into {} (remove #(= :wrap (first (key %))) choices))
                     ;; Exclude all positions visited this turn
                     non-visited (into {} (remove #(contains? visited (key %)) non-wrap))
@@ -277,12 +280,21 @@
                                    (some #(when (enables-conversion? state (val %)) (val %)) targets))
                                (or (some #(when (enables-tower-conversion? state (val %)) (val %)) targets)
                                    (some #(when (enables-conversion? state (val %)) (val %)) targets)))
-                    fewest   (when (and (not conv) (seq targets))
+                    ;; Score by proximity to beacons, landings, and near-landable
+                    landings  (game/available-landings state)
+                    beacons   (beacon-positions state)
+                    near-land (near-landable-positions state)
+                    ;; Pick tile closest to the best strategic target
+                    strategic (cond (seq landings)  landings
+                                    (seq beacons)   beacons
+                                    (seq near-land) near-land
+                                    :else           nil)
+                    closest  (when (and (not conv) strategic (seq targets))
                                (let [k (apply min-key
-                                         #(get-in state [:board % :sundivers player] 0)
+                                         (fn [p] (apply min (map #(game/hex-distance p %) strategic)))
                                          (keys targets))]
                                  (get targets k)))]
-                (or conv fewest (pick-varied state (vals targets)) (pick-varied state (vals choices))))
+                (or conv closest (pick-varied state (vals targets)) (pick-varied state (vals choices))))
 
               ;; Take max bonus actions to fully utilise stations
               :choose-activate-self-bonus  (get choices (apply max (keys choices)))
