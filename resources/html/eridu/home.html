@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ERIDU</title>
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+    <style>
+      body { background-color: #111; margin: 0; }
+      html, body { height: 100%; margin: 0; }
+      .home-layout {
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+      }
+      .cover-panel {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+      }
+      .nav-panel {
+        width: 280px;
+        min-width: 220px;
+        padding: 3rem 2rem 2rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .nav-label {
+        color: #555;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 0.25rem;
+        margin-top: 1.25rem;
+      }
+      .nav-link {
+        display: block;
+        color: #ccc;
+        font-size: 1.1rem;
+        padding: 0.4rem 0;
+        text-decoration: none;
+        border-bottom: 1px solid #222;
+        transition: color 0.15s;
+      }
+      .nav-link:hover {
+        color: #fff;
+        text-decoration: none;
+      }
+      .nav-link.player-link {
+        color: #adf;
+        font-weight: bold;
+      }
+      .nav-link.player-link:hover {
+        color: #cef;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="home-layout">
+      <div class="cover-panel">
+        <a href="/eridu" style="display:flex; align-items:center; justify-content:center;">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"
+               style="height:60vh; width:auto;">
+            <!-- Ziggurat shape -->
+            <rect x="30" y="140" width="140" height="20" rx="2"
+                  fill="#8B6914" stroke="#A8841A" stroke-width="1"/>
+            <rect x="45" y="118" width="110" height="20" rx="2"
+                  fill="#9B7924" stroke="#B8942A" stroke-width="1"/>
+            <rect x="60" y="96" width="80" height="20" rx="2"
+                  fill="#AB8934" stroke="#C8A43A" stroke-width="1"/>
+            <rect x="75" y="74" width="50" height="20" rx="2"
+                  fill="#BB9944" stroke="#D8B44A" stroke-width="1"/>
+            <!-- Stars -->
+            <circle cx="40" cy="40" r="2" fill="#FFD700" opacity="0.8"/>
+            <circle cx="100" cy="25" r="2.5" fill="#FFD700" opacity="0.9"/>
+            <circle cx="160" cy="35" r="2" fill="#FFD700" opacity="0.7"/>
+            <circle cx="60" cy="55" r="1.5" fill="#FFD700" opacity="0.6"/>
+            <circle cx="140" cy="50" r="1.5" fill="#FFD700" opacity="0.6"/>
+            <circle cx="80" cy="30" r="1" fill="#FFD700" opacity="0.5"/>
+            <circle cx="120" cy="45" r="1" fill="#FFD700" opacity="0.5"/>
+          </svg>
+        </a>
+      </div>
+
+      <nav class="nav-panel">
+        {% if session-player %}
+          <span class="nav-label">you</span>
+          <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
+          <a class="nav-link" href="/eridu/create">create</a>
+          <a class="nav-link" href="/eridu/play">play</a>
+
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/eridu/observe">observe</a>
+          <a class="nav-link" href="/eridu/generate">generate</a>
+
+          <span class="nav-label" style="margin-top:2rem"></span>
+          <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">&larr; games</a>
+        {% else %}
+          <span class="nav-label">account</span>
+          <a class="nav-link" href="/login?redirect=/eridu">login / register</a>
+
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/eridu/observe">observe</a>
+          <a class="nav-link" href="/eridu/generate">generate</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">&larr; games</a>
+        {% endif %}
+      </nav>
+    </div>
+  </body>
+</html>

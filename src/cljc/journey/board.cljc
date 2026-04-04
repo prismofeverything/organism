@@ -880,6 +880,18 @@
              :text-anchor "middle"
              :fill fc :font-size "12" :font-family "monospace"}
       (str "move " (game/move-points state player-key))]
+     ;; Station color dots showing where move bonus comes from
+     (let [colors (sort (game/station-colors state player-key))
+           n      (count colors)
+           dot-r  4
+           gap    11
+           x0     (- cx (* (dec (max n 1)) gap 0.5))]
+       [:g {:transform (str "translate(0," (+ cy 4) ")")}
+        (for [[i c] (map-indexed vector colors)
+              :let [wo (get world-outer c "#555")
+                    wi (get world-inner c "#333")]]
+          [:g {:key (str c) :transform (str "translate(" (+ x0 (* i gap)) ",0)")}
+           [:circle {:cx 0 :cy 0 :r dot-r :fill wo :stroke wi :stroke-width 0.8}]])])
      ;; Reserve counts — icon + number, 3 columns × 2 rows
      (let [items [;; Row 1: sundivers, beacons, gates
                   [{:icon :sundiver :n (:sundivers res 0)}

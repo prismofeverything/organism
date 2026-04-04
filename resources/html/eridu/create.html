@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html style="background-color:#222">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ERIDU - create game</title>
+  </head>
+  <body>
+    <div id="eridu">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/assets/material-icons/css/material-icons.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{session-player}}";
+      var playerPreferences = "{{preferences|addslashes|safe}}";
+      var playerGames = null;
+      var playKey = null;
+      var isCreate = true;
+      var isObserve = false;
+      var isGenerate = false;
+    </script>
+    {% script "/js/eridu.js" %}
+  </body>
+</html>

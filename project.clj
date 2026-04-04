@@ -45,7 +45,7 @@
 
   ;; Run `lein dev` to start figwheel watching all game builds.
   ;; Add new game build IDs here when a new game is added to project.clj.
-  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "oroboros"]}
+  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "oroboros" "eridu"]}
   
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
@@ -69,7 +69,8 @@
              :prep-tasks ["compile"
                           ["cljsbuild" "once" "organism"]
                           ["cljsbuild" "once" "journey"]
-                          ["cljsbuild" "once" "oroboros"]]
+                          ["cljsbuild" "once" "oroboros"]
+                          ["cljsbuild" "once" "eridu"]]
              :cljsbuild
              {:builds
               {:organism
@@ -105,6 +106,19 @@
                  :output-to "target/cljsbuild/public/js/oroboros.js"
                  :source-map "target/cljsbuild/public/js/oroboros.js.map"
                  :main "organism.oroboros"
+                 :optimizations :advanced
+                 :pretty-print false
+                 :infer-externs true
+                 :closure-warnings
+                 {:externs-validation :off :non-standard-jsdoc :off}
+                 :externs ["react/externs/react.js"]}}
+               :eridu
+               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
+                :compiler
+                {:output-dir "target/cljsbuild/public/js/eridu-prod"
+                 :output-to "target/cljsbuild/public/js/eridu.js"
+                 :source-map "target/cljsbuild/public/js/eridu.js.map"
+                 :main "eridu.eridu"
                  :optimizations :advanced
                  :pretty-print false
                  :infer-externs true
@@ -172,6 +186,17 @@
                       :asset-path "/js/oroboros-out"
                       :output-to "target/cljsbuild/public/js/oroboros.js"
                       :output-dir "target/cljsbuild/public/js/oroboros-out"
+                      :source-map true
+                      :optimizations :none
+                      :pretty-print true}}
+                    :eridu
+                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
+                     :figwheel {:on-jsload "eridu.play/mount-components"}
+                     :compiler
+                     {:main "eridu.eridu"
+                      :asset-path "/js/eridu-out"
+                      :output-to "target/cljsbuild/public/js/eridu.js"
+                      :output-dir "target/cljsbuild/public/js/eridu-out"
                       :source-map true
                       :optimizations :none
                       :pretty-print true}}}}
