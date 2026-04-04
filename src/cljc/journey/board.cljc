@@ -840,14 +840,14 @@
         cx           panel-r
         cy           panel-r]
     [:g {:key (str "p" player-key)
-         :transform (str "translate(0," y-offset ")")}
+         :transform (str "translate(0," y-offset ")")
+         :on-click (when hab-click? (fn [e] (.stopPropagation e) (on-habitat-click)))
+         :style {:cursor (when hab-click? "pointer")}}
      ;; Circle backing
      [:circle {:cx cx :cy cy :r panel-r
                :fill (if on-turn? (ptb ck) "#080814")
                :stroke (cond hab-click? "#FFD030" on-turn? fc :else sc)
-               :stroke-width (cond hab-click? 4 on-turn? 3 :else 1.5)
-               :on-click (when hab-click? on-habitat-click)
-               :style {:cursor (when hab-click? "pointer")}}]
+               :stroke-width (cond hab-click? 4 on-turn? 3 :else 1.5)}]
      ;; Captain flame (top-right quadrant)
      (when is-cap
        [:g {:transform (str "translate(" (+ cx 50) "," (- cy 52) ")")}
