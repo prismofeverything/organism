@@ -615,41 +615,40 @@
   [level]
   (get activation-actions-table (min (max level 0) 3)))
 
-(defn- total-activation-actions
-  "Minimum forced actions for the activating player: base only for every station.
-   Bonus is always optional (own or other), so it does not affect feasibility."
-  [state player station-type]
-  (apply +
-         (map (fn [pos]
-                (let [level (get-in state [:board pos :station :level] 0)]
-                  (:base (station-action-counts level))))
-              (stations-of-type-with-sundiver state player station-type))))
 
 (defn can-fully-activate-matrix?
-  "True if player has enough beacon positions, spendable sundivers, and beacon reserves
-   to complete all base (+ bonus for own) matrix actions."
+  "True if player can fully activate at least one matrix station (the smallest one).
+   Player can stop after any station via :done in choose-activate-station."
   [state player]
-  (let [n         (total-activation-actions state player :matrix)
+  (let [stations  (stations-of-type-with-sundiver state player :matrix)
+        min-base  (when (seq stations)
+                    (apply min (map #(:base (station-action-counts
+                                             (get-in state [:board % :station :level] 0)))
+                                    stations)))
         positions (count (matrix-beacon-positions state player))
         spendable (total-spendable-sundivers state player)
         beacons   (get-in state [:players player :reserve :beacons] 0)]
-    (or (zero? n)
-        (and (>= positions n) (>= spendable n) (>= beacons n)))))
+    (or (nil? min-base)
+        (and (>= positions min-base) (>= spendable min-base) (>= beacons min-base)))))
 
 (defn can-fully-activate-tower?
-  "True if player has enough spendable sundivers to pay 1 per tower action."
+  "True if player can fully activate at least one tower station (the smallest one).
+   Player can stop after any station via :done in choose-activate-station."
   [state player]
-  (let [n         (total-activation-actions state player :tower)
+  (let [stations  (stations-of-type-with-sundiver state player :tower)
+        min-base  (when (seq stations)
+                    (apply min (map #(:base (station-action-counts
+                                             (get-in state [:board % :station :level] 0)))
+                                    stations)))
         spendable (total-spendable-sundivers state player)]
-    (or (zero? n) (>= spendable n))))
+    (or (nil? min-base) (>= spendable min-base))))
 
 (defn can-fully-activate-foundry?
-  "Foundry activation moves sundivers from reserve to habitat — always feasible,
-   even with 0 reserve (you just get fewer sundivers)."
-  [state player]                                                                                
-  (let [n       (total-activation-actions state player :foundry)
-        reserve (get-in state [:players player :reserve :sundivers] 0)]
-    (or (zero? n) (>= reserve n))))
+  "Foundry activation moves sundivers from reserve to habitat — always feasible.
+   Each action moves up to 2, getting fewer if reserve is low. Player can also
+   stop after any station via :done in choose-activate-station."
+  [_state _player]
+  true)
 
 (defn activatable-station-types
   "Set of station types where player has a sundiver on a station tile and
@@ -931,7 +930,6 @@
             owner    (get-in tile [:station :player])
             level    (get-in tile [:station :level])
             {:keys [base bonus]} (station-action-counts level)
-            same?    (= player owner)
             state    (-> state
                          (cond-> (= station-type :tower) (become-captain player))
                          (assoc-in [:player-turn :action :stations-queue] rest-q)
@@ -940,14 +938,13 @@
                          (assoc-in [:player-turn :action :bonus-total] bonus)
                          (assoc-in [:player-turn :action :beacons-joined] 0)
                          (update-in [:player-turn :action :cards-to-draw] (fnil + 0) level))]
-        (if (and same? (pos? bonus))
-          ;; Own station with bonus: ask activator how many bonus actions to take
+        (if (pos? bonus)
+          ;; Station has bonus: ask activator how many bonus actions to take
           (-> state
               (assoc-in [:player-turn :action :activator-actions] base)
               (assoc-in [:player-turn :action :owner-actions] 0)
               (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
-          ;; All other cases: activator does base actions first;
-          ;; owner bonus (if any) is offered after activator finishes.
+          ;; No bonus: activator does base actions only
           (-> state
               (assoc-in [:player-turn :action :activator-actions] base)
               (assoc-in [:player-turn :action :owner-actions] 0)

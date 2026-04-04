@@ -91,31 +91,87 @@
                           (assoc-in [:player-turn :action :fly-from] pos))])
                (mobile-positions state player)))))
 
+(defn- fly-step
+  "Execute a single fly hop from cur-pos to to-pos, returning the new state.
+   Handles gates (fly-through-gate) vs normal (fly-sundiver)."
+  [state player cur-pos to-pos]
+  (let [owner (game/gate-owner state cur-pos to-pos)]
+    (if owner
+      (game/fly-through-gate state player cur-pos to-pos)
+      (game/fly-sundiver state player cur-pos to-pos))))
+
 (defn choose-fly-to-choices
+  "BFS from fly-from up to moves-remaining hops. Each reachable tile maps to
+   the state after flying the sundiver there and deducting the correct move cost.
+   Exploring an unexplored tile ends the sundiver's movement for the turn —
+   only existing board tiles are traversable for multi-hop."
   [state]
-  (let [player      (game/current-player state)
-        from-pos    (get-in state [:player-turn :action :fly-from])
-        after       (fn [s]
-                      (-> s
-                          (update-in [:player-turn :action] dissoc :fly-from)
-                          use-move-point))]
+  (let [player    (game/current-player state)
+        from-pos  (get-in state [:player-turn :action :fly-from])
+        remaining (get-in state [:player-turn :action :moves-remaining] 0)
+        board      (:board state)
+        from-color (:color (get board from-pos))
+        ;; BFS: {pos -> {:dist n :via [from-pos hop1 hop2 ... pos]}}
+        ;; Only same-color explored tiles are traversable for multi-hop.
+        ;; Different-color tiles would create a gate (sundiver stops).
+        ;; Unexplored tiles trigger explore (sundiver stops).
+        init       {from-pos {:dist 0 :via [from-pos]}}
+        reachable
+        (loop [queue (conj #?(:clj clojure.lang.PersistentQueue/EMPTY
+                               :cljs #queue []) from-pos)
+               seen  init]
+          (if (empty? queue)
+            seen
+            (let [cur     (peek queue)
+                  cur-d   (:dist (get seen cur))
+                  nxt-d   (inc cur-d)
+                  dests   (fly-destinations state player cur)
+                  new     (remove #(or (= % from-pos) (contains? seen %)) dests)
+                  ;; Traversable: same color + on board (sundiver moves freely)
+                  passable (filter #(and (contains? board %)
+                                         (= from-color (:color (get board %))))
+                                   new)
+                  ;; Terminal: unexplored or different color (sundiver stops here)
+                  terminal (remove (set passable) new)
+                  cur-via  (:via (get seen cur))
+                  add-entry (fn [s p] (assoc s p {:dist nxt-d :via (conj cur-via p)}))
+                  seen' (as-> seen s
+                          (reduce add-entry s passable)
+                          (reduce add-entry s terminal))
+                  ;; Only enqueue passable tiles for further expansion (within budget)
+                  queue' (if (>= nxt-d remaining)
+                           (pop queue)
+                           (reduce conj (pop queue) passable))]
+              (recur queue' seen'))))
+        ;; Finish: deduct move points and return to choose-move
+        finish (fn [s n]
+                 (-> s
+                     (update-in [:player-turn :action] dissoc :fly-from)
+                     (update-in [:player-turn :action :moves-remaining] - n)
+                     (assoc-in [:player-turn :phase] :choose-move)))]
     (into {}
           (mapcat
-           (fn [to-pos]
-             (let [owner (game/gate-owner state from-pos to-pos)
-                   base-entry [to-pos (after (if owner
-                                               (game/fly-through-gate state player from-pos to-pos)
-                                               (game/fly-sundiver state player from-pos to-pos)))]]
-               (if (and (nil? owner) (nil? (game/get-tile state to-pos))
-                        (not (some #(and (game/on-ray? from-pos (nth game/hex-directions (game/adjacent-direction from-pos to-pos)) %)
-                                         (> (game/hex-distance from-pos %) 1))
-                                   (keys (:board state)))))
-                 (let [dir-idx  (game/adjacent-direction from-pos to-pos)
-                       fly-dir  (nth game/hex-directions dir-idx)
-                       wrap-pos (game/wrap-target state from-pos fly-dir)]
-                   [base-entry [[:wrap to-pos] (after (game/fly-sundiver state player from-pos wrap-pos))]])
-                 [base-entry])))
-           (fly-destinations state player from-pos)))))
+           (fn [[to-pos {:keys [dist via]}]]
+             (when (and (pos? dist) (<= dist remaining))
+               (let [;; Chain fly hops: via = [from-pos hop1 ... to-pos]
+                     final-state (reduce (fn [s [a b]] (fly-step s player a b))
+                                         state (partition 2 1 via))
+                     base-entry  [to-pos (finish final-state dist)]]
+                 ;; Offer wrap only for 1-hop unexplored adjacent (edge of known space)
+                 (let [dir-idx (game/adjacent-direction from-pos to-pos)]
+                 (if (and (= dist 1)
+                          (some? dir-idx)
+                          (nil? (game/gate-owner state from-pos to-pos))
+                          (nil? (game/get-tile state to-pos))
+                          (not (some #(and (game/on-ray? from-pos
+                                                         (nth game/hex-directions dir-idx) %)
+                                           (> (game/hex-distance from-pos %) 1))
+                                     (keys (:board state)))))
+                   (let [fly-dir  (nth game/hex-directions dir-idx)
+                         wrap-pos (game/wrap-target state from-pos fly-dir)]
+                     [base-entry [[:wrap to-pos] (finish (game/fly-sundiver state player from-pos wrap-pos) 1)]])
+                   [base-entry])))))
+           reachable))))
 
 (defn choose-move-choices
   "Options during the move action. Launch destinations and fly-from positions are

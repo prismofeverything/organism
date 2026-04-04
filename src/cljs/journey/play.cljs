@@ -113,25 +113,29 @@
 (defn convert-choice? [k]
   (and (map? k) (contains? k :type) (contains? k :target)))
 
+(defn card-choice? [k]
+  (and (map? k) (contains? k :suit)))
+
 (defn partition-choices
   "Split choices into pos-highlights, fly-from highlights, wrap positions,
-   convert info, and buttons.
-   Returns [pos-set fly-from-set wrap-set conv-groups button-choices].
-   conv-groups: {[target type] → [{:choice-key k :sundivers [...]} ...]}"
+   convert info, card choices, habitat-pay choice, and buttons.
+   Returns [pos-set fly-from-set wrap-set conv-groups card-choices habitat-choice button-choices]."
   [choices]
   (reduce-kv
-   (fn [[pos-set fly-set wrap-set conv-groups btns] k _v]
+   (fn [[pos-set fly-set wrap-set conv-groups cards hab btns] k _v]
      (cond
-       (hex-pos? k)      [(conj pos-set k) fly-set wrap-set conv-groups btns]
-       (fly-from? k)     [pos-set (conj fly-set (second k)) wrap-set conv-groups btns]
-       (wrap-choice? k)  [pos-set fly-set (conj wrap-set (second k)) conv-groups btns]
+       (hex-pos? k)       [(conj pos-set k) fly-set wrap-set conv-groups cards hab btns]
+       (fly-from? k)      [pos-set (conj fly-set (second k)) wrap-set conv-groups cards hab btns]
+       (wrap-choice? k)   [pos-set fly-set (conj wrap-set (second k)) conv-groups cards hab btns]
        (convert-choice? k)
        [pos-set fly-set wrap-set
         (update conv-groups [(:target k) (:type k)]
                 (fnil conj []) {:choice-key k :sundivers (:sundivers k)})
-        btns]
-       :else [pos-set fly-set wrap-set conv-groups (conj btns {:label (choice-label k) :choice-key k})]))
-   [#{} #{} #{} {} []]
+        cards hab btns]
+       (nil? k)           [pos-set fly-set wrap-set conv-groups cards k btns]
+       (card-choice? k)   [pos-set fly-set wrap-set conv-groups (conj cards {:card k :choice-key k}) hab btns]
+       :else [pos-set fly-set wrap-set conv-groups cards hab (conj btns {:label (choice-label k) :choice-key k})]))
+   [#{} #{} #{} {} [] nil []]
    choices))
 
 ;; ── WebSocket communication ───────────────────────────────────────────────────
@@ -219,7 +223,7 @@
   "Wraps render-game with mouse-drag pan and keyboard/slider zoom.
    Arrow keys pan; PageUp/PageDown zoom; drag the starfield to pan.
    Optional: on-navigate, fly-highlights, chosen-pos."
-  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click cipher-on-beacon-hover cipher-expanded? cipher-on-toggle cipher-hover cipher-queue-color]}]]
+  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click cipher-on-beacon-hover cipher-hover cipher-queue-color on-habitat-click habitat-player]}]]
   (r/with-let
     [drag  (r/atom nil)
      on-key
@@ -254,11 +258,11 @@
        :cipher-highlights cipher-highlights
        :cipher-on-click cipher-on-click
        :cipher-on-beacon-hover cipher-on-beacon-hover
-       :cipher-expanded? cipher-expanded?
-       :cipher-on-toggle cipher-on-toggle
        :cipher-hover cipher-hover
        :cipher-queue-color cipher-queue-color
        :landing-revealed (:revealed @landing-anim)
+       :on-habitat-click on-habitat-click
+       :habitat-player habitat-player
        :on-bg-mouse-down
        (fn [e]
          (.preventDefault e)
@@ -299,7 +303,7 @@
          (when group-start?
            [:div {:style {:padding "4px 10px 1px"
                           :color fc
-                          :font-size "9px" :font-family "monospace"
+                          :font-size "12px" :font-family "monospace"
                           :letter-spacing "1px"
                           :background bg-c :opacity (if selected? 1.0 0.7)}}
             (str "▸ " (or player "—"))])
@@ -311,10 +315,10 @@
                    :background bg-c
                    :opacity (if selected? 0.9 0.5)}}
           [:div {:style {:color fc
-                         :font-size "12px" :font-family "monospace"}}
+                         :font-size "15px" :font-family "monospace"}}
            (str "·" (or step i) "  " (name (or phase :?)))]
           [:div {:style {:color fc
-                         :font-size "10px" :font-family "monospace"
+                         :font-size "13px" :font-family "monospace"
                          :word-break "break-all"
                          :opacity 0.8}}
            choice]]]))}))
@@ -359,10 +363,10 @@
             board-choices     (if is-cipher?
                                 (into {} (remove #(hex-pos? (key %)) choices))
                                 choices)
-            [pos-hl fly-hl wrap-hl conv-groups btn-choices]
+            [pos-hl fly-hl wrap-hl conv-groups card-choices habitat-choice btn-choices]
             (if active?
               (partition-choices board-choices)
-              [#{} #{} #{} {} []])
+              [#{} #{} #{} {} [] nil []])
             pending         @pending-convert
             ;; Compute actual wrap destination positions and map them to choice keys.
             ;; Origin depends on context: ark for launch wraps, fly-from for fly wraps.
@@ -411,13 +415,17 @@
             chosen-pos        (get-in state [:player-turn :action :fly-from])
             undo-btn          (when (and active? undo?)
                                 [{:label "undo" :on-click send-undo!}])
+            ;; Filter out :keep-held when showing card UI (handled in card row)
+            filtered-btns     (if (seq card-choices)
+                                (remove #(= :keep-held (:choice-key %)) btn-choices)
+                                btn-choices)
             buttons           (concat
                                undo-btn
                                (when active?
                                  (map (fn [{:keys [label choice-key]}]
                                         {:label    label
                                          :on-click #(on-button-click choice-key)})
-                                      btn-choices)))
+                                      filtered-btns)))
             player-order      (:turn-order state)
             player-colors     (board/build-player-colors player-order)
             n                 (count history)]
@@ -485,7 +493,7 @@
                   (when srv-phase (name srv-phase)))]
             [:div {:style {:position "absolute" :top "-30px" :left "50%"
                            :transform "translateX(-50%)"
-                           :color "#AABBCC" :font-size "16px"
+                           :color "#AABBCC" :font-size "21px"
                            :font-family "monospace" :z-index 10
                            :background cp-bg
                            :border (str "2px solid " cp-border)
@@ -497,16 +505,16 @@
                            :align-items "center" :gap "10px"}}
              ;; Top line: player name + context + summary
              [:div {:style {:white-space "nowrap"}}
-              [:span {:style {:color cp-fg :font-weight "bold" :font-size "18px"}} cp-name]
+              [:span {:style {:color cp-fg :font-weight "bold" :font-size "24px"}} cp-name]
               (when action-type
-                [:span {:style {:color cp-fg :opacity 0.55 :margin-left "8px" :font-size "15px"}}
+                [:span {:style {:color cp-fg :opacity 0.55 :margin-left "10px" :font-size "20px"}}
                  (str "(" (name action-type)
                       (when station-type (str " " (name station-type)))
                       ")")])
               (when summary
-                [:span {:style {:color cp-fg :opacity 0.7 :margin-left "10px" :font-size "15px"}} summary])
+                [:span {:style {:color cp-fg :opacity 0.7 :margin-left "12px" :font-size "20px"}} summary])
               (when active?
-                [:span {:style {:color "#88CCAA" :margin-left "10px" :font-size "15px" :font-weight "bold"}} "← your turn"])]
+                [:span {:style {:color "#88CCAA" :margin-left "12px" :font-size "20px" :font-weight "bold"}} "← your turn"])]
              ;; Choice buttons row
              (when (seq buttons)
                [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"
@@ -520,9 +528,42 @@
                                     :padding "6px 20px"
                                     :cursor "pointer"
                                     :font-family "monospace"
-                                    :font-size "15px"
+                                    :font-size "20px"
                                     :font-weight "bold"}}
-                   label])])])
+                   label])])
+             ;; Card choice row (keep-card phase)
+             (when (seq card-choices)
+               [:div {:style {:display "flex" :gap "12px" :flex-wrap "wrap"
+                              :justify-content "center"}}
+                ;; "Keep current" option if player has a held card
+                (when-let [keep-held (some #(when (= :keep-held (:choice-key %)) %)
+                                           (map (fn [{:keys [label choice-key]}]
+                                                  {:label label :choice-key choice-key
+                                                   :on-click #(on-button-click choice-key)})
+                                                btn-choices))]
+                  [:div {:on-click (:on-click keep-held)
+                         :style {:cursor "pointer" :text-align "center"}}
+                   [:div {:style {:width "44px" :height "64px" :border-radius "5px"
+                                  :background "#1A1A30" :border "2px solid #3A5090"
+                                  :display "flex" :align-items "center" :justify-content "center"}}
+                    [:span {:style {:color "#556677" :font-size "13px" :font-family "monospace"}} "held"]]
+                   [:div {:style {:color "#556677" :font-size "13px" :margin-top "2px"
+                                  :font-family "monospace"}} "keep"]])
+                ;; Drawn cards
+                (for [[i {:keys [card choice-key]}] (map-indexed vector card-choices)
+                      :let [suit (:suit card)
+                            sc   (get game/suit-colors suit "#555")
+                            sn   (get game/suit-names suit "?")]]
+                  [:div {:key i
+                         :on-click #(send-action! choice-key)
+                         :style {:cursor "pointer" :text-align "center"}}
+                   [:div {:style {:width "44px" :height "64px" :border-radius "5px"
+                                  :background sc :border "2px solid #FFFFFF33"
+                                  :display "flex" :align-items "center" :justify-content "center"}}
+                    [:svg {:width "28" :height "28" :viewBox "-10 -10 20 20"}
+                     [board/suit-icon suit "#FFF" 8]]]
+                   [:div {:style {:color sc :font-size "13px" :margin-top "2px"
+                                  :font-family "monospace"}} sn]])])])
           ;; Game-over banner (click to collapse into status oval)
           (when (and (:game-over state) (not @game-over-collapsed?))
             (let [go (:game-over state)]
@@ -535,12 +576,12 @@
                              :padding "32px 48px"
                              :color "#AAC8EE"
                              :font-family "monospace"
-                             :font-size "18px"
+                             :font-size "24px"
                              :z-index 20
                              :text-align "center"
                              :cursor "pointer"}
                      :on-click #(reset! game-over-collapsed? true)}
-               [:div {:style {:font-size "22px" :margin-bottom "12px"}} "GAME OVER"]
+               [:div {:style {:font-size "29px" :margin-bottom "12px"}} "GAME OVER"]
                (if (= :landing (:type go))
                  [:div
                   [:div (str "Landing at " (pr-str (:tile go)))]
@@ -562,11 +603,12 @@
             :cipher-on-beacon-hover (fn [pos color]
                                       (reset! cipher-hover
                                               (when pos {:pos pos :color color})))
-            :cipher-expanded? @cipher-expanded?
-            :cipher-on-toggle #(swap! cipher-expanded? not)
             :cipher-hover @cipher-hover
             :cipher-queue-color (when is-cipher?
-                                  (:color (first (get-in state [:player-turn :cipher-queue] []))))}]]
+                                  (:color (first (get-in state [:player-turn :cipher-queue] []))))
+            :on-habitat-click (when habitat-choice
+                                (fn [] (send-action! nil)))
+            :habitat-player (when habitat-choice my)}]]
          ;; History panel (right side)
          (let [sel       (or view-step (dec n))
                btn-style {:background "none" :border "1px solid #1E2A3A"
@@ -956,8 +998,6 @@
            {:cipher-on-beacon-hover (fn [pos color]
                                       (reset! cipher-hover
                                               (when pos {:pos pos :color color})))
-            :cipher-expanded? @cipher-expanded?
-            :cipher-on-toggle #(swap! cipher-expanded? not)
             :cipher-hover @cipher-hover}]]
 
          ;; History panel — mousedown stops propagation so outer blur doesn't fire

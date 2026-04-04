@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as str]
    [journey.game :as game]
+   [journey.choice :as choice]
    #?(:cljs [reagent.core :as r])))
 
 ;; ── Constants ──────────────────────────────────────────────────────────────────
@@ -267,7 +268,7 @@
                    [:text {:x (* (+ sundiver-arc-r 14) (Math/cos rad))
                            :y (* (+ sundiver-arc-r 14) (Math/sin rad))
                            :text-anchor "middle" :dominant-baseline "middle"
-                           :fill fc :font-size "7" :font-family "monospace"}
+                           :fill fc :font-size "9" :font-family "monospace"}
                     (str "×" n)]))]))))
       player-order)]))
 
@@ -588,7 +589,7 @@
                    :opacity      0.15}]
         [:text {:x 0 :y 4
                 :text-anchor "middle"
-                :fill "#FFD03066" :font-size "10" :font-family "monospace"}
+                :fill "#FFD03066" :font-size "13" :font-family "monospace"}
          "?"]])
      ;; Ghost station icons for each conversion option, clickable
      ;; When pending-convert is set, show sundiver arrangement options instead
@@ -718,17 +719,16 @@
        [:text {:x 0 :y 1
                :text-anchor "middle"
                :dominant-baseline "middle"
-               :fill "#445" :font-size "7" :font-family "monospace"
+               :fill "#445" :font-size "9" :font-family "monospace"
                :style {:pointer-events "none"}}
         "C"])]))
 
-(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover expanded? cipher-queue-color landing-revealed]}]]
-  (let [s (if expanded? 2.0 1.0)]
-    [:g {:transform (when expanded? (str "scale(" s ")"))}
-     (for [pos (into [[0 0]] game/hex-directions)
-           :let [hl? (and highlights (contains? highlights pos))
-                 rev? (and landing-revealed (contains? landing-revealed pos))]]
-       [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color rev?])]))
+(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover cipher-queue-color landing-revealed]}]]
+  [:g {:transform "scale(2.0)"}
+   (for [pos (into [[0 0]] game/hex-directions)
+         :let [hl? (and highlights (contains? highlights pos))
+               rev? (and landing-revealed (contains? landing-revealed pos))]]
+     [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color rev?])])
 
 ;; ── Scoring overlay (game-over landing) ──────────────────────────────────────
 
@@ -823,7 +823,7 @@
 ;; ── Player area ───────────────────────────────────────────────────────────────
 
 (defn render-player-area
-  [state player-key player-colors captain y-offset _panel-w]
+  [state player-key player-colors captain y-offset _panel-w & [{:keys [on-habitat-click]}]]
   (let [pstate       (get-in state [:players player-key] {})
         hab          (get-in pstate [:habitat :sundivers] 0)
         res          (:reserve pstate {})
@@ -832,6 +832,7 @@
         sc           (pwo ck)
         is-cap       (= player-key captain)
         on-turn?     (= player-key (game/current-player state))
+        hab-click?   (some? on-habitat-click)
         player-order (:turn-order state)
         n-players    (count player-order)
         pidx         (.indexOf (vec player-order) player-key)
@@ -843,8 +844,10 @@
      ;; Circle backing
      [:circle {:cx cx :cy cy :r panel-r
                :fill (if on-turn? (ptb ck) "#080814")
-               :stroke (if on-turn? fc sc)
-               :stroke-width (if on-turn? 3 1.5)}]
+               :stroke (cond hab-click? "#FFD030" on-turn? fc :else sc)
+               :stroke-width (cond hab-click? 4 on-turn? 3 :else 1.5)
+               :on-click (when hab-click? on-habitat-click)
+               :style {:cursor (when hab-click? "pointer")}}]
      ;; Captain flame (top-right quadrant)
      (when is-cap
        [:g {:transform (str "translate(" (+ cx 50) "," (- cy 52) ")")}
@@ -852,7 +855,7 @@
      ;; Player name
      [:text {:x cx :y (- cy 52)
              :text-anchor "middle"
-             :fill fc :font-size "12" :font-weight "bold" :font-family "monospace"}
+             :fill fc :font-size "16" :font-weight "bold" :font-family "monospace"}
       player-key]
      ;; Habitat sundivers — up to 7 per row, rotated to match board direction
      (let [rot  sundiver-rot
@@ -875,7 +878,7 @@
      ;; Move points
      [:text {:x cx :y (- cy 4)
              :text-anchor "middle"
-             :fill fc :font-size "9" :font-family "monospace"}
+             :fill fc :font-size "12" :font-family "monospace"}
       (str "move " (game/move-points state player-key))]
      ;; Reserve counts — icon + number, 3 columns × 2 rows
      (let [items [;; Row 1: sundivers, beacons, gates
@@ -909,7 +912,7 @@
                          [station-shape {:type :tower :color-key ck :level 0}]])
            ;; Number
            [:text {:x 9 :y 4
-                   :fill fc :font-size "9" :font-family "monospace"}
+                   :fill fc :font-size "12" :font-family "monospace"}
             (str n)]])])
      ;; Held card — small playing card with suit color and icon
      (when-let [card (get-in pstate [:held-card])]
@@ -1053,8 +1056,8 @@
   [state pos-highlights on-hex-click choice-buttons
    & [{:keys [pan-x pan-y zoom on-bg-mouse-down fly-highlights chosen-pos active-player
               conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click
-              cipher-on-beacon-hover cipher-expanded? cipher-on-toggle cipher-hover
-              cipher-queue-color landing-revealed]
+              cipher-on-beacon-hover cipher-hover
+              cipher-queue-color landing-revealed on-habitat-click habitat-player]
        :or   {pan-x 0 pan-y 0 zoom 1.0}}]]
   (let [player-order  (:turn-order state)
         player-colors (build-player-colors player-order)
@@ -1100,48 +1103,51 @@
       (when (= :landing (get-in state [:game-over :type]))
         [render-scoring-overlay state player-colors])]
 
-     ;; ── Cipher (fixed position, not panned/zoomed) — click to expand/collapse
-     [:g {:transform (str "translate(" cipher-x "," cipher-y ")")
-          :on-click (when cipher-on-toggle cipher-on-toggle)
-          :style {:cursor "pointer"}}
-      [:text {:x 0 :y (if cipher-expanded? -140 -78)
+     ;; ── Cipher (fixed position, not panned/zoomed, always expanded)
+     [:g {:transform (str "translate(" cipher-x "," cipher-y ")")}
+      [:text {:x 0 :y -140
               :text-anchor "middle"
               :fill "#445566"
-              :font-size "10" :font-family "monospace" :letter-spacing "2"}
+              :font-size "13" :font-family "monospace" :letter-spacing "2"}
        "CIPHER"]
       [render-cipher (:cipher state) {:highlights cipher-highlights :on-click cipher-on-click
                                        :on-beacon-hover cipher-on-beacon-hover
-                                       :expanded? cipher-expanded?
                                        :cipher-queue-color cipher-queue-color
                                        :landing-revealed landing-revealed}]
-      ;; Cipher queue: show pending beacons to place
-      (let [queue (get-in state [:player-turn :cipher-queue] [])]
-        (when (seq queue)
-          [:g {:transform "translate(0,110)"}
-           [:text {:x 0 :y -16
-                   :text-anchor "middle"
-                   :fill "#445566"
-                   :font-size "8" :font-family "monospace" :letter-spacing "1"}
-            "QUEUE"]
-           ;; Arrow pointing right at the first item, from its left side
-           (let [first-x (* (- 0 (/ (dec (count queue)) 2.0)) 46)]
-             [:path {:d "M 0,-4 L 8,0 L 0,4 Z"
-                     :fill "#FFD030" :opacity 0.8
-                     :transform (str "translate(" (- first-x 28) ",7)")}])
-           (for [[i {:keys [player color]}] (map-indexed vector queue)
-                 :let [x (* (- i (/ (dec (count queue)) 2.0)) 46)
-                       wc (get world-outer color "#555")
-                       ic (get world-inner color "#333")
-                       pck (get player-colors player :sun)
-                       first? (zero? i)]]
-             [:g {:key i :transform (str "translate(" x ",8)")}
-              ;; World tile circle (color of the discovered world) — large so color is clear
-              [:circle {:cx 0 :cy 0 :r 18
-                        :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2.5 1)}]
-              [:circle {:cx 0 :cy 0 :r 12 :fill ic}]
-              ;; Player beacon pentagon on top — uses color KEY not fill value
-              [:g {:transform "translate(0,-1)"}
-               [beacon-shape pck]]])]))]
+      ;; Cipher queue: show pending beacons to place (or pending-cipher during tower actions)
+      (let [cipher-queue (get-in state [:player-turn :cipher-queue] [])
+            pending      (:pending-cipher state)
+            ;; Build display items from cipher-queue, or from pending-cipher if queue empty
+            items (if (seq cipher-queue)
+                    cipher-queue
+                    (when (seq pending)
+                      (choice/pending-cipher-queue pending)))]
+        (when (seq items)
+          (let [is-pending? (empty? cipher-queue)]
+            [:g {:transform "translate(0,110)"}
+             [:text {:x 0 :y -16
+                     :text-anchor "middle"
+                     :fill (if is-pending? "#554433" "#445566")
+                     :font-size "11" :font-family "monospace" :letter-spacing "1"}
+              (if is-pending? "PENDING" "QUEUE")]
+             ;; Arrow pointing at the first item when actively placing
+             (when-not is-pending?
+               (let [first-x (* (- 0 (/ (dec (count items)) 2.0)) 46)]
+                 [:path {:d "M 0,-4 L 8,0 L 0,4 Z"
+                         :fill "#FFD030" :opacity 0.8
+                         :transform (str "translate(" (- first-x 28) ",7)")}]))
+             (for [[i {:keys [player color]}] (map-indexed vector items)
+                   :let [x (* (- i (/ (dec (count items)) 2.0)) 46)
+                         wc (get world-outer color "#555")
+                         ic (get world-inner color "#333")
+                         pck (get player-colors player :sun)
+                         first? (and (not is-pending?) (zero? i))]]
+               [:g {:key i :transform (str "translate(" x ",8)")}
+                [:circle {:cx 0 :cy 0 :r 18
+                          :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2.5 1)}]
+                [:circle {:cx 0 :cy 0 :r 12 :fill ic}]
+                [:g {:transform "translate(0,-1)"}
+                 [beacon-shape pck]]])])))]
 
      ;; ── Player panels (left side, wraps to second column if needed)
      (let [max-h    (- vh 20)
@@ -1156,7 +1162,8 @@
                  py  (+ 10 (* row col-step))]
              ^{:key player}
              [:g {:transform (str "translate(" px ",0)")}
-              [render-player-area state player player-colors captain py panel-w]]))
+              [render-player-area state player player-colors captain py panel-w
+               (when (= player habitat-player) {:on-habitat-click on-habitat-click})]]))
          player-order)])
 
      ;; ── Round info (below last column of player panels)
@@ -1170,7 +1177,7 @@
         [:text {:x 0 :y 0
                 :text-anchor "middle"
                 :fill "#334455"
-                :font-size "9" :font-family "monospace"}
+                :font-size "12" :font-family "monospace"}
          (str "Round " (:round state 0))]])
 
      ;; ── Deck + flares (bottom-right corner)
@@ -1184,7 +1191,7 @@
          [:g {:transform "scale(1.8)"}
           [suit-icon 4 "#DD3322" 7]]
          [:text {:x 20 :y 6
-                 :fill "#DD3322" :font-size "16" :font-weight "bold" :font-family "monospace"}
+                 :fill "#DD3322" :font-size "21" :font-weight "bold" :font-family "monospace"}
           (str flares "/13")]]
         ;; Deck stack
         [:g {:transform "translate(100,0)"}
@@ -1193,7 +1200,7 @@
                    :fill "#1A1A30" :stroke "#3A3A5A" :stroke-width 0.8}])
          [:text {:x 14 :y 8
                  :text-anchor "middle"
-                 :fill "#667788" :font-size "12" :font-weight "bold" :font-family "monospace"}
+                 :fill "#667788" :font-size "16" :font-weight "bold" :font-family "monospace"}
           (str deck-n)]]
         ;; Top of discard
         (when top
@@ -1219,7 +1226,7 @@
             [:text {:x 69 :y 23
                     :text-anchor "middle"
                     :fill "#7AAAE0"
-                    :font-size "12" :font-family "monospace"}
+                    :font-size "16" :font-family "monospace"}
              label]])
          choice-buttons)])
 
@@ -1238,7 +1245,7 @@
                     :opacity 0.92}]
             [:text {:x (/ bw 2) :y -4
                     :text-anchor "middle"
-                    :fill "#667788" :font-size "9" :font-family "monospace"
+                    :fill "#667788" :font-size "12" :font-family "monospace"
                     :letter-spacing "1.5"}
              (str "LANDED AT " (pr-str tile))]
             (map-indexed
@@ -1250,7 +1257,7 @@
                  [:g {:key player :transform (str "translate(" (* i 130) ",0)")}
                   [:text {:x 65 :y 14
                           :text-anchor "middle"
-                          :fill fc :font-size "13" :font-weight (if win? "bold" "normal")
+                          :fill fc :font-size "17" :font-weight (if win? "bold" "normal")
                           :font-family "monospace"}
                    (str player ": " sc (when win? " ★"))]]))
              player-order)])))]))
