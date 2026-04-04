@@ -132,7 +132,7 @@
         (update conv-groups [(:target k) (:type k)]
                 (fnil conj []) {:choice-key k :sundivers (:sundivers k)})
         cards hab btns]
-       (nil? k)           [pos-set fly-set wrap-set conv-groups cards k btns]
+       (nil? k)           [pos-set fly-set wrap-set conv-groups cards true btns]
        (card-choice? k)   [pos-set fly-set wrap-set conv-groups (conj cards {:card k :choice-key k}) hab btns]
        :else [pos-set fly-set wrap-set conv-groups cards hab (conj btns {:label (choice-label k) :choice-key k})]))
    [#{} #{} #{} {} [] nil []]
