@@ -116,6 +116,14 @@
              :source-paths ["env/prod/clj" ]
              :resource-paths ["env/prod/resources"]}
 
+   ;; Like :uberjar but without CLJS prep-tasks (for deploy.sh which pre-builds JS)
+   :uberjar-nocljs {:omit-source true
+                    :prep-tasks ["compile"]
+                    :aot :all
+                    :uberjar-name "organism.jar"
+                    :source-paths ["env/prod/clj"]
+                    :resource-paths ["env/prod/resources" "target/cljsbuild"]}
+
    :dev           [:project/dev :profiles/dev]
    :test          [:project/dev :project/test :profiles/test]
 
