@@ -10,6 +10,8 @@
    [organism.routes.journey-ws :refer [journey-ws-routes]]
    [organism.routes.oroboros :refer [oroboros-routes]]
    [organism.routes.oroboros-ws :refer [oroboros-ws-routes]]
+   [organism.routes.future :refer [future-routes]]
+   [organism.routes.future-ws :refer [future-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
    [ring.middleware.content-type :refer [wrap-content-type]]
@@ -36,9 +38,11 @@
        (organism-routes db)
        (journey-routes db)
        (oroboros-routes db)
+       (future-routes db)
        (websocket-routes db)
        (journey-ws-routes db)
-       (oroboros-ws-routes)]))
+       (oroboros-ws-routes)
+       (future-ws-routes)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})
