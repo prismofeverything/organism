@@ -81,9 +81,10 @@
     (str "generate-" (str/join "-" words))))
 
 (defn generate-page
-  "Create an all-bot game and render the play page directly."
+  "Create a random 3-player game and render the play page directly.
+   Each reload starts a fresh game."
   [db request]
-  (let [players  generate-bot-names
+  (let [players  (vec (take 3 (shuffle generate-bot-names)))
         bot-set  (set players)
         game-key (generate-game-name)
         state    (game/initial-state players)
@@ -96,6 +97,7 @@
             :history       []
             :bots          bot-set
             :players       (vec players)
+            :bot-delay     150
             :chat          []
             :channels      #{}})
     (persist-e/save-game! db game-key state bot-set (vec players) state)

@@ -19,25 +19,41 @@
 (defonce bots-set      (r/atom #{}))
 (defonce can-undo?     (r/atom false))
 (defonce server-choices (r/atom nil))
-(defonce play-history  (r/atom []))
 
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
 
-(defn choice-player [state]
-  (game/current-player state))
-
 (defn my-turn? [state my-player]
   (and (some? state)
-       (= (choice-player state) my-player)
+       (= (game/current-player state) my-player)
        (not (:game-over state))))
 
 (defn choice-label [k]
   (cond
-    (keyword? k) (name k)
-    (integer? k) (str "action " k)
-    (= k :skip)  "skip"
-    (= k :done)  "done"
-    :else         (pr-str k)))
+    (= k :skip)         "skip"
+    (= k :done)         "done"
+    (= k :begin)        "begin actions"
+    (= k :increase-role) "increase a role"
+    (keyword? k)        (name k)
+    (integer? k)        (let [state @game-state
+                              phase (game/current-phase state)]
+                          (case phase
+                            :choose-die
+                            (let [dice (get-in state [:players (game/current-player state) :dice-available])]
+                              (str "die: " (nth dice k "?")))
+                            :choose-astronomer
+                            (str "astronomer " (inc k))
+                            :choose-action
+                            (let [space (get-in state [:player-turn :space])
+                                  action (nth (:actions (get game/action-spaces space)) k nil)]
+                              (if action
+                                (str (name (:type action))
+                                     (when (:resources action)
+                                       (str " (" (str/join "+" (map name (:resources action))) ")")))
+                                (str "action " k)))
+                            (str k)))
+    (vector? k)         (str (name (first k)) " -> " (name (second k))
+                              (when (= 3 (count k)) (str " (" (nth k 2) ")")))
+    :else               (pr-str k)))
 
 ;; ── WebSocket communication ───────────────────────────────────────────────────
 
@@ -47,201 +63,214 @@
 (defn send-undo! []
   (ws/send-transit-message! {:type "undo"}))
 
-;; ── Rendering: Astrology board ────────────────────────────────────────────────
+;; ── Rendering: Action board (wheel) ──────────────────────────────────────────
 
-(def astrology-positions
-  "Layout the 7 spaces in a circle."
-  (let [cx 200 cy 200 r 130]
-    (into {}
-          (for [i (range 1 8)
-                :let [angle (- (* (/ (* 2 js/Math.PI) 7) (dec i)) (/ js/Math.PI 2))
-                      x (+ cx (* r (js/Math.cos angle)))
-                      y (+ cy (* r (js/Math.sin angle)))]]
-            [i {:x x :y y}]))))
+(def action-board-cx 200)
+(def action-board-cy 200)
+(def action-board-r 130)
 
-(defn astrology-space-component
-  "Render one astrology space."
-  [space-id actions players-on-space]
-  (let [{:keys [x y]} (get astrology-positions space-id)]
-    [:g {:key space-id}
-     [:circle {:cx x :cy y :r 35
-               :fill "#1a1a2e" :stroke "#334" :stroke-width 1.5}]
-     [:text {:x x :y (- y 15) :text-anchor "middle"
-             :fill "#aaa" :font-size 10}
-      (str "Space " space-id)]
-     ;; Action icons
-     (for [[idx action] (map-indexed vector actions)]
-       (let [ax (+ (- x 24) (* idx 16))
-             ay (+ y 5)]
-         ^{:key idx}
-         [:text {:x ax :y ay :text-anchor "middle"
-                 :fill (case (:type action)
-                         :take "#4a4" :sell "#aa4" :deploy "#a44"
-                         :travel "#48a" :build "#a84" :influence "#84a"
-                         :excel "#4aa" :temple "#a4a" "#888")
-                 :font-size 9}
-          (name (:type action))]))
-     ;; Astronomers on this space
-     (for [[idx pk] (map-indexed vector players-on-space)]
-       ^{:key (str "ast-" pk "-" idx)}
-       [:circle {:cx (+ x -10 (* idx 8)) :cy (+ y 20) :r 3
-                 :fill "#7af" :stroke "#fff" :stroke-width 0.5}])]))
+(defn action-space-pos [space-id]
+  (let [angle (- (* (/ (* 2 js/Math.PI) 7) (dec space-id)) (/ js/Math.PI 2))
+        x (+ action-board-cx (* action-board-r (js/Math.cos angle)))
+        y (+ action-board-cy (* action-board-r (js/Math.sin angle)))]
+    {:x x :y y}))
 
-(defn astrology-board-component [state]
-  (let [players (:players state)]
-    [:svg {:viewBox "0 0 400 400" :width 400 :height 400
+(def action-type-colors
+  {:take "#6a6" :sell "#ca6" :deploy "#c66"
+   :travel "#68a" :influence "#86a" :temple "#a6a"})
+
+(defn action-board-component [state]
+  (let [_players (:players state)]
+    [:svg {:viewBox "0 0 400 400" :width 380 :height 380
            :style {:background "#0a0a18" :border-radius 8}}
-     [:text {:x 200 :y 30 :text-anchor "middle" :fill "#666" :font-size 14}
-      "Astrology Board"]
-     ;; Connection lines
-     (for [[from neighbors] game/astrology-adjacency
-           to neighbors
-           :when (< from to)]
-       (let [{x1 :x y1 :y} (get astrology-positions from)
-             {x2 :x y2 :y} (get astrology-positions to)]
-         ^{:key (str "line-" from "-" to)}
-         [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2
-                 :stroke "#223" :stroke-width 1}]))
+     [:text {:x 200 :y 25 :text-anchor "middle" :fill "#555" :font-size 12}
+      "Action Board"]
+     ;; Connection lines (clockwise circle)
+     (for [i (range 1 8)
+           :let [j (if (= i 7) 1 (inc i))
+                 {x1 :x y1 :y} (action-space-pos i)
+                 {x2 :x y2 :y} (action-space-pos j)]]
+       ^{:key (str "aline-" i "-" j)}
+       [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :stroke "#333" :stroke-width 1.5}])
      ;; Spaces
-     (for [[space-id space-data] game/astrology-spaces]
-       (let [players-on-space
-             (mapcat
-              (fn [[pk pdata]]
-                (for [pos (:astronomers pdata)
-                      :when (= pos space-id)]
-                  pk))
-              players)]
-         ^{:key space-id}
-         [astrology-space-component space-id (:actions space-data) players-on-space]))]))
+     (for [space-id (range 1 8)
+           :let [{:keys [x y]} (action-space-pos space-id)
+                 space-data (get game/action-spaces space-id)
+                 actions (:actions space-data)
+                 astros (game/astronomers-on-space state space-id)]]
+       ^{:key (str "space-" space-id)}
+       [:g
+        [:circle {:cx x :cy y :r 32 :fill "#1a1a2e" :stroke "#445" :stroke-width 1.5}]
+        [:text {:x x :y (- y 12) :text-anchor "middle" :fill "#aaa" :font-size 14 :font-weight "bold"}
+         (str space-id)]
+        ;; Action labels
+        (for [[idx action] (map-indexed vector actions)
+              :let [ax (+ (- x 22) (* idx 15))
+                    ay (+ y 6)]]
+          ^{:key (str "act-" space-id "-" idx)}
+          [:text {:x ax :y ay :text-anchor "middle"
+                  :fill (get action-type-colors (:type action) "#888")
+                  :font-size 7}
+           (subs (name (:type action)) 0 (min 3 (count (name (:type action)))))])
+        ;; Astronomer dots
+        (for [[idx [_pk _]] (map-indexed vector astros)]
+          ^{:key (str "astro-" space-id "-" idx)}
+          [:circle {:cx (+ x -8 (* idx 6)) :cy (+ y 18) :r 3
+                    :fill "#7af" :stroke "#fff" :stroke-width 0.5}])])]))
 
 ;; ── Rendering: City board ─────────────────────────────────────────────────────
 
 (def city-positions
-  "Hand-placed positions for the city graph."
-  {:samarra  {:x 150 :y 40}
-   :nineveh  {:x 60  :y 110}
-   :kish     {:x 240 :y 110}
-   :babylon  {:x 60  :y 200}
-   :napur    {:x 340 :y 110}
-   :buruq    {:x 420 :y 60}
-   :lagash   {:x 340 :y 200}
-   :uruk     {:x 200 :y 280}
-   :eridu    {:x 280 :y 330}})
+  {:samarra  {:x 340 :y 50}
+   :nineveh  {:x 80  :y 80}
+   :kish     {:x 400 :y 150}
+   :babylon  {:x 100 :y 200}
+   :nippur   {:x 420 :y 260}
+   :lagash   {:x 380 :y 350}
+   :uruk     {:x 180 :y 320}
+   :eridu    {:x 160 :y 420}})
 
-(defn city-component [state city my-player choices]
-  (let [{:keys [x y]} (get city-positions city)
-        demands (get-in state [:city-demands city] [])
-        graph (:city-graph state)
-        is-choice? (and choices (contains? choices city))]
-    [:g {:key (name city)
-         :on-click (when is-choice?
-                     #(send-action! city))
-         :style (when is-choice? {:cursor "pointer"})}
-     [:rect {:x (- x 40) :y (- y 18) :width 80 :height 36
-             :rx 6 :fill (if is-choice? "#2a3a2a" "#1a1a2e")
-             :stroke (if is-choice? "#4a4" "#334") :stroke-width 1.5}]
-     [:text {:x x :y (+ y 2) :text-anchor "middle"
-             :fill (if is-choice? "#8f8" "#ccc") :font-size 11}
-      (str/capitalize (name city))]
-     ;; Demand tokens
-     (for [[idx token] (map-indexed vector demands)]
-       ^{:key (str "demand-" (name city) "-" idx)}
-       [:circle {:cx (+ (- x 20) (* idx 14)) :cy (+ y 14) :r 4
-                 :fill (case token
-                         :tools "#a84" :pottery "#84a"
-                         :gold "#aa4" :gems "#4aa" "#666")}])]))
-
-(defn city-board-component [state my-player choices]
+(defn city-board-component [state _my-player choices]
   (let [graph (:city-graph state)
+        routes (:routes state)
         cities (keys graph)]
-    [:svg {:viewBox "0 0 500 380" :width 500 :height 380
+    [:svg {:viewBox "0 0 500 470" :width 480 :height 450
            :style {:background "#0a0a18" :border-radius 8}}
-     [:text {:x 250 :y 22 :text-anchor "middle" :fill "#666" :font-size 14}
+     [:text {:x 250 :y 22 :text-anchor "middle" :fill "#555" :font-size 12}
       "City Board"]
-     ;; Connection lines
-     (for [[from neighbors] graph
-           to neighbors
-           :when (pos? (compare (name from) (name to)))]
-       (let [{x1 :x y1 :y} (get city-positions from)
-             {x2 :x y2 :y} (get city-positions to)]
-         ^{:key (str "cline-" (name from) "-" (name to))}
-         [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2
-                 :stroke "#223" :stroke-width 1}]))
+     ;; Route lines
+     (for [{:keys [from to type]} routes
+           :let [{x1 :x y1 :y} (get city-positions from)
+                 {x2 :x y2 :y} (get city-positions to)]]
+       ^{:key (str "route-" (name from) "-" (name to))}
+       [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2
+               :stroke (if (= type :river) "#346" "#443")
+               :stroke-width (if (= type :river) 2 1.5)
+               :stroke-dasharray (when (= type :river) "6,3")}])
+     ;; Raiders on routes
+     (for [[pk pdata] (:players state)
+           [rk raider-state] (:raiders pdata)
+           :let [[c1 c2] rk
+                 {x1 :x y1 :y} (get city-positions c1)
+                 {x2 :x y2 :y} (get city-positions c2)
+                 mx (/ (+ x1 x2) 2)
+                 my (/ (+ y1 y2) 2)]]
+       ^{:key (str "raider-" pk "-" (name c1) "-" (name c2))}
+       [:rect {:x (- mx 5) :y (- my 5) :width 10 :height 10
+               :fill (if (= raider-state :point) "#f84" "#844")
+               :rx 2 :stroke "#fff" :stroke-width 0.5}])
      ;; Cities
-     (for [city cities]
-       ^{:key (name city)}
-       [city-component state city my-player choices])
+     (for [city cities
+           :let [{:keys [x y]} (get city-positions city)
+                 demands (get-in state [:city-demands city] [])
+                 has-magistrate (game/magistrate-in-city? state city)
+                 is-choice? (and choices (contains? choices city))]]
+       ^{:key (str "city-" (name city))}
+       [:g {:on-click (when is-choice? #(send-action! city))
+            :style (when is-choice? {:cursor "pointer"})}
+        [:rect {:x (- x 38) :y (- y 16) :width 76 :height 32
+                :rx 5 :fill (cond is-choice? "#2a3a2a"
+                                  has-magistrate "#2a2a1a"
+                                  :else "#1a1a2e")
+                :stroke (cond is-choice? "#4a4"
+                              has-magistrate "#aa4"
+                              :else "#334")
+                :stroke-width 1.5}]
+        [:text {:x x :y (+ y 3) :text-anchor "middle"
+                :fill (cond is-choice? "#8f8"
+                            has-magistrate "#ee8"
+                            :else "#ccc")
+                :font-size 10}
+         (str/capitalize (name city))]
+        ;; Demand tokens
+        (for [[idx token] (map-indexed vector demands)]
+          ^{:key (str "demand-" (name city) "-" idx)}
+          [:circle {:cx (+ (- x 18) (* idx 14)) :cy (+ y 14) :r 4
+                    :fill (case token
+                            :tools "#a84" :pottery "#84a"
+                            :gold "#aa4" :gems "#4aa" "#666")}])
+        ;; Temples
+        (for [[pk pdata] (:players state)
+              :let [temple-state (get-in pdata [:temples city])]
+              :when temple-state]
+          ^{:key (str "temple-" pk "-" (name city))}
+          [:polygon {:points (let [tx (+ x 25) ty (- y 10)]
+                               (str tx "," (- ty 6) " "
+                                    (- tx 4) "," (+ ty 2) " "
+                                    (+ tx 4) "," (+ ty 2)))
+                     :fill (if (= temple-state :face-up) "#a6a" "#636")
+                     :stroke "#fff" :stroke-width 0.5}])])
      ;; Caravans
      (for [[pk pdata] (:players state)
            :let [city (:caravan pdata)
                  {:keys [x y]} (get city-positions city)]]
        ^{:key (str "caravan-" pk)}
-       [:rect {:x (- x 5) :y (- y 28) :width 10 :height 6
+       [:rect {:x (- x 5) :y (- y 26) :width 10 :height 6
                :fill "#f84" :rx 2}])]))
 
 ;; ── Rendering: Player info ────────────────────────────────────────────────────
 
 (defn player-info-component [state my-player]
-  [:div {:style {:display "flex" :gap 16 :flex-wrap "wrap" :margin "8px 0"}}
-   (for [[pk pdata] (:players state)]
+  [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :margin "8px 0"}}
+   (for [[pk pdata] (:players state)
+         :let [is-current (= pk (game/current-player state))]]
      ^{:key pk}
-     [:div {:style {:background (if (= pk (game/current-player state)) "#1a2a1a" "#111")
+     [:div {:style {:background (if is-current "#1a2a1a" "#111")
                     :border (str "1px solid " (if (= pk my-player) "#48a" "#333"))
-                    :border-radius 6 :padding 10 :min-width 180}}
-      [:div {:style {:color "#adf" :font-weight "bold" :margin-bottom 6}} pk]
-      [:div {:style {:color "#888" :font-size 12}}
+                    :border-radius 6 :padding 8 :min-width 170 :font-size 11}}
+      [:div {:style {:color "#adf" :font-weight "bold" :margin-bottom 4}}
+       (str pk (when is-current " *"))]
+      [:div {:style {:color "#888"}}
        (str "Caravan: " (when (:caravan pdata) (str/capitalize (name (:caravan pdata)))))]
-      [:div {:style {:color "#888" :font-size 12}}
+      [:div {:style {:color "#888"}}
        (str "Resources: "
-            (str/join ", "
+            (str/join " "
                       (for [[r n] (:resources pdata) :when (pos? n)]
-                        (str (name r) " " n))))]
-      [:div {:style {:color "#888" :font-size 12}}
+                        (str (name r) ":" n))))]
+      [:div {:style {:color "#888"}}
        (str "Roles: "
-            (str/join ", "
+            (str/join " "
                       (for [[r lv] (:roles pdata)]
-                        (str (name r) " " lv))))]
-      [:div {:style {:color "#888" :font-size 12}}
-       (str "Amity: " (:amity pdata 0) " Glory: " (:glory pdata 0))]
-      [:div {:style {:color "#888" :font-size 12}}
-       (str "Raiders: " (:raiders-remaining pdata 0)
-            " Temples: " (:temples-remaining pdata 0)
-            " Astronomers: " (count (:astronomers pdata)))]])])
+                        (str (subs (name r) 0 3) ":" lv))))]
+      [:div {:style {:color "#888"}}
+       (str "Amity:" (:amity pdata 0) " Glory:" (:glory pdata 0))]
+      [:div {:style {:color "#888"}}
+       (str "Dice: " (str/join "," (or (:dice-available pdata) []))
+            " | Temples:" (:temples-supply pdata 0)
+            " Raiders:" (:raiders-supply pdata 0))]])])
 
 ;; ── Rendering: Choices ────────────────────────────────────────────────────────
 
 (defn choices-panel [state my-player]
-  (let [[phase choices] (if @server-choices
-                          [(keyword (subs (first @server-choices) 1))
-                           (into #{} (second @server-choices))]
-                          (when state (choice/find-state-raw state)))
+  (let [[phase choices] (when state (choice/find-state-raw state))
         is-my-turn (my-turn? state my-player)]
     [:div {:style {:margin "8px 0" :padding 10
                    :background "#111" :border-radius 6
                    :border "1px solid #333"}}
-     [:div {:style {:color "#888" :font-size 12 :margin-bottom 6}}
-      (str "Phase: " (when phase (name phase))
-           " | Current player: " (game/current-player state)
+     [:div {:style {:color "#888" :font-size 11 :margin-bottom 6}}
+      (str "Round " (:round state 1)
+           " Turn " (:turn-in-round state 1)
+           " | Phase: " (when phase (name phase))
+           " | Player: " (game/current-player state)
            (when-not is-my-turn " (waiting...)"))]
      (when (and is-my-turn (map? choices) (seq choices))
-       [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
-        (for [[k _v] choices
-              :when (not (#{} k))]
+       [:div {:style {:display "flex" :gap 6 :flex-wrap "wrap"}}
+        (for [[k _v] choices]
           ^{:key (pr-str k)}
           [:button
            {:on-click #(send-action! k)
             :style {:background "#2a3a2a" :color "#8f8"
                     :border "1px solid #4a4" :border-radius 4
-                    :padding "4px 12px" :cursor "pointer"
-                    :font-size 13}}
+                    :padding "4px 10px" :cursor "pointer"
+                    :font-size 12}}
            (choice-label k)])])
      (when (and is-my-turn @can-undo?)
        [:button
         {:on-click send-undo!
          :style {:background "#2a2a2a" :color "#aa8"
                  :border "1px solid #553" :border-radius 4
-                 :padding "4px 12px" :cursor "pointer"
-                 :font-size 12 :margin-top 6}}
+                 :padding "4px 10px" :cursor "pointer"
+                 :font-size 11 :margin-top 4}}
         "undo"])]))
 
 ;; ── Create game form ──────────────────────────────────────────────────────────
@@ -254,7 +283,7 @@
     [:div {:style {:max-width 500 :margin "40px auto" :padding 20
                    :background "#111" :border-radius 8
                    :font-family "monospace" :color "#ccc"}}
-     [:h2 {:style {:color "#7a9" :margin-bottom 16}} "Create Eridu Game"]
+     [:h2 {:style {:color "#BB9944" :margin-bottom 16}} "Create Eridu Game"]
      [:div {:style {:margin-bottom 12}}
       [:label {:style {:color "#888" :display "block" :margin-bottom 4}} "Game name"]
       [:input {:type "text" :value play-name
@@ -307,15 +336,15 @@
   (let [games @observe-games]
     [:div {:style {:max-width 600 :margin "40px auto" :padding 20
                    :font-family "monospace" :color "#ccc"}}
-     [:h2 {:style {:color "#7a9" :margin-bottom 16}} "Observe Eridu Games"]
+     [:h2 {:style {:color "#BB9944" :margin-bottom 16}} "Observe Eridu Games"]
      (if (empty? games)
        [:div {:style {:color "#666"}} "No active games."]
        (for [g games]
          ^{:key (:key g)}
          [:a {:href (str "/eridu/play/" (:key g))
               :style {:display "block" :padding "10px 14px" :margin-bottom 8
-                      :background "#0a0e1c" :border "1px solid #2a4a80"
-                      :border-radius 4 :color "#acc" :text-decoration "none"}}
+                      :background "#0a0e1c" :border "1px solid #5a4a20"
+                      :border-radius 4 :color "#cc8" :text-decoration "none"}}
           [:div (:key g)]
           [:div {:style {:color "#667" :font-size 12}}
            (str "Players: " (str/join ", " (:players g))
@@ -327,13 +356,27 @@
   (let [state @game-state
         my-player @player-key]
     (if state
-      [:div {:style {:padding 16 :font-family "monospace"}}
-       [:div {:style {:display "flex" :gap 16 :flex-wrap "wrap" :align-items "flex-start"}}
-        [astrology-board-component state]
+      [:div {:style {:padding 12 :font-family "monospace"}}
+       (when (:game-over state)
+         [:div {:style {:background "#2a1a1a" :border "1px solid #644"
+                        :border-radius 6 :padding 12 :margin-bottom 12
+                        :color "#faa" :text-align "center"}}
+          [:div {:style {:font-size 16 :font-weight "bold"}} "Game Over"]
+          [:div {:style {:margin-top 6 :color "#ccc"}}
+           (let [scores (for [[pk pdata] (:players state)]
+                          {:player pk
+                           :amity (:amity pdata 0)
+                           :glory (:glory pdata 0)
+                           :reputation (min (:amity pdata 0) (:glory pdata 0))})
+                 winner (first (sort-by #(- (:reputation %)) scores))]
+             (str "Winner: " (:player winner)
+                  " (Reputation: " (:reputation winner) ")"))]])
+       [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "flex-start"}}
+        [action-board-component state]
         [city-board-component state my-player
          (when (and (my-turn? state my-player)
-                    (contains? #{:choose-travel-destination :choose-deploy-city
-                                 :choose-build-city :choose-temple-city}
+                    (contains? #{:resolve-travel :resolve-temple
+                                 :resolve-deploy :resolve-influence}
                                (game/current-phase state)))
            (let [[_ choices] (choice/find-state-raw state)]
              choices))]]
@@ -357,33 +400,32 @@
 
 ;; ── WebSocket message handler ─────────────────────────────────────────────────
 
-(defn handle-ws-message [message]
-  (let [msg-type (get message "type")]
-    (case msg-type
-      "initialize"
-      (do
-        (when-let [s (get message "state")]
-          (reset! game-state (reader/read-string s)))
-        (when-let [b (get message "bots")]
-          (reset! bots-set (set b)))
-        (when-let [cu (get message "can-undo")]
-          (reset! can-undo? cu))
-        (when-let [ch (get message "choices")]
-          (reset! server-choices [(get message "phase") (reader/read-string ch)])))
+(defn handle-ws-message [{:keys [type state] :as message}]
+  (case type
+    "initialize"
+    (do
+      (when state
+        (reset! game-state (reader/read-string state)))
+      (when (contains? message :bots)
+        (reset! bots-set (set (:bots message))))
+      (when (contains? message :can-undo)
+        (reset! can-undo? (:can-undo message)))
+      (when (:choices message)
+        (reset! server-choices [(:phase message) (reader/read-string (:choices message))])))
 
-      "game-state"
-      (do
-        (when-let [s (get message "state")]
-          (reset! game-state (reader/read-string s)))
-        (when-let [cu (get message "can-undo")]
-          (reset! can-undo? cu))
-        (when-let [ch (get message "choices")]
-          (reset! server-choices [(get message "phase") (reader/read-string ch)])))
+    "game-state"
+    (do
+      (when state
+        (reset! game-state (reader/read-string state)))
+      (when (contains? message :can-undo)
+        (reset! can-undo? (:can-undo message)))
+      (when (:choices message)
+        (reset! server-choices [(:phase message) (reader/read-string (:choices message))])))
 
-      "chat"
-      (println "chat:" (get message "message"))
+    "chat"
+    (println "chat:" (:message message))
 
-      (println "unknown message type:" msg-type))))
+    (println "unknown message type:" type)))
 
 ;; ── Init ──────────────────────────────────────────────────────────────────────
 

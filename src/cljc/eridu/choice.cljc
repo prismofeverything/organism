@@ -2,229 +2,469 @@
   (:require
    [eridu.game :as game]))
 
-;; Each choice function returns a map of {choice-key -> next-state}.
-;; find-state returns [phase choices-map] for the current position in the turn.
+;; =============================================================================
+;; Helpers
+;; =============================================================================
 
-(defn partial-map
-  "Build a choices map by applying f to each option in s."
-  [f s]
+(defn partial-map [f s]
   (into {} (map (juxt identity f) s)))
 
-;; =============================================================================
-;; Action helpers
-;; =============================================================================
+(defn add-resource [state player resource n]
+  (update-in state [:players player :resources resource] + n))
 
-(defn take-resources
-  "Give the current player the specified resources."
-  [state resources]
-  (let [player (game/current-player state)]
-    (reduce
-     (fn [s r]
-       (update-in s [:players player :resources r] (fnil inc 0)))
-     state
-     resources)))
+(defn spend-resource [state player resource]
+  (update-in state [:players player :resources resource] dec))
 
-(defn spend-resource
-  "Remove one unit of a resource from the current player."
-  [state resource]
-  (let [player (game/current-player state)]
-    (update-in state [:players player :resources resource] (fnil dec 0))))
+(defn add-amity [state player n]
+  (update-in state [:players player :amity] + n))
 
-(defn add-amity [state n]
-  (let [player (game/current-player state)]
-    (update-in state [:players player :amity] + n)))
-
-(defn add-glory [state n]
-  (let [player (game/current-player state)]
-    (update-in state [:players player :glory] + n)))
-
-(defn move-caravan
-  "Move the current player's caravan to a destination city."
-  [state destination]
-  (let [player (game/current-player state)]
-    (assoc-in state [:players player :caravan] destination)))
-
-(defn deploy-raider
-  "Deploy a raider from the current player's supply to a city."
-  [state city]
-  (let [player (game/current-player state)]
-    (-> state
-        (update-in [:players player :raiders-remaining] dec)
-        (update-in [:players player :raiders city] (fnil inc 0)))))
-
-(defn build-temple
-  "Build a temple from the current player's supply in a city."
-  [state city]
-  (let [player (game/current-player state)]
-    (-> state
-        (update-in [:players player :temples-remaining] dec)
-        (update-in [:players player :temples city] (fnil inc 0)))))
-
-(defn increase-role
-  "Increase a role track by 1 level (capped at max)."
-  [state role]
-  (let [player (game/current-player state)]
-    (update-in state [:players player :roles role]
-               #(min game/max-role-level (inc %)))))
+(defn add-glory [state player n]
+  (update-in state [:players player :glory] + n))
 
 ;; =============================================================================
-;; Phase choices
+;; Phase 1: Choose a die
 ;; =============================================================================
 
-(defn choose-action-choices
-  "Player picks which astrology space action to activate.
-   Choices are the astronomer positions available to the current player."
+(defn choose-die-choices
+  "Player picks one of their available dice."
   [state]
   (let [player (game/current-player state)
-        astronomer-spaces (get-in state [:players player :astronomers])]
-    (partial-map
-     (fn [space]
-       (assoc state :player-turn
-              {:phase :choose-space-action
-               :space space
-               :actions (get-in state [:astrology space :actions])}))
-     (distinct astronomer-spaces))))
-
-(defn choose-space-action-choices
-  "Player picks one of the 4 actions on their chosen astrology space."
-  [state]
-  (let [actions (get-in state [:player-turn :actions])]
+        dice (get-in state [:players player :dice-available])]
     (into {}
           (map-indexed
-           (fn [idx action]
-             [idx (assoc state :player-turn
-                         {:phase (case (:type action)
-                                  :take    :resolve-take
-                                  :sell    :resolve-sell
-                                  :deploy  :choose-deploy-city
-                                  :travel  :choose-travel-destination
-                                  :build   :choose-build-city
-                                  :influence :choose-influence-role
-                                  :excel   :resolve-excel
-                                  :temple  :choose-temple-city)
-                          :action action})])
-           actions))))
+           (fn [idx die-val]
+             [idx (-> state
+                      (update-in [:players player :dice-available]
+                                 (fn [d] (into (subvec d 0 idx) (subvec d (inc idx)))))
+                      (update-in [:players player :dice-used] conj die-val)
+                      (assoc :player-turn {:phase :choose-astronomer
+                                           :die-value die-val}))])
+           dice))))
 
-;; --- Take ---
+;; =============================================================================
+;; Phase 2: Choose which astronomer to move
+;; =============================================================================
 
-(defn resolve-take-choices
-  "Auto-resolve: give the player the resources and end turn."
+(defn choose-astronomer-choices
+  "Player picks which of their astronomers to move."
   [state]
-  (let [resources (get-in state [:player-turn :action :resources])
-        next-state (-> state
-                       (take-resources resources)
-                       game/advance-turn)]
-    {:done next-state}))
+  (let [player (game/current-player state)
+        astronomers (get-in state [:players player :astronomers])
+        die-val (get-in state [:player-turn :die-value])]
+    ;; Offer each astronomer (by index) as a choice
+    (into {}
+          (map-indexed
+           (fn [idx current-space]
+             (let [dest (game/move-astronomer-clockwise current-space die-val)]
+               [idx (-> state
+                        (assoc-in [:players player :astronomers idx] dest)
+                        (assoc :player-turn {:phase :resolve-landing
+                                            :landed-space dest}))]))
+           astronomers))))
 
-;; --- Sell ---
+;; =============================================================================
+;; Phase 3: Resolve landing - count astronomers, decide actions vs role increase
+;; =============================================================================
+
+(defn resolve-landing-choices
+  "After astronomer lands, determine if player takes actions or increases a role.
+   If alone on space: may increase a role.
+   If others present: take N actions (one per astronomer on space)."
+  [state]
+  (let [player (game/current-player state)
+        space (get-in state [:player-turn :landed-space])
+        all-on-space (game/astronomers-on-space state space)
+        num-actions (count all-on-space)
+        ;; If space 7, take first-player card
+        state (if (= space 7)
+                (assoc state :first-player player)
+                state)]
+    (if (= num-actions 1)
+      ;; Alone: may increase a role track (or skip)
+      {:increase-role (assoc state :player-turn {:phase :choose-role-increase})
+       :skip          (game/advance-turn state)}
+      ;; Multiple astronomers: take N actions, can't repeat same icon
+      {:begin (assoc state :player-turn
+                     {:phase :choose-action
+                      :space space
+                      :actions-remaining num-actions
+                      :used-icons #{}})})))
+
+;; =============================================================================
+;; Role increase (when alone on a space)
+;; =============================================================================
+
+(defn choose-role-increase-choices
+  "Player picks which role to increase (if below max)."
+  [state]
+  (let [player (game/current-player state)
+        role-levels (get-in state [:players player :roles])
+        resources (get-in state [:players player :resources])
+        increasable
+        (for [role game/roles
+              :let [current-level (get role-levels role 1)]
+              :when (< current-level game/max-role-level)
+              :let [next-level (inc current-level)
+                    cost (get-in game/role-threshold-costs [role next-level])]
+              :when (or (nil? cost) (pos? (get resources cost 0)))]
+          [role (cond-> state
+                  cost (spend-resource player cost)
+                  true (assoc-in [:players player :roles role] next-level)
+                  true (game/advance-turn))])]
+    (if (seq increasable)
+      (into {:skip (game/advance-turn state)} increasable)
+      {:skip (game/advance-turn state)})))
+
+;; =============================================================================
+;; Action selection (when multiple astronomers on space)
+;; =============================================================================
+
+(defn available-action-indices
+  "Return indices of actions on the space that haven't been used (by icon type)."
+  [space used-icons]
+  (let [actions (:actions (get game/action-spaces space))]
+    (vec
+     (for [[idx _action] (map-indexed vector actions)
+           :when (not (contains? used-icons idx))]
+       idx))))
+
+(defn choose-action-choices
+  "Player picks an action from the current space."
+  [state]
+  (let [{:keys [space actions-remaining used-icons]} (:player-turn state)
+        available (available-action-indices space used-icons)]
+    (if (or (zero? actions-remaining) (empty? available))
+      ;; Done with actions
+      {:done (game/advance-turn state)}
+      (into {}
+            (for [idx available
+                  :let [action (nth (:actions (get game/action-spaces space)) idx)]]
+              [idx (assoc state :player-turn
+                          {:phase (case (:type action)
+                                   :take     :resolve-take
+                                   :sell     :resolve-sell
+                                   :deploy   :resolve-deploy
+                                   :travel   :resolve-travel
+                                   :influence :resolve-influence
+                                   :temple   :resolve-temple)
+                           :space space
+                           :action action
+                           :action-index idx
+                           :actions-remaining (dec actions-remaining)
+                           :used-icons (conj used-icons idx)})])))))
+
+;; =============================================================================
+;; Action: Take Goods
+;; =============================================================================
+
+(defn resolve-take-choices [state]
+  (let [player (game/current-player state)
+        resources (get-in state [:player-turn :action :resources])
+        next-state (reduce #(add-resource %1 player %2 1) state resources)
+        turn (:player-turn state)]
+    {:done (assoc next-state :player-turn
+                  {:phase :choose-action
+                   :space (:space turn)
+                   :actions-remaining (:actions-remaining turn)
+                   :used-icons (:used-icons turn)})}))
+
+;; =============================================================================
+;; Action: Sell
+;; =============================================================================
 
 (defn resolve-sell-choices
-  "Player chooses a resource to sell (must have > 0)."
+  "Sell: discard a good matching city demand, take demand marker, score amity."
   [state]
   (let [player (game/current-player state)
-        resources (get-in state [:players player :resources])
-        sellable (filter #(pos? (get resources % 0)) game/resource-types)]
+        pdata (game/player-data state player)
+        city (:caravan pdata)
+        demands (get-in state [:city-demands city] [])
+        resources (:resources pdata)
+        merchant-level (get-in pdata [:roles :merchant] 1)
+        amity-score (get game/merchant-score merchant-level 2)
+        leader-level (get-in pdata [:roles :leader] 1)
+        has-magistrate? (game/magistrate-in-city? state city)
+        glory-bonus (if has-magistrate? (get game/leader-bonus leader-level 0) 0)
+        turn (:player-turn state)
+        ;; Find demands the player can satisfy
+        sellable (distinct
+                  (for [demand demands
+                        :when (pos? (get resources demand 0))]
+                    demand))]
     (if (seq sellable)
-      (partial-map
-       (fn [r]
-         (-> state
-             (spend-resource r)
-             (add-glory 1)
-             game/advance-turn))
-       sellable)
-      {:skip (game/advance-turn state)})))
+      (into {:skip (assoc state :player-turn
+                          {:phase :choose-action
+                           :space (:space turn)
+                           :actions-remaining (:actions-remaining turn)
+                           :used-icons (:used-icons turn)})}
+            (for [demand sellable]
+              [demand (let [;; Remove demand from city
+                            new-demands (let [idx (.indexOf demands demand)]
+                                          (into (subvec (vec demands) 0 idx)
+                                                (subvec (vec demands) (inc idx))))
+                            s (-> state
+                                  (spend-resource player demand)
+                                  (assoc-in [:city-demands city] new-demands)
+                                  (update-in [:players player :demand-tokens] conj demand)
+                                  (add-amity player amity-score))]
+                        (cond-> s
+                          (pos? glory-bonus) (add-glory player glory-bonus)
+                          true (assoc :player-turn
+                                      {:phase :choose-action
+                                       :space (:space turn)
+                                       :actions-remaining (:actions-remaining turn)
+                                       :used-icons (:used-icons turn)})))]))
+      ;; Nothing to sell
+      {:skip (assoc state :player-turn
+                    {:phase :choose-action
+                     :space (:space turn)
+                     :actions-remaining (:actions-remaining turn)
+                     :used-icons (:used-icons turn)})})))
 
-;; --- Deploy ---
+;; =============================================================================
+;; Action: Temple
+;; =============================================================================
 
-(defn choose-deploy-city-choices
-  "Player chooses a city to deploy a raider to."
+(defn resolve-temple-choices
+  "Place a temple face-up in a city where the caravan or a magistrate is."
   [state]
   (let [player (game/current-player state)
-        remaining (get-in state [:players player :raiders-remaining] 0)
-        cities (keys (:city-graph state))]
-    (if (pos? remaining)
-      (partial-map
-       (fn [city]
-         (-> state
-             (deploy-raider city)
-             game/advance-turn))
-       cities)
-      {:skip (game/advance-turn state)})))
+        pdata (game/player-data state player)
+        priest-level (get-in pdata [:roles :priest] 1)
+        max-temples (get game/priest-max-temples priest-level 3)
+        placed (game/count-temples-placed pdata)
+        supply (:temples-supply pdata)
+        turn (:player-turn state)
+        return-to-actions (fn [s]
+                            (assoc s :player-turn
+                                   {:phase :choose-action
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)}))]
+    (if (and (pos? supply) (< placed max-temples))
+      (let [caravan-city (:caravan pdata)
+            all-magistrate-cities (vals (:magistrates state))
+            valid-cities (distinct
+                          (for [city (cons caravan-city all-magistrate-cities)
+                                :when (and city
+                                           (not (contains? (:temples pdata) city)))]
+                            city))]
+        (if (seq valid-cities)
+          (into {:skip (return-to-actions state)}
+                (for [city valid-cities]
+                  [city (-> state
+                            (assoc-in [:players player :temples city] :face-up)
+                            (update-in [:players player :temples-supply] dec)
+                            return-to-actions)]))
+          {:skip (return-to-actions state)}))
+      {:skip (return-to-actions state)})))
 
-;; --- Travel ---
+;; =============================================================================
+;; Action: Deploy
+;; =============================================================================
 
-(defn choose-travel-destination-choices
-  "Player moves their caravan to an adjacent city."
+(defn resolve-deploy-choices
+  "Place or move up to 2 raiders on routes adjacent to caravan's city."
   [state]
   (let [player (game/current-player state)
-        current-city (get-in state [:players player :caravan])
-        neighbors (get-in state [:city-graph current-city])]
-    (if (seq neighbors)
-      (partial-map
-       (fn [city]
-         (-> state
-             (move-caravan city)
-             game/advance-turn))
-       neighbors)
-      {:skip (game/advance-turn state)})))
+        pdata (game/player-data state player)
+        raider-level (get-in pdata [:roles :raider] 1)
+        max-deployed (get game/raider-max-deployed raider-level 2)
+        current-deployed (game/count-raiders-deployed pdata)
+        supply (:raiders-supply pdata)
+        turn (:player-turn state)
+        caravan-city (:caravan pdata)
+        adjacent-routes (game/routes-from-city caravan-city (:routes state))
+        deploys-left (get-in state [:player-turn :deploys-left] 2)
+        return-to-actions (fn [s]
+                            (assoc s :player-turn
+                                   {:phase :choose-action
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)}))]
+    (if (zero? deploys-left)
+      {:done (return-to-actions state)}
+      (let [;; Routes where player can place a raider (doesn't already have one there)
+            placeable (for [route adjacent-routes
+                           :let [rk (game/route-key (:from route) (:to route))]
+                           :when (not (contains? (:raiders pdata) rk))]
+                        rk)
+            can-place? (and (pos? supply)
+                            (< current-deployed max-deployed)
+                            (seq placeable))]
+        (if can-place?
+          (into {:skip (return-to-actions state)}
+                (for [rk placeable]
+                  [rk (-> state
+                          (assoc-in [:players player :raiders rk] :raiding)
+                          (update-in [:players player :raiders-supply] dec)
+                          (assoc :player-turn
+                                 {:phase :resolve-deploy
+                                  :space (:space turn)
+                                  :action (get-in state [:player-turn :action])
+                                  :action-index (get-in state [:player-turn :action-index])
+                                  :actions-remaining (:actions-remaining turn)
+                                  :used-icons (:used-icons turn)
+                                  :deploys-left (dec deploys-left)}))]))
+          {:done (return-to-actions state)})))))
 
-;; --- Build ---
+;; =============================================================================
+;; Action: Travel
+;; =============================================================================
 
-(defn choose-build-city-choices
-  "Player chooses a city to build a temple in."
+(defn visit-temples-on-travel
+  "When caravan enters a city with a face-up temple, flip it and score amity."
+  [state player city]
+  (let [pdata (game/player-data state player)
+        temple-state (get-in pdata [:temples city])]
+    (if (= temple-state :face-up)
+      (let [;; Flip to face-down
+            state (assoc-in state [:players player :temples city] :face-down)
+            face-down-count (inc (game/count-face-down-temples pdata))
+            ;; Score amity = number of face-down temples
+            state (add-amity state player face-down-count)
+            ;; Magistrate bonus
+            leader-level (get-in state [:players player :roles :leader] 1)
+            has-magistrate? (game/magistrate-in-city? state city)
+            glory-bonus (if has-magistrate? (get game/leader-bonus leader-level 0) 0)]
+        (cond-> state
+          (pos? glory-bonus) (add-glory player glory-bonus)))
+      state)))
+
+(defn flip-enemy-raiders-on-route
+  "When caravan travels a route, flip any opposing raiders to :point side."
+  [state player route-key]
+  (reduce-kv
+   (fn [s pk pdata]
+     (if (and (not= pk player)
+              (= :raiding (get-in pdata [:raiders route-key])))
+       (assoc-in s [:players pk :raiders route-key] :point)
+       s))
+   state
+   (:players state)))
+
+(defn score-own-raider-on-route
+  "When caravan travels a route with own :point raider, remove and score 4 glory."
+  [state player route-key]
+  (let [raider-state (get-in state [:players player :raiders route-key])]
+    (if (= raider-state :point)
+      (-> state
+          (update-in [:players player :raiders] dissoc route-key)
+          (update-in [:players player :raiders-supply] inc)
+          (add-glory player 4))
+      state)))
+
+(defn travel-to-city
+  "Move caravan to adjacent city, handling raider flips and temple visits."
+  [state player destination]
+  (let [current-city (get-in state [:players player :caravan])
+        rk (game/route-key current-city destination)]
+    (-> state
+        (assoc-in [:players player :caravan] destination)
+        (flip-enemy-raiders-on-route player rk)
+        (score-own-raider-on-route player rk)
+        (visit-temples-on-travel player destination))))
+
+(defn resolve-travel-choices
+  "Travel: move caravan one space. May discard a good to move again."
   [state]
   (let [player (game/current-player state)
-        remaining (get-in state [:players player :temples-remaining] 0)
-        caravan-city (get-in state [:players player :caravan])]
-    (if (pos? remaining)
-      ;; Can build in the city where caravan is
-      {caravan-city (-> state
-                        (build-temple caravan-city)
-                        game/advance-turn)
-       :skip (game/advance-turn state)}
-      {:skip (game/advance-turn state)})))
+        pdata (game/player-data state player)
+        city (:caravan pdata)
+        neighbors (get-in state [:city-graph city])
+        turn (:player-turn state)
+        traveled? (get-in state [:player-turn :traveled?] false)
+        return-to-actions (fn [s]
+                            (assoc s :player-turn
+                                   {:phase :choose-action
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)}))]
+    (if (empty? neighbors)
+      {:skip (return-to-actions state)}
+      (let [move-choices
+            (into {}
+                  (for [dest neighbors]
+                    [dest (let [s (travel-to-city state player dest)]
+                            (assoc s :player-turn
+                                   {:phase :travel-continue
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)
+                                    :traveled? true}))]))]
+        (if traveled?
+          ;; Already traveled once, this is the "discard good to travel again" option
+          move-choices
+          (assoc move-choices :skip (return-to-actions state)))))))
 
-;; --- Influence ---
-
-(defn choose-influence-role-choices
-  "Player chooses a role to increase by 1 level."
+(defn travel-continue-choices
+  "After first travel step, may discard a good to travel one more space."
   [state]
   (let [player (game/current-player state)
-        role-levels (get-in state [:players player :roles])]
-    (partial-map
-     (fn [role]
-       (-> state
-           (increase-role role)
-           game/advance-turn))
-     (filter #(< (get role-levels % 0) game/max-role-level) game/roles))))
+        pdata (game/player-data state player)
+        resources (:resources pdata)
+        has-goods? (some #(pos? (get resources % 0)) game/resource-types)
+        turn (:player-turn state)
+        return-to-actions (fn [s]
+                            (assoc s :player-turn
+                                   {:phase :choose-action
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)}))]
+    (if has-goods?
+      ;; Offer to discard a good for extra movement
+      (into {:done (return-to-actions state)}
+            (for [r game/resource-types
+                  :when (pos? (get resources r 0))]
+              [r (-> state
+                     (spend-resource player r)
+                     (assoc :player-turn
+                            {:phase :resolve-travel
+                             :space (:space turn)
+                             :actions-remaining (:actions-remaining turn)
+                             :used-icons (:used-icons turn)
+                             :traveled? true}))]))
+      {:done (return-to-actions state)})))
 
-;; --- Excel ---
+;; =============================================================================
+;; Action: Influence
+;; =============================================================================
 
-(defn resolve-excel-choices
-  "Excel: gain 1 amity and 1 glory."
-  [state]
-  (let [next-state (-> state
-                       (add-amity 1)
-                       (add-glory 1)
-                       game/advance-turn)]
-    {:done next-state}))
-
-;; --- Temple ---
-
-(defn choose-temple-city-choices
-  "Player chooses a city to build a temple in (temple action)."
+(defn resolve-influence-choices
+  "Move a magistrate clockwise along roads."
   [state]
   (let [player (game/current-player state)
-        remaining (get-in state [:players player :temples-remaining] 0)
-        cities (keys (:city-graph state))]
-    (if (pos? remaining)
-      (partial-map
-       (fn [city]
-         (-> state
-             (build-temple city)
-             game/advance-turn))
-       cities)
-      {:skip (game/advance-turn state)})))
+        pdata (game/player-data state player)
+        leader-level (get-in pdata [:roles :leader] 1)
+        max-move (get game/leader-movement leader-level 1)
+        active-cities (set (keys (:city-graph state)))
+        turn (:player-turn state)
+        return-to-actions (fn [s]
+                            (assoc s :player-turn
+                                   {:phase :choose-action
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)}))
+        magistrate-entries (vec (:magistrates state))
+          choices
+          (into {}
+                (for [[mag-city _] magistrate-entries
+                      steps (range 1 (inc max-move))
+                      :let [dest (reduce (fn [c _]
+                                           (game/road-clockwise-next c active-cities))
+                                         mag-city
+                                         (range steps))
+                            rk-key [mag-city dest steps]]
+                      :when dest]
+                  [rk-key (-> state
+                              (assoc :magistrates
+                                     (-> (:magistrates state)
+                                         (dissoc mag-city)
+                                         (assoc dest :neutral)))
+                              return-to-actions)]))]
+      (if (seq choices)
+        (assoc choices :skip (return-to-actions state))
+        {:skip (return-to-actions state)})))
 
 ;; =============================================================================
 ;; State machine
@@ -238,24 +478,26 @@
     (let [phase (game/current-phase state)]
       [phase
        (case phase
-         :choose-action              (choose-action-choices state)
-         :choose-space-action        (choose-space-action-choices state)
-         :resolve-take               (resolve-take-choices state)
-         :resolve-sell               (resolve-sell-choices state)
-         :choose-deploy-city         (choose-deploy-city-choices state)
-         :choose-travel-destination  (choose-travel-destination-choices state)
-         :choose-build-city          (choose-build-city-choices state)
-         :choose-influence-role      (choose-influence-role-choices state)
-         :resolve-excel              (resolve-excel-choices state)
-         :choose-temple-city         (choose-temple-city-choices state)
+         :choose-die             (choose-die-choices state)
+         :choose-astronomer      (choose-astronomer-choices state)
+         :resolve-landing        (resolve-landing-choices state)
+         :choose-role-increase   (choose-role-increase-choices state)
+         :choose-action          (choose-action-choices state)
+         :resolve-take           (resolve-take-choices state)
+         :resolve-sell           (resolve-sell-choices state)
+         :resolve-temple         (resolve-temple-choices state)
+         :resolve-deploy         (resolve-deploy-choices state)
+         :resolve-travel         (resolve-travel-choices state)
+         :travel-continue        (travel-continue-choices state)
+         :resolve-influence      (resolve-influence-choices state)
          {})])))
 
 (defn find-state
-  "Same as find-state-raw but auto-advances through single-choice non-interactive phases."
+  "Same as find-state-raw but auto-advances through single-choice auto-resolve phases."
   [state]
   (let [[phase choices] (find-state-raw state)]
     (if (and (= 1 (count choices))
-             (contains? #{:resolve-take :resolve-excel} phase))
+             (contains? #{:resolve-take} phase))
       (let [next-state (first (vals choices))]
         (find-state next-state))
       [phase choices])))
