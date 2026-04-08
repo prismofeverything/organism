@@ -4,7 +4,7 @@
    [clojure.java.io :as io]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
-   [immutant.web.async :as async]
+   [org.httpkit.server :as hk]
    [organism.game :as game]
    [organism.board :as board]
    [organism.persist :as persist]
@@ -32,7 +32,7 @@
 
 (defn send!
   [channel message]
-  (async/send!
+  (hk/send!
    channel
    (write-json message)))
 
@@ -119,8 +119,8 @@
       games)))
 
 (defn disconnect!
-  [{:keys [db game-key player]} channel {:keys [code reason]}]
-  (log/info "channel closed" player code reason)
+  [{:keys [db game-key player]} channel status]
+  (log/info "channel closed" player status)
   (swap!
    games
    (partial disconnect-game game-key channel))
@@ -343,13 +343,13 @@
   (let [config {:db db :player player :game-key game-key}]
     {:on-open (partial connect! config)
      :on-close (partial disconnect! config)
-     :on-message (partial notify-clients! config)}))
+     :on-receive (partial notify-clients! config)}))
 
 (defn ws-handler
   [db {:keys [path-params session] :as request}]
   (let [play (:play path-params)
         player (or (:player session) "--observer--")]
-    (async/as-channel request (websocket-callbacks db player play))))
+    (hk/as-channel request (websocket-callbacks db player play))))
 
 (defn websocket-routes
   [db]

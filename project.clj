@@ -11,7 +11,7 @@
                  [cprop "0.1.17"]
                  [expound "0.8.9"]
                  [funcool/struct "1.4.0"]
-                 [luminus-immutant "0.2.5"]
+                 [http-kit "2.8.0"]
                  [luminus-transit "0.1.2"]
                  [markdown-clj "1.10.5"]
                  [metosin/muuntaja "0.6.8"]
@@ -24,8 +24,8 @@
                  ;; [org.mongodb/mongodb-driver-sync "4.7.1"]
                  ;; [mongo-driver-3 "0.7.0"]
                  [nrepl "0.8.3"]
-                 [org.clojure/clojure "1.10.2"]
-                 [org.clojure/clojurescript "1.10.773" :scope "provided"]
+                 [org.clojure/clojure "1.12.0"]
+                 [thheller/shadow-cljs "2.28.21" :scope "provided"]
                  [org.clojure/tools.cli "1.0.194"]
                  [org.clojure/tools.logging "1.1.0"]
                  [org.webjars.npm/bulma "0.9.1"]
@@ -45,6 +45,8 @@
 
   ;; Run `lein dev` to start figwheel watching all game builds.
   ;; Add new game build IDs here when a new game is added to project.clj.
+  ;; Dev: use `npx shadow-cljs watch organism journey oroboros future`
+  ;; Or for a single game: `npx shadow-cljs watch journey`
   :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "oroboros" "future"]}
   
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
@@ -54,7 +56,7 @@
   :main ^:skip-aot organism.core
 
   :plugins [[lein-cljsbuild "1.1.7"]
-            [lein-immutant "2.1.0"]] 
+] 
   :clean-targets ^{:protect false}
   [:target-path [:cljsbuild :builds :app :compiler :output-dir] [:cljsbuild :builds :app :compiler :output-to]]
   :figwheel

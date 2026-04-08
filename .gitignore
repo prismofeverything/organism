@@ -13,6 +13,7 @@ profiles.clj
 .nrepl-port
 .rebel_readline_history
 /node_modules
+/.shadow-cljs
 /log
 backup/
 __pycache__/
