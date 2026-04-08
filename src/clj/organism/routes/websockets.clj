@@ -288,7 +288,9 @@
         (persist/update-player-games!
          db game-key
          (:players invocation)
-         previous)))))
+         previous))
+      ;; If undoing landed us on a bot's turn, kick them off again
+      (maybe-run-bot-turns! db game-key))))
 
 (defn find-beginning
   [history]
@@ -331,7 +333,9 @@
          channels
          {:type "game-state"
           :game beginning})
-        (persist/update-state! db game-key beginning)))))
+        (persist/update-state! db game-key beginning)
+        ;; If clearing landed us on a bot's turn, kick them off again
+        (maybe-run-bot-turns! db game-key)))))
 
 (defn timestamp
   []

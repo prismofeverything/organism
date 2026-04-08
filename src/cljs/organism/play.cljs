@@ -107,6 +107,40 @@
 (defonce introduction
   (r/atom empty-introduction))
 
+;; Hover state for the choose-action-type phase: which element-type is hovered,
+;; plus the [x y] of the hovered element so we can position the popup.
+(defonce action-hover (r/atom nil))
+
+;; Hover state for the choose-action phase: which "from" space is hovered
+;; so we can show its destination spaces.
+(defonce from-hover (r/atom nil))
+
+;; Separate hover for an individual destination (so we can brighten it)
+(defonce dest-hover (r/atom nil))
+
+;; Pending timeout id for delayed clearing of from-hover on mouseleave
+(defonce from-hover-timeout (atom nil))
+
+(defn- cancel-from-hover-clear! []
+  (when @from-hover-timeout
+    (js/clearTimeout @from-hover-timeout)
+    (reset! from-hover-timeout nil)))
+
+(defn- schedule-from-hover-clear! []
+  (cancel-from-hover-clear!)
+  (reset! from-hover-timeout
+          (js/setTimeout
+           (fn []
+             (reset! from-hover nil)
+             (reset! dest-hover nil)
+             (reset! from-hover-timeout nil))
+           150)))
+
+;; When the user clicks an element at :choose-action and multiple sub-actions
+;; are possible (e.g. both grow and circulate), this holds {:space :options}
+;; to render the popup.
+(defonce action-popup (r/atom nil))
+
 (defonce food-source
   (r/atom {}))
 
@@ -605,6 +639,9 @@
     (into [] (concat [:g] highlights))))
 
 (defn introduce-highlights
+  "Click a starting space → popup with available element types appears next
+   to it. Pick a type → element placed there. After two are placed, the
+   third space gets the remaining type automatically. No left-panel needed."
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
@@ -612,10 +649,34 @@
         locations (:locations board)
         radius (* (:radius board) highlight-factor)
         element-radius (* (:radius board) 1)
+        popup-radius (* (:radius board) 0.45)
         starting-spaces (get-in game [:players player :starting-spaces])
-        {:keys [chosen-space chosen-element progress]} @introduction
+        {:keys [chosen-space progress]} @introduction
+        all-types [:eat :grow :move]
+        used-types (set (vals progress))
+        available-types (vec (remove used-types all-types))
 
-        ;; unchosen starting spaces
+        ;; Place element at space, auto-completing if only one type remains
+        place-at!
+        (fn [space type]
+          (let [new-progress (assoc progress space type)
+                ;; If 2 placed and 1 starting space + 1 type remain, auto-place
+                remaining-spaces (remove (set (keys new-progress)) starting-spaces)
+                remaining-types (remove (set (vals new-progress)) all-types)
+                final-progress
+                (if (and (= 1 (count remaining-spaces))
+                         (= 1 (count remaining-types)))
+                  (assoc new-progress (first remaining-spaces) (first remaining-types))
+                  new-progress)
+                new-intro (-> @introduction
+                              (assoc :chosen-space nil)
+                              (assoc :chosen-element nil)
+                              (assoc :progress final-progress))]
+            (reset! introduction new-intro)
+            (when (= (count final-progress) (count starting-spaces))
+              (send-introduction! choices new-intro))))
+
+        ;; Render unchosen starting spaces as click targets
         highlights
         (mapv
          (fn [space]
@@ -623,36 +684,47 @@
              ^{:key space}
              (highlight-circle
               x y radius color
-              (fn [event]
-                (if chosen-element
-                  (do
-                    (swap!
-                     introduction
-                     (fn [intro]
-                       (-> intro
-                           (assoc :chosen-space nil)
-                           (assoc :chosen-element nil)
-                           (update :progress assoc space chosen-element))))
-                    (send-introduction! choices @introduction))
-                  (swap! introduction assoc :chosen-space space))))))
+              (fn [_event]
+                (swap! introduction assoc :chosen-space space)))))
          (remove
           (set (conj (keys progress) chosen-space))
           starting-spaces))
 
-        ;; chosen space without element
-        highlights
-        (if chosen-space
-          (let [[x y] (get locations chosen-space)]
-            (conj
-             highlights
-             ^{:key chosen-space}
+        ;; Chosen space — show its highlight + a popup with available types
+        chosen-popup
+        (when chosen-space
+          (let [[x y] (get locations chosen-space)
+                n (count available-types)
+                ;; Layout the popup in a horizontal row above the space
+                spread (* popup-radius 2.4)
+                start-x (- x (* spread (/ (dec n) 2.0)))
+                offset-y (- y (* (:radius board) 1.6))]
+            ^{:key (str "popup-" chosen-space)}
+            [:g {:key (str "popup-" chosen-space)}
+             ;; Click-elsewhere catcher: highlight on the chosen space cancels
              (focus-circle
               x y radius color
-              (fn [event]
-                (swap! introduction dissoc :chosen-space)))))
-          highlights)
+              (fn [_e] (swap! introduction dissoc :chosen-space)))
+             ;; The popup options
+             (for [[i type] (map-indexed vector available-types)
+                   :let [px (+ start-x (* i spread))]]
+               ^{:key (str "popup-" chosen-space "-" type)}
+               [:g {:on-click (fn [e]
+                                (.stopPropagation e)
+                                (place-at! chosen-space type))}
+                ;; Background circle behind the icon
+                [:circle {:cx px :cy offset-y :r popup-radius
+                          :fill (board/brighten color 0.05)
+                          :stroke (board/brighten color 0.4)
+                          :stroke-width (* 0.15 popup-radius)
+                          :style {:cursor "pointer"}}]
+                (render-element
+                 type px offset-y (* popup-radius 0.8) color food-color
+                 (fn [e]
+                   (.stopPropagation e)
+                   (place-at! chosen-space type)))])]))
 
-        ;; elements placed so far
+        ;; Render elements placed so far — clickable to remove (revert)
         elements
         (map
          (fn [[space type]]
@@ -660,21 +732,16 @@
              ^{:key space}
              (render-element
               type x y element-radius color food-color
-              (fn [event]
-                (if chosen-element
-                  (do
-                    (swap!
-                     introduction
-                     (fn [intro]
-                       (-> intro
-                           (assoc :chosen-space nil)
-                           (assoc :chosen-element nil)
-                           (update :progress assoc space chosen-element))))
-                    (send-introduction! choices @introduction))
-                  (swap! introduction assoc :chosen-space space))))))
+              (fn [_event]
+                (swap! introduction
+                       (fn [intro]
+                         (-> intro
+                             (assoc :chosen-space nil)
+                             (update :progress dissoc space))))))))
          progress)]
     ^{:key "highlights"}
-    [:g (concat highlights elements)]))
+    [:g (cond-> (concat highlights elements)
+          chosen-popup (concat [chosen-popup]))]))
 
 (defn chosen-organism-highlights
   [game board on-click turn choices]
@@ -744,12 +811,372 @@
     highlights))
 
 (defn choose-action-type-highlights
+  "During :choose-action-type, render a highlight circle around each
+   current-organism element. Hovering brightens all elements of that type
+   and shows a popup with the type name and number of actions you'll get."
   [game board turn choices]
-  (chosen-organism-highlights
-   game board 
-   (fn [element event]
-     (send-choice! choices (:type element) true))
-   turn choices))
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        ;; The game at :choose-action-type doesn't yet have the current
+        ;; organism set in organism-turns. Find the player's first organism
+        ;; (find-state already chose it; here we just look it up).
+        game-with-orgs (game/find-organisms game)
+        organisms (game/player-organisms game-with-orgs player)
+        first-org-id (first (keys organisms))
+        elements (or (not-empty (game/current-organism-elements game))
+                     (get organisms first-org-id)
+                     [])
+        by-type (group-by :type elements)
+        hover @action-hover
+        hover-type (:type hover)
+
+        ;; A click-target halo per element. Hovered type → brighter halo.
+        element-halos
+        (mapv
+         (fn [{:keys [space type] :as _element}]
+           (let [[x y] (get locations space)
+                 hovered? (= hover-type type)
+                 stroke-c (if hovered?
+                            (board/brighten color 0.6)
+                            (board/brighten color 0.3))
+                 fill-op (if hovered? 0.25 0.10)]
+             ^{:key (str "halo-" space)}
+             [:circle
+              {:cx x :cy y
+               :r (* radius 1.15)
+               :stroke stroke-c
+               :stroke-width (if hovered? (* 0.28 radius) (* 0.19 radius))
+               :fill "white"
+               :fill-opacity fill-op
+               :style {:cursor "pointer"}
+               :on-mouse-enter (fn [_e]
+                                 (reset! action-hover {:type type :x x :y y}))
+               :on-mouse-leave (fn [_e] (reset! action-hover nil))
+               :on-click (fn [_e]
+                           (reset! action-hover nil)
+                           (send-choice! choices type true))}]))
+         elements)
+
+        ;; Popup showing "EAT: 3 actions" above the hovered element
+        popup
+        (when hover
+          (let [{:keys [type x y]} hover
+                n (count (get by-type type []))
+                label (str (clojure.string/upper-case (name type))
+                           ": " n " action" (when (not= n 1) "s"))
+                box-w 180
+                box-h 38
+                px (- x (/ box-w 2))
+                py (- y (* (:radius board) 2.4))]
+            ^{:key "action-hover-popup"}
+            [:g {:pointer-events "none"}
+             [:rect {:x px :y py :width box-w :height box-h :rx 6
+                     :fill "#0A0E1C"
+                     :stroke (board/brighten color 0.4)
+                     :stroke-width 2
+                     :opacity 0.95}]
+             [:text {:x (+ px (/ box-w 2)) :y (+ py 25)
+                     :text-anchor "middle"
+                     :fill "#fff"
+                     :font-family "monospace"
+                     :font-size 16
+                     :letter-spacing "1px"}
+              label]]))]
+    (cond-> element-halos
+      popup (conj popup))))
+
+(defn- compute-from-spaces-and-options
+  "Given the post-:choose-action game wrap, return a map
+   {space → [{:label ... :destinations [...] :next-state ...
+              :sub-options [...]} ...]}
+   For grow, the top-level option for each grower has :sub-options listing
+   the available element-types as a nested popup."
+  [post-action-game-wrap label-prefix]
+  (try
+    (let [[phase from-choices] (choice/find-state post-action-game-wrap)]
+      (cond
+        ;; Move/eat/circulate: from-choices is keyed by space directly
+        (#{:move-from :eat-to :circulate-from} phase)
+        (into {}
+              (map
+               (fn [space]
+                 (let [from-state (get-in from-choices [space :state])
+                       from-wrap (assoc post-action-game-wrap :state from-state)
+                       dests (try
+                               (let [[_ to-choices] (choice/find-state from-wrap)]
+                                 (filter vector? (keys to-choices)))
+                               (catch :default _ nil))]
+                   [space [{:label label-prefix
+                            :destinations (or dests [])
+                            :next-state from-state}]]))
+               (filter vector? (keys from-choices))))
+
+        ;; Grow: top-level option is "GROW", nested sub-options are element types
+        (= phase :grow-element)
+        (let [type-keys (keys from-choices)
+              ;; For each grower space, collect its sub-options (one per type)
+              ;; sub-options-by-space: {grower-space [{:label :destinations :next-state} ...]}
+              sub-by-space
+              (reduce
+               (fn [acc type-key]
+                 (try
+                   (let [type-state (get-in from-choices [type-key :state])
+                         type-wrap (assoc post-action-game-wrap :state type-state)
+                         [grow-from-phase grow-from-choices] (choice/find-state type-wrap)
+                         sub-label (clojure.string/upper-case (name type-key))]
+                     (if (= grow-from-phase :grow-from)
+                       (reduce
+                        (fn [acc contribution]
+                          (let [contrib-state (get-in grow-from-choices [contribution :state])
+                                contrib-wrap (assoc type-wrap :state contrib-state)
+                                [_ to-choices] (choice/find-state contrib-wrap)
+                                dests (filter vector? (keys to-choices))
+                                sub-opt {:label sub-label
+                                         :destinations (or dests [])
+                                         :next-state contrib-state}]
+                            (reduce
+                             (fn [acc space]
+                               (update acc space (fnil conj []) sub-opt))
+                             acc
+                             (keys contribution))))
+                        acc
+                        (keys grow-from-choices))
+                       acc))
+                   (catch :default _ acc)))
+               {} type-keys)]
+          ;; Wrap each grower's sub-options in a single top-level GROW option
+          (into {}
+                (map
+                 (fn [[space subs]]
+                   [space [{:label label-prefix
+                            :destinations (->> subs
+                                                (mapcat :destinations)
+                                                distinct
+                                                vec)
+                            :sub-options subs}]])
+                 sub-by-space)))
+
+        :else {}))
+    (catch :default _ {})))
+
+(defn choose-action-highlights
+  "During :choose-action, the chosen action type drives one set of clickable
+   ELEMENT halos (move/eat/grow targets), and a separate set of FOOD halos
+   (small markers on every element with food → click to circulate).
+
+   - Click element halo → execute the action (popup only for grow's
+     element-type sub-choice)
+   - Click food halo → execute circulate from that element"
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        organism-turns (get-in game [:state :player-turn :organism-turns])
+        action-type (get-in organism-turns [(dec (count organism-turns)) :choice])
+        ;; Action type's flow (move-from / eat-to / grow-element)
+        action-game-state (get-in choices [action-type :state])
+        action-game (when action-game-state (assoc game :state action-game-state))
+        action-from-map (when action-game
+                          (compute-from-spaces-and-options
+                           action-game (clojure.string/upper-case (name action-type))))
+        ;; Circulate flow (any element with food)
+        circ-game-state (get-in choices [:circulate :state])
+        circ-game (when circ-game-state (assoc game :state circ-game-state))
+        circ-from-map (when circ-game
+                        (compute-from-spaces-and-options circ-game "CIRCULATE"))
+
+        hover @from-hover  ;; {:space [...] :kind :element|:food}
+        popup @action-popup
+
+        ;; ── Element halo click ──────────────────────────────────────────
+        opt->button
+        (fn opt->button [space opt]
+          {:label (:label opt)
+           :on-click
+           (fn []
+             (cond
+               (and (seq (:sub-options opt))
+                    (= 1 (count (:sub-options opt))))
+               (do (reset! action-popup nil)
+                   (send-state! (:next-state (first (:sub-options opt))) true))
+               (seq (:sub-options opt))
+               (reset! action-popup
+                       {:space space
+                        :options (mapv (partial opt->button space) (:sub-options opt))})
+               :else
+               (do (reset! action-popup nil)
+                   (send-state! (:next-state opt) true))))})
+
+        click-element
+        (fn [space]
+          (reset! from-hover nil)
+          (let [opts (get action-from-map space)]
+            (cond
+              (empty? opts) nil
+              ;; Single top-level option with no sub-options → execute directly
+              (and (= 1 (count opts))
+                   (empty? (:sub-options (first opts))))
+              (send-state! (:next-state (first opts)) true)
+              ;; Single top-level option with exactly one sub-option → execute it
+              (and (= 1 (count opts))
+                   (= 1 (count (:sub-options (first opts)))))
+              (send-state! (:next-state (first (:sub-options (first opts)))) true)
+              ;; Single top-level option with multiple sub-options
+              ;; (e.g. GROW with element-type choices) → skip top level and show sub-options
+              (= 1 (count opts))
+              (reset! action-popup
+                      {:space space
+                       :options (mapv (partial opt->button space)
+                                      (:sub-options (first opts)))})
+              ;; Multiple top-level options → top-level popup
+              :else
+              (reset! action-popup
+                      {:space space
+                       :options (mapv (partial opt->button space) opts)}))))
+
+        click-food
+        (fn [space]
+          (reset! from-hover nil)
+          (when-let [opt (first (get circ-from-map space))]
+            (send-state! (:next-state opt) true)))
+
+        ;; ── Element halos (the action's clickable elements) ────────────
+        element-halos
+        (mapv
+         (fn [space]
+           (let [[x y] (get locations space)
+                 hovered? (and (= :element (:kind hover))
+                               (= space (:space hover)))
+                 stroke-c (if hovered?
+                            (board/brighten color 0.6)
+                            (board/brighten color 0.3))
+                 fill-op (if hovered? 0.25 0.10)]
+             ^{:key (str "el-" space)}
+             [:circle
+              {:cx x :cy y
+               :r (* radius 1.15)
+               :stroke stroke-c
+               :stroke-width (if hovered? (* 0.28 radius) (* 0.19 radius))
+               :fill "white"
+               :fill-opacity fill-op
+               :style {:cursor "pointer"}
+               :on-mouse-enter (fn [_e]
+                                 (cancel-from-hover-clear!)
+                                 (reset! dest-hover nil)
+                                 (reset! from-hover {:space space :kind :element}))
+               :on-mouse-leave (fn [_e] (schedule-from-hover-clear!))
+               :on-click (fn [_e] (click-element space))}]))
+         (keys action-from-map))
+
+        ;; ── Food halos (every element with food → circulate sources) ───
+        ;; Food on the element is rendered at (x, y - radius*0.3) by board/render-food
+        food-halos
+        (mapv
+         (fn [space]
+           (let [[x y] (get locations space)
+                 fx x
+                 fy (- y (* radius 0.3))
+                 hovered? (and (= :food (:kind hover))
+                               (= space (:space hover)))]
+             ^{:key (str "food-" space)}
+             [:circle
+              {:cx fx :cy fy
+               :r (* radius (if hovered? 0.34 0.28))
+               :fill "#FFD030"
+               :stroke (board/brighten color 0.4)
+               :stroke-width 2.5
+               :fill-opacity (if hovered? 0.95 0.85)
+               :style {:cursor "pointer"}
+               :on-mouse-enter (fn [_e]
+                                 (cancel-from-hover-clear!)
+                                 (reset! dest-hover nil)
+                                 (reset! from-hover {:space space :kind :food}))
+               :on-mouse-leave (fn [_e] (schedule-from-hover-clear!))
+               :on-click (fn [_e] (click-food space))}]))
+         (keys circ-from-map))
+
+        ;; ── Destination halos when hovering ────────────────────────────
+        ;; Element hover → action's destinations
+        ;; Food hover    → circulate's destinations
+        hover-dests
+        (when hover
+          (let [{:keys [space kind]} hover
+                src-map (case kind :food circ-from-map :element action-from-map nil)]
+            (when src-map
+              (->> (get src-map space)
+                   (mapcat :destinations)
+                   distinct
+                   seq))))
+        d-hover @dest-hover
+        dest-halos
+        (when (seq hover-dests)
+          (mapv
+           (fn [space]
+             (let [[x y] (get locations space)
+                   d-hovered? (= space d-hover)]
+               ^{:key (str "dest-" space)}
+               [:circle
+                {:cx x :cy y
+                 :r (* radius (if d-hovered? 1.15 1.0))
+                 :stroke (if d-hovered?
+                           (board/brighten color 0.9)
+                           (board/brighten color 0.7))
+                 :stroke-width (if d-hovered? (* 0.28 radius) (* 0.18 radius))
+                 :stroke-dasharray (when-not d-hovered? "4,3")
+                 :fill (if d-hovered?
+                         (board/brighten color 0.6)
+                         (board/brighten color 0.3))
+                 :fill-opacity (if d-hovered? 0.40 0.18)
+                 :style {:cursor "pointer"}
+                 :on-mouse-enter (fn [_e]
+                                   (cancel-from-hover-clear!)
+                                   (reset! dest-hover space))
+                 :on-mouse-leave (fn [_e]
+                                   (reset! dest-hover nil)
+                                   (schedule-from-hover-clear!))}]))
+           hover-dests))
+
+        ;; ── Popup (only for grow element-type selection) ────────────────
+        popup-render
+        (when popup
+          (let [{:keys [space options]} popup
+                [x y] (get locations space)
+                n (count options)
+                btn-w 130
+                btn-h 36
+                spread (+ btn-w 10)
+                start-x (- x (* spread (/ (dec n) 2.0)))
+                py (- y (* (:radius board) 2.4))]
+            ^{:key "action-choice-popup"}
+            [:g
+             [:rect {:x -10000 :y -10000 :width 20000 :height 20000
+                     :fill "transparent"
+                     :on-click (fn [_e] (reset! action-popup nil))}]
+             (for [[i opt] (map-indexed vector options)
+                   :let [bx (- (+ start-x (* i spread)) (/ btn-w 2))]]
+               ^{:key (str "popup-btn-" i)}
+               [:g {:on-click (fn [e]
+                                (.stopPropagation e)
+                                ((:on-click opt)))
+                    :style {:cursor "pointer"}}
+                [:rect {:x bx :y py :width btn-w :height btn-h :rx 6
+                        :fill "#0A0E1C"
+                        :stroke (board/brighten color 0.5)
+                        :stroke-width 2}]
+                [:text {:x (+ bx (/ btn-w 2)) :y (+ py 24)
+                        :text-anchor "middle"
+                        :fill "#fff"
+                        :font-family "monospace"
+                        :font-size 14
+                        :letter-spacing "1px"}
+                 (:label opt)]])]))]
+    (vec (concat element-halos
+                 food-halos
+                 (or dest-halos [])
+                 (when popup-render [popup-render])))))
 
 (defn choose-space-highlights
   [game board turn choices]
@@ -773,27 +1200,42 @@
     (concat highlights element-highlights)))
 
 (defn choose-target-highlights
+  "Render the destination spaces from `choices` as halos with hover-brightening.
+   Used for :move-to, :grow-to, :eat-from, :circulate-to, etc."
   [game board turn choices]
-  (let [choose-from (game/get-action-field game :from)
-        spaces (keys choices)
-        element-stroke highlight-element-stroke
-
-        element-highlights
-        (chosen-organism-highlights
-         game board 
-         (fn [element event]
-           (if (get choices (:space element))
-             (send-choice! choices (:space element) true)))
-         turn choices)
-        
-        highlights
-        (space-highlights
-         game board turn choices
-         spaces
-         (fn [space event]
-           (send-choice! choices space true)))]
-
-    (concat highlights element-highlights)))
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        spaces (filter vector? (keys choices))
+        d-hover @dest-hover]
+    (mapv
+     (fn [space]
+       (let [[x y] (get locations space)
+             d-hovered? (= space d-hover)]
+         ^{:key (str "target-" space)}
+         [:circle
+          {:cx x :cy y
+           :r (* radius (if d-hovered? 1.15 1.0))
+           :stroke (if d-hovered?
+                     (board/brighten color 0.9)
+                     (board/brighten color 0.7))
+           :stroke-width (if d-hovered? (* 0.28 radius) (* 0.18 radius))
+           :stroke-dasharray (when-not d-hovered? "4,3")
+           :fill (if d-hovered?
+                   (board/brighten color 0.6)
+                   (board/brighten color 0.3))
+           :fill-opacity (if d-hovered? 0.40 0.18)
+           :style {:cursor "pointer"}
+           :on-mouse-enter (fn [_e]
+                             (cancel-from-hover-clear!)
+                             (reset! dest-hover space))
+           :on-mouse-leave (fn [_e] (reset! dest-hover nil))
+           :on-click (fn [_e]
+                       (reset! dest-hover nil)
+                       (reset! from-hover nil)
+                       (send-choice! choices space true))}]))
+     spaces)))
 
 (defn grow-element-highlights
   [game board turn choices]
@@ -876,15 +1318,15 @@
           :introduce (introduce-highlights game board turn choices)
           :choose-organism (choose-organism-highlights game board turn choices)
           :choose-action-type (choose-action-type-highlights game board turn choices)
-          :choose-action (choose-action-type-highlights game board turn choices)
-          :eat-to (choose-space-highlights game board turn choices)
-          :eat-from (choose-space-highlights game board turn choices)
-          :circulate-from (choose-space-highlights game board turn choices)
+          :choose-action (choose-action-highlights game board turn choices)
+          :eat-to (choose-target-highlights game board turn choices)
+          :eat-from (choose-target-highlights game board turn choices)
+          :circulate-from (choose-target-highlights game board turn choices)
           :circulate-to (choose-target-highlights game board turn choices)
           :grow-element (choose-action-type-highlights game board turn choices)
           :grow-from (grow-from-highlights game board turn choices)
-          :grow-to (choose-space-highlights game board turn choices)
-          :move-from (choose-space-highlights game board turn choices)
+          :grow-to (choose-target-highlights game board turn choices)
+          :move-from (choose-target-highlights game board turn choices)
           :move-to (choose-target-highlights game board turn choices)
           [])]
     ^{:key "highlights"}
