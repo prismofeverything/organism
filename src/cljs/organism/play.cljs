@@ -1852,17 +1852,19 @@
     :placeholder (if in-game? "search players..." "click to join")
     :on-change (fn [v] (send-player-name! index v))
     :on-select (fn [{:keys [name bot?]}]
-                 ;; If picking a bot, auto-suffix to avoid name collision
+                 ;; If picking a bot, auto-suffix alphabetically (OBO-A, OBO-B, ...)
                  (let [existing (->> (:players invocation)
                                      (map-indexed vector)
                                      (remove (fn [[i _]] (= i index)))
-                                     (map second))
+                                     (map second)
+                                     set)
                        chosen (if bot?
-                                (loop [n 1]
-                                  (let [candidate (str name "-" n)]
-                                    (if (some #{candidate} existing)
-                                      (recur (inc n))
-                                      candidate)))
+                                (or (some
+                                     (fn [c]
+                                       (let [candidate (str name "-" c)]
+                                         (when-not (existing candidate) candidate)))
+                                     (map char (range 65 91))) ;; A-Z
+                                    name)
                                 name)]
                    (send-player-name! index chosen)
                    (send-open-game! (update invocation :players assoc index chosen))))

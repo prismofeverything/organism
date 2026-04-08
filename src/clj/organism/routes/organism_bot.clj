@@ -372,63 +372,39 @@
   (when-let [[_k next-game] (agent-step+key game)]
     next-game))
 
-(defn- broadcast-and-persist!
-  "On turn boundary: store the new state, persist it, and broadcast the
-   choice keys that produced this turn so the client can replay them."
-  [games-atom game-key next-game choices broadcast-fn persist-fn]
-  (let [state (:state next-game)]
-    (swap! games-atom update-in [:games game-key]
-           (fn [gs]
-             (-> gs
-                 (assoc-in [:game :state] state)
-                 (update :history (fnil conj []) state))))
-    (when persist-fn (persist-fn state))
-    (when broadcast-fn (broadcast-fn choices next-game))))
+;; ── Organism bot loop config (uses shared bots/run-bot-loop!) ──────────────
+
+(defn- organism-turn-changed?
+  "Turn boundary for organism: player change OR round change."
+  [a b]
+  (or (not= (get-in a [:state :player-turn :player])
+            (get-in b [:state :player-turn :player]))
+      (not= (get-in a [:state :round])
+            (get-in b [:state :round]))))
+
+(defn- organism-bot-config
+  [games-atom game-key humans delay-ms on-turn]
+  {:label          (str "ORGANISM BOT " game-key)
+   :get-game       (fn [] (:game (get-in @games-atom [:games game-key])))
+   :put-game!      (fn [next-game]
+                     (swap! games-atom assoc-in [:games game-key :game] next-game))
+   :agent-step+key agent-step+key
+   :victory?       game/victory?
+   :current-player game/current-player
+   :turn-changed?  organism-turn-changed?
+   :on-turn        on-turn
+   :humans         humans
+   :delay-ms       delay-ms})
 
 (defn run-bot-turns!
-  "Run bot turns in a background future. Each bot decision's choice key is
-   collected for the current turn; on turn boundaries the collected choices
-   are broadcast (event-sourced replay)."
+  "All-bot game runner — used by /organism/generate. No humans."
   [games-atom game-key delay-ms broadcast-fn persist-fn]
-  (future
-    (try
-      (println "BOT (background) starting for" game-key)
-      (let [initial-game (:game (get-in @games-atom [:games game-key]))]
-        (loop [game initial-game
-               turn-choices [] ;; choice keys collected for the current turn
-               n 0]
-          (let [winner (and game (game/victory? game))]
-            (cond
-              winner
-              (do
-                (broadcast-and-persist! games-atom game-key game turn-choices
-                                        broadcast-fn persist-fn)
-                (println "BOT (background) finished after" n "steps for" game-key
-                         "winner:" winner))
-
-              (or (> n 20000) (nil? game))
-              (println "BOT (background) finished after" n "steps for" game-key)
-
-              :else
-              (if-let [[ck next-game] (agent-step+key game)]
-                (let [prev-state (:state game)
-                      next-state (:state next-game)
-                      turn-changed?
-                      (or (not= (get-in prev-state [:player-turn :player])
-                                (get-in next-state [:player-turn :player]))
-                          (not= (:round prev-state) (:round next-state)))
-                      choices' (conj turn-choices ck)]
-                  (if turn-changed?
-                    (do
-                      (broadcast-and-persist! games-atom game-key next-game choices'
-                                              broadcast-fn persist-fn)
-                      (Thread/sleep delay-ms)
-                      (recur next-game [] (inc n)))
-                    (recur next-game choices' (inc n))))
-                (do (println "BOT (background) no progress at" n "for" game-key)
-                    nil))))))
-      (catch Exception e
-        (println "BOT (background) error for" game-key ":" (.getMessage e))))))
+  (bots/run-bot-loop!
+   (organism-bot-config
+    games-atom game-key #{} delay-ms
+    (fn [choice-keys next-game]
+      (when broadcast-fn (broadcast-fn choice-keys next-game))
+      (when persist-fn (persist-fn (:state next-game)))))))
 
 (defn play-until-human-or-done
   "Run bot steps until it's a human's turn or the game is over.
@@ -468,49 +444,15 @@
           (do (println "BOT: no progress at step" n "round" round)
               [game new-history]))))))
 
-;; ── Bot turn execution (for normal games with mixed bot/human players) ─────
-
 (defn run-bot-until-human!
-  "When it's a bot's turn during a normal game, run agent-step in the
-   background until a human's turn is reached or the game ends.
-
-   - games-atom: shared games atom (organism websockets/games)
-   - game-key: the game key
-   - human-players: set of human player names
-   - delay-ms: delay between bot decisions (turn boundaries)
-   - broadcast-fn: (fn [next-game]) called on each turn boundary
-   - persist-fn: (fn [next-state]) called on each turn boundary"
+  "Mixed game runner — runs bots until a human's turn comes up."
   [games-atom game-key human-players delay-ms broadcast-fn persist-fn]
-  (future
-    (try
-      (loop [game (:game (get-in @games-atom [:games game-key]))
-             n 0]
-        (let [current-player (when game (game/current-player game))
-              winner (when game (game/victory? game))]
-          (cond
-            (or (nil? game) winner (> n 5000))
-            nil
-
-            ;; Stop when it's a human's turn
-            (contains? human-players current-player)
-            nil
-
-            :else
-            (if-let [[ck next-game] (agent-step+key game)]
-              (let [prev-state (:state game)
-                    next-state (:state next-game)
-                    turn-changed?
-                    (or (not= (get-in prev-state [:player-turn :player])
-                              (get-in next-state [:player-turn :player]))
-                        (not= (:round prev-state) (:round next-state)))]
-                (when turn-changed?
-                  (broadcast-and-persist! games-atom game-key next-game [ck]
-                                          broadcast-fn persist-fn)
-                  (Thread/sleep delay-ms))
-                (recur next-game (inc n)))
-              nil))))
-      (catch Exception e
-        (println "BOT (in-game) error:" (.getMessage e))))))
+  (bots/run-bot-loop!
+   (organism-bot-config
+    games-atom game-key human-players delay-ms
+    (fn [choice-keys next-game]
+      (when broadcast-fn (broadcast-fn choice-keys next-game))
+      (when persist-fn (persist-fn (:state next-game)))))))
 
 ;; ── Bot registration ────────────────────────────────────────────────────────
 
