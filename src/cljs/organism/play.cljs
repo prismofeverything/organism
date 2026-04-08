@@ -393,8 +393,8 @@
    Extra rotation decays from `spiral-turns * tau` at p=0 to 0 at p=1, giving
    the spiraling-outward effect."
   [source-pts target-pts progress]
-  (let [spiral-turns (/ 0.2 3)
-        extra (* (- 1.0 progress) board/tau spiral-turns)]
+  (let [curl-turns (/ 0.2 9)
+        extra (* (- 1.0 progress) board/tau curl-turns)]
     (mapv
      (fn [[sx sy] [tx ty]]
        (let [sr (Math/sqrt (+ (* sx sx) (* sy sy)))
