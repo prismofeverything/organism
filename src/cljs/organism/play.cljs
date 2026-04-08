@@ -1,5 +1,6 @@
 (ns organism.play
   (:require
+   [clojure.set :as cset]
    [clojure.string :as string]
    [cljs.pprint :refer (pprint)]
    [cljs.reader :as reader]
@@ -121,6 +122,556 @@
 ;; Pending timeout id for delayed clearing of from-hover on mouseleave
 (defonce from-hover-timeout (atom nil))
 
+;; ── Animation state ─────────────────────────────────────────────────────────
+;; When a new state arrives, we hold the old state in `displayed-state` and
+;; the new one in `target-state`, animating between them via `transition-progress`
+;; (0.0 → 1.0). The board renders the old state with an overlay describing the
+;; transitions in flight.
+(defonce displayed-state    (r/atom nil))
+(defonce target-state       (r/atom nil))
+(defonce transition-progress (r/atom 1.0))
+(defonce transition-token   (atom 0))  ;; cancels older RAF loops when a new transition starts
+(defonce transition-duration 240)  ;; ms
+
+(defn- diff-transitions
+  "Detect what changed between two game states. Returns a vector of transition
+   maps. Types:
+   {:type :move            :from space :to space :element element}
+   {:type :grow            :to space :element element}
+   {:type :lose            :space space :element element}  ;; conflict/integrity
+   {:type :circulate       :from space :to space :amount n :element-color c}
+   {:type :food-up         :space space :amount n}          ;; e.g. eating
+   {:type :food-down       :space space :amount n}
+   {:type :free-food-appear :space space :amount n}
+   {:type :free-food-vanish :space space :amount n}"
+  [from-state to-state]
+  (let [from-els   (:elements from-state)
+        to-els     (:elements to-state)
+        from-food  (:food from-state)
+        to-food    (:food to-state)
+        from-spaces (set (keys from-els))
+        to-spaces   (set (keys to-els))
+        new-spaces  (cset/difference to-spaces from-spaces)
+        gone-spaces (cset/difference from-spaces to-spaces)
+        common-spaces (cset/intersection from-spaces to-spaces)
+        ;; Match up moves: a gone-space element matched with a new-space element
+        ;; of the same player/organism/type. Each match consumes both.
+        [move-pairs unmoved-gone unmoved-new]
+        (reduce
+         (fn [[pairs gs ns] s]
+           (let [el (get from-els s)
+                 match (first
+                        (filter
+                         (fn [ns-space]
+                           (let [new-el (get to-els ns-space)]
+                             (and new-el
+                                  (= (:player el) (:player new-el))
+                                  (= (:organism el) (:organism new-el))
+                                  (= (:type el) (:type new-el)))))
+                         ns))]
+             (if match
+               [(conj pairs {:from s :to match :element (get to-els match)})
+                (disj gs s)
+                (disj ns match)]
+               [pairs gs ns])))
+         [[] gone-spaces new-spaces]
+         gone-spaces)
+        ;; Food deltas on elements present in both states
+        food-changes
+        (for [s common-spaces
+              :let [old-f (or (:food (get from-els s)) 0)
+                    new-f (or (:food (get to-els s)) 0)
+                    delta (- new-f old-f)
+                    el (get from-els s)]
+              :when (not (zero? delta))]
+          {:space s :delta delta
+           :player (:player el) :organism (:organism el)})
+        ups   (vec (filter #(pos? (:delta %)) food-changes))
+        downs (vec (filter #(neg? (:delta %)) food-changes))
+        ;; Greedy matching of +N/−N pairs within same player+organism => circulate
+        [circ-pairs remaining-ups remaining-downs]
+        (reduce
+         (fn [[circs us ds] u]
+           (let [match (first
+                        (filter
+                         (fn [d]
+                           (and (= (:player u)   (:player d))
+                                (= (:organism u) (:organism d))
+                                (= (:delta u)    (- (:delta d)))))
+                         ds))]
+             (if match
+               [(conj circs {:from (:space match) :to (:space u)
+                             :amount (:delta u)})
+                (remove #{u} us)
+                (remove #{match} ds)]
+               [circs us ds])))
+         [[] ups downs]
+         ups)]
+    (vec
+     (concat
+      ;; Moves
+      (for [{:keys [from to element]} move-pairs]
+        {:type :move :from from :to to :element element})
+      ;; Lost (gone without a move match)
+      (for [s unmoved-gone]
+        {:type :lose :space s :element (get from-els s)})
+      ;; Grown (new without a move match)
+      (for [s unmoved-new]
+        {:type :grow :to s :element (get to-els s)})
+      ;; Circulate pairs
+      (for [c circ-pairs]
+        (assoc c :type :circulate))
+      ;; Remaining food ups
+      (for [u remaining-ups]
+        {:type :food-up :space (:space u) :amount (:delta u)})
+      ;; Remaining food downs
+      (for [d remaining-downs]
+        {:type :food-down :space (:space d) :amount (- (:delta d))})
+      ;; Free food appearing
+      (for [s (cset/difference (set (keys to-food)) (set (keys from-food)))
+            :let [amt (get to-food s)]]
+        {:type :free-food-appear :space s :amount amt})
+      ;; Free food vanishing
+      (for [s (cset/difference (set (keys from-food)) (set (keys to-food)))
+            :let [amt (get from-food s)]]
+        {:type :free-food-vanish :space s :amount amt})))))
+
+(defn- during-transition-state
+  "Compute a render-time game state: starts from `from-state`, but strips out
+   elements and food that are being animated by the overlay so we don't see
+   them in both the base and the overlay simultaneously.
+
+   - :move source elements are hidden (overlay draws the ghost mover)
+   - :lose elements are hidden (overlay draws the collapse morph)
+   - :circulate source food is reduced by the circulated amount (the coin
+     is in flight in the overlay)
+   - :food-down food is reduced (the coin is shrinking away)
+   - :free-food-vanish free food is removed from :food (overlay fades it)"
+  [from-state transitions]
+  (let [hide-elements
+        (set
+         (concat
+          (keep (fn [{:keys [type from]}] (when (= type :move) from)) transitions)
+          (keep (fn [{:keys [type space]}] (when (= type :lose) space)) transitions)))
+        hide-free-food
+        (set
+         (keep (fn [{:keys [type space]}] (when (= type :free-food-vanish) space))
+               transitions))
+        base (-> from-state
+                 (update :elements (fn [els] (reduce dissoc els hide-elements)))
+                 (update :food (fn [f] (reduce dissoc f hide-free-food))))]
+    (reduce
+     (fn [st {:keys [type] :as tr}]
+       (case type
+         :circulate
+         (let [{:keys [from amount]} tr]
+           (if (get-in st [:elements from])
+             (update-in st [:elements from :food]
+                        #(max 0 (- (or % 0) amount)))
+             st))
+         :food-down
+         (let [{:keys [space amount]} tr]
+           (if (get-in st [:elements space])
+             (update-in st [:elements space :food]
+                        #(max 0 (- (or % 0) amount)))
+             st))
+         st))
+     base
+     transitions)))
+
+(defn- ease-in-out
+  "Smoothstep easing: 3t^2 - 2t^3"
+  [t]
+  (let [t (max 0.0 (min 1.0 t))]
+    (- (* 3 t t) (* 2 t t t))))
+
+(defn- lerp [a b t] (+ a (* (- b a) t)))
+
+;; ── Path morphing for grow animation ────────────────────────────────────────
+;; The grow animation uses a dense circular path with the same number of
+;; control points as the target element's path, then spirals each point
+;; outward to its final destination.
+
+(defn- ra-seq
+  "N points from `radial-axis symmetry radius phase` around a full circle."
+  [symmetry radius phase]
+  (mapv #(board/radial-axis symmetry radius phase %) (range symmetry)))
+
+(defn- element-target-points
+  "Return the flat vector of control/vertex points defining the given
+   element type's path, centered at origin. Matches the point layout used
+   by board/render-eat / render-grow / render-move."
+  [type r]
+  (case type
+    :eat
+    (let [symmetry 5
+          half (/ 0.5 symmetry)
+          outer-radius 1.00
+          outer-arc 0.03
+          inner-radius 0.5
+          inner-arc 0.12
+          oc-start (ra-seq symmetry (* r (+ inner-radius half)) (* board/tau -1 (- inner-arc half)))
+          oc-end   (ra-seq symmetry (* r outer-radius) (* board/tau -1 outer-arc))
+          outer    (ra-seq symmetry r 0)
+          ic-start (ra-seq symmetry (* r outer-radius) (* board/tau outer-arc))
+          ic-end   (ra-seq symmetry (* r (+ inner-radius half)) (* board/tau (- inner-arc half)))
+          inner    (ra-seq symmetry (* inner-radius r) (* board/tau half))]
+      (vec (interleave oc-start oc-end outer ic-start ic-end inner)))
+
+    :grow
+    (let [symmetry 4
+          half (/ 0.5 symmetry)
+          outer-radius 1.1
+          outer-arc 0.07
+          inner-radius 0.5
+          inner-arc 0.23
+          oc-start (ra-seq symmetry (* r (+ inner-radius 0.3)) (* board/tau -1 (- inner-arc half)))
+          oc-end   (ra-seq symmetry (* r outer-radius) (* board/tau -1 outer-arc))
+          outer    (ra-seq symmetry r 0)
+          ic-start (ra-seq symmetry (* r outer-radius) (* board/tau outer-arc))
+          ic-end   (ra-seq symmetry (* r (+ inner-radius 0.3)) (* board/tau (- inner-arc half)))
+          inner    (ra-seq symmetry (* inner-radius r) (* board/tau half))]
+      (vec (interleave oc-start oc-end outer ic-start ic-end inner)))
+
+    :move
+    (let [symmetry 3
+          half (/ 0.5 symmetry)
+          outer-radius 1.1
+          outer-arc 0.07
+          mid-radius 1.1
+          mid-arc 0.22
+          under-radius 0.75
+          under-arc 0.13
+          inner-radius 0.3
+          inner-arc 0.3
+          oc-start (ra-seq symmetry (* r (+ inner-radius 0.4)) (* board/tau -1 1.1 (- inner-arc half)))
+          oc-end   (ra-seq symmetry (* r outer-radius) (* board/tau -1 outer-arc))
+          outer    (ra-seq symmetry r 0)
+          mc-start (ra-seq symmetry (* r outer-radius) (* board/tau outer-arc))
+          mc-end   (ra-seq symmetry (* r mid-radius) (* board/tau (- mid-arc 0.05)))
+          mid      (ra-seq symmetry r (* board/tau mid-arc))
+          uc-start (ra-seq symmetry (* r outer-radius 0.9) (* board/tau mid-arc 1.2))
+          uc-end   (ra-seq symmetry (* r 1.1 under-radius) (* board/tau (- mid-arc 0.03)))
+          under    (ra-seq symmetry (* r under-radius) (* board/tau under-arc))
+          ic-start (ra-seq symmetry (* r under-radius 1.2) (* board/tau (- under-arc 0.11)))
+          ic-end   (ra-seq symmetry (* r (+ inner-radius 0.5)) (* board/tau (- (* 0.3 inner-arc) half)))
+          inner    (ra-seq symmetry (* inner-radius r) (* board/tau (- half 0.09)))]
+      (vec (interleave
+            oc-start oc-end outer
+            mc-start mc-end mid
+            uc-start uc-end under
+            ic-start ic-end inner)))
+
+    ;; Default (unknown element type) — approximate circle with 24 points
+    (ra-seq 24 (* r 0.8) 0)))
+
+(defn- source-circle-points
+  "Return n points uniformly distributed on a small circle of radius `radius`
+   centered at origin, starting at angle 0 and progressing counter-clockwise."
+  [n radius]
+  (mapv
+   (fn [i]
+     (let [theta (* board/tau (/ i n))]
+       [(* radius (Math/cos theta))
+        (* radius (Math/sin theta))]))
+   (range n)))
+
+(defn- short-angle-delta
+  "Signed angular delta from `from` to `to`, choosing the shorter of the two
+   directions around the circle."
+  [from to]
+  (let [pi Math/PI
+        d (- to from)]
+    (cond
+      (> d pi)     (- d board/tau)
+      (< d (- pi)) (+ d board/tau)
+      :else d)))
+
+(defn- spiral-morph
+  "Interpolate each source point toward its target along a spiral path.
+   At progress 0 each point sits at its source; at progress 1 at its target.
+   Extra rotation decays from `spiral-turns * tau` at p=0 to 0 at p=1, giving
+   the spiraling-outward effect."
+  [source-pts target-pts progress]
+  (let [spiral-turns (/ 0.2 3)
+        extra (* (- 1.0 progress) board/tau spiral-turns)]
+    (mapv
+     (fn [[sx sy] [tx ty]]
+       (let [sr (Math/sqrt (+ (* sx sx) (* sy sy)))
+             sth (Math/atan2 sy sx)
+             tr (Math/sqrt (+ (* tx tx) (* ty ty)))
+             tth (Math/atan2 ty tx)
+             dth (short-angle-delta sth tth)
+             r (+ sr (* (- tr sr) progress))
+             th (+ sth (* dth progress) extra)]
+         [(* r (Math/cos th)) (* r (Math/sin th))]))
+     source-pts
+     target-pts)))
+
+(defn- curved-shape? [element-type]
+  (contains? #{:eat :grow :move} element-type))
+
+;; ── Path helpers for circulate animation ───────────────────────────────────
+
+(defn- bfs-path
+  "Shortest path from `from` to `to` through `valid-spaces` using the
+   `adjacencies` map, returning a vector of spaces including endpoints,
+   or nil if no path exists."
+  [adjacencies valid-spaces from to]
+  (let [valid (set valid-spaces)]
+    (cond
+      (= from to) [from]
+      (not (contains? valid from)) nil
+      (not (contains? valid to))   nil
+      :else
+      (loop [queue   #queue [[from [from]]]
+             visited #{from}]
+        (if (seq queue)
+          (let [[space path] (peek queue)
+                q            (pop queue)]
+            (if (= space to)
+              path
+              (let [neighbors (->> (get adjacencies space [])
+                                   (filter valid)
+                                   (remove visited))]
+                (recur (into q (map (fn [n] [n (conj path n)]) neighbors))
+                       (into visited neighbors)))))
+          nil)))))
+
+(defn- chaikin-smooth
+  "Run one pass of Chaikin corner-cutting on a polyline, keeping endpoints."
+  [points]
+  (if (< (count points) 3)
+    (vec points)
+    (let [first-pt (first points)
+          last-pt  (last points)
+          middle   (mapcat
+                    (fn [[[ax ay] [bx by]]]
+                      [[(+ ax (* 0.25 (- bx ax)))
+                        (+ ay (* 0.25 (- by ay)))]
+                       [(+ ax (* 0.75 (- bx ax)))
+                        (+ ay (* 0.75 (- by ay)))]])
+                    (partition 2 1 points))]
+      (vec (concat [first-pt] middle [last-pt])))))
+
+(defn- segment-length [[x1 y1] [x2 y2]]
+  (let [dx (- x2 x1) dy (- y2 y1)]
+    (Math/sqrt (+ (* dx dx) (* dy dy)))))
+
+(defn- sample-along
+  "Return the point at fraction `t` (0..1) of the total length of the
+   polyline defined by `points`."
+  [points t]
+  (if (< (count points) 2)
+    (first points)
+    (let [segs  (mapv (fn [a b] [a b (segment-length a b)])
+                      points (rest points))
+          total (reduce + (map #(nth % 2) segs))
+          target (* t total)]
+      (loop [remaining segs
+             accum 0.0]
+        (if (empty? remaining)
+          (last points)
+          (let [[a b len] (first remaining)
+                next-accum (+ accum len)]
+            (if (or (>= next-accum target) (empty? (rest remaining)))
+              (let [frac (if (zero? len) 0 (/ (- target accum) len))
+                    [ax ay] a
+                    [bx by] b]
+                [(+ ax (* (- bx ax) frac))
+                 (+ ay (* (- by ay) frac))])
+              (recur (rest remaining) next-accum))))))))
+
+(defn- organism-space-set
+  "Spaces belonging to the same organism (same player+organism) as the
+   element at `space` in `state`."
+  [state space]
+  (let [el (get-in state [:elements space])]
+    (when el
+      (into #{}
+            (comp
+             (filter #(and (= (:player el) (:player %))
+                           (= (:organism el) (:organism %))))
+             (map :space))
+            (vals (:elements state))))))
+
+(defn- render-grow-morph
+  "Render a path that morphs from a dense circular food blob into the target
+   element's shape. Uses two stacked paths with crossfading opacity to blend
+   color from food to element."
+  [board element [x y] progress]
+  (let [{:keys [radius colors player-colors]} board
+        food-color (-> colors first last)
+        color (get player-colors (:player element))
+        bright (board/brighten color 0.2)
+        element-type (:type element)
+        subradius (* 0.87 radius)
+        target-pts (element-target-points element-type subradius)
+        n (count target-pts)
+        source-radius (* radius 0.22)
+        source-pts (source-circle-points n source-radius)
+        morphed (spiral-morph source-pts target-pts progress)
+        absolute (mapv (fn [[px py]] [(+ x px) (+ y py)]) morphed)
+        curve? (curved-shape? element-type)
+        path-points (if curve?
+                      (partition 3 absolute)
+                      absolute)
+        base-path (board/make-path bright path-points)
+        food-path (update base-path 1 merge
+                          {:fill food-color
+                           :stroke "#777"
+                           :stroke-width (* radius 0.04)
+                           :stroke-linejoin "round"})
+        element-path (update base-path 1 merge
+                             {:fill bright
+                              :stroke "#555"
+                              :stroke-width (* radius 0.02)
+                              :stroke-linejoin "round"})]
+    [:g
+     [:g {:opacity (- 1.0 progress)} food-path]
+     [:g {:opacity progress} element-path]]))
+
+(defn- render-transition
+  "Render a single in-flight transition as an SVG group given the board,
+   the raw progress (0..1), the transition map, the pre-transition state
+   used as the animation baseline, and the adjacencies map (for pathing
+   circulate inside the organism)."
+  [board from-state adjacencies progress {:keys [type] :as t}]
+  (let [{:keys [locations radius colors player-colors]} board
+        food-color (-> colors first last)
+        food-beam (* radius 0.3)
+        food-rad  (* radius 0.2)
+        eased (ease-in-out progress)]
+    (case type
+      :move
+      (let [{:keys [from to element]} t
+            [fx fy] (get locations from)
+            [tx ty] (get locations to)
+            x (lerp fx tx eased)
+            y (lerp fy ty eased)
+            color (get player-colors (:player element))]
+        ^{:key [:move from to]}
+        [:g
+         (board/render-element color food-color [x y] radius element)])
+
+      :lose
+      (let [{:keys [space element]} t
+            pos (get locations space)]
+        ;; Reverse-morph: element path collapses back into a food blob by
+        ;; running the grow morph with inverted progress.
+        (with-meta
+          (render-grow-morph board element pos (- 1.0 eased))
+          {:key [:lose space]}))
+
+      :grow
+      (let [{:keys [to element]} t
+            pos (get locations to)]
+        (with-meta
+          (render-grow-morph board element pos eased)
+          {:key [:grow to]}))
+
+      :circulate
+      (let [{:keys [from to]} t
+            ;; Find a path from source to target through the source's own
+            ;; organism so the food visibly travels inside it. If no path
+            ;; can be found (e.g. missing state), fall back to a straight
+            ;; line.
+            org-spaces (organism-space-set from-state from)
+            space-path (or (bfs-path adjacencies org-spaces from to)
+                           [from to])
+            ;; Element centers along the path, offset to the food-coin
+            ;; position (above each element) so the coin rides just inside
+            ;; the organism silhouette.
+            raw-points (mapv
+                        (fn [s]
+                          (let [[x y] (get locations s)]
+                            [x (- y (* radius 0.3))]))
+                        space-path)
+            ;; One or two passes of Chaikin smoothing give a gentle
+            ;; curved path instead of a hex-lattice zig-zag.
+            smoothed (-> raw-points chaikin-smooth chaikin-smooth)
+            [x y] (sample-along smoothed eased)]
+        ^{:key [:circ from to]}
+        [:g
+         [:circle {:cx x :cy y :r food-rad
+                   :fill food-color
+                   :stroke "#777"
+                   :stroke-width (* radius 0.03)}]])
+
+      :food-up
+      (let [{:keys [space]} t
+            [x y] (get locations space)
+            cy (- y (* radius 0.3))
+            scale eased]
+        ^{:key [:food-up space]}
+        [:g
+         [:circle {:cx x :cy cy :r (* food-rad scale)
+                   :fill food-color
+                   :stroke "#777"
+                   :stroke-width (* radius 0.03)}]])
+
+      :food-down
+      (let [{:keys [space]} t
+            [x y] (get locations space)
+            cy (- y (* radius 0.3))
+            scale (- 1.0 eased)]
+        ^{:key [:food-down space]}
+        [:g
+         [:circle {:cx x :cy cy :r (* food-rad scale)
+                   :fill food-color
+                   :stroke "#777"
+                   :stroke-width (* radius 0.03)}]])
+
+      :free-food-appear
+      (let [{:keys [space amount]} t
+            [x y] (get locations space)]
+        ^{:key [:ff-app space]}
+        [:g {:opacity eased}
+         (board/render-food [x y] food-beam food-rad food-color amount)])
+
+      :free-food-vanish
+      (let [{:keys [space amount]} t
+            [x y] (get locations space)]
+        ^{:key [:ff-van space]}
+        [:g {:opacity (- 1.0 eased)}
+         (board/render-food [x y] food-beam food-rad food-color amount)])
+
+      nil)))
+
+(defn- animation-overlay
+  "Build an SVG group of all in-flight transitions."
+  [board from-state adjacencies transitions progress]
+  (when (seq transitions)
+    (vec
+     (concat
+      [:g {:key "anim-overlay"}]
+      (keep (partial render-transition board from-state adjacencies progress)
+            transitions)))))
+
+(defn start-transition!
+  "Begin animating from the currently displayed state to the new state."
+  [new-state]
+  ;; If a previous transition is still in flight, snap to its target first
+  (when (and @target-state (< @transition-progress 1.0))
+    (reset! displayed-state @target-state))
+  (when (nil? @displayed-state)
+    (reset! displayed-state new-state))
+  (reset! target-state new-state)
+  (reset! transition-progress 0.0)
+  (let [my-token (swap! transition-token inc)
+        start-time (js/Date.now)]
+    (letfn [(tick []
+              (when (= my-token @transition-token)
+                (let [elapsed (- (js/Date.now) start-time)
+                      p (min 1.0 (/ elapsed transition-duration))]
+                  (reset! transition-progress p)
+                  (if (< p 1.0)
+                    (js/requestAnimationFrame tick)
+                    (do
+                      (reset! displayed-state @target-state)
+                      (reset! transition-progress 1.0))))))]
+      (js/requestAnimationFrame tick))))
+
 (defn- cancel-from-hover-clear! []
   (when @from-hover-timeout
     (js/clearTimeout @from-hover-timeout)
@@ -140,6 +691,9 @@
 ;; are possible (e.g. both grow and circulate), this holds {:space :options}
 ;; to render the popup.
 (defonce action-popup (r/atom nil))
+
+;; Introduce-phase popup hover: which element type is being hovered.
+(defonce intro-hover (r/atom nil))
 
 (defonce food-source
   (r/atom {}))
@@ -676,21 +1230,43 @@
             (when (= (count final-progress) (count starting-spaces))
               (send-introduction! choices new-intro))))
 
-        ;; Render unchosen starting spaces as click targets
+        ;; Render unchosen starting spaces as click targets that brighten
+        ;; on hover so the user gets feedback before committing a choice.
+        hovered-space @dest-hover
         highlights
         (mapv
          (fn [space]
-           (let [[x y] (get locations space)]
+           (let [[x y] (get locations space)
+                 hovered? (= hovered-space space)
+                 stroke-c (if hovered?
+                            (board/brighten color 0.6)
+                            (board/brighten color 0.3))
+                 stroke-w (if hovered?
+                            (* 0.28 radius)
+                            (* 0.19 radius))
+                 fill-op (if hovered? 0.22 0.1)
+                 r (* radius (if hovered? 1.15 1.1))]
              ^{:key space}
-             (highlight-circle
-              x y radius color
-              (fn [_event]
-                (swap! introduction assoc :chosen-space space)))))
+             [:circle
+              {:cx x :cy y
+               :r r
+               :stroke stroke-c
+               :stroke-width stroke-w
+               :fill-opacity fill-op
+               :fill "white"
+               :on-mouse-enter (fn [_e] (reset! dest-hover space))
+               :on-mouse-leave (fn [_e]
+                                 (when (= @dest-hover space)
+                                   (reset! dest-hover nil)))
+               :on-click (fn [_e]
+                           (reset! dest-hover nil)
+                           (swap! introduction assoc :chosen-space space))}]))
          (remove
           (set (conj (keys progress) chosen-space))
           starting-spaces))
 
         ;; Chosen space — show its highlight + a popup with available types
+        hovered-type @intro-hover
         chosen-popup
         (when chosen-space
           (let [[x y] (get locations chosen-space)
@@ -704,24 +1280,56 @@
              ;; Click-elsewhere catcher: highlight on the chosen space cancels
              (focus-circle
               x y radius color
-              (fn [_e] (swap! introduction dissoc :chosen-space)))
+              (fn [_e]
+                (reset! intro-hover nil)
+                (swap! introduction dissoc :chosen-space)))
+             ;; Preview of the hovered type placed at the chosen space
+             (when hovered-type
+               ^{:key (str "preview-" chosen-space "-" hovered-type)}
+               [:g {:style {:pointer-events "none"}
+                    :opacity 0.85}
+                (board/render-element
+                 (board/brighten color 0.2)
+                 food-color
+                 [x y]
+                 element-radius
+                 {:type hovered-type :food 0})])
              ;; The popup options
              (for [[i type] (map-indexed vector available-types)
-                   :let [px (+ start-x (* i spread))]]
+                   :let [px (+ start-x (* i spread))
+                         hovered? (= hovered-type type)
+                         bg-fill (if hovered?
+                                   (board/brighten color 0.25)
+                                   (board/brighten color 0.05))
+                         bg-stroke (if hovered?
+                                     (board/brighten color 0.6)
+                                     (board/brighten color 0.4))
+                         bg-stroke-w (if hovered?
+                                       (* 0.22 popup-radius)
+                                       (* 0.15 popup-radius))
+                         opt-radius (if hovered?
+                                      (* popup-radius 1.08)
+                                      popup-radius)]]
                ^{:key (str "popup-" chosen-space "-" type)}
                [:g {:on-click (fn [e]
                                 (.stopPropagation e)
-                                (place-at! chosen-space type))}
+                                (reset! intro-hover nil)
+                                (place-at! chosen-space type))
+                    :on-mouse-enter (fn [_e] (reset! intro-hover type))
+                    :on-mouse-leave (fn [_e]
+                                      (when (= @intro-hover type)
+                                        (reset! intro-hover nil)))}
                 ;; Background circle behind the icon
-                [:circle {:cx px :cy offset-y :r popup-radius
-                          :fill (board/brighten color 0.05)
-                          :stroke (board/brighten color 0.4)
-                          :stroke-width (* 0.15 popup-radius)
+                [:circle {:cx px :cy offset-y :r opt-radius
+                          :fill bg-fill
+                          :stroke bg-stroke
+                          :stroke-width bg-stroke-w
                           :style {:cursor "pointer"}}]
                 (render-element
-                 type px offset-y (* popup-radius 0.8) color food-color
+                 type px offset-y (* opt-radius 0.8) color food-color
                  (fn [e]
                    (.stopPropagation e)
+                   (reset! intro-hover nil)
                    (place-at! chosen-space type)))])]))
 
         ;; Render elements placed so far — clickable to remove (revert)
@@ -1336,12 +1944,29 @@
 
 (defn organism-board
   [game board colors turn choices]
-  (println "organism board" colors turn choices board game)
-  (let [svg (board/render-game board game)
-        highlights (find-highlights game board colors turn choices)]
-    (if (empty? highlights)
-      svg
-      (conj svg highlights))))
+  (let [progress @transition-progress
+        from-state @displayed-state
+        to-state (:state game)
+        animating? (and from-state
+                        (< progress 1.0)
+                        (not (identical? from-state to-state)))
+        transitions (when animating? (diff-transitions from-state to-state))
+        render-state (if animating?
+                       (during-transition-state from-state transitions)
+                       to-state)
+        render-game-wrapper (assoc game :state render-state)
+        svg (board/render-game board render-game-wrapper)
+        ;; Always compute highlights from the current (post-transition) game
+        ;; so the user can start interacting with the next phase immediately.
+        ;; Hiding them during animation caused hover state to drop on the
+        ;; stationary cursor once they reappeared.
+        highlights (find-highlights game board colors turn choices)
+        anim-overlay (when animating?
+                       (animation-overlay board from-state (:adjacencies game)
+                                          transitions progress))]
+    (cond-> svg
+      (not-empty highlights) (conj highlights)
+      anim-overlay (conj anim-overlay))))
 
 (defn generate-game-state
   [{:keys [ring-count player-count players colors player-captures mutations] :as invocation}]
@@ -2966,6 +3591,12 @@
         (swap! game-state initialize-game received)
         (reset! board-invocation (:invocation received))
         (reset! clear-state (-> received :game :state))
+        ;; Seed the animation baseline so the first in-game transition has
+        ;; a starting state to interpolate from.
+        (let [current-state (-> @game-state :game :state)]
+          (reset! displayed-state current-state)
+          (reset! target-state current-state)
+          (reset! transition-progress 1.0))
         (swap! chat initialize-chat received)
         (if-let [cursor (:cursor @game-state)]
           (let [total (count (:history received))]
@@ -2987,7 +3618,16 @@
     "game-state"
     (do
       (swap! game-state update-game received)
+      (start-transition! (-> @game-state :game :state))
       (reset! food-source {})
+      ;; Clear stale hover/popup state from the previous phase so the
+      ;; new phase's highlights render fresh without leaked hover state.
+      (cancel-from-hover-clear!)
+      (reset! action-hover nil)
+      (reset! from-hover nil)
+      (reset! dest-hover nil)
+      (reset! action-popup nil)
+      (reset! intro-hover nil)
       (swap!
        introduction
        (fn [introduction]
@@ -3017,7 +3657,14 @@
                      (assoc :game final-game)
                      (update :history conj (:state final-game))
                      (assoc :turn turn)
-                     (assoc :choices choices))))))
+                     (assoc :choices choices)))))
+      (start-transition! (-> @game-state :game :state))
+      (cancel-from-hover-clear!)
+      (reset! action-hover nil)
+      (reset! from-hover nil)
+      (reset! dest-hover nil)
+      (reset! action-popup nil)
+      (reset! intro-hover nil))
     "chat" (swap! chat update-chat received)))
 
 ;; -------------------------
