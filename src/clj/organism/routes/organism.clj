@@ -28,12 +28,17 @@
 (defn create-page
   [db request]
   (let [player (get-in request [:session :player])
-        preferences (persist/find-player-preferences db player)]
+        play-key (-> request :path-params :play)
+        preferences (persist/find-player-preferences db player)
+        ;; If we're loading an existing open game, preload its invocation
+        open-game (when play-key (persist/find-open-game db play-key))]
     (layout/render
      request
      "organism/create.html"
      {:session-player player
-      :preferences preferences})))
+      :preferences preferences
+      :play-key (or play-key "")
+      :open-invocation (if open-game (pr-str (:invocation open-game)) "")})))
 
 (defn play-page
   [db request]
@@ -85,6 +90,10 @@
                  middleware/wrap-formats]}
    ["/create" {:get (partial create-page db)
                :middleware [require-auth]}]
+   ["/create/:play" {:get (partial create-page db)
+                     :middleware [require-auth]}]
+   ["/create/:play/" {:get (partial create-page db)
+                      :middleware [require-auth]}]
    ["/play" {:get (partial play-list-page db)
              :middleware [require-auth]}]
    ["/play/:play" {:get (partial play-page db)}]

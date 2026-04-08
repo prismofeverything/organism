@@ -9,6 +9,7 @@
    [journey.choice :as choice]
    [journey.board :as board]
    [organism.ajax :as ajax]
+   [organism.components :as components]
    [organism.websockets :as ws]))
 
 ;; ── State ─────────────────────────────────────────────────────────────────────
@@ -724,10 +725,19 @@
               [:div {:key i :style {:display "flex" :align-items "center"
                                     :gap "8px" :margin-bottom "8px"}}
                [:span {:style {:color "#445566" :width "20px"}} (str (inc i) ".")]
-               [:input {:type "text" :value name
-                        :on-change #(swap! slots assoc-in [i :name] (-> % .-target .-value))
-                        :placeholder (if bot? "Bot name" "Player name")
-                        :style (merge input-style {:width "180px"})}]
+               (if bot?
+                 [:input {:type "text" :value name
+                          :on-change #(swap! slots assoc-in [i :name] (-> % .-target .-value))
+                          :placeholder "Bot name"
+                          :style (merge input-style {:width "180px"})}]
+                 [components/player-search-input
+                  {:slot-id   (str "journey-" i)
+                   :value     name
+                   :color     "#10182A"
+                   :search?   true
+                   :placeholder "Player name"
+                   :on-change (fn [v] (swap! slots assoc-in [i :name] v))
+                   :on-select (fn [v] (swap! slots assoc-in [i :name] v))}])
                [:button
                 {:on-click #(swap! slots update-in [i :bot?] not)
                  :style (merge btn-style

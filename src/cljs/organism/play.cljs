@@ -14,6 +14,7 @@
    [organism.board :as board]
    [organism.dom :as dom]
    [organism.ajax :as ajax]
+   [organism.components :as components]
    [organism.websockets :as ws])
   (:import goog.History))
 
@@ -77,7 +78,10 @@
      board/default-player-captures))))
 
 (defonce board-invocation
-  (r/atom (board/empty-invocation)))
+  (r/atom (board/empty-invocation
+           (if (and (exists? js/playerKey) (not (empty? js/playerKey)))
+             js/playerKey
+             "orb"))))
 
 (def empty-game-state
   {:game {}
@@ -112,8 +116,8 @@
 (defonce player-preferences
   (r/atom {}))
 
-(defonce create-game-key
-  (r/atom ""))
+;; Use shared atom from organism.components
+(def create-game-key components/create-game-key)
 
 (defonce observe-games
   (r/atom []))
@@ -193,17 +197,9 @@
   [invocation]
   (reset! board-invocation invocation)
   (apply-invocation! invocation)
-  (when @ws/ws-channel
-    (ws/send-transit-message!
-     {:type "create"
-      :invocation invocation})))
+  (components/send-create! invocation))
 
-(defn send-open-game!
-  [invocation]
-  (when @ws/ws-channel
-    (ws/send-transit-message!
-     {:type "open-game"
-      :invocation invocation})))
+(def send-open-game! components/send-open-game!)
 
 (defn initialize-chat
   [chat message]
@@ -907,7 +903,9 @@
 
 (defn generate-game-state
   [{:keys [ring-count player-count players colors player-captures mutations] :as invocation}]
-  (let [symmetry (board/player-symmetry player-count)
+  (let [ring-count   (if (number? ring-count) ring-count 4)
+        player-count (if (number? player-count) player-count 2)
+        symmetry (board/player-symmetry player-count)
         rings (take ring-count board/total-rings)
         starting
         (if (:RAIN mutations)
@@ -1749,7 +1747,7 @@
          [:option
           {:value n}
           n])
-       (range 3 12))]
+       (range 3 8))]
      [:label
       {:for "ring-count"
        :style
@@ -1840,11 +1838,26 @@
   (swap! player-order assoc index player-name)
   (swap! board-invocation update :players
          (fn [players] (assoc (vec players) index player-name)))
-  (when @ws/ws-channel
-    (ws/send-transit-message!
-     {:type "player-name"
-      :index index
-      :player player-name})))
+  (components/send-player-name! index player-name))
+
+(defn player-slot-input
+  "Wraps the shared player-search-input for organism's create page."
+  [index color player page-player invocation in-game?]
+  [components/player-search-input
+   {:slot-id   index
+    :value     player
+    :color     color
+    :search?   in-game?
+    :placeholder (if in-game? "search players..." "click to join")
+    :on-change (fn [v] (send-player-name! index v))
+    :on-select (fn [name]
+                 (send-player-name! index name)
+                 (send-open-game! (update invocation :players assoc index name)))
+    :on-focus  (fn []
+                 (when (and (not in-game?) (empty? player))
+                   (send-player-name! index page-player)
+                   (send-open-game! (update invocation :players assoc index page-player))))
+    :on-blur   (fn [] (send-open-game! invocation))}])
 
 (defn players-input
   [page-player invocation]
@@ -1853,7 +1866,8 @@
                        (inc player-count)
                        player-count)
         order @player-order
-        captures-order @player-captures-order]
+        captures-order @player-captures-order
+        in-game? (some #{page-player} (take player-count order))]
     [:div
      [:h3
       {:style
@@ -1868,34 +1882,8 @@
      (map
       (fn [index color player captures]
         ^{:key index}
-
         [:div
-         [:input
-          {:value player
-           :style
-           {:border-radius "25px"
-            :color "#fff"
-            :background color
-            :border-color color
-            :border "3px solid"
-            :font-size "1.5em"
-            :letter-spacing "6px"
-            :margin "2px 0px"
-            :width "366px"
-            :padding "10px 30px"}
-           :on-focus
-           (fn [event]
-             (when (empty? player)
-               (send-player-name! index page-player)
-               (send-open-game!
-                (update invocation :players assoc index page-player))))
-           :on-blur
-           (fn [event]
-             (send-open-game! invocation))
-           :on-change
-           (fn [event]
-             (let [value (-> event .-target .-value)]
-               (send-player-name! index value)))}]
+         [player-slot-input index color player page-player invocation in-game?]
 
          [:select
           {:value captures
@@ -2085,16 +2073,9 @@
     (map (partial mutation-choice color invocation) possible-mutations)]])
 
 (defn connect-create-ws!
-  ([game-key]
-   (connect-create-ws! game-key nil))
+  ([game-key] (connect-create-ws! game-key nil))
   ([game-key on-open]
-   (when-not (empty? game-key)
-     (ws/close-websocket!)
-     (let [protocol (if (= (.-protocol js/location) "https:") "wss:" "ws:")]
-       (ws/make-websocket!
-        (str protocol "//" (.-host js/location) "/ws/organism/play/" game-key)
-        update-messages!
-        on-open)))))
+   (components/connect-create-ws! "/ws/organism/play/" game-key update-messages! on-open)))
 
 (defn game-name-input
   [color]
@@ -2166,7 +2147,6 @@
         [game-name-input create-color]
         [ring-count-input select-color]
         [player-count-input select-color]
-        [organism-victory-input select-color]
         [description-input invocation select-color inactive-color]
         [players-input js/playerKey invocation]
         [:div
@@ -2210,67 +2190,15 @@
 
 
 (defn open-games-section
+  "Organism wrapper around the shared open-games-section."
   [player games]
-  (when-not (empty? games)
-    [:div
-     {:style
-      {:margin "20px 40px"}}
-     [:h2
-      [:span
-       {:title "To join, click on an empty player field inside the create page for this game"}
-       "OPEN"]]
-     (for [{:keys [key invocation]} games]
-       (let [{:keys [player-count players colors ring-count description]} invocation
-             colors (invocation-player-colors player-count invocation)
-             player-color (first colors)]
-         ^{:key key}
-         [:div
-          [:div
-           {:style
-            {:margin "10px 20px"
-             :padding "10px 0px"}}
-           [:span
-            [:a
-             {:href (str "/organism/play/" key)
-              :style
-              {:color "#fff"
-               :border-radius "15px"
-               :background player-color
-               :padding "10px 20px"
-               :letter-spacing "5px"
-               :font-family font-choice
-               :font-size "1.3em"}}
-             key]]
-           [:span
-            {:style
-             {:margin "0px 20px"}}
-            " " ring-count " rings "]
-           (for [[game-player color] (map vector players colors)]
-             ^{:key game-player}
-             [:span
-              [:a
-               {:href (str "/organism/play/" key)
-                :style
-                (if (= game-player player)
-                  {:color "#fff"
-                   :border-radius "20px"
-                   :background color
-                   :margin "0px 10px"
-                   :padding "7px 20px"}
-                  {:padding "5px 10px"
-                   :margin "0px 10px"
-                   :border-style "solid"
-                   :border-width "2px"
-                   :border-color color
-                   :border-radius "5px"
-                   :color color})}
-               game-player]])]
-          (when-not (empty? description)
-            [:div
-             {:style
-              {:margin "0px 40px"
-               :color (board/brighten player-color 0.3)}}
-             description])]))]))
+  [components/open-games-section
+   {:games games
+    :link-prefix "/organism/create/"
+    :current-player player
+    :font-family font-choice
+    :colors-fn (fn [invocation]
+                 (invocation-player-colors (:player-count invocation) invocation))}])
 
 (defn player-active?
   [player games]
@@ -2802,7 +2730,20 @@
         (when js/playerStats
           (reset! player-stats (reader/read-string js/playerStats))))
       (when js/isCreate
-        (apply-invocation! @board-invocation))
+        ;; Always start from a fresh empty-invocation, then overlay preloaded state.
+        ;; This guards against stale defonce values from prior browser sessions.
+        (let [base (board/empty-invocation
+                    (if (and (exists? js/playerKey) (not (empty? js/playerKey)))
+                      js/playerKey
+                      "orb"))]
+          (reset! board-invocation base))
+        (when-let [inv (components/preloaded-invocation)]
+          (reset! board-invocation inv))
+        (when-let [pk (components/preloaded-play-key)]
+          (reset! create-game-key pk))
+        (apply-invocation! @board-invocation)
+        (when-let [pk (components/preloaded-play-key)]
+          (connect-create-ws! pk)))
       (when game?
         (ws/make-websocket!
          (str protocol "//" (.-host js/location) "/ws/organism/play/" js/playKey)

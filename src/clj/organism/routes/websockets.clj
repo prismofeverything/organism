@@ -133,14 +133,15 @@
 
 (defn update-create-game
   [db player game-key channel {:keys [invocation] :as message}]
-  (swap!
-   games
-   assoc-in [:games game-key :invocation]
-   invocation)
-  (send-channels!
-   (get-in @games [:games game-key :channels])
-   message)
-  (persist/create-open-game! db game-key invocation))
+  (let [invocation (assoc invocation :game-type "organism")]
+    (swap!
+     games
+     assoc-in [:games game-key :invocation]
+     invocation)
+    (send-channels!
+     (get-in @games [:games game-key :channels])
+     message)
+    (persist/create-open-game! db game-key invocation)))
 
 (defn update-player-name
   [db page-player game-key channel {:keys [index player] :as message}]
@@ -162,7 +163,8 @@
 
 (defn update-open-game
   [db player game-key channel {:keys [invocation] :as message}]
-  (let [players (:players invocation)]
+  (let [players (:players invocation)
+        invocation (assoc invocation :game-type "organism")]
     (log/info "OPEN GAME" game-key players invocation)
     (persist/create-open-game! db game-key invocation)))
 

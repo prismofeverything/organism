@@ -643,16 +643,16 @@
 (defn empty-invocation
   ([] (empty-invocation "orb"))
   ([player]
-   (let [players [player] ;; (vec (take 1 default-player-order))
+   (let [players [player ""]
          player-captures (take (count players) (repeat default-player-captures))]
-     {:player-count 1
-      :ring-count 3
+     {:player-count 2
+      :ring-count 4
       :organism-victory 3
       :players players
       :player-captures player-captures
       :description ""
       :mutations {}
-      :colors (generate-colors (take 3 total-rings))})))
+      :colors (generate-colors (take 4 total-rings))})))
 
 (defn invocation-player-colors
   [invocation]
