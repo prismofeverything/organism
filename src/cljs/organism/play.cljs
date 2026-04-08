@@ -1847,12 +1847,25 @@
    {:slot-id   index
     :value     player
     :color     color
+    :game-type "organism"
     :search?   in-game?
     :placeholder (if in-game? "search players..." "click to join")
     :on-change (fn [v] (send-player-name! index v))
-    :on-select (fn [name]
-                 (send-player-name! index name)
-                 (send-open-game! (update invocation :players assoc index name)))
+    :on-select (fn [{:keys [name bot?]}]
+                 ;; If picking a bot, auto-suffix to avoid name collision
+                 (let [existing (->> (:players invocation)
+                                     (map-indexed vector)
+                                     (remove (fn [[i _]] (= i index)))
+                                     (map second))
+                       chosen (if bot?
+                                (loop [n 1]
+                                  (let [candidate (str name "-" n)]
+                                    (if (some #{candidate} existing)
+                                      (recur (inc n))
+                                      candidate)))
+                                name)]
+                   (send-player-name! index chosen)
+                   (send-open-game! (update invocation :players assoc index chosen))))
     :on-focus  (fn []
                  (when (and (not in-game?) (empty? player))
                    (send-player-name! index page-player)
@@ -2463,139 +2476,26 @@
                (dom/redirect!
                 (str js/playerPath "/" @player-key))))}])]]]))
 
-(defn observe-games-section
-  [games]
-  (when-not (empty? games)
-    [:div
-     {:style {:margin "20px 40px"}}
-     (for [{:keys [key invocation round current-player]} games]
-       (let [{:keys [players ring-count organism-victory description]} invocation
-             colors (invocation-player-colors (count players) invocation)
-             player-colors (into {} (map vector players colors))
-             current-color (get player-colors current-player (first colors))]
-         ^{:key key}
-         [:div
-          {:style {:margin "10px 20px" :padding "10px 0px"}}
-          [:span
-           [:a
-            {:href (str "/organism/play/" key)
-             :style {:color "#fff"
-                     :border-radius "15px"
-                     :background current-color
-                     :padding "10px 20px"
-                     :letter-spacing "5px"
-                     :font-family font-choice
-                     :font-size "1.3em"}}
-            key]]
-          [:span {:style {:margin "0px 20px"}} " round " (inc (or round 0))]
-          (for [game-player players]
-            (let [color (get player-colors game-player)]
-              ^{:key game-player}
-              [:span
-               [:a
-                {:href (str js/playerPath "/" game-player)
-                 :style (if (= game-player current-player)
-                          {:color "#fff"
-                           :border-radius "20px"
-                           :background color
-                           :margin "0px 10px"
-                           :padding "7px 20px"}
-                          {:padding "5px 10px"
-                           :margin "0px 10px"
-                           :border-style "solid"
-                           :border-width "2px"
-                           :border-color color
-                           :border-radius "5px"
-                           :color color})}
-                game-player]]))
-          (when-not (empty? description)
-            [:div {:style {:margin "0px 40px"
-                           :color (board/brighten current-color 0.3)}}
-             description])]))]))
+;; observe-games-section moved to organism.components (shared library)
 
-(defn observe-page
-  []
-  (let [games @observe-games
-        color "#333"]
-    [:div
-     {:style {:padding "20px" :color "#eee"}}
-     [:div
-      {:style {:color "#fff"
-               :border-radius "50px"
-               :letter-spacing "8px"
-               :font-family font-choice
-               :margin "0px 20px"
-               :padding "25px 60px"
-               :background color}}
-      [:h1 [:a {:style {:color "#fff"} :href js/homePath} "observe"]]]
-     (if (empty? games)
-       [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
-       [observe-games-section games])]))
+(defn observe-page []
+  [components/observe-page
+   {:title "observe"
+    :games @observe-games
+    :link-prefix "/organism/play/"
+    :player-link-prefix (or js/playerPath "/organism/player/")
+    :home-path js/homePath
+    :font-family font-choice
+    :colors-fn (fn [invocation]
+                 (invocation-player-colors (count (:players invocation)) invocation))}])
 
-(def stat-column-hues
-  {:playing (rand) :complete (rand) :won (rand) :created (rand)})
-
-(defn col-color
-  [hue ratio]
-  (let [lightness (js/Math.round (+ 20 (* 50 ratio)))]
-    (str "hsl(" (js/Math.round (* hue 360)) ",55%," lightness "%)")))
-
-(defn stat-cell
-  [label value color]
-  [:span
-   {:style {:display "inline-flex"
-            :flex-direction "column"
-            :align-items "center"
-            :color "#fff"
-            :border-radius "20px"
-            :background color
-            :padding "7px 20px"
-            :margin "0px 10px"}}
-   [:span {:style {:font-size "1.1em"}} value]
-   [:span {:style {:font-size "0.6em" :letter-spacing "2px" :opacity "0.7" :margin-top "2px"}} label]])
-
-(defn stats-page
-  []
-  (let [stats @player-stats
-        col-max  (fn [k] (apply max 1 (map k stats)))
-        max-active   (col-max :active)
-        max-complete (col-max :complete)
-        max-wins     (col-max :wins)
-        max-created  (col-max :created)]
-    [:div
-     {:style {:padding "20px" :color "#eee"}}
-     [:div
-      {:style {:color "#fff"
-               :border-radius "50px"
-               :letter-spacing "8px"
-               :font-family font-choice
-               :margin "0px 20px"
-               :padding "25px 60px"
-               :background "#333"}}
-      [:h1 [:a {:style {:color "#fff"} :href js/homePath} "players"]]]
-     (if (empty? stats)
-       [:p {:style {:margin "30px 40px" :color "#888"}} "no players yet"]
-       [:div
-        {:style {:margin "20px 40px"}}
-        (for [{:keys [key color active complete wins created]} stats]
-          ^{:key key}
-          [:div
-           {:style {:margin "10px 20px" :padding "10px 0px" :display "flex" :align-items "center" :flex-wrap "wrap" :gap "4px"}}
-           [:a
-            {:href (str js/playerPath "/" key)
-             :style {:color "#fff"
-                     :border-radius "15px"
-                     :background (or color "#444")
-                     :padding "10px 20px"
-                     :letter-spacing "5px"
-                     :font-family font-choice
-                     :font-size "1.3em"
-                     :margin-right "10px"}}
-            key]
-           [stat-cell "playing"  active   (col-color (:playing  stat-column-hues) (/ active   max-active))]
-           [stat-cell "complete" complete (col-color (:complete stat-column-hues) (/ complete max-complete))]
-           [stat-cell "won"      wins     (col-color (:won      stat-column-hues) (/ wins     max-wins))]
-           [stat-cell "created"  created  (col-color (:created  stat-column-hues) (/ created  max-created))]])])]))
+(defn stats-page []
+  [components/players-page
+   {:title "players"
+    :stats @player-stats
+    :player-link-prefix (or js/playerPath "/organism/player")
+    :home-path js/homePath
+    :font-family font-choice}])
 
 (defn page-container
   []
@@ -2651,6 +2551,29 @@
              (assoc :progress (-> received :game :state :player-turn :introduction))
              (assoc :chosen-element nil)
              (assoc :chosen-space nil)))))
+    ;; bot-choices: server sends a list of choice keys the bot picked.
+    ;; Client replays them via the SAME find-state choice flow the bot used.
+    "bot-choices"
+    (let [choice-keys (:choices received)]
+      (swap! game-state
+             (fn [gs]
+               (let [replayed
+                     (reduce
+                      (fn [game ck]
+                        (let [[_phase choices] (choice/find-state game)
+                              ;; Look up the choice by key, fall back to advance/pass
+                              next (or (get choices ck)
+                                       (get choices :advance)
+                                       (get choices :pass))]
+                          (or next game)))
+                      (:game gs)
+                      choice-keys)
+                     [final-game turn choices] (choice/find-next-choices replayed)]
+                 (-> gs
+                     (assoc :game final-game)
+                     (update :history conj (:state final-game))
+                     (assoc :turn turn)
+                     (assoc :choices choices))))))
     "chat" (swap! chat update-chat received)))
 
 ;; -------------------------

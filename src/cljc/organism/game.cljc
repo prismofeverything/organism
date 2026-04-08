@@ -698,6 +698,19 @@
     (:adjacencies game)
     spaces)))
 
+(defn add-elements-absorb-food
+  "Add elements at each space, absorbing any free food on that space into
+   the new element's starting food. Each new element starts with `food` + free."
+  [game player organism food elements]
+  (reduce
+   (fn [game [space type]]
+     (let [free (free-food-present game space)
+           starting-food (+ food free)]
+       (-> game
+           (remove-free-food space)
+           (add-element player organism type space starting-food))))
+   game elements))
+
 (defn add-elements
   [game player organism food elements]
   (reduce
@@ -710,8 +723,9 @@
   (let [surrounding (surrounding-spaces game [eat grow move])
         spaces {eat :eat grow :grow move :move}]
     (-> game
-        (clear-spaces surrounding)
-        (add-elements player organism 1 spaces)
+        ;; Remove enemy elements from surrounding spaces but PRESERVE free food.
+        (#(reduce remove-element % surrounding))
+        (add-elements-absorb-food player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
 
 (defn introduce-spaces
@@ -719,8 +733,9 @@
   (let [starting (player-starting-spaces game player)
         surrounding (surrounding-spaces game starting)]
     (-> game
-        (clear-spaces surrounding)
-        (add-elements player organism 1 spaces)
+        ;; Remove enemy elements from surrounding spaces but PRESERVE free food.
+        (#(reduce remove-element % surrounding))
+        (add-elements-absorb-food player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
 
 (defn choose-organism
@@ -958,10 +973,14 @@
         (adjust-food game to food)))))
 
 (defn circulate
+  "Transfer half the food (rounded up) from `from` to `to`."
   [game {:keys [from to] :as fields}]
-  (-> game
-      (adjust-food from -1)
-      (adjust-food to 1)))
+  (let [from-element (get-element game from)
+        from-food (or (:food from-element) 0)
+        amount (long (Math/ceil (/ from-food 2.0)))]
+    (-> game
+        (adjust-food from (- amount))
+        (adjust-food to amount))))
 
 (defn player-elements
   [game]

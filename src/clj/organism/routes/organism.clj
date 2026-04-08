@@ -1,16 +1,29 @@
 (ns organism.routes.organism
   (:require
+   [clojure.string :as str]
+   [organism.board :as board]
+   [organism.game :as game]
    [organism.layout :as layout]
    [organism.persist :as persist]
    [organism.middleware :as middleware]
-   [ring.util.response :as response]))
+   [organism.routes.organism-bot :as bot]
+   [organism.routes.shared :as shared]
+   [organism.routes.websockets :as ws]))
 
-(defn require-auth
-  [handler]
-  (fn [request]
-    (if (get-in request [:session :player])
-      (handler request)
-      (response/redirect (str "/login?redirect=" (:uri request))))))
+;; ── Game spec ────────────────────────────────────────────────────────────
+
+(def organism-spec
+  {:game-type        "organism"
+   :title            "ORGANISM"
+   :template-prefix  "organism"
+   :home-path        "/organism"
+   :create-path      "/organism/create"
+   :play-path        "/organism/play"
+   :ws-prefix        "/ws/organism/play/"
+   :load-observe     persist/load-observe-games
+   :load-player-stats persist/load-player-stats})
+
+;; ── Page handlers ─────────────────────────────────────────────────────────
 
 (defn play-list-page
   "Show the logged-in player's games — reuses the player page."
@@ -30,7 +43,6 @@
   (let [player (get-in request [:session :player])
         play-key (-> request :path-params :play)
         preferences (persist/find-player-preferences db player)
-        ;; If we're loading an existing open game, preload its invocation
         open-game (when play-key (persist/find-open-game db play-key))]
     (layout/render
      request
@@ -52,16 +64,6 @@
       :play play-key
       :preferences preferences})))
 
-(defn observe-page
-  [db request]
-  (let [player (get-in request [:session :player])
-        games (persist/load-observe-games db)]
-    (layout/render
-     request
-     "organism/observe.html"
-     {:session-player player
-      :observe-games (pr-str games)})))
-
 (defn player-page
   [db request]
   (let [player-key (-> request :path-params :player)
@@ -74,31 +76,97 @@
       :preferences preferences
       :player-games (pr-str player-games)})))
 
-(defn players-page
+;; ── Generate page (all-bot game) ─────────────────────────────────────────
+
+(def ^:private generate-bot-names
+  ["oroboros" "helios" "selene" "atlas"])
+
+(def ^:private generate-words
+  ["solar" "lunar" "stellar" "cosmic" "astral" "void" "nebula" "nova"
+   "drift" "pulse" "ember" "spark" "flame" "frost" "tide" "storm"
+   "crystal" "prism" "cipher" "rune" "glyph" "sigil" "nexus" "apex"])
+
+(defn- generate-game-name []
+  (str "generate-" (str/join "-" (repeatedly 3 #(rand-nth generate-words)))))
+
+(defn- make-generate-invocation
+  "Build an invocation suitable for an all-bot generated game."
+  [players]
+  (let [n (count players)
+        ring-count 4
+        colors (board/generate-colors-buffer board/total-rings ring-count n)
+        captures (vec (repeat n board/default-player-captures))]
+    {:ring-count ring-count
+     :player-count n
+     :players (vec players)
+     :player-captures captures
+     :organism-victory 3
+     :mutations {}
+     :colors colors
+     :description "auto-generated bot game"
+     :game-type "organism"}))
+
+(defn generate-page
+  "Create an all-bot organism game, render the play page immediately, and
+   start the bot turns in the background so observers can watch it unfold."
   [db request]
-  (let [player-stats (persist/load-player-stats db)]
+  (let [players generate-bot-names
+        bot-set (set players)
+        game-key (generate-game-name)
+        player-key (get-in request [:session :player])
+        invocation (make-generate-invocation players)
+        base-state {:key game-key
+                    :invocation invocation
+                    :game nil
+                    :chat []
+                    :history []
+                    :channels #{}}
+        complete (ws/complete-game-state base-state)
+        initial-state (assoc complete :bots bot-set)]
+    ;; Persist initial game so the play page can load it
+    (swap! ws/games assoc-in [:games game-key] initial-state)
+    (persist/create-game! db (assoc (dissoc initial-state :channels)
+                                    :created-by (or player-key "system")
+                                    :game-type "organism"))
+    ;; Run the bot in the background. Each turn the bot sends the list of
+    ;; choice keys it picked, and the client replays them via find-state.
+    (bot/run-bot-turns!
+     ws/games game-key 200
+     (fn [choice-keys _next-game]
+       (let [channels (get-in @ws/games [:games game-key :channels])]
+         (when (seq channels)
+           (ws/send-channels! channels
+                              {:type "bot-choices"
+                               :choices choice-keys}))))
+     (fn [next-state]
+       (persist/update-state! db game-key next-state)))
     (layout/render
      request
-     "organism/players.html"
-     {:session-player (get-in request [:session :player])
-      :player-stats (pr-str player-stats)})))
+     "organism/play.html"
+     {:player (or player-key "")
+      :play game-key
+      :preferences "{}"})))
+
+;; ── Routes ────────────────────────────────────────────────────────────────
 
 (defn organism-routes
   [db]
   ["/organism"
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
-   ["/create" {:get (partial create-page db)
-               :middleware [require-auth]}]
-   ["/create/:play" {:get (partial create-page db)
-                     :middleware [require-auth]}]
+   ["/create"        {:get (partial create-page db)
+                      :middleware [shared/require-auth]}]
+   ["/create/:play"  {:get (partial create-page db)
+                      :middleware [shared/require-auth]}]
    ["/create/:play/" {:get (partial create-page db)
-                      :middleware [require-auth]}]
-   ["/play" {:get (partial play-list-page db)
-             :middleware [require-auth]}]
-   ["/play/:play" {:get (partial play-page db)}]
-   ["/play/:play/" {:get (partial play-page db)}]
-   ["/observe" {:get (partial observe-page db)}]
-   ["/players" {:get (partial players-page db)}]
-   ["/player/:player" {:get (partial player-page db)}]
+                      :middleware [shared/require-auth]}]
+   ["/play"          {:get (partial play-list-page db)
+                      :middleware [shared/require-auth]}]
+   ["/play/:play"    {:get (partial play-page db)}]
+   ["/play/:play/"   {:get (partial play-page db)}]
+   ["/observe"       {:get (partial shared/observe-page organism-spec db)}]
+   ["/players"       {:get (partial shared/players-page organism-spec db)}]
+   ["/learn"         {:get (partial shared/learn-page organism-spec)}]
+   ["/generate"      {:get (partial generate-page db)}]
+   ["/player/:player"  {:get (partial player-page db)}]
    ["/player/:player/" {:get (partial player-page db)}]])

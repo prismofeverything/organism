@@ -5,6 +5,7 @@
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
+   [organism.bots :as bots]
    [organism.game :as game]
    [organism.board :as board]
    [organism.persist :as persist]

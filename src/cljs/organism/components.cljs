@@ -87,36 +87,50 @@
 
 ;; ── Player search autocomplete ──────────────────────────────────────────────
 
-(defn fetch-suggestions! [slot-id query]
+(defn- ->keyword-map
+  "Convert a string-keyed map (from JSON) to keyword-keyed map."
+  [m]
+  (if (map? m)
+    (reduce-kv
+     (fn [acc k v]
+       (assoc acc (if (string? k) (keyword k) k) v))
+     {} m)
+    m))
+
+(defn fetch-suggestions! [slot-id query game-type]
   (if (and (string? query) (>= (count query) 1))
     (ajax-core/GET "/api/search-players"
-      {:params {:q query}
+      {:params (cond-> {:q query}
+                 game-type (assoc :game-type game-type))
        :handler (fn [response]
-                  (let [players (get response "players" (get response :players []))]
-                    (swap! player-suggestions assoc slot-id (vec players))
+                  (let [players (or (get response "players")
+                                    (get response :players []))
+                        normalised (mapv ->keyword-map players)]
+                    (swap! player-suggestions assoc slot-id normalised)
                     (reset! suggestion-highlight -1)))
        :error-handler (fn [_] nil)})
     (do (swap! player-suggestions dissoc slot-id)
         (reset! suggestion-highlight -1))))
 
-(defn select-suggestion! [slot-id name on-select]
+(defn select-suggestion! [slot-id suggestion on-select]
   (reset! active-suggestion nil)
   (reset! suggestion-highlight -1)
   (swap! player-suggestions dissoc slot-id)
-  (when on-select (on-select name)))
+  (when on-select (on-select suggestion)))
 
 (defn player-search-input
   "Autocomplete player input. Props:
-   :slot-id    — unique key for this slot (e.g. index or keyword)
-   :value      — current input value
-   :color      — background color
+   :slot-id     — unique key for this slot (e.g. index or keyword)
+   :value       — current input value
+   :color       — background color
    :placeholder — placeholder text
-   :on-change  — (fn [new-value]) called on every keystroke
-   :on-select  — (fn [chosen-name]) called when a suggestion is picked
-   :on-focus   — (fn []) called on focus (optional)
-   :on-blur    — (fn []) called on blur (optional)
-   :search?    — whether to enable search (false = plain input)"
-  [{:keys [slot-id value color placeholder on-change on-select on-focus on-blur search?]
+   :game-type   — e.g. \"organism\", used to look up bots
+   :on-change   — (fn [new-value]) called on every keystroke
+   :on-select   — (fn [{:name :bot? :description}]) called when a suggestion is picked
+   :on-focus    — (fn []) called on focus (optional)
+   :on-blur     — (fn []) called on blur (optional)
+   :search?     — whether to enable search (false = plain input)"
+  [{:keys [slot-id value color placeholder game-type on-change on-select on-focus on-blur search?]
     :or {search? true placeholder "search players..."}}]
   (let [suggestions (get @player-suggestions slot-id [])
         hl @suggestion-highlight]
@@ -165,25 +179,37 @@
            (when on-change (on-change v))
            (when search?
              (reset! active-suggestion slot-id)
-             (fetch-suggestions! slot-id v))))}]
+             (fetch-suggestions! slot-id v game-type))))}]
      ;; Autocomplete dropdown
      (when (and (= @active-suggestion slot-id) (seq suggestions))
        [:div {:style {:position "absolute" :top "100%" :left "30px" :z-index 100
                       :background "#222" :border "1px solid #555" :border-radius "8px"
-                      :max-height "200px" :overflow-y "auto" :width "366px"}}
-        (for [[i sname] (map-indexed vector suggestions)
-              :let [highlighted? (= i hl)]]
-          [:div {:key sname
+                      :max-height "240px" :overflow-y "auto" :width "366px"}}
+        (for [[i suggestion] (map-indexed vector suggestions)
+              :let [highlighted? (= i hl)
+                    sname (:name suggestion)
+                    bot?  (:bot? suggestion)]]
+          [:div {:key (str sname "-" i)
                  :on-mouse-down (fn [e]
                                   (.preventDefault e)
-                                  (select-suggestion! slot-id sname on-select))
+                                  (select-suggestion! slot-id suggestion on-select))
                  :style {:padding "8px 20px" :cursor "pointer" :color "#fff"
-                         :background (if highlighted? "#444" "transparent")
+                         :background (cond
+                                       (and bot? highlighted?) "#3A5A2A"
+                                       bot? "#2A4A1A"
+                                       highlighted? "#444"
+                                       :else "transparent")
                          :font-size "1.2em" :letter-spacing "4px"
-                         :font-family "monospace"}
+                         :font-family "monospace"
+                         :display "flex" :align-items "center"
+                         :justify-content "space-between"}
                  :on-mouse-enter #(reset! suggestion-highlight i)
                  :on-mouse-leave #(reset! suggestion-highlight -1)}
-           sname])])]))
+           [:span sname]
+           (when bot?
+             [:span {:style {:color "#88CC66" :font-size "0.7em" :letter-spacing "2px"
+                             :margin-left "10px"}}
+              "(bot)"])])])]))
 
 ;; ── Open games display ──────────────────────────────────────────────────────
 
@@ -277,3 +303,179 @@
                         :link-prefix link-prefix
                         :current-player current-player
                         :font-family font-family}])]))
+
+;; ── Active games (observe) display ──────────────────────────────────────────
+
+(defn active-game-card
+  "Render a single active/observed game card. Props:
+   :game-key       — the game key
+   :invocation     — full invocation (has :players :description etc.)
+   :round          — current round number
+   :current-player — the player whose turn it is
+   :colors         — vector of player colors (parallel to :players)
+   :link-prefix    — URL prefix for game links (e.g. \"/organism/play/\")
+   :player-link-prefix — URL prefix for player links (e.g. \"/organism/player/\")
+   :font-family    — optional font"
+  [{:keys [game-key invocation round current-player colors link-prefix
+           player-link-prefix font-family]
+    :or {font-family "monospace"}}]
+  (let [{:keys [players description]} invocation
+        player-colors (into {} (map vector players (or colors (repeat "#444"))))
+        current-color (or (get player-colors current-player) (first colors) "#445")]
+    [:div {:style {:margin "10px 20px" :padding "10px 0px"}}
+     [:span
+      [:a {:href (str link-prefix game-key)
+           :style {:color "#fff"
+                   :border-radius "15px"
+                   :background current-color
+                   :padding "10px 20px"
+                   :letter-spacing "5px"
+                   :font-family font-family
+                   :font-size "1.3em"
+                   :text-decoration "none"}}
+       game-key]]
+     (when round
+       [:span {:style {:margin "0px 20px" :color "#aaa"}}
+        (str " round " (inc (or round 0)))])
+     (for [game-player players
+           :let [color (get player-colors game-player)]]
+       ^{:key game-player}
+       [:span
+        [:a {:href (str player-link-prefix game-player)
+             :style (if (= game-player current-player)
+                      {:color "#fff"
+                       :border-radius "20px"
+                       :background color
+                       :margin "0px 10px"
+                       :padding "7px 20px"
+                       :text-decoration "none"
+                       :font-family font-family}
+                      {:padding "5px 10px"
+                       :margin "0px 10px"
+                       :border-style "solid"
+                       :border-width "2px"
+                       :border-color color
+                       :border-radius "5px"
+                       :color color
+                       :text-decoration "none"
+                       :font-family font-family})}
+         game-player]])
+     (when (and description (not (string/blank? description)))
+       [:div {:style {:margin "0px 40px" :color "#aaa"}}
+        description])]))
+
+(defn observe-page
+  "Complete observe page renderer. Props:
+   :title          — page title (default \"observe\")
+   :games          — seq of active game records ({:key :invocation :round :current-player})
+   :link-prefix    — game link prefix
+   :player-link-prefix — player link prefix
+   :colors-fn      — (fn [invocation]) → vector of player colors
+   :home-path      — link for the title
+   :font-family    — optional font
+   :title-bg       — optional header background color"
+  [{:keys [title games link-prefix player-link-prefix colors-fn home-path
+           font-family title-bg]
+    :or {title "observe" title-bg "#333"}}]
+  [:div {:style {:padding "20px" :color "#eee"}}
+   [:div {:style {:color "#fff"
+                  :border-radius "50px"
+                  :letter-spacing "8px"
+                  :font-family (or font-family "monospace")
+                  :margin "0px 20px"
+                  :padding "25px 60px"
+                  :background title-bg}}
+    [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
+              :href (or home-path "/")} title]]]
+   (if (empty? games)
+     [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
+     [:div {:style {:margin "20px 40px"}}
+      (for [{:keys [key invocation round current-player]} games
+            :let [colors (when colors-fn (colors-fn invocation))]]
+        ^{:key key}
+        [active-game-card {:game-key key
+                           :invocation invocation
+                           :round round
+                           :current-player current-player
+                           :colors colors
+                           :link-prefix link-prefix
+                           :player-link-prefix player-link-prefix
+                           :font-family font-family}])])])
+
+;; ── Player stats page ──────────────────────────────────────────────────────
+
+(def ^:private stat-column-hues
+  {:playing (rand) :complete (rand) :won (rand) :created (rand)})
+
+(defn- col-color
+  [hue ratio]
+  (let [lightness (js/Math.round (+ 20 (* 50 (or ratio 0))))]
+    (str "hsl(" (js/Math.round (* hue 360)) ",55%," lightness "%)")))
+
+(defn- stat-cell
+  [label value color]
+  [:span
+   {:style {:display "inline-flex"
+            :flex-direction "column"
+            :align-items "center"
+            :color "#fff"
+            :border-radius "20px"
+            :background color
+            :padding "7px 20px"
+            :margin "0px 10px"}}
+   [:span {:style {:font-size "1.1em"}} value]
+   [:span {:style {:font-size "0.6em" :letter-spacing "2px"
+                   :opacity "0.7" :margin-top "2px"}} label]])
+
+(defn players-page
+  "Complete players/stats page renderer. Props:
+   :title              — page title (default \"players\")
+   :stats              — seq of {:key :color :active :complete :wins :created}
+   :player-link-prefix — URL prefix for player profile links
+   :home-path          — link for the title
+   :font-family        — optional font
+   :title-bg           — optional header background"
+  [{:keys [title stats player-link-prefix home-path font-family title-bg]
+    :or {title "players" title-bg "#333"}}]
+  (let [col-max  (fn [k] (apply max 1 (map k stats)))
+        max-active   (col-max :active)
+        max-complete (col-max :complete)
+        max-wins     (col-max :wins)
+        max-created  (col-max :created)]
+    [:div {:style {:padding "20px" :color "#eee"}}
+     [:div {:style {:color "#fff"
+                    :border-radius "50px"
+                    :letter-spacing "8px"
+                    :font-family (or font-family "monospace")
+                    :margin "0px 20px"
+                    :padding "25px 60px"
+                    :background title-bg}}
+      [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
+                :href (or home-path "/")} title]]]
+     (if (empty? stats)
+       [:p {:style {:margin "30px 40px" :color "#888"}} "no players yet"]
+       [:div {:style {:margin "20px 40px"}}
+        (for [{:keys [key color active complete wins created]} stats]
+          ^{:key key}
+          [:div {:style {:margin "10px 20px" :padding "10px 0px"
+                         :display "flex" :align-items "center"
+                         :flex-wrap "wrap" :gap "4px"}}
+           [:a {:href (str player-link-prefix "/" key)
+                :style {:color "#fff"
+                        :border-radius "15px"
+                        :background (or color "#444")
+                        :padding "10px 20px"
+                        :letter-spacing "5px"
+                        :font-family (or font-family "monospace")
+                        :font-size "1.3em"
+                        :margin-right "10px"
+                        :text-decoration "none"}}
+            key]
+           [stat-cell "playing"  active
+            (col-color (:playing  stat-column-hues) (/ active   max-active))]
+           [stat-cell "complete" complete
+            (col-color (:complete stat-column-hues) (/ complete max-complete))]
+           [stat-cell "won"      wins
+            (col-color (:won      stat-column-hues) (/ wins     max-wins))]
+           [stat-cell "created"  created
+            (col-color (:created  stat-column-hues) (/ created  max-created))]])])]))

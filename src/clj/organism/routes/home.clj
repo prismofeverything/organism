@@ -5,6 +5,7 @@
    [organism.choice :as choice]
    [organism.persist :as persist]
    [organism.examples :as examples]
+   [organism.routes.shared :as shared]
    [hiccup.core :as up]
    [organism.middleware :as middleware]
    [buddy.hashers :as hashers]
@@ -181,27 +182,13 @@
     (persist/update-player-preferences! db player {:color color})
     (response/response {:ok true})))
 
-(defn search-players
-  "Shared player name search endpoint used by all game create pages."
-  [db request]
-  (let [q (or (get-in request [:params :q]) "")
-        players (persist/load-players db)
-        names (keep :key players)
-        matches (if (clojure.string/blank? q)
-                  []
-                  (let [lq (clojure.string/lower-case q)]
-                    (filter #(clojure.string/starts-with?
-                              (clojure.string/lower-case (str %)) lq)
-                            names)))]
-    (response/response {:players (vec (take 10 matches))})))
-
 (defn home-routes
   [db]
   [""
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["/" {:get catalog-page}]
-   ["/api/search-players" {:get (partial search-players db)}]
+   ["/api/search-players" {:get (partial shared/search-players db)}]
    ["/organism" {:get organism-home-page}]
    ["/eternal" {:get eternal-page}]
    ["/login" {:get login-page
