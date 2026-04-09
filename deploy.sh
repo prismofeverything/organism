@@ -24,7 +24,7 @@ echo "=== Building ClojureScript (shadow-cljs release) ==="
 npx shadow-cljs release organism journey oroboros future
 
 echo "=== Building uberjar ==="
-lein with-profile uberjar-nocljs uberjar
+lein uberjar
 
 echo "=== Done: target/uberjar/organism.jar ==="
-ls -lh target/uberjar/organism.jar 2>/dev/null || ls -lh target/uberjar+uberjar-nocljs/organism.jar 2>/dev/null || echo "(check target/ for jar)"
+ls -lh target/uberjar/organism.jar 2>/dev/null || echo "(check target/ for jar)"

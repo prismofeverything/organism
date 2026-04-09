@@ -43,185 +43,54 @@
 
   :min-lein-version "2.0.0"
 
-  ;; Run `lein dev` to start figwheel watching all game builds.
-  ;; Add new game build IDs here when a new game is added to project.clj.
-  ;; Dev: use `npx shadow-cljs watch organism journey oroboros future`
-  ;; Or for a single game: `npx shadow-cljs watch journey`
-  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "oroboros" "future"]}
-  
+  ;; ClojureScript is built by shadow-cljs, not Leiningen.
+  ;; Dev:   npx shadow-cljs watch organism journey oroboros future
+  ;; Prod:  npx shadow-cljs release organism journey oroboros future
+  ;; See shadow-cljs.edn for build configuration.
+
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
   :resource-paths ["resources" "target/cljsbuild"]
   :target-path "target/%s/"
   :main ^:skip-aot organism.core
 
-  :plugins [[lein-cljsbuild "1.1.7"]
-] 
-  :clean-targets ^{:protect false}
-  [:target-path [:cljsbuild :builds :app :compiler :output-dir] [:cljsbuild :builds :app :compiler :output-to]]
-  :figwheel
-  {:http-server-root "public"
-   :server-logfile "log/figwheel-logfile.log"
-   :nrepl-port 7002
-   :css-dirs ["resources/public/css"]
-   :nrepl-middleware [cider.piggieback/wrap-cljs-repl]}
+  :plugins []
+
+  :clean-targets ^{:protect false} [:target-path]
 
   :profiles
-  {:uberjar {:omit-source true
-             :prep-tasks ["compile"
-                          ["cljsbuild" "once" "organism"]
-                          ["cljsbuild" "once" "journey"]
-                          ["cljsbuild" "once" "oroboros"]
-                          ["cljsbuild" "once" "future"]]
-             :cljsbuild
-             {:builds
-              {:organism
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js"
-                 :output-to "target/cljsbuild/public/js/organism.js"
-                 :source-map "target/cljsbuild/public/js/organism.js.map"
-                 :main "organism.organism"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}
-               :journey
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js/journey-prod"
-                 :output-to "target/cljsbuild/public/js/journey.js"
-                 :source-map "target/cljsbuild/public/js/journey.js.map"
-                 :main "journey.journey"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}
-               :oroboros
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js/oroboros-prod"
-                 :output-to "target/cljsbuild/public/js/oroboros.js"
-                 :source-map "target/cljsbuild/public/js/oroboros.js.map"
-                 :main "organism.oroboros"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}
-               :future
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js/future-prod"
-                 :output-to "target/cljsbuild/public/js/future.js"
-                 :source-map "target/cljsbuild/public/js/future.js.map"
-                 :main "future.future"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}}}
+  {;; ClojureScript is built by shadow-cljs out of band (see deploy.sh or
+   ;; `npx shadow-cljs release organism journey oroboros future`). This
+   ;; profile just bundles the pre-built JS from target/cljsbuild into the
+   ;; uberjar alongside the AOT-compiled Clojure code.
+   :uberjar {:omit-source true
+             :prep-tasks ["compile"]
              :aot :all
              :uberjar-name "organism.jar"
-             :source-paths ["env/prod/clj" ]
-             :resource-paths ["env/prod/resources"]}
+             :source-paths ["env/prod/clj"]
+             :resource-paths ["env/prod/resources" "target/cljsbuild"]}
 
-   ;; Like :uberjar but without CLJS prep-tasks (for deploy.sh which pre-builds JS)
-   :uberjar-nocljs {:omit-source true
-                    :prep-tasks ["compile"]
-                    :aot :all
-                    :uberjar-name "organism.jar"
-                    :source-paths ["env/prod/clj"]
-                    :resource-paths ["env/prod/resources" "target/cljsbuild"]}
+   ;; Back-compat alias — deploy.sh historically used this name.
+   :uberjar-nocljs [:uberjar]
 
    :dev           [:project/dev :profiles/dev]
    :test          [:project/dev :project/test :profiles/test]
 
-   :project/dev  {:jvm-opts ["-Dconf=dev-config.edn" ]
+   :project/dev  {:jvm-opts ["-Dconf=dev-config.edn"]
                   :dependencies [[binaryage/devtools "1.0.2"]
-                                 [cider/piggieback "0.5.2"]
-                                 [doo "0.1.11"]
-                                 [figwheel-sidecar "0.5.20"]
                                  [pjstadig/humane-test-output "0.10.0"]
                                  [prone "2020-01-17"]
                                  [ring/ring-devel "1.9.1"]
                                  [ring/ring-mock "0.4.0"]]
                   :plugins      [[com.jakemccrary/lein-test-refresh "0.24.1"]
-                                 [jonase/eastwood "0.3.5"]
-                                 [lein-doo "0.1.11"]
-                                 [lein-figwheel "0.5.20"]] 
-                  :cljsbuild
-                  {:builds
-                   {:organism
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "organism.play/mount-components"}
-                     :compiler
-                     {:main "organism.organism"
-                      :asset-path "/js/out"
-                      :output-to "target/cljsbuild/public/js/organism.js"
-                      :output-dir "target/cljsbuild/public/js/out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}
-                    :journey
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "journey.play/mount-components"}
-                     :compiler
-                     {:main "journey.journey"
-                      :asset-path "/js/journey-out"
-                      :output-to "target/cljsbuild/public/js/journey.js"
-                      :output-dir "target/cljsbuild/public/js/journey-out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}
-                    :oroboros
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "organism.oroboros.play/mount-components"}
-                     :compiler
-                     {:main "organism.oroboros"
-                      :asset-path "/js/oroboros-out"
-                      :output-to "target/cljsbuild/public/js/oroboros.js"
-                      :output-dir "target/cljsbuild/public/js/oroboros-out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}
-                    :future
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "future.play/mount-components"}
-                     :compiler
-                     {:main "future.future"
-                      :asset-path "/js/future-out"
-                      :output-to "target/cljsbuild/public/js/future.js"
-                      :output-dir "target/cljsbuild/public/js/future-out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}}}
-                  
-                  :doo {:build "test"}
-                  :source-paths ["env/dev/clj" ]
+                                 [jonase/eastwood "0.3.5"]]
+                  :source-paths ["env/dev/clj"]
                   :resource-paths ["env/dev/resources"]
                   :repl-options {:init-ns user
                                  :timeout 120000}
                   :injections [(require 'pjstadig.humane-test-output)
                                (pjstadig.humane-test-output/activate!)]}
-   :project/test {:jvm-opts ["-Dconf=test-config.edn" ]
-                  :resource-paths ["env/test/resources"] 
-                  :cljsbuild 
-                  {:builds
-                   {:test
-                    {:source-paths ["src/cljc" "src/cljs" "test/cljs"]
-                     :compiler
-                     {:output-to "target/test.js"
-                      :main "organism.doo-runner"
-                      :optimizations :whitespace
-                      :pretty-print true}}}}
-                  
-                  }
+   :project/test {:jvm-opts ["-Dconf=test-config.edn"]
+                  :resource-paths ["env/test/resources"]}
    :profiles/dev {}
    :profiles/test {}})
