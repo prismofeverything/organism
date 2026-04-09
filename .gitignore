@@ -14,6 +14,7 @@ profiles.clj
 .rebel_readline_history
 /node_modules
 /.shadow-cljs
+/resources/public/js
 /log
 backup/
 __pycache__/

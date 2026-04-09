@@ -50,25 +50,23 @@
 
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
-  :resource-paths ["resources" "target/cljsbuild"]
+  :resource-paths ["resources"]
   :target-path "target/%s/"
   :main ^:skip-aot organism.core
 
   :plugins []
 
-  :clean-targets ^{:protect false} [:target-path]
-
   :profiles
   {;; ClojureScript is built by shadow-cljs out of band (see deploy.sh or
-   ;; `npx shadow-cljs release organism journey oroboros future`). This
-   ;; profile just bundles the pre-built JS from target/cljsbuild into the
-   ;; uberjar alongside the AOT-compiled Clojure code.
+   ;; `npx shadow-cljs release organism journey oroboros future`). Shadow
+   ;; writes to resources/public/js/, which is already on the resource
+   ;; path, so the uberjar picks it up automatically.
    :uberjar {:omit-source true
              :prep-tasks ["compile"]
              :aot :all
              :uberjar-name "organism.jar"
              :source-paths ["env/prod/clj"]
-             :resource-paths ["env/prod/resources" "target/cljsbuild"]}
+             :resource-paths ["env/prod/resources"]}
 
    ;; Back-compat alias — deploy.sh historically used this name.
    :uberjar-nocljs [:uberjar]

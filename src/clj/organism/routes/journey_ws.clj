@@ -7,8 +7,10 @@
    [org.httpkit.server :as hk]
    [journey.game :as game]
    [journey.choice :as choice]
+   [journey.bot-flow :as bot-flow]
    [organism.persist :as persist]
-   [organism.persist-journey :as persist-j])
+   [organism.persist-journey :as persist-j]
+   [organism.persist-journey-bots :as bots-db])
   (:import
    [java.io ByteArrayOutputStream]))
 
@@ -128,8 +130,18 @@
 
 ;; ── Bot turns ───────────────────────────────────────────────────────────────
 
-(defn- resolve-agent-step []
+(defn- builtin-agent-step []
   (requiring-resolve 'organism.routes.journey/agent-step))
+
+(defn- bot-agent-step
+  "Pick the right agent-step for `bot-name`. Looks up a saved flowchart bot in
+   the database first; otherwise falls back to the built-in heuristic bot."
+  [db bot-name]
+  (or (when bot-name
+        (when-let [saved (bots-db/find-bot db bot-name)]
+          (when-let [defn (:definition saved)]
+            (fn [state] (bot-flow/agent-step defn state)))))
+      (builtin-agent-step)))
 
 (def ^:private bot-protected-phases
   "Phases where bot should stop, broadcast, and make a visible decision."
@@ -168,7 +180,9 @@
                          (not (:game-over current-state))
                          (contains? bots (choice-player current-state)))
                 ;; Use agent-step to pick, with fallback to first choice if agent can't decide
-                (let [step-result (or ((resolve-agent-step) current-state)
+                (let [bot-name    (choice-player current-state)
+                      step-fn     (bot-agent-step db bot-name)
+                      step-result (or (step-fn current-state)
                                      ;; Fallback: pick first choice from raw phase
                                      (let [[_ cs] (choice/find-state-raw current-state)]
                                        (when (seq cs)
