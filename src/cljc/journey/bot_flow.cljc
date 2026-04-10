@@ -187,7 +187,34 @@
     :params [{:key :probability :type :float :default 0.5}]
     :outputs [:true :false]
     :eval (fn [_state {:keys [probability]}]
-            (< (rand) (or probability 0.5)))}})
+            (< (rand) (or probability 0.5)))}
+
+   :move-sets-up-tower?
+   {:label "moving sets up tower"
+    :description "True iff there's a real move choice (launch or fly) and that move would enable a tower conversion next phase. Mirrors `skip-convert-for-tower?` in the hard-coded heuristic."
+    :params []
+    :outputs [:true :false]
+    :eval (fn [state _]
+            (let [[_ choices]   (choice/find-state-raw state)
+                  move-next     (:move choices)
+                  [_ move-cs]   (when move-next (choice/find-state-raw move-next))
+                  real-move?    (some #(and (vector? %)
+                                            (or (number? (first %))
+                                                (= :fly (first %))))
+                                      (keys move-cs))
+                  has-tower?    (some #(= :tower (:type %))
+                                      (game/find-conversions
+                                       state (game/current-player state)))
+                  enables-tower?
+                  (fn [next-s]
+                    (some #(= :tower (:type %))
+                          (game/find-conversions next-s (game/current-player state))))]
+              (boolean
+               (and (not has-tower?)
+                    real-move?
+                    move-next
+                    (some (fn [[_k ns]] (when ns (enables-tower? ns)))
+                          move-cs)))))}})
 
 ;; ── Vocabulary: logic gates ─────────────────────────────────────────────────
 ;; Logic tiles aggregate signals. They have one output port :out and a single
@@ -242,6 +269,47 @@
                (fn [[k _]]
                  (apply min (map #(game/hex-distance k %) targets)))
                pos-entries)))))
+
+;; ── Helpers shared with the hard-coded agent-step (verbatim ports) ───────────
+
+(defn- enables-conversion? [state next-s]
+  (seq (game/find-conversions next-s (game/current-player state))))
+
+(defn- enables-tower-conversion? [state next-s]
+  (some #(= :tower (:type %))
+        (game/find-conversions next-s (game/current-player state))))
+
+(defn- enables-matrix-conversion? [state next-s]
+  (some #(= :matrix (:type %))
+        (game/find-conversions next-s (game/current-player state))))
+
+(defn- player-idx [state]
+  (let [order (vec (:turn-order state))]
+    (.indexOf order (game/current-player state))))
+
+(defn- pick-varied [state candidates]
+  (when (seq candidates)
+    (nth (vec candidates) (mod (player-idx state) (count candidates)))))
+
+(defn- entry-by-val
+  "Find the [k v] entry in choices whose v matches `pred-val`."
+  [choices pred-val]
+  (some (fn [[k v]] (when (= v pred-val) [k v])) choices))
+
+(defn- entry-by-pred-val
+  "Apply (pred state v) over choices values; return the first matching entry."
+  [state choices pred]
+  (some (fn [[k v]] (when (pred state v) [k v])) choices))
+
+(defn- non-wrap-entries
+  "Return choices with `[:wrap ...]` keys removed."
+  [choices]
+  (into {} (remove #(and (vector? (key %))
+                         (= :wrap (first (key %))))
+                   choices)))
+
+(defn- value-of [choices target-val]
+  (some (fn [[k v]] (when (= v target-val) [k v])) choices))
 
 (def effects
   {:pick-action
@@ -353,7 +421,278 @@
     :inputs [:in]
     :outputs []
     ;; :apply is special — handled by interpreter (sees :kind :jump or :type :jump)
-    :apply nil}})
+    :apply nil}
+
+   ;; ── Per-phase verbatim ports of organism.routes.journey/agent-step ────────
+   ;; These effects internalize the hard-coded heuristic for one specific phase
+   ;; so the flowchart can be a drop-in replacement.
+
+   :pick-move-best
+   {:label "pick move (best)"
+    :description "Choose-move: prefer fly when 3+ on board, else launch where fewest are"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [player    (game/current-player state)
+            fly-keys  (filter #(and (vector? %) (= :fly (first %))) (keys choices))
+            pos-keys  (filter #(and (vector? %) (number? (first %))) (keys choices))
+            prefer-fly? (>= (on-board-count state player) 3)]
+        (or (when (and prefer-fly? (seq fly-keys))
+              (let [best (apply max-key
+                                #(get-in state [:board (second %) :sundivers player] 0)
+                                fly-keys)]
+                [best (get choices best)]))
+            (when (seq pos-keys)
+              (let [fewest (apply min-key
+                                  #(get-in state [:board % :sundivers player] 0)
+                                  pos-keys)]
+                [fewest (get choices fewest)]))
+            (when (seq fly-keys)
+              (let [k (first fly-keys)] [k (get choices k)]))
+            (when (contains? choices :done) [:done (get choices :done)])
+            (when (seq choices) [(first (keys choices)) (first (vals choices))]))))}
+
+   :pick-launch-best
+   {:label "pick launch (best)"
+    :description "Choose-launch-destination: prefer conversion-enabling, then closest to landings/beacons/near-landable, then varied"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [non-wrap     (non-wrap-entries choices)
+            no-beacons?  (empty? (beacon-positions state))
+            conv         (if no-beacons?
+                           (or (entry-by-pred-val state non-wrap enables-matrix-conversion?)
+                               (entry-by-pred-val state non-wrap enables-conversion?))
+                           (or (entry-by-pred-val state non-wrap enables-tower-conversion?)
+                               (entry-by-pred-val state non-wrap enables-conversion?)))
+            landings     (game/available-landings state)
+            beacons      (beacon-positions state)
+            near-land    (near-landable-positions state)
+            strategic    (cond (seq landings)  landings
+                               (seq beacons)   beacons
+                               (seq near-land) near-land
+                               :else           nil)
+            closest      (when (and (not conv) strategic (seq non-wrap))
+                           (let [k (apply min-key
+                                          (fn [p] (apply min (map #(game/hex-distance p %) strategic)))
+                                          (keys non-wrap))]
+                             [k (get non-wrap k)]))]
+        (or conv
+            closest
+            (when-let [v (pick-varied state (vals non-wrap))]
+              (entry-by-val non-wrap v))
+            (when-let [v (pick-varied state (vals choices))]
+              (value-of choices v)))))}
+
+   :pick-fly-from-best
+   {:label "pick fly source (best)"
+    :description "Choose-fly-from: pick the position with the most sundivers"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [player (game/current-player state)]
+        (when (seq choices)
+          (let [k (apply max-key #(get-in state [:board % :sundivers player] 0)
+                         (keys choices))]
+            [k (get choices k)]))))}
+
+   :pick-fly-to-best
+   {:label "pick fly dest (best)"
+    :description "Choose-fly-to: prefer conversion-enabling, avoid visited tiles, target landings/beacons/near-landable"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [visited     (get-in state [:player-turn :action :bot-fly-visited] #{})
+            non-wrap    (non-wrap-entries choices)
+            non-visited (into {} (remove #(contains? visited (key %)) non-wrap))
+            targets-map (if (seq non-visited) non-visited non-wrap)
+            no-beacons? (empty? (beacon-positions state))
+            conv        (if no-beacons?
+                          (or (entry-by-pred-val state targets-map enables-matrix-conversion?)
+                              (entry-by-pred-val state targets-map enables-conversion?))
+                          (or (entry-by-pred-val state targets-map enables-tower-conversion?)
+                              (entry-by-pred-val state targets-map enables-conversion?)))
+            landings    (game/available-landings state)
+            beacons     (beacon-positions state)
+            near-land   (near-landable-positions state)
+            strategic   (cond (seq landings)  landings
+                              (seq beacons)   beacons
+                              (seq near-land) near-land
+                              :else           nil)
+            closest     (when (and (not conv) strategic (seq targets-map))
+                          (let [k (apply min-key
+                                         (fn [p] (apply min (map #(game/hex-distance p %) strategic)))
+                                         (keys targets-map))]
+                            [k (get targets-map k)]))]
+        (or conv
+            closest
+            (when-let [v (pick-varied state (vals targets-map))]
+              (entry-by-val targets-map v))
+            (when-let [v (pick-varied state (vals choices))]
+              (value-of choices v)))))}
+
+   :pick-position-closest
+   {:label "closest position"
+    :description "Among hex-position keys, pick the one closest to landings, then beacons, then near-landable"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [board     (:board state)
+            landings  (game/available-landings state)
+            near-land (near-landable-positions state)
+            beacons   (filter #(get-in board [% :beacon]) (keys board))
+            pos-keys  (filter #(and (vector? %) (= 2 (count %)) (number? (first %)))
+                              (keys choices))
+            closest-fn
+            (fn [targets]
+              (when (and (seq targets) (seq pos-keys))
+                (let [best (apply min-key
+                                  (fn [p] (apply min (map #(game/hex-distance p %) targets)))
+                                  pos-keys)]
+                  [best (get choices best)])))]
+        (or (closest-fn landings)
+            (closest-fn beacons)
+            (closest-fn near-land)
+            (when (seq choices) [(first (keys choices)) (first (vals choices))]))))}
+
+   :pick-ark-advance-best
+   {:label "ark advance (best)"
+    :description "Choose-ark-advance: pick :wrap when it's strictly closer to landings/beacons/near-landable, else :direct"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [landings  (game/available-landings state)
+            bs        (beacon-positions state)
+            near-land (near-landable-positions state)
+            targets   (cond (seq landings)  landings
+                            (seq bs)        bs
+                            (seq near-land) near-land
+                            :else           nil)]
+        (if targets
+          (let [ark        (:ark state)
+                dir        (game/heading-direction state)
+                direct-pos (:heading-token state)
+                wrap-pos   (game/wrap-target state ark dir)
+                d-fn       (fn [p] (apply min (map #(game/hex-distance p %) targets)))
+                d-direct   (d-fn direct-pos)
+                d-wrap     (d-fn wrap-pos)]
+            (if (< d-wrap d-direct)
+              (or (pick-keyword* choices :wrap) (pick-keyword* choices :direct))
+              (pick-keyword* choices :direct)))
+          (pick-keyword* choices :direct))))}
+
+   :pick-activate-station-first
+   {:label "first station"
+    :description "Choose-activate-station: pick the first available non-:done station, else :done"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [_state choices _]
+      (or (some (fn [[k v]] (when (not= k :done) [k v])) choices)
+          (pick-keyword* choices :done)))}
+
+   :pick-matrix-beacon-best
+   {:label "matrix beacon (best)"
+    :description "Choose-activate-matrix-beacon: prefer the tile on the ark's heading path, else any tile without a station"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [ahead    (game/add-hex (:ark state) (game/heading-direction state))
+            no-sta   (remove #(get-in state [:board % :station]) (keys choices))
+            on-path  (filter #{ahead} no-sta)
+            pick     (or (first on-path) (first no-sta) (first (keys choices)))]
+        (when pick [pick (get choices pick)])))}
+
+   :pick-cipher-best
+   {:label "cipher placement (best)"
+    :description "Choose where to place a cipher beacon — center first, then maximize matches near the ark"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [state choices _]
+      (let [{:keys [color]} (first (get-in state [:player-turn :cipher-queue] []))
+            board     (:board state)
+            ark       (:ark state)
+            center-n  (count (filter (fn [[_ ps]] (seq ps))
+                                     (get-in state [:cipher [0 0] :colors] {})))
+            ark-weight
+            (fn [tile-pos]
+              (let [d (if ark (game/hex-distance tile-pos ark) 99)]
+                (cond (<= d 1) 5 (<= d 2) 3 (<= d 3) 2 :else 1)))
+            score
+            (fn [pos]
+              (if (game/cipher-color-active? state pos color)
+                0
+                (if (= pos [0 0])
+                  (let [tiles-of-color (filter #(= color (:color (get board %))) (keys board))
+                        new-matches    (apply +
+                                              (for [tile-pos tiles-of-color
+                                                    dir      game/hex-directions
+                                                    :let [n-color (get-in board [(game/add-hex tile-pos dir) :color])]
+                                                    :when (and n-color
+                                                               (game/cipher-color-active? state dir n-color))]
+                                                (ark-weight tile-pos)))]
+                    (cond
+                      (zero? center-n) (+ 9999 new-matches)
+                      (< center-n 3)   (+ (* (count tiles-of-color) 2) new-matches)
+                      :else            (max 1 (+ (quot (count tiles-of-color) 4) new-matches))))
+                  (let [actual-matches
+                        (apply +
+                               (for [tile-pos (keys board)
+                                     :let [tile-color (:color (get board tile-pos))
+                                           n-color    (get-in board [(game/add-hex tile-pos pos) :color])]
+                                     :when (and (= n-color color)
+                                                tile-color
+                                                (game/cipher-color-active? state [0 0] tile-color))]
+                                 (ark-weight tile-pos)))]
+                    (if (zero? center-n)
+                      (max 1 actual-matches)
+                      (* (max 1 actual-matches) 3))))))
+            placeable (dissoc choices :skip)]
+        (if (and color (seq placeable))
+          (let [k (apply max-key score (keys placeable))]
+            [k (get choices k)])
+          (or (pick-keyword* choices :skip)
+              (when (seq choices) [(first (keys choices)) (first (vals choices))])))))}
+
+   :pick-keep-card-best
+   {:label "keep-card (best)"
+    :description "Keep-card: prefer :continue, else any non-:keep-held choice, else first"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [_state choices _]
+      (or (pick-keyword* choices :continue)
+          (some (fn [[k v]] (when (not= k :keep-held) [k v])) choices)
+          (when (seq choices) [(first (keys choices)) (first (vals choices))])))}
+
+   :pick-tower-join-best
+   {:label "tower join (best)"
+    :description "Activate-tower-join: pick :join when offered, else :skip"
+    :params []
+    :inputs [:in]
+    :outputs []
+    :apply
+    (fn [_state choices _]
+      (or (pick-keyword* choices :join)
+          (pick-keyword* choices :skip)))}})
 
 ;; ── Spec lookups (used by editor and interpreter) ──────────────────────────
 
@@ -368,6 +707,13 @@
     :start     {:label "start" :outputs [:out]}
     nil))
 
+(def best-of-effects
+  "Specialized effects that internalize the hard-coded heuristic for one phase."
+  #{:pick-move-best :pick-launch-best :pick-fly-from-best :pick-fly-to-best
+    :pick-position-closest :pick-ark-advance-best
+    :pick-activate-station-first :pick-matrix-beacon-best :pick-cipher-best
+    :pick-keep-card-best :pick-tower-join-best})
+
 (defn all-categories
   "Return categories of available tiles for the editor palette."
   []
@@ -381,7 +727,13 @@
                  :description (:description v)})}
    {:category :effects
     :tiles    (for [[k v] effects
-                    :when (not= k :jump)]
+                    :when (and (not= k :jump)
+                               (not (contains? best-of-effects k)))]
+                {:kind :effect :type k :label (:label v)
+                 :description (:description v)})}
+   {:category :best-of
+    :tiles    (for [[k v] effects
+                    :when (contains? best-of-effects k)]
                 {:kind :effect :type k :label (:label v)
                  :description (:description v)})}
    {:category :flow

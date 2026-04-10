@@ -2,6 +2,7 @@
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
+   [clojure.string :as str]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
@@ -134,14 +135,20 @@
   (requiring-resolve 'organism.routes.journey/agent-step))
 
 (defn- bot-agent-step
-  "Pick the right agent-step for `bot-name`. Looks up a saved flowchart bot in
-   the database first; otherwise falls back to the built-in heuristic bot."
+  "Pick the right agent-step for `bot-name`. Tries the exact name first, then
+   the base name (strips suffix like OBO-A → OBO). Falls back to the built-in
+   heuristic bot."
   [db bot-name]
-  (or (when bot-name
-        (when-let [saved (bots-db/find-bot db bot-name)]
-          (when-let [defn (:definition saved)]
-            (fn [state] (bot-flow/agent-step defn state)))))
-      (builtin-agent-step)))
+  (let [base-name (when bot-name
+                    (str/replace bot-name #"-(?:[A-Z]|\d+)$" ""))
+        try-db    (fn [n]
+                    (when n
+                      (when-let [saved (bots-db/find-bot db n)]
+                        (when-let [d (:definition saved)]
+                          (fn [state] (bot-flow/agent-step d state))))))]
+    (or (try-db bot-name)
+        (when (not= base-name bot-name) (try-db base-name))
+        (builtin-agent-step))))
 
 (def ^:private bot-protected-phases
   "Phases where bot should stop, broadcast, and make a visible decision."
