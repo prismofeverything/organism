@@ -8,7 +8,7 @@
    [organism.routes.organism :refer [organism-routes]]
    [organism.routes.journey :refer [journey-routes]]
    [organism.routes.journey-ws :refer [journey-ws-routes]]
-   [organism.routes.journey-bots :refer [journey-bot-routes]]
+   [organism.routes.journey-bots :refer [journey-bot-routes organism-bot-routes]]
    [organism.routes.oroboros :refer [oroboros-routes]]
    [organism.routes.oroboros-ws :refer [oroboros-ws-routes]]
    [organism.routes.future :refer [future-routes]]
@@ -39,6 +39,7 @@
        (organism-routes db)
        (journey-routes db)
        (journey-bot-routes db)
+       (organism-bot-routes db)
        (oroboros-routes db)
        (future-routes db)
        (websocket-routes db)

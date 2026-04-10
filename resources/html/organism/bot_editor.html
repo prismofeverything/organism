@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>JOURNEY — Bots</title>
+    <title>ORGANISM — Bot Editor</title>
     {% style "/assets/bulma/css/bulma.min.css" %}
     {% style "/css/screen.css" %}
   </head>
@@ -18,13 +18,14 @@
       var isCreate = false;
       var isObserve = false;
       var isGenerate = false;
-      var isBotList = true;
-      var isBotEditor = false;
-      var botGameType = "journey";
-      var botBasePath = "/journey/bots";
-      var botHomePath = "/journey";
-      var myBots  = "{{my-bots|addslashes|safe}}";
-      var allBots = "{{all-bots|addslashes|safe}}";
+      var isBotList = false;
+      var isBotEditor = true;
+      var botGameType = "organism";
+      var botBasePath = "/organism/bots";
+      var botHomePath = "/organism";
+      var preloadedBot = "{{bot|addslashes|safe}}";
+      var preloadedBotName = "{{bot-name|addslashes|safe}}";
+      var preloadedBotOwner = "{{bot-owner|addslashes|safe}}";
     </script>
     {% script "/js/journey-bots.js" %}
   </body>

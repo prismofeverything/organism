@@ -2134,7 +2134,8 @@
         d-hover @dest-hover
         action (game/get-current-action game)
         action-type (:type action)
-        from-space (get-in action [:action :from])
+        from-space (let [v (get-in action [:action :from])]
+                     (when (vector? v) v))
         source-indicator
         (when from-space
           (let [[sx sy] (get locations from-space)]

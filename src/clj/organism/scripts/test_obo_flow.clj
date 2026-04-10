@@ -121,7 +121,7 @@
 
 (defn -main [& _]
   (let [conn  (db/connect! mongo-connection)
-        saved (bots-db/find-bot conn "OBO")
+        saved (bots-db/find-bot conn "journey" "OBO")
         defn  (:definition saved)
         _     (println "loaded OBO bot — diagrams:" (mapv first (:diagrams defn)))
         trace (play-with-hardcoded ["A" "B"] 1500)

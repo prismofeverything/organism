@@ -19,7 +19,8 @@
    editor can introspect available tiles and their parameter shapes."
   (:require
    [journey.choice :as choice]
-   [journey.game :as game]))
+   [journey.game :as game]
+   [organism.bot-flow-core :as core]))
 
 ;; ── Helpers shared across condition/effect predicates ───────────────────────
 
@@ -694,130 +695,30 @@
       (or (pick-keyword* choices :join)
           (pick-keyword* choices :skip)))}})
 
-;; ── Spec lookups (used by editor and interpreter) ──────────────────────────
+;; ── Vocab bundle (passed to shared interpreter + editor) ────────────────────
 
-(defn tile-spec
-  "Return the spec map for a tile, or nil. Looks up by tile :kind and :type."
-  [tile]
-  (case (:kind tile)
-    :condition (get conditions (:type tile))
-    :logic     (get logic-tiles (:type tile))
-    :effect    (get effects (:type tile))
-    :jump      (get effects :jump)
-    :start     {:label "start" :outputs [:out]}
-    nil))
+(def vocab
+  {:conditions conditions
+   :logic      logic-tiles
+   :effects    effects
+   :best-of-effects
+   #{:pick-move-best :pick-launch-best :pick-fly-from-best :pick-fly-to-best
+     :pick-position-closest :pick-ark-advance-best
+     :pick-activate-station-first :pick-matrix-beacon-best :pick-cipher-best
+     :pick-keep-card-best :pick-tower-join-best}})
 
-(def best-of-effects
-  "Specialized effects that internalize the hard-coded heuristic for one phase."
-  #{:pick-move-best :pick-launch-best :pick-fly-from-best :pick-fly-to-best
-    :pick-position-closest :pick-ark-advance-best
-    :pick-activate-station-first :pick-matrix-beacon-best :pick-cipher-best
-    :pick-keep-card-best :pick-tower-join-best})
-
-(defn all-categories
-  "Return categories of available tiles for the editor palette."
-  []
-  [{:category :conditions
-    :tiles    (for [[k v] conditions]
-                {:kind :condition :type k :label (:label v)
-                 :description (:description v)})}
-   {:category :logic
-    :tiles    (for [[k v] logic-tiles]
-                {:kind :logic :type k :label (:label v)
-                 :description (:description v)})}
-   {:category :effects
-    :tiles    (for [[k v] effects
-                    :when (and (not= k :jump)
-                               (not (contains? best-of-effects k)))]
-                {:kind :effect :type k :label (:label v)
-                 :description (:description v)})}
-   {:category :best-of
-    :tiles    (for [[k v] effects
-                    :when (contains? best-of-effects k)]
-                {:kind :effect :type k :label (:label v)
-                 :description (:description v)})}
-   {:category :flow
-    :tiles    [{:kind :jump :type :jump :label "jump"
-                :description "Jump to another diagram"}]}])
+(defn tile-spec [tile] (core/tile-spec vocab tile))
+(defn all-categories [] (core/all-categories vocab))
 
 ;; ── Interpreter ─────────────────────────────────────────────────────────────
 
-(declare eval-tile)
-
-(defn- find-link
-  "Find the link from (from-id, port) within a diagram."
-  [diagram from-id port]
-  (some (fn [l]
-          (when (and (= (get-in l [:from :tile]) from-id)
-                     (= (get-in l [:from :port]) port))
-            l))
-        (:links diagram)))
-
-(defn- follow-port
-  [state choices definition diagram-name from-id port visited]
-  (let [diagram (get-in definition [:diagrams diagram-name])
-        link    (find-link diagram from-id port)]
-    (when link
-      (eval-tile state choices definition diagram-name
-                 (get-in link [:to :tile]) visited))))
-
-(defn- run-diagram
-  [state choices definition diagram-name visited]
-  (when-let [diagram (get-in definition [:diagrams diagram-name])]
-    (when-let [start (or (:start-tile diagram)
-                         (some (fn [[id t]] (when (= :start (:kind t)) id))
-                               (:tiles diagram)))]
-      (eval-tile state choices definition diagram-name start visited))))
-
-(defn- eval-tile
-  [state choices definition diagram-name tile-id visited]
-  (let [token [diagram-name tile-id]]
-    (when-not (contains? visited token)
-      (let [visited' (conj visited token)
-            tile     (get-in definition [:diagrams diagram-name :tiles tile-id])
-            kind     (:kind tile)]
-        (case kind
-          :start
-          (follow-port state choices definition diagram-name tile-id :out visited')
-
-          :condition
-          (let [spec (get conditions (:type tile))
-                v    (when spec ((:eval spec) state (:params tile)))
-                port (if v :true :false)]
-            (or (follow-port state choices definition diagram-name tile-id port visited')
-                ;; If the matched branch dead-ends, try the other branch
-                (follow-port state choices definition diagram-name tile-id
-                             (if (= port :true) :false :true) visited')))
-
-          :logic
-          (case (:type tile)
-            :branch (or (follow-port state choices definition diagram-name tile-id :a visited')
-                        (follow-port state choices definition diagram-name tile-id :b visited'))
-            ;; default: forward through :out
-            (follow-port state choices definition diagram-name tile-id :out visited'))
-
-          :effect
-          (when-let [spec (get effects (:type tile))]
-            (when-let [f (:apply spec)]
-              (f state choices (:params tile))))
-
-          :jump
-          (when-let [target (get-in tile [:params :diagram])]
-            (run-diagram state choices definition target visited'))
-
-          nil)))))
-
 (defn agent-step
-  "Top-level: given a bot definition and a game state, return [choice-key next-state]
-   for the current phase, or nil. The interpreter falls back to picking the first
-   available choice if the flowchart cannot resolve."
+  "Top-level: given a bot definition and a journey game state, return
+   [choice-key next-state] for the current phase."
   [definition state]
   (let [[_phase choices] (choice/find-state-raw state)]
     (when (seq choices)
-      (or (run-diagram state choices definition
-                       (or (:start-diagram definition) :main) #{})
-          ;; Final fallback: first available choice
-          [(first (keys choices)) (first (vals choices))]))))
+      (core/agent-step vocab definition state choices))))
 
 ;; ── Default bot definition ──────────────────────────────────────────────────
 

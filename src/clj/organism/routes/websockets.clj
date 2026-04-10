@@ -235,7 +235,8 @@
              (send-channels! channels {:type "bot-choices"
                                        :choices choice-keys}))))
        (fn [next-state]
-         (persist/update-state! db game-key next-state))))))
+         (persist/update-state! db game-key next-state))
+       db))))
 
 (defn update-game-state
   [db player game-key channel {:keys [game complete] :as message}]

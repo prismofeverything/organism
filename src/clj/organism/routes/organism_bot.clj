@@ -6,11 +6,14 @@
    - Capture: prefer actions that land next to enemy elements
    - Grow organisms: prefer missing element types"
   (:require
+   [clojure.string :as str]
    [clojure.tools.logging :as log]
    [organism.board :as board]
+   [organism.bot-flow :as bot-flow]
    [organism.bots :as bots]
    [organism.choice :as choice]
-   [organism.game :as game]))
+   [organism.game :as game]
+   [organism.persist-journey-bots :as bots-db]))
 
 ;; ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -372,6 +375,39 @@
   (when-let [[_k next-game] (agent-step+key game)]
     next-game))
 
+;; ── DB-aware agent step (tries flowchart bots first) ────────────────────────
+
+(defn- resolve-flowchart-step
+  "Look up a saved flowchart bot for the current player. Returns an
+   agent-step+key fn or nil."
+  [db player-name]
+  (let [base (str/replace (or player-name "") #"-(?:[A-Z]|\d+)$" "")]
+    (or (when-let [saved (bots-db/find-bot db "organism" player-name)]
+          (when-let [d (:definition saved)]
+            (fn [game] (bot-flow/agent-step d game))))
+        (when (not= base player-name)
+          (when-let [saved (bots-db/find-bot db "organism" base)]
+            (when-let [d (:definition saved)]
+              (fn [game] (bot-flow/agent-step d game))))))))
+
+(defn make-agent-step+key
+  "Return an agent-step+key fn that checks the DB for a flowchart bot
+   matching the current player, falling back to the hard-coded heuristic."
+  [db]
+  (let [cache (atom {})]  ;; {player-name → step-fn or ::none}
+    (fn [game]
+      (let [player (get-in game [:state :player-turn :player])
+            cached (get @cache player ::miss)]
+        (if (not= cached ::miss)
+          (if (= cached ::none)
+            (agent-step+key game)
+            (cached game))
+          (let [flow-fn (resolve-flowchart-step db player)]
+            (swap! cache assoc player (or flow-fn ::none))
+            (if flow-fn
+              (flow-fn game)
+              (agent-step+key game))))))))
+
 ;; ── Organism bot loop config (uses shared bots/run-bot-loop!) ──────────────
 
 (defn- organism-turn-changed?
@@ -383,12 +419,12 @@
             (get-in b [:state :round]))))
 
 (defn- organism-bot-config
-  [games-atom game-key humans delay-ms on-turn]
+  [games-atom game-key humans delay-ms on-turn & [db]]
   {:label          (str "ORGANISM BOT " game-key)
    :get-game       (fn [] (:game (get-in @games-atom [:games game-key])))
    :put-game!      (fn [next-game]
                      (swap! games-atom assoc-in [:games game-key :game] next-game))
-   :agent-step+key agent-step+key
+   :agent-step+key (if db (make-agent-step+key db) agent-step+key)
    :victory?       game/victory?
    :current-player game/current-player
    :turn-changed?  organism-turn-changed?
@@ -398,13 +434,14 @@
 
 (defn run-bot-turns!
   "All-bot game runner — used by /organism/generate. No humans."
-  [games-atom game-key delay-ms broadcast-fn persist-fn]
+  [games-atom game-key delay-ms broadcast-fn persist-fn & [db]]
   (bots/run-bot-loop!
    (organism-bot-config
     games-atom game-key #{} delay-ms
     (fn [choice-keys next-game]
       (when broadcast-fn (broadcast-fn choice-keys next-game))
-      (when persist-fn (persist-fn (:state next-game)))))))
+      (when persist-fn (persist-fn (:state next-game))))
+    db)))
 
 (defn play-until-human-or-done
   "Run bot steps until it's a human's turn or the game is over.
@@ -446,13 +483,14 @@
 
 (defn run-bot-until-human!
   "Mixed game runner — runs bots until a human's turn comes up."
-  [games-atom game-key human-players delay-ms broadcast-fn persist-fn]
+  [games-atom game-key human-players delay-ms broadcast-fn persist-fn & [db]]
   (bots/run-bot-loop!
    (organism-bot-config
     games-atom game-key human-players delay-ms
     (fn [choice-keys next-game]
       (when broadcast-fn (broadcast-fn choice-keys next-game))
-      (when persist-fn (persist-fn (:state next-game)))))))
+      (when persist-fn (persist-fn (:state next-game))))
+    db)))
 
 ;; ── Bot registration ────────────────────────────────────────────────────────
 

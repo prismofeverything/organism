@@ -143,7 +143,7 @@
                     (str/replace bot-name #"-(?:[A-Z]|\d+)$" ""))
         try-db    (fn [n]
                     (when n
-                      (when-let [saved (bots-db/find-bot db n)]
+                      (when-let [saved (bots-db/find-bot db "journey" n)]
                         (when-let [d (:definition saved)]
                           (fn [state] (bot-flow/agent-step d state))))))]
     (or (try-db bot-name)

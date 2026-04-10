@@ -7,6 +7,7 @@
    [organism.bots :as bots]
    [organism.layout :as layout]
    [organism.persist :as persist]
+   [organism.persist-journey-bots :as bots-db]
    [ring.util.response :as response]))
 
 ;; ── Auth helper ──────────────────────────────────────────────────────────
@@ -71,13 +72,20 @@
         game-type (or (get-in request [:params :game-type]) "")
         players (persist/load-players db)
         human-names (keep :key players)
-        bot-list (when-not (str/blank? game-type) (bots/list-bots game-type))
+        ;; Built-in (hard-coded) bots from the registry
+        registry-bots (when-not (str/blank? game-type) (bots/list-bots game-type))
+        ;; Player-created flowchart bots from the database
+        db-bots (when-not (str/blank? game-type)
+                  (map (fn [b] {:name (:name b) :description (or (:description b) "")})
+                       (bots-db/list-bots-for-game db game-type)))
+        ;; Merge, dedup by name (DB bots override registry if same name)
+        all-bots (vals (merge (into {} (map (juxt :name identity) registry-bots))
+                              (into {} (map (juxt :name identity) db-bots))))
         starts-with (fn [s]
                       (or (str/blank? q)
                           (str/starts-with? (str/lower-case (str s))
                                             (str/lower-case q))))
-        ;; Bots sort first so they show prominently in the dropdown
-        bot-results (->> bot-list
+        bot-results (->> all-bots
                          (filter #(starts-with (:name %)))
                          (map (fn [b] {:name (:name b)
                                        :bot? true

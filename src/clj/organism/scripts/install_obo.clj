@@ -404,6 +404,7 @@
   (let [db (db/connect! mongo-connection)
         name (bots-db/save-bot!
               db {:name        "OBO"
+                  :game-type   "journey"
                   :owner       "prismofeverything"
                   :description "Flowchart translation of the hard-coded journey heuristic"
                   :definition  obo-bot})]

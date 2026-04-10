@@ -139,7 +139,8 @@
                               {:type "bot-choices"
                                :choices choice-keys}))))
      (fn [next-state]
-       (persist/update-state! db game-key next-state)))
+       (persist/update-state! db game-key next-state))
+     db)
     (layout/render
      request
      "organism/play.html"

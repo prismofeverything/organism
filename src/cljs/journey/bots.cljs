@@ -10,13 +10,60 @@
    [reagent.core :as r]
    [reagent.dom :as rdom]
    [ajax.core :refer [POST]]
-   [journey.bot-flow :as bf]
+   [journey.bot-flow :as journey-bf]
+   [organism.bot-flow :as organism-bf]
    [organism.ajax :as ajax]))
+
+;; ── Path helpers (read from template JS vars, default to journey) ────────────
+
+(defn- bot-base-path []
+  (if (and (exists? js/botBasePath) (not (str/blank? js/botBasePath)))
+    js/botBasePath
+    "/journey/bots"))
+
+(defn- bot-home-path []
+  (if (and (exists? js/botHomePath) (not (str/blank? js/botHomePath)))
+    js/botHomePath
+    "/journey"))
+
+(defn- bot-game-title []
+  (if (and (exists? js/botGameType) (not (str/blank? js/botGameType)))
+    (str/upper-case js/botGameType)
+    "JOURNEY"))
+
+(defn- game-type []
+  (if (and (exists? js/botGameType) (not (str/blank? js/botGameType)))
+    js/botGameType
+    "journey"))
+
+;; ── Game-specific vocabulary dispatch ────────────────────────────────────────
+;; The editor needs tile-spec, all-categories, and default-bot from the
+;; correct game's vocabulary.  We dispatch on js/botGameType.
+
+(defn current-vocab []
+  (case (game-type)
+    "organism" organism-bf/vocab
+    journey-bf/vocab))
+
+(defn current-tile-spec [tile]
+  (case (game-type)
+    "organism" (organism-bf/tile-spec tile)
+    (journey-bf/tile-spec tile)))
+
+(defn current-all-categories []
+  (case (game-type)
+    "organism" (organism-bf/all-categories)
+    (journey-bf/all-categories)))
+
+(defn current-default-bot []
+  (case (game-type)
+    "organism" organism-bf/default-bot
+    journey-bf/default-bot))
 
 ;; ── State ────────────────────────────────────────────────────────────────────
 
 (defonce bot
-  (r/atom bf/default-bot))
+  (r/atom nil))
 
 (defonce bot-name
   (r/atom ""))
@@ -439,11 +486,12 @@
   "Add a palette tile (:kind :type :label) to a diagram at a position."
   [diagram-name palette-tile [x y]]
   (let [id (fresh-id (name (:type palette-tile)))
+        v    (current-vocab)
         spec (case (:kind palette-tile)
-               :condition (get bf/conditions (:type palette-tile))
-               :logic     (get bf/logic-tiles (:type palette-tile))
-               :effect    (get bf/effects (:type palette-tile))
-               :jump      (get bf/effects :jump)
+               :condition (get-in v [:conditions (:type palette-tile)])
+               :logic     (get-in v [:logic (:type palette-tile)])
+               :effect    (get-in v [:effects (:type palette-tile)])
+               :jump      (get-in v [:effects :jump])
                nil)
         defaults (into {} (map (juxt :key :default) (:params spec)))]
     (swap! bot
@@ -528,7 +576,7 @@
     [(+ ox px) (+ oy py)]))
 
 (defn output-ports-of [tile]
-  (let [spec (bf/tile-spec tile)
+  (let [spec (current-tile-spec tile)
         out  (or (:outputs spec)
                  (case (:kind tile)
                    :condition [:true :false]
@@ -575,7 +623,7 @@
       :else
       (do
         (js/console.log "saving bot" n "csrf-token-length:" (count js/csrfToken))
-        (POST (str "/journey/bots/" n)
+        (POST (str (str (bot-base-path) "/") n)
           {:params {:name n :description "" :definition (pr-str @bot)}
            :format :transit
            :response-format :transit
@@ -611,12 +659,12 @@
                    :font-family "monospace"}}
      [:div {:style {:display "flex" :align-items "center" :margin-bottom "24px"
                     :gap "16px"}}
-      [:h2 {:style {:color accent :margin 0 :flex 1}} "JOURNEY — Bots"]
-      [:a {:href "/journey" :style {:color muted :text-decoration "none"
-                                    :font-size "13px"}} "← home"]]
+      [:h2 {:style {:color accent :margin 0 :flex 1}} (str (bot-game-title) " — Bots")]
+      [:a {:href (bot-home-path) :style {:color muted :text-decoration "none"
+                                          :font-size "13px"}} "← home"]]
 
      [:div {:style {:margin-bottom "16px"}}
-      [:a {:href "/journey/bots/new"
+      [:a {:href (str (bot-base-path) "/new")
            :style {:display "inline-block"
                    :padding "10px 20px" :background "#10182A"
                    :border (str "1px solid " "#2A4A80") :border-radius "4px"
@@ -631,7 +679,7 @@
         (for [b @my-bots-list]
           ^{:key (:name b)}
           [:div {:style list-card-style}
-           [:a {:href (str "/journey/bots/" (:name b))
+           [:a {:href (str (str (bot-base-path) "/") (:name b))
                 :style {:flex 1 :color accent :text-decoration "none"
                         :font-weight "bold"}}
             (:name b)]
@@ -651,7 +699,7 @@
         (for [b others]
           ^{:key (:name b)}
           [:div {:style list-card-style}
-           [:a {:href (str "/journey/bots/" (:name b))
+           [:a {:href (str (str (bot-base-path) "/") (:name b))
                 :style {:flex 1 :color "#88AACC" :text-decoration "none"}}
             (:name b)]
            [:span {:style {:color muted :font-size "11px"}}
@@ -681,7 +729,7 @@
    [:div {:style {:font-size "10px" :color muted :margin-bottom "12px"
                   :line-height "1.4"}}
     "click a tile then click on a diagram to add it"]
-   (for [{:keys [category tiles]} (bf/all-categories)]
+   (for [{:keys [category tiles]} (current-all-categories)]
      ^{:key category}
      [:div {:style {:margin-bottom "16px"}}
       [:div {:style {:color "#778899" :font-size "10px" :letter-spacing "1.5px"
@@ -739,7 +787,7 @@
 
 (defn render-tile [diagram-name diagram tile]
   (let [[x y] (tile-abs-pos diagram tile)
-        spec (bf/tile-spec tile)
+        spec (current-tile-spec tile)
         label (or (:label spec) (name (or (:type tile) :tile)))
         sel? (= @selected {:diagram diagram-name :tile (:id tile)})
         kind-color (case (:kind tile)
@@ -1164,7 +1212,7 @@
                     :color (if (:error s) "#CC6666" "#88CC66")
                     :margin-bottom "8px"}}
       (or (:error s) (:ok s))])
-   [:a {:href "/journey/bots"
+   [:a {:href (bot-base-path)
         :style {:font-size "11px" :color muted :text-decoration "none"
                 :display "block" :margin-bottom "16px"}}
     "← all bots"]
@@ -1213,8 +1261,8 @@
                       :letter-spacing "2px"}}
          (str "TILE: " (name (or (:type t) :?)))]
         [:div {:style {:color muted :font-size "10px" :margin-bottom "12px"}}
-         (or (:description (bf/tile-spec t)) "")]
-        (let [spec (bf/tile-spec t)]
+         (or (:description (current-tile-spec t)) "")]
+        (let [spec (current-tile-spec t)]
           (for [p (:params spec)]
             ^{:key (name (:key p))}
             [render-param diagram t p]))
@@ -1253,14 +1301,15 @@
 
 (defn init! []
   (ajax/load-interceptors!)
-  (when (and (exists? js/preloadedBot) js/preloadedBot)
+  (if (and (exists? js/preloadedBot) js/preloadedBot)
     (let [b (safe-read js/preloadedBot)]
-      (when (and b (:definition b))
-        (reset! bot (relayout (:definition b)))
-        (reset! bot-name (or (:name b) ""))
-        (reset! bot-owner (:owner b)))
-      (when-not b
-        (reset! bot bf/default-bot))))
+      (if (and b (:definition b))
+        (do (reset! bot (relayout (:definition b)))
+            (reset! bot-name (or (:name b) ""))
+            (reset! bot-owner (:owner b)))
+        (reset! bot (current-default-bot))))
+    (when-not @bot
+      (reset! bot (current-default-bot))))
   (when (and (exists? js/preloadedBotName) js/preloadedBotName
              (str/blank? @bot-name))
     (reset! bot-name js/preloadedBotName))
