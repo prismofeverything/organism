@@ -2,7 +2,7 @@
   (:require
     [organism.handler :as handler]
     [organism.nrepl :as nrepl]
-    [luminus.http-server :as http]
+    [org.httpkit.server :as hk]
     [organism.config :refer [env]]
     [clojure.tools.cli :refer [parse-opts]]
     [clojure.tools.logging :as log]
@@ -23,14 +23,13 @@
 
 (mount/defstate ^{:on-reload :noop} http-server
   :start
-  (http/start
-    (-> env
-        (update :io-threads #(or % (* 2 (.availableProcessors (Runtime/getRuntime))))) 
-        (assoc  :handler (handler/app))
-        (update :port #(or (-> env :options :port) %))
-        (select-keys [:handler :host :port])))
+  (let [port (or (-> env :options :port) (:port env) 3000)
+        host (or (:host env) "0.0.0.0")]
+    (log/info "Starting HTTP server on" (str host ":" port))
+    (hk/run-server (handler/app) {:ip host :port port :max-ws 65536}))
   :stop
-  (http/stop http-server))
+  (when http-server
+    (http-server)))
 
 (mount/defstate ^{:on-reload :noop} repl-server
   :start

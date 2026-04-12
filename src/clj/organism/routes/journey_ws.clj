@@ -2,13 +2,16 @@
   (:require
    [clojure.edn :as edn]
    [clojure.java.io :as io]
+   [clojure.string :as str]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
-   [immutant.web.async :as async]
+   [org.httpkit.server :as hk]
    [journey.game :as game]
    [journey.choice :as choice]
+   [journey.bot-flow :as bot-flow]
    [organism.persist :as persist]
-   [organism.persist-journey :as persist-j])
+   [organism.persist-journey :as persist-j]
+   [organism.persist-journey-bots :as bots-db])
   (:import
    [java.io ByteArrayOutputStream]))
 
@@ -31,7 +34,7 @@
     ret))
 
 (defn send! [channel message]
-  (async/send! channel (write-json message)))
+  (hk/send! channel (write-json message)))
 
 (defn send-channels! [channels message]
   (doseq [ch channels]
@@ -128,8 +131,24 @@
 
 ;; ── Bot turns ───────────────────────────────────────────────────────────────
 
-(defn- resolve-agent-step []
+(defn- builtin-agent-step []
   (requiring-resolve 'organism.routes.journey/agent-step))
+
+(defn- bot-agent-step
+  "Pick the right agent-step for `bot-name`. Tries the exact name first, then
+   the base name (strips suffix like OBO-A → OBO). Falls back to the built-in
+   heuristic bot."
+  [db bot-name]
+  (let [base-name (when bot-name
+                    (str/replace bot-name #"-(?:[A-Z]|\d+)$" ""))
+        try-db    (fn [n]
+                    (when n
+                      (when-let [saved (bots-db/find-bot db "journey" n)]
+                        (when-let [d (:definition saved)]
+                          (fn [state] (bot-flow/agent-step d state))))))]
+    (or (try-db bot-name)
+        (when (not= base-name bot-name) (try-db base-name))
+        (builtin-agent-step))))
 
 (def ^:private bot-protected-phases
   "Phases where bot should stop, broadcast, and make a visible decision."
@@ -168,7 +187,9 @@
                          (not (:game-over current-state))
                          (contains? bots (choice-player current-state)))
                 ;; Use agent-step to pick, with fallback to first choice if agent can't decide
-                (let [step-result (or ((resolve-agent-step) current-state)
+                (let [bot-name    (choice-player current-state)
+                      step-fn     (bot-agent-step db bot-name)
+                      step-result (or (step-fn current-state)
                                      ;; Fallback: pick first choice from raw phase
                                      (let [[_ cs] (choice/find-state-raw current-state)]
                                        (when (seq cs)
@@ -314,8 +335,8 @@
                         :can-undo (boolean (seq (:history game-data)))))
                base-msg)))))
 
-(defn disconnect! [{:keys [play-key player]} channel {:keys [code reason]}]
-  (log/info "Journey DISCONNECT" player code reason)
+(defn disconnect! [{:keys [play-key player]} channel status]
+  (log/info "Journey DISCONNECT" player status)
   (swap! games
          (fn [gs]
            (let [remaining (remove #{channel}
@@ -353,12 +374,12 @@
   (let [cfg {:db db :player player :play-key play-key}]
     {:on-open    (partial connect!         cfg)
      :on-close   (partial disconnect!      cfg)
-     :on-message (partial notify-clients!  cfg)}))
+     :on-receive (partial notify-clients!  cfg)}))
 
 (defn ws-handler [db {:keys [path-params session] :as request}]
   (let [play   (:play path-params)
         player (or (:player session) "--observer--")]
-    (async/as-channel request (websocket-callbacks db player play))))
+    (hk/as-channel request (websocket-callbacks db player play))))
 
 (defn journey-ws-routes [db]
   [["/ws/journey/play/:play" (partial ws-handler db)]])

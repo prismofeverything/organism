@@ -4,7 +4,8 @@
    [clojure.java.io :as io]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
-   [immutant.web.async :as async]
+   [org.httpkit.server :as hk]
+   [organism.bots :as bots]
    [organism.game :as game]
    [organism.board :as board]
    [organism.persist :as persist]
@@ -32,7 +33,7 @@
 
 (defn send!
   [channel message]
-  (async/send!
+  (hk/send!
    channel
    (write-json message)))
 
@@ -87,6 +88,8 @@
         (append-channel! game-key channel)
         (update existing :channels conj channel)))))
 
+(declare maybe-run-bot-turns!)
+
 (defn connect!
   [{:keys [db game-key player]} channel]
   (let [game-state (find-game! db game-key player channel)]
@@ -102,7 +105,9 @@
           :player player
           :witness witness
           :history (:history game-state)
-          :chat (:chat game-state)}))
+          :chat (:chat game-state)})
+        ;; If the current turn belongs to a bot, kick off bot turns
+        (maybe-run-bot-turns! db game-key))
       (send!
        channel
        (-> game-state
@@ -119,8 +124,8 @@
       games)))
 
 (defn disconnect!
-  [{:keys [db game-key player]} channel {:keys [code reason]}]
-  (log/info "channel closed" player code reason)
+  [{:keys [db game-key player]} channel status]
+  (log/info "channel closed" player status)
   (swap!
    games
    (partial disconnect-game game-key channel))
@@ -133,14 +138,15 @@
 
 (defn update-create-game
   [db player game-key channel {:keys [invocation] :as message}]
-  (swap!
-   games
-   assoc-in [:games game-key :invocation]
-   invocation)
-  (send-channels!
-   (get-in @games [:games game-key :channels])
-   message)
-  (persist/create-open-game! db game-key invocation))
+  (let [invocation (assoc invocation :game-type "organism")]
+    (swap!
+     games
+     assoc-in [:games game-key :invocation]
+     invocation)
+    (send-channels!
+     (get-in @games [:games game-key :channels])
+     message)
+    (persist/create-open-game! db game-key invocation)))
 
 (defn update-player-name
   [db page-player game-key channel {:keys [index player] :as message}]
@@ -162,7 +168,8 @@
 
 (defn update-open-game
   [db player game-key channel {:keys [invocation] :as message}]
-  (let [players (:players invocation)]
+  (let [players (:players invocation)
+        invocation (assoc invocation :game-type "organism")]
     (log/info "OPEN GAME" game-key players invocation)
     (persist/create-open-game! db game-key invocation)))
 
@@ -205,7 +212,31 @@
       :history history
       :chat chat})
     (persist/remove-open-game! db game-key)
-    (persist/create-game! db (assoc (dissoc game-state :channels) :created-by player :game-type "organism"))))
+    (persist/create-game! db (assoc (dissoc game-state :channels) :created-by player :game-type "organism"))
+    ;; If the first player is a bot, kick off bot turns immediately
+    (maybe-run-bot-turns! db game-key)))
+
+(defn- maybe-run-bot-turns!
+  "After a turn change, if the new current player is a bot, spawn a future
+   that runs bot turns until a human's turn (or game-over)."
+  [db game-key]
+  (let [game-state (get-in @games [:games game-key])
+        gs (:game game-state)
+        invocation (:invocation game-state)
+        all-players (set (:players invocation))
+        humans (set (remove #(bots/bot? "organism" %) all-players))
+        current (when gs (game/current-player gs))]
+    (when (and gs (not (contains? humans current)))
+      ((requiring-resolve 'organism.routes.organism-bot/run-bot-until-human!)
+       games game-key humans 600
+       (fn [choice-keys _next-game]
+         (let [channels (get-in @games [:games game-key :channels])]
+           (when (seq channels)
+             (send-channels! channels {:type "bot-choices"
+                                       :choices choice-keys}))))
+       (fn [next-state]
+         (persist/update-state! db game-key next-state))
+       db))))
 
 (defn update-game-state
   [db player game-key channel {:keys [game complete] :as message}]
@@ -232,7 +263,9 @@
             (persist/update-player-games!
              db game-key
              (:players invocation)
-             game)))))))
+             game)
+            ;; If the next player is a bot, run bot turns automatically
+            (maybe-run-bot-turns! db game-key)))))))
 
 (defn walk-history
   [db player game-key channel message]
@@ -256,7 +289,9 @@
         (persist/update-player-games!
          db game-key
          (:players invocation)
-         previous)))))
+         previous))
+      ;; If undoing landed us on a bot's turn, kick them off again
+      (maybe-run-bot-turns! db game-key))))
 
 (defn find-beginning
   [history]
@@ -299,7 +334,9 @@
          channels
          {:type "game-state"
           :game beginning})
-        (persist/update-state! db game-key beginning)))))
+        (persist/update-state! db game-key beginning)
+        ;; If clearing landed us on a bot's turn, kick them off again
+        (maybe-run-bot-turns! db game-key)))))
 
 (defn timestamp
   []
@@ -343,13 +380,13 @@
   (let [config {:db db :player player :game-key game-key}]
     {:on-open (partial connect! config)
      :on-close (partial disconnect! config)
-     :on-message (partial notify-clients! config)}))
+     :on-receive (partial notify-clients! config)}))
 
 (defn ws-handler
   [db {:keys [path-params session] :as request}]
   (let [play (:play path-params)
         player (or (:player session) "--observer--")]
-    (async/as-channel request (websocket-callbacks db player play))))
+    (hk/as-channel request (websocket-callbacks db player play))))
 
 (defn websocket-routes
   [db]

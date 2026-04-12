@@ -1,0 +1,44 @@
+;; shadow-cljs configuration
+;; Run:  npx shadow-cljs watch organism journey oroboros future   (dev)
+;;       npx shadow-cljs release organism journey oroboros future (prod)
+
+{;; Pull deps + source-paths from project.clj
+ :lein true
+
+ ;; Dev server for hot-reload
+ :dev-http {3100 "resources/public"}
+
+ :builds
+ {:organism
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:organism {:init-fn organism.play/init!}}
+   :devtools {:after-load organism.play/mount-components}}
+
+  :journey
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:journey {:init-fn journey.play/init!}}
+   :devtools {:after-load journey.play/mount-components}}
+
+  :journey-bots
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:journey-bots {:init-fn journey.bots/init!}}
+   :devtools {:after-load journey.bots/mount-components}}
+
+  :oroboros
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:oroboros {:init-fn organism.oroboros.play/mount-components}}
+   :devtools {:after-load organism.oroboros.play/mount-components}}
+
+  :future
+  {:target :browser
+   :output-dir "resources/public/js"
+   :modules {:future {:init-fn future.play/init!}}
+   :devtools {:after-load future.play/mount-components}}}}

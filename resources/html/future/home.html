@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>JOURNEY</title>
+    <title>FUTURE</title>
     {% style "/assets/bulma/css/bulma.min.css" %}
     {% style "/css/screen.css" %}
     <style>
@@ -18,18 +18,8 @@
         flex: 1;
         display: flex;
         justify-content: center;
-        align-items: stretch;
+        align-items: center;
         overflow: hidden;
-      }
-      .cover-link {
-        display: flex;
-        align-items: stretch;
-      }
-      .cover-link img {
-        height: 100vh;
-        width: auto;
-        display: block;
-        object-fit: contain;
       }
       .nav-panel {
         width: 280px;
@@ -61,24 +51,30 @@
         text-decoration: none;
       }
       .nav-link.player-link {
-        color: #adf;
+        color: #f8a;
         font-weight: bold;
       }
       .nav-link.player-link:hover {
-        color: #cef;
+        color: #fbc;
       }
     </style>
   </head>
   <body>
     <div class="home-layout">
       <div class="cover-panel">
-        <a class="cover-link" href="/journey"
-           style="display:flex; align-items:center; justify-content:center;">
-          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"
+        <a href="/future" style="display:flex; align-items:center; justify-content:center; text-decoration:none;">
+          <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"
                style="height:60vh; width:auto;">
-            <polygon points="100,20 180,170 20,170"
-                     fill="#E8B800" stroke="#FFD030" stroke-width="2"
-                     stroke-linejoin="round"/>
+            <!-- Concentric rings representing the orbits -->
+            <circle cx="200" cy="200" r="190" fill="none" stroke="#333" stroke-width="40"/>
+            <circle cx="200" cy="200" r="150" fill="none" stroke="#9944cc" stroke-width="30" opacity="0.6"/>
+            <circle cx="200" cy="200" r="115" fill="none" stroke="#4488ee" stroke-width="25" opacity="0.6"/>
+            <circle cx="200" cy="200" r="82" fill="none" stroke="#44cc44" stroke-width="20" opacity="0.6"/>
+            <circle cx="200" cy="200" r="55" fill="none" stroke="#999" stroke-width="15" opacity="0.6"/>
+            <!-- Sun -->
+            <circle cx="200" cy="200" r="30" fill="#cc2222" opacity="0.9"/>
+            <!-- Beam -->
+            <line x1="200" y1="200" x2="200" y2="5" stroke="#ffff00" stroke-width="2" opacity="0.5"/>
           </svg>
         </a>
       </div>
@@ -86,26 +82,27 @@
       <nav class="nav-panel">
         {% if session-player %}
           <span class="nav-label">you</span>
-          <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
-          <a class="nav-link" href="/journey/create">create</a>
-          <a class="nav-link" href="/journey/play">play</a>
-          <a class="nav-link" href="/journey/bots">bots</a>
+          <a class="nav-link player-link" href="/future/player/{{session-player}}">{{session-player}}</a>
+          <a class="nav-link" href="/future/create">create</a>
+          <a class="nav-link" href="/future/play">play</a>
 
           <span class="nav-label">explore</span>
-          <a class="nav-link" href="/journey/observe">observe</a>
-          <a class="nav-link" href="/journey/generate">generate</a>
+          <a class="nav-link" href="/future/rules">rules</a>
+          <a class="nav-link" href="/future/observe">observe</a>
+          <a class="nav-link" href="/future/generate">generate</a>
 
           <span class="nav-label" style="margin-top:2rem"></span>
           <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
-          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">&larr; games</a>
         {% else %}
           <span class="nav-label">account</span>
-          <a class="nav-link" href="/login?redirect=/journey">login / register</a>
+          <a class="nav-link" href="/login?redirect=/future">login / register</a>
 
           <span class="nav-label">explore</span>
-          <a class="nav-link" href="/journey/observe">observe</a>
-          <a class="nav-link" href="/journey/generate">generate</a>
-          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">← games</a>
+          <a class="nav-link" href="/future/rules">rules</a>
+          <a class="nav-link" href="/future/observe">observe</a>
+          <a class="nav-link" href="/future/generate">generate</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">&larr; games</a>
         {% endif %}
       </nav>
     </div>

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html style="background-color:#04040E">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ORGANISM — Bot Editor</title>
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+  </head>
+  <body>
+    <div id="journey">
+    </div>
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{session-player}}";
+      var playKey = null;
+      var isCreate = false;
+      var isObserve = false;
+      var isGenerate = false;
+      var isBotList = false;
+      var isBotEditor = true;
+      var botGameType = "organism";
+      var botBasePath = "/organism/bots";
+      var botHomePath = "/organism";
+      var preloadedBot = "{{bot|addslashes|safe}}";
+      var preloadedBotName = "{{bot-name|addslashes|safe}}";
+      var preloadedBotOwner = "{{bot-owner|addslashes|safe}}";
+    </script>
+    {% script "/js/journey-bots.js" %}
+  </body>
+</html>

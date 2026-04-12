@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FUTURE - {{player}}</title>
+  </head>
+  <body>
+    <div id="future">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{player}}";
+      var playerGames = "{{player-games|addslashes|safe}}";
+      var playKey = null;
+      var isCreate = false;
+      var isObserve = false;
+      var isPlayer = true;
+    </script>
+    {% script "/js/future.js" %}
+  </body>
+</html>

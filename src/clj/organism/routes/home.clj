@@ -5,6 +5,7 @@
    [organism.choice :as choice]
    [organism.persist :as persist]
    [organism.examples :as examples]
+   [organism.routes.shared :as shared]
    [hiccup.core :as up]
    [organism.middleware :as middleware]
    [buddy.hashers :as hashers]
@@ -187,6 +188,7 @@
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["/" {:get catalog-page}]
+   ["/api/search-players" {:get (partial shared/search-players db)}]
    ["/organism" {:get organism-home-page}]
    ["/eternal" {:get eternal-page}]
    ["/login" {:get login-page

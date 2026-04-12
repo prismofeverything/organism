@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FUTURE - observe</title>
+  </head>
+  <body>
+    <div id="future">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{session-player}}";
+      var playKey = null;
+      var isCreate = false;
+      var isObserve = true;
+      var observeGames = "{{observe-games|addslashes|safe}}";
+    </script>
+    {% script "/js/future.js" %}
+  </body>
+</html>

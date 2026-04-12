@@ -8,10 +8,13 @@
    [organism.routes.organism :refer [organism-routes]]
    [organism.routes.journey :refer [journey-routes]]
    [organism.routes.journey-ws :refer [journey-ws-routes]]
+   [organism.routes.journey-bots :refer [journey-bot-routes organism-bot-routes]]
    [organism.routes.oroboros :refer [oroboros-routes]]
    [organism.routes.oroboros-ws :refer [oroboros-ws-routes]]
    [organism.routes.eridu :refer [eridu-routes]]
    [organism.routes.eridu-ws :refer [eridu-ws-routes]]
+   [organism.routes.future :refer [future-routes]]
+   [organism.routes.future-ws :refer [future-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
    [ring.middleware.content-type :refer [wrap-content-type]]
@@ -37,12 +40,17 @@
        ;; (api-routes)
        (organism-routes db)
        (journey-routes db)
+       (journey-bot-routes db)
+       (organism-bot-routes db)
        (oroboros-routes db)
+       
        (eridu-routes db)
+       (future-routes db)
        (websocket-routes db)
        (journey-ws-routes db)
        (oroboros-ws-routes)
-       (eridu-ws-routes db)]))
+       (eridu-ws-routes db)
+       (future-ws-routes)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})

@@ -6,9 +6,23 @@
    [organism.persist-journey :as persist-j]
    [organism.middleware :as middleware]
    [organism.routes.journey-ws :as journey-ws]
+   [organism.routes.shared :as shared]
    [ring.util.response :as response]
    [journey.game :as game]
    [journey.choice :as choice]))
+
+;; ── Game spec ────────────────────────────────────────────────────────────
+
+(def journey-spec
+  {:game-type        "journey"
+   :title            "JOURNEY"
+   :template-prefix  "journey"
+   :home-path        "/journey"
+   :create-path      "/journey/create"
+   :play-path        "/journey/play"
+   :ws-prefix        "/ws/journey/play/"
+   :load-observe     persist-j/load-observe-games
+   :load-player-stats nil})  ;; no stats yet
 
 (defn home-page
   [request]
@@ -17,12 +31,7 @@
    "journey/home.html"
    {:session-player (get-in request [:session :player])}))
 
-(defn require-auth
-  [handler]
-  (fn [request]
-    (if (get-in request [:session :player])
-      (handler request)
-      (response/redirect (str "/login?redirect=" (:uri request))))))
+(def require-auth shared/require-auth)
 
 (defn create-page
   [db request]
@@ -57,15 +66,7 @@
       :play play-key
       :preferences preferences})))
 
-(defn observe-page
-  [db request]
-  (let [player (get-in request [:session :player])
-        games (persist-j/load-observe-games db)]
-    (layout/render
-     request
-     "journey/observe.html"
-     {:session-player player
-      :observe-games (pr-str games)})))
+;; observe-page moved to organism.routes.shared — uses journey-spec
 
 ;; ── Smart playing agent ──────────────────────────────────────────────────────
 
@@ -531,5 +532,6 @@
              :middleware [require-auth]}]
    ["/play/:play" {:get (partial play-page db)}]
    ["/play/:play/" {:get (partial play-page db)}]
-   ["/observe" {:get (partial observe-page db)}]
+   ["/observe"  {:get (partial shared/observe-page journey-spec db)}]
+   ["/learn"    {:get (partial shared/learn-page journey-spec)}]
    ["/generate" {:get (partial generate-page db)}]])

@@ -166,8 +166,15 @@
   [game elements _]
   (let [to-choice (game/get-action-field game :to)
         options (game/open-spaces game to-choice)
-        distinct (vals (group-by (partial game/free-food-present game) options))
-        spaces (map first distinct)]
+        any-food? (some #(pos? (game/free-food-present game %)) options)
+        ;; When any adjacent space has food, present every adjacent open
+        ;; space as a distinct choice so the UI can highlight them all.
+        ;; When none have food, collapse to a single representative so the
+        ;; player auto-advances past :eat-from instead of being forced to
+        ;; pick between equivalent empty spaces.
+        spaces (if any-food?
+                 options
+                 (take 1 options))]
     (partial-map
      (comp
       game/complete-action
