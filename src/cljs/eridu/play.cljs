@@ -199,17 +199,36 @@
             [:text {:x ax :y ay :text-anchor "middle" :fill color :font-size 12
                     :style {:filter (when is-landed "brightness(1.3)")}}
              icon]))
-        ;; Astronomer dots with player colors
-        (for [[idx [pk _]] (map-indexed vector astros)
-              :let [acolor (game/player-color state pk)]]
-          ^{:key (str "astro-" space-id "-" idx)}
-          [:g
-           [:circle {:cx (+ x -10 (* idx 10)) :cy (+ y 28) :r 5
-                     :fill acolor :stroke "#fff" :stroke-width 0.8}]
-           [:text {:x (+ x -10 (* idx 10)) :y (+ y 31)
-                   :text-anchor "middle" :fill "#fff" :font-size 5
-                   :font-weight "bold"}
-            "★"]])])
+        ;; Astronomer dots with player/solo-color
+        (let [solo? (game/solo-mode? state)
+              solo-pairs (:solo-pairs state [[0 1] [2 3] [4 5]])
+              solo-colors ["#4A90D9" "#D94A90" "#4AD95A"]  ;; Alpha, Beta, Gamma
+              active-pair (when solo? (set (game/solo-active-indices state)))
+              astro-color (fn [pk astro-idx]
+                            (if solo?
+                              (let [pair-idx (some (fn [[pi pair]]
+                                                     (when (some #{astro-idx} pair) pi))
+                                                   (map-indexed vector solo-pairs))]
+                                (get solo-colors (or pair-idx 0) "#888"))
+                              (game/player-color state pk)))]
+          (for [[didx [pk astro-idx]] (map-indexed vector astros)
+                :let [acolor (astro-color pk astro-idx)
+                      is-active (or (not solo?) (contains? active-pair astro-idx))]]
+            ^{:key (str "astro-" space-id "-" didx)}
+            [:g
+             [:circle {:cx (+ x -10 (* didx 10)) :cy (+ y 28) :r 5
+                       :fill acolor :stroke (if is-active "#fff" "#444")
+                       :stroke-width (if is-active 0.8 0.5)
+                       :opacity (if is-active 1.0 0.4)}]
+             [:text {:x (+ x -10 (* didx 10)) :y (+ y 31)
+                     :text-anchor "middle" :fill (if is-active "#fff" "#444")
+                     :font-size 5 :font-weight "bold"}
+              (if solo?
+                (let [pair-idx (some (fn [[pi pair]]
+                                       (when (some #{astro-idx} pair) pi))
+                                     (map-indexed vector solo-pairs))]
+                  (get ["α" "β" "γ"] (or pair-idx 0) "?"))
+                "★")]]))])
      ;; Legend
      (let [legend-items [[:take "🌾 Take"] [:sell "⚖ Sell"] [:deploy "⚔ Deploy"]
                          [:travel "🐪 Travel"] [:influence "👑 Influence"] [:temple "🏛 Temple"]]]
@@ -527,7 +546,11 @@
                    :background "#0a0a12" :border-radius 8
                    :border (str "1px solid " (if is-my-turn "#4a4" "#333"))}}
      [:div {:style {:color "#888" :font-size 11 :margin-bottom 8
-                    :display "flex" :gap 12 :align-items "center"}}
+                    :display "flex" :gap 12 :align-items "center" :flex-wrap "wrap"}}
+      (when (= :solo (:mode state))
+        [:span {:style {:color "#88f" :font-weight "bold"
+                        :background "#1a1a2a" :padding "2px 8px" :border-radius 4}}
+         (str "SOLO — " (get game/solo-color-names (dec (:round state 1)) "?") " astronomers")])
       [:span {:style {:color "#886622" :font-weight "bold"}}
        (str "Round " (:round state 1) "/" game/rounds-per-game)]
       [:span (str "Turn " (:turn-in-round state 1) "/" game/turns-per-round)]
@@ -623,13 +646,14 @@
      [:button
       {:on-click
        (fn []
-         (let [{:keys [play-name players bots]} @create-state
+         (let [{:keys [play-name players bots mode]} @create-state
                valid-players (filterv seq players)]
            (when (and (seq play-name) (seq valid-players))
              (POST "/eridu/create"
                    {:params {:play-name play-name
                              :players valid-players
-                             :bots (vec (filter (set valid-players) bots))}
+                             :bots (vec (filter (set valid-players) bots))
+                             :mode (name (or mode :normal))}
                     :handler (fn [resp]
                                (let [play-key (or (:play-key resp) (get resp "play-key"))]
                                  (set! (.-location js/window) (str "/eridu/play/" play-key))))
@@ -759,11 +783,24 @@
       [:div {:style {:padding 12 :font-family "monospace"
                      :background "#050510" :min-height "100vh"}}
        (when (:game-over state)
-         [:div {:style {:background "#2a1a1a" :border "2px solid #844"
+         [:div {:style {:background (if (= :victory (get-in state [:game-over :solo-result]))
+                                      "#1a2a1a" "#2a1a1a")
+                        :border (str "2px solid "
+                                     (case (get-in state [:game-over :solo-result])
+                                       :victory "#4a4" :defeat "#844" "#844"))
                         :border-radius 8 :padding 16 :margin-bottom 12
                         :text-align "center"}}
-          [:div {:style {:font-size 20 :font-weight "bold" :color "#faa"}}
-           "✦ Game Over ✦"]
+          [:div {:style {:font-size 20 :font-weight "bold"
+                         :color (case (get-in state [:game-over :solo-result])
+                                  :victory "#8f8" :defeat "#faa" "#faa")}}
+           (case (get-in state [:game-over :solo-result])
+             :victory "✦ Victory! ✦"
+             :defeat  "✦ Defeat ✦"
+             "✦ Game Over ✦")]
+          (when (get-in state [:game-over :solo-result])
+            [:div {:style {:color "#aaa" :font-size 12 :margin-top 4}}
+             (str "Feats completed: " (get-in state [:game-over :feats-met])
+                  "/" (get-in state [:game-over :feats-needed]))])
           [:div {:style {:margin-top 8 :color "#ccc"}}
            (let [scores (for [[pk pdata] (:players state)]
                           {:player pk

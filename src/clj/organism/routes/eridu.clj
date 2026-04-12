@@ -117,9 +117,12 @@
   (let [params    (or (:body-params request) (:params request))
         play-name (get params :play-name (get params "play-name"))
         players   (get params :players (get params "players"))
-        bots      (get params :bots (get params "bots" []))]
+        bots      (get params :bots (get params "bots" []))
+        mode      (keyword (get params :mode (get params "mode" "normal")))]
     (if (and (seq play-name) (seq players))
-      (let [state   (game/initial-state (vec players))
+      (let [state   (if (= mode :solo)
+                      (game/initial-solo-state (first (vec players)))
+                      (game/initial-state (vec players)))
             bot-set (set bots)]
         (swap! eridu-ws/games
                assoc-in [:games play-name]
@@ -155,7 +158,8 @@
       :sim-data (when sim-data
                   (pr-str {:meta (:meta sim-data)
                            :by-personality (sim/aggregate-by-personality (:summaries sim-data))
-                           :by-player-count (sim/aggregate-by-player-count (:summaries sim-data))}))
+                           :by-player-count (sim/aggregate-by-player-count (:summaries sim-data))
+                           :weighted (sim/weighted-aggregate-by-personality (:summaries sim-data))}))
       :evo-status (pr-str evo-status)})))
 
 ;; ── Run simulation endpoint ──────────────────────────────────────────────────
@@ -253,6 +257,13 @@
    ["/simulate" {:post (partial run-simulation! db)}]
    ["/simulate/summaries.csv" {:get (partial download-summaries-csv db)}]
    ["/simulate/snapshots.csv" {:get (partial download-snapshots-csv db)}]
+   ["/simulate/weighted.csv" {:get (fn [_ _]
+                                      (if-let [data @simulation-results]
+                                        (-> (response/response (sim/export-weighted-csv (:summaries data)))
+                                            (response/content-type "text/csv")
+                                            (response/header "Content-Disposition"
+                                                             "attachment; filename=eridu-weighted.csv"))
+                                        (response/not-found "No simulation data")))}]
    ["/evolve/start" {:post (partial start-evolution-endpoint! db)}]
    ["/evolve/stop" {:post (partial stop-evolution-endpoint! db)}]
    ["/evolve/status" {:get (partial evolution-status-endpoint db)}]

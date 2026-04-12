@@ -734,6 +734,22 @@
 (def rounds-per-game 3)
 (def turns-per-round 4)
 
+;; Solo mode: 3 colors of astronomer pairs, one color per round
+(def solo-color-names ["Alpha" "Beta" "Gamma"])
+
+(defn solo-active-indices
+  "Return the astronomer indices active for the current round in solo mode."
+  [state]
+  (let [round (:round state 1)
+        pairs (get state :solo-pairs [[0 1] [2 3] [4 5]])]
+    (nth pairs (dec round) [0 1])))
+
+(defn solo-mode? [state]
+  (= :solo (:mode state)))
+
+;; Solo feat scoring: round-dependent bonus values
+(def solo-feat-bonus {1 3, 2 2, 3 1})
+
 (defn advance-turn
   "Move to the next player's turn."
   [state]
@@ -745,7 +761,20 @@
       ;; End of round
       (if (>= (:round state) rounds-per-game)
         ;; Game over
-        (assoc state :game-over {:reason :end-of-game})
+        (if (solo-mode? state)
+          ;; Solo: check if all 5 feats were met
+          (let [player (first (:turn-order state))
+                claims (:contest-claims state {})
+                total-claimed (count (filter #(some #{player} (val %)) claims))
+                total-contests (count (:contests state []))]
+            (assoc state :game-over
+                   {:reason :end-of-game
+                    :solo-result (if (>= total-claimed total-contests)
+                                  :victory :defeat)
+                    :feats-met total-claimed
+                    :feats-needed total-contests}))
+          ;; Normal: just end
+          (assoc state :game-over {:reason :end-of-game}))
         ;; Start new round
         (let [new-round (inc (:round state))
               ;; Roll new dice for all players
@@ -756,21 +785,29 @@
                                     (assoc :dice-available (roll-dice))
                                     (assoc :dice-used []))))
                        {}
-                       (:players state))
-              ;; Refill demand spaces
-              cities (keys (:city-graph state))
-              [bag demands] (fill-demand-spaces
-                             (:demand-bag state)
-                             (:city-demands state)
-                             cities)]
-          (-> state
-              (assoc :round new-round
-                     :turn-in-round 1
-                     :current-player-idx 0
-                     :players players
-                     :demand-bag bag
-                     :city-demands demands
-                     :player-turn {:phase :choose-die}))))
+                       (:players state))]
+          (if (solo-mode? state)
+            ;; Solo: do NOT refill demands, switch astronomer color
+            (-> state
+                (assoc :round new-round
+                       :turn-in-round 1
+                       :current-player-idx 0
+                       :players players
+                       :player-turn {:phase :choose-die}))
+            ;; Normal: refill demand spaces
+            (let [cities (keys (:city-graph state))
+                  [bag demands] (fill-demand-spaces
+                                 (:demand-bag state)
+                                 (:city-demands state)
+                                 cities)]
+              (-> state
+                  (assoc :round new-round
+                         :turn-in-round 1
+                         :current-player-idx 0
+                         :players players
+                         :demand-bag bag
+                         :city-demands demands
+                         :player-turn {:phase :choose-die}))))))
       ;; Same round, next player (or next turn in round if wrapped)
       (let [new-turn (if (zero? next-idx) (inc turn-in-round) turn-in-round)]
         (-> state
@@ -827,5 +864,50 @@
      :contest-claims     {}                ;; {contest-id -> [player ...]} claim order
      :bonus-boards       (zipmap turn-order
                                  (map :id boards))  ;; {player-key -> board-id}
+     :log                []
+     :game-over          nil}))
+
+(defn initial-solo-state
+  "Create initial state for solo mode.
+   One player with 6 astronomers in 3 color pairs.
+   Full 8-city board. All 5 feats must be met to win."
+  [player-key]
+  (let [;; Solo uses full board (all 8 cities, treat as 4-player layout)
+        card (rand-nth starting-cards)
+        player (-> (make-player player-key card 4) ;; 4-player sizing for full board
+                   (assoc :num-astronomers 6))     ;; 3 pairs of 2
+        player (setup-player player 4)
+        cities all-cities
+        graph (city-graph 4)
+        routes (active-routes 4)
+        ;; Fill ALL demand spaces at start (no refill later)
+        [bag city-demands] (fill-demand-spaces
+                            (full-demand-bag) {} (vec cities))
+        ;; All 5 contests in play for solo (pick 5 cards, random side)
+        contest-pairs (vals (group-by #(first (name (:id %))) bonus-contests))
+        selected-pairs (take 5 (shuffle contest-pairs))
+        contests (vec (map #(rand-nth %) selected-pairs))
+        board (first (shuffle bonus-boards))
+        magistrate-cities (filterv cities [:uruk :kish])
+        ;; Randomly assign astronomer pairs to rounds
+        pair-order (shuffle [[0 1] [2 3] [4 5]])]
+    {:mode               :solo
+     :turn-order         [player-key]
+     :current-player-idx 0
+     :round              1
+     :turn-in-round      1
+     :player-turn        {:phase :choose-die}
+     :players            {player-key player}
+     :action-spaces      action-spaces
+     :city-graph         graph
+     :routes             routes
+     :city-demands       city-demands
+     :demand-bag         bag
+     :magistrates        (zipmap magistrate-cities (repeat :neutral))
+     :first-player       player-key
+     :contests           contests
+     :contest-claims     {}
+     :bonus-boards       {player-key (:id board)}
+     :solo-pairs         pair-order  ;; [[a b] [c d] [e f]] — one pair per round
      :log                []
      :game-over          nil}))

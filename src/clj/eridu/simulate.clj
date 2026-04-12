@@ -237,3 +237,78 @@
        :avg-glory      (avg-fn :glory)
        :max-reputation (apply max (map :reputation entries))
        :min-reputation (apply min (map :reputation entries))})))
+
+;; =============================================================================
+;; Weighted statistics
+;; =============================================================================
+
+;; Weight factors: normalize across player counts so 2p/3p/4p contribute equally
+;; to aggregate stats regardless of how many player-entries each produces per game.
+(def player-count-weights
+  "Weights to normalize per-player-count stats.
+   A 4p game produces 4 entries vs 2p producing 2, so weight inversely."
+  {2 2.0, 3 (/ 4.0 3), 4 1.0})
+
+(defn weighted-aggregate-by-personality
+  "Aggregate stats grouped by personality, weighted by player count
+   so each game contributes equally regardless of player count."
+  [summaries]
+  (let [grouped (group-by :personality summaries)]
+    (for [[name entries] grouped
+          :let [;; Apply weights
+                weighted-entries
+                (map (fn [e]
+                       (let [w (get player-count-weights (:player-count e) 1.0)]
+                         (assoc e :weight w)))
+                     entries)
+                total-weight (reduce + (map :weight weighted-entries))
+                wavg (fn [k]
+                        (if (zero? total-weight) 0.0
+                            (/ (reduce + (map #(* (:weight %) (get % k 0))
+                                              weighted-entries))
+                               total-weight)))
+                ;; Win rate: weighted by player count
+                all-summaries-by-game (group-by :game-id summaries)
+                wins (count (filter (fn [e]
+                                      (let [game-entries (get all-summaries-by-game (:game-id e))
+                                            max-rep (apply max (map :reputation game-entries))]
+                                        (= (:reputation e) max-rep)))
+                                    entries))
+                n (count entries)]]
+      {:personality       name
+       :games             n
+       :weighted-avg-rep  (wavg :reputation)
+       :weighted-avg-amity (wavg :amity)
+       :weighted-avg-glory (wavg :glory)
+       :win-rate          (if (pos? n) (double (/ wins n)) 0.0)
+       :avg-reputation    (if (pos? n) (double (/ (reduce + (map :reputation entries)) n)) 0.0)
+       :avg-amity         (if (pos? n) (double (/ (reduce + (map :amity entries)) n)) 0.0)
+       :avg-glory         (if (pos? n) (double (/ (reduce + (map :glory entries)) n)) 0.0)
+       :weighted-merchant (wavg :merchant-lv)
+       :weighted-priest   (wavg :priest-lv)
+       :weighted-raider   (wavg :raider-lv)
+       :weighted-leader   (wavg :leader-lv)
+       :weighted-temples  (wavg :temples-placed)
+       :weighted-raiders  (wavg :raiders-deployed)
+       :weighted-demands  (wavg :demands-fulfilled)
+       ;; Per-player-count breakdown
+       :by-count (into {}
+                       (for [[pc pc-entries] (group-by :player-count entries)
+                             :let [pcn (count pc-entries)
+                                   pcavg (fn [k] (if (pos? pcn)
+                                                   (double (/ (reduce + (map #(get % k 0) pc-entries)) pcn))
+                                                   0.0))]]
+                         [pc {:games pcn
+                              :avg-reputation (pcavg :reputation)
+                              :avg-amity (pcavg :amity)
+                              :avg-glory (pcavg :glory)}]))})))
+
+(defn weighted-summary-csv-columns []
+  [:personality :games :weighted-avg-rep :weighted-avg-amity :weighted-avg-glory
+   :win-rate :avg-reputation :avg-amity :avg-glory
+   :weighted-merchant :weighted-priest :weighted-raider :weighted-leader
+   :weighted-temples :weighted-raiders :weighted-demands])
+
+(defn export-weighted-csv [summaries]
+  (let [stats (weighted-aggregate-by-personality summaries)]
+    (rows->csv (weighted-summary-csv-columns) stats)))

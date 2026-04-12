@@ -60,28 +60,37 @@
 ;; =============================================================================
 
 (defn choose-astronomer-choices
-  "Player picks which of their astronomers to move."
+  "Player picks which of their astronomers to move.
+   In solo mode, only offers astronomers from the active color pair."
   [state]
   (let [player (game/current-player state)
         astronomers (get-in state [:players player :astronomers])
-        die-val (get-in state [:player-turn :die-value])]
-    ;; Offer each astronomer (by index) as a choice
+        die-val (get-in state [:player-turn :die-value])
+        ;; In solo mode, restrict to active pair's indices
+        active-indices (if (game/solo-mode? state)
+                         (set (game/solo-active-indices state))
+                         (set (range (count astronomers))))
+        color-label (when (game/solo-mode? state)
+                      (let [round (:round state 1)]
+                        (get game/solo-color-names (dec round) "?")))]
+    ;; Offer each eligible astronomer as a choice
     (into {}
-          (map-indexed
-           (fn [idx current-space]
-             (let [dest (game/move-astronomer-clockwise current-space die-val)
-                   astros-on-dest (count (game/astronomers-on-space state dest))]
-               [idx (-> state
-                        (assoc-in [:players player :astronomers idx] dest)
-                        (assoc :player-turn {:phase :resolve-landing
+          (for [[idx current-space] (map-indexed vector astronomers)
+                :when (contains? active-indices idx)]
+            (let [dest (game/move-astronomer-clockwise current-space die-val)
+                  astros-on-dest (count (game/astronomers-on-space state dest))]
+              [idx (-> state
+                       (assoc-in [:players player :astronomers idx] dest)
+                       (assoc :player-turn {:phase :resolve-landing
                                             :landed-space dest})
-                        (add-log {:type :astronomer
-                                  :message (str "Moved astronomer " (inc idx)
-                                                " from space " current-space
-                                                " to space " dest
-                                                " (" (inc astros-on-dest) " astronomers there)")
-                                  :from-space current-space :to-space dest}))]))
-           astronomers))))
+                       (add-log {:type :astronomer
+                                 :message (str "Moved "
+                                               (when color-label (str color-label " "))
+                                               "astronomer " (inc idx)
+                                               " from space " current-space
+                                               " to space " dest
+                                               " (" (inc astros-on-dest) " astronomers there)")
+                                 :from-space current-space :to-space dest}))])))))
 
 ;; =============================================================================
 ;; Phase 3: Resolve landing - count astronomers, decide actions vs role increase
