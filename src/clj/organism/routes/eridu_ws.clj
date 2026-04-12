@@ -4,7 +4,7 @@
    [clojure.java.io :as io]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
-   [immutant.web.async :as async]
+   [org.httpkit.server :as hk]
    [eridu.game :as game]
    [eridu.choice :as choice]
    [organism.persist :as persist]
@@ -31,7 +31,7 @@
     ret))
 
 (defn send! [channel message]
-  (async/send! channel (write-json message)))
+  (hk/send! channel (write-json message)))
 
 (defn send-channels! [channels message]
   (doseq [ch channels]
@@ -379,8 +379,8 @@
                    (contains? (:bots game-data) (choice-player state)))
           (run-bot-turns! db play-key))))))
 
-(defn disconnect! [{:keys [play-key player]} channel {:keys [code reason]}]
-  (log/info "Eridu DISCONNECT" player code reason)
+(defn disconnect! [{:keys [play-key player]} channel status]
+  (log/info "Eridu DISCONNECT" player status)
   (swap! games
          (fn [gs]
            (let [remaining (remove #{channel}
@@ -405,12 +405,12 @@
   (let [cfg {:db db :player player :play-key play-key}]
     {:on-open    (partial connect!         cfg)
      :on-close   (partial disconnect!      cfg)
-     :on-message (partial notify-clients!  cfg)}))
+     :on-receive (partial notify-clients!  cfg)}))
 
 (defn ws-handler [db {:keys [path-params session] :as request}]
   (let [play   (:play path-params)
         player (or (:player session) "--observer--")]
-    (async/as-channel request (websocket-callbacks db player play))))
+    (hk/as-channel request (websocket-callbacks db player play))))
 
 (defn eridu-ws-routes [db]
   [["/ws/eridu/play/:play" (partial ws-handler db)]])

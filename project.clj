@@ -43,18 +43,11 @@
 
   :min-lein-version "2.0.0"
 
-<<<<<<< HEAD
-  ;; Run `lein dev` to start figwheel watching all game builds.
-  ;; Add new game build IDs here when a new game is added to project.clj.
-  :aliases {"dev" ["with-profile" "dev" "figwheel" "organism" "journey" "oroboros" "eridu"]}
-  
-=======
   ;; ClojureScript is built by shadow-cljs, not Leiningen.
-  ;; Dev:   npx shadow-cljs watch organism journey oroboros future
-  ;; Prod:  npx shadow-cljs release organism journey oroboros future
+  ;; Dev:   npx shadow-cljs watch organism journey oroboros eridu future
+  ;; Prod:  npx shadow-cljs release organism journey oroboros eridu future
   ;; See shadow-cljs.edn for build configuration.
 
->>>>>>> b4ac6bae3374247b04ddda9b37dbd21ea60a6956
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
   :test-paths ["test/clj"]
   :resource-paths ["resources"]
@@ -64,75 +57,12 @@
   :plugins []
 
   :profiles
-<<<<<<< HEAD
-  {:uberjar {:omit-source true
-             :prep-tasks ["compile"
-                          ["cljsbuild" "once" "organism"]
-                          ["cljsbuild" "once" "journey"]
-                          ["cljsbuild" "once" "oroboros"]
-                          ["cljsbuild" "once" "eridu"]]
-             :cljsbuild
-             {:builds
-              {:organism
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js"
-                 :output-to "target/cljsbuild/public/js/organism.js"
-                 :source-map "target/cljsbuild/public/js/organism.js.map"
-                 :main "organism.organism"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}
-               :journey
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js/journey-prod"
-                 :output-to "target/cljsbuild/public/js/journey.js"
-                 :source-map "target/cljsbuild/public/js/journey.js.map"
-                 :main "journey.journey"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}
-               :oroboros
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js/oroboros-prod"
-                 :output-to "target/cljsbuild/public/js/oroboros.js"
-                 :source-map "target/cljsbuild/public/js/oroboros.js.map"
-                 :main "organism.oroboros"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}
-               :eridu
-               {:source-paths ["src/cljc" "src/cljs" "env/prod/cljs"]
-                :compiler
-                {:output-dir "target/cljsbuild/public/js/eridu-prod"
-                 :output-to "target/cljsbuild/public/js/eridu.js"
-                 :source-map "target/cljsbuild/public/js/eridu.js.map"
-                 :main "eridu.eridu"
-                 :optimizations :advanced
-                 :pretty-print false
-                 :infer-externs true
-                 :closure-warnings
-                 {:externs-validation :off :non-standard-jsdoc :off}
-                 :externs ["react/externs/react.js"]}}}}
-=======
   {;; ClojureScript is built by shadow-cljs out of band (see deploy.sh or
-   ;; `npx shadow-cljs release organism journey oroboros future`). Shadow
+   ;; `npx shadow-cljs release organism journey oroboros eridu future`). Shadow
    ;; writes to resources/public/js/, which is already on the resource
    ;; path, so the uberjar picks it up automatically.
    :uberjar {:omit-source true
              :prep-tasks ["compile"]
->>>>>>> b4ac6bae3374247b04ddda9b37dbd21ea60a6956
              :aot :all
              :uberjar-name "organism.jar"
              :source-paths ["env/prod/clj"]
@@ -151,63 +81,8 @@
                                  [ring/ring-devel "1.9.1"]
                                  [ring/ring-mock "0.4.0"]]
                   :plugins      [[com.jakemccrary/lein-test-refresh "0.24.1"]
-<<<<<<< HEAD
-                                 [jonase/eastwood "0.3.5"]
-                                 [lein-doo "0.1.11"]
-                                 [lein-figwheel "0.5.20"]] 
-                  :cljsbuild
-                  {:builds
-                   {:organism
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "organism.play/mount-components"}
-                     :compiler
-                     {:main "organism.organism"
-                      :asset-path "/js/out"
-                      :output-to "target/cljsbuild/public/js/organism.js"
-                      :output-dir "target/cljsbuild/public/js/out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}
-                    :journey
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "journey.play/mount-components"}
-                     :compiler
-                     {:main "journey.journey"
-                      :asset-path "/js/journey-out"
-                      :output-to "target/cljsbuild/public/js/journey.js"
-                      :output-dir "target/cljsbuild/public/js/journey-out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}
-                    :oroboros
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "organism.oroboros.play/mount-components"}
-                     :compiler
-                     {:main "organism.oroboros"
-                      :asset-path "/js/oroboros-out"
-                      :output-to "target/cljsbuild/public/js/oroboros.js"
-                      :output-dir "target/cljsbuild/public/js/oroboros-out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}
-                    :eridu
-                    {:source-paths ["src/cljs" "src/cljc" "env/dev/cljs"]
-                     :figwheel {:on-jsload "eridu.play/mount-components"}
-                     :compiler
-                     {:main "eridu.eridu"
-                      :asset-path "/js/eridu-out"
-                      :output-to "target/cljsbuild/public/js/eridu.js"
-                      :output-dir "target/cljsbuild/public/js/eridu-out"
-                      :source-map true
-                      :optimizations :none
-                      :pretty-print true}}}}
-                  
-                  :doo {:build "test"}
-                  :source-paths ["env/dev/clj" ]
-=======
                                  [jonase/eastwood "0.3.5"]]
                   :source-paths ["env/dev/clj"]
->>>>>>> b4ac6bae3374247b04ddda9b37dbd21ea60a6956
                   :resource-paths ["env/dev/resources"]
                   :repl-options {:init-ns user
                                  :timeout 120000}
