@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html style="background-color:#050510">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ERIDU - Stats & Evolution</title>
+    <style>
+      body { font-family: monospace; color: #ccc; background: #050510; padding: 20px; }
+      h1 { color: #BB9944; }
+      h2 { color: #886622; margin-top: 24px; }
+      .panel { background: #0a0a12; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; }
+      .btn { background: #1a2a1a; color: #8f8; border: 1px solid #4a4; border-radius: 6px;
+             padding: 8px 16px; cursor: pointer; font-family: monospace; font-size: 13px; margin-right: 8px; }
+      .btn:hover { background: #2a3a2a; }
+      .btn-danger { background: #2a1a1a; color: #f88; border-color: #844; }
+      .btn-blue { background: #1a1a2a; color: #88f; border-color: #448; }
+      table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+      th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #222; font-size: 11px; }
+      th { color: #886622; font-weight: bold; }
+      td { color: #aaa; }
+      .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+      .status-running { background: #1a2a1a; color: #8f8; }
+      .status-stopped { background: #1a1a1a; color: #888; }
+      a { color: #88aaff; }
+      .nav { margin-bottom: 20px; }
+      .nav a { margin-right: 16px; color: #886622; text-decoration: none; }
+      .nav a:hover { color: #BB9944; }
+      #evo-log { max-height: 300px; overflow-y: auto; font-size: 10px; color: #666; }
+    </style>
+  </head>
+  <body>
+    <div class="nav">
+      <a href="/eridu">Home</a>
+      <a href="/eridu/create">Create</a>
+      <a href="/eridu/observe">Observe</a>
+      <a href="/eridu/stats"><b>Stats</b></a>
+    </div>
+
+    <h1>&#10022; Eridu Statistics & AI Evolution</h1>
+
+    <!-- Simulation Panel -->
+    <div class="panel">
+      <h2>&#10022; Simulation</h2>
+      <p style="color:#666; font-size:11px">Run 1000 games at each player count (2, 3, 4) with all AI archetypes + random personalities.</p>
+
+      <div style="margin: 12px 0">
+        <button class="btn" onclick="runSimulation()" id="sim-btn">
+          {% if sim-running %}Running...{% else %}Run Simulation (3000 games){% endif %}
+        </button>
+        <span id="sim-status" class="status {% if sim-running %}status-running{% else %}status-stopped{% endif %}">
+          {% if sim-running %}Running{% else %}Ready{% endif %}
+        </span>
+      </div>
+
+      {% if sim-data %}
+      <div id="sim-results">
+        <!-- Results populated by JS below -->
+      </div>
+
+      <div style="margin: 12px 0">
+        <a href="/eridu/simulate/summaries.csv" class="btn btn-blue" download>Download Summaries CSV</a>
+        <a href="/eridu/simulate/snapshots.csv" class="btn btn-blue" download>Download Snapshots CSV</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Evolution Panel -->
+    <div class="panel">
+      <h2>&#10022; AI Evolution</h2>
+      <p style="color:#666; font-size:11px">Genetic algorithm: tournament selection, Elo rating, crossover + mutation. 60% archetype seeded, 40% random.</p>
+
+      <div style="margin: 12px 0">
+        <button class="btn" onclick="startEvolution()">Start Evolution</button>
+        <button class="btn btn-danger" onclick="stopEvolution()">Stop</button>
+        <button class="btn btn-blue" onclick="refreshEvoStatus()">Refresh Status</button>
+        <span id="evo-status" class="status status-stopped">Idle</span>
+      </div>
+
+      <div style="margin: 8px 0; font-size: 11px; color: #888;">
+        <label>Pop size: <input type="number" id="evo-pop" value="30" style="width:50px; background:#111; color:#ccc; border:1px solid #333; padding:2px"></label>
+        <label style="margin-left:12px">Generations: <input type="number" id="evo-gens" value="100" style="width:50px; background:#111; color:#ccc; border:1px solid #333; padding:2px"></label>
+        <label style="margin-left:12px">Mutation rate: <input type="number" id="evo-mut" value="0.3" step="0.05" style="width:50px; background:#111; color:#ccc; border:1px solid #333; padding:2px"></label>
+        <label style="margin-left:12px">Elite count: <input type="number" id="evo-elite" value="4" style="width:40px; background:#111; color:#ccc; border:1px solid #333; padding:2px"></label>
+      </div>
+
+      <div id="evo-info" style="margin: 12px 0">
+        <!-- Populated by JS -->
+      </div>
+
+      <div id="top-personalities" style="margin: 12px 0">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <script>
+      var csrfToken = "{{csrf-token}}";
+      var simData = {% if sim-data %} {{sim-data|addslashes|safe}} {% else %} null {% endif %};
+      var evoStatus = {% if evo-status %} {{evo-status|addslashes|safe}} {% else %} null {% endif %};
+
+      function postJSON(url, body, cb) {
+        fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+          body: JSON.stringify(body || {})
+        }).then(r => r.json()).then(cb).catch(e => console.error(e));
+      }
+
+      function getJSON(url, cb) {
+        fetch(url).then(r => r.json()).then(cb).catch(e => console.error(e));
+      }
+
+      function runSimulation() {
+        document.getElementById('sim-btn').textContent = 'Running...';
+        document.getElementById('sim-status').className = 'status status-running';
+        document.getElementById('sim-status').textContent = 'Running';
+        postJSON('/eridu/simulate', {}, function(r) {
+          if (r.status === 'started') {
+            alert('Simulation started! This will take a few minutes. Refresh the page to see results.');
+          } else {
+            alert('Simulation: ' + r.status);
+          }
+        });
+      }
+
+      function startEvolution() {
+        var config = {
+          pop_size: parseInt(document.getElementById('evo-pop').value),
+          generations: parseInt(document.getElementById('evo-gens').value),
+          mutation_rate: parseFloat(document.getElementById('evo-mut').value),
+          elite_count: parseInt(document.getElementById('evo-elite').value),
+          player_counts: [2, 3, 4]
+        };
+        postJSON('/eridu/evolve/start', config, function(r) {
+          document.getElementById('evo-status').className = 'status status-running';
+          document.getElementById('evo-status').textContent = 'Running — ' + JSON.stringify(r);
+          setTimeout(refreshEvoStatus, 5000);
+        });
+      }
+
+      function stopEvolution() {
+        postJSON('/eridu/evolve/stop', {}, function(r) {
+          document.getElementById('evo-status').className = 'status status-stopped';
+          document.getElementById('evo-status').textContent = 'Stopped';
+        });
+      }
+
+      function refreshEvoStatus() {
+        getJSON('/eridu/evolve/status', function(s) {
+          var el = document.getElementById('evo-status');
+          el.className = 'status ' + (s.running_QMARK_ ? 'status-running' : 'status-stopped');
+          el.textContent = s.running_QMARK_
+            ? ('Gen ' + s.generation + ' / pop ' + s.pop_size)
+            : ('Stopped at gen ' + s.generation);
+
+          var info = document.getElementById('evo-info');
+          if (s.best_ever) {
+            info.innerHTML = '<div style="color:#aa8">Best ever: <b>' + s.best_ever.name +
+              '</b> Elo: ' + Math.round(s.best_ever.elo) +
+              ' Avg rep: ' + (s.best_ever.avg_reputation || 0).toFixed(1) + '</div>';
+          }
+
+          if (s.running_QMARK_) setTimeout(refreshEvoStatus, 10000);
+        });
+
+        getJSON('/eridu/evolve/top', function(r) {
+          var el = document.getElementById('top-personalities');
+          if (r.personalities && r.personalities.length > 0) {
+            var html = '<h3 style="color:#886622">Top Personalities</h3><table><tr>' +
+              '<th>Name</th><th>Elo</th><th>Avg Rep</th><th>Games</th>' +
+              '<th>Sell</th><th>Temple</th><th>Deploy</th><th>Influence</th><th>Travel</th>' +
+              '<th>Balance</th><th>Chain</th></tr>';
+            r.personalities.forEach(function(p) {
+              html += '<tr><td>' + (p.name || '?') + '</td>' +
+                '<td>' + Math.round(p.elo || 0) + '</td>' +
+                '<td>' + (p.avg_reputation || 0).toFixed(1) + '</td>' +
+                '<td>' + (p.games || 0) + '</td>' +
+                '<td>' + (p.sell_weight || 0).toFixed(2) + '</td>' +
+                '<td>' + (p.temple_weight || 0).toFixed(2) + '</td>' +
+                '<td>' + (p.deploy_weight || 0).toFixed(2) + '</td>' +
+                '<td>' + (p.influence_weight || 0).toFixed(2) + '</td>' +
+                '<td>' + (p.travel_weight || 0).toFixed(2) + '</td>' +
+                '<td>' + (p.track_balance || 0).toFixed(2) + '</td>' +
+                '<td>' + (p.chain_weight || 0).toFixed(2) + '</td></tr>';
+            });
+            html += '</table>';
+            el.innerHTML = html;
+          }
+        });
+      }
+
+      // Render initial sim data if available
+      if (simData) {
+        var el = document.getElementById('sim-results');
+        if (el && simData) {
+          // Try to parse EDN-like data (it comes as a string)
+          try {
+            // The data is already a JS object from Selmer template
+            var html = '<h3 style="color:#886622">Results by AI Personality</h3>';
+            if (simData.by_personality) {
+              html += '<table><tr><th>Personality</th><th>Games</th><th>Avg Rep</th><th>Avg Amity</th><th>Avg Glory</th><th>Win Rate</th></tr>';
+              // Note: EDN keys may need adjustment based on transit encoding
+              html += '</table>';
+            }
+            el.innerHTML = html;
+          } catch(e) { console.error('Parse error:', e); }
+        }
+      }
+
+      // Auto-refresh evolution if running
+      if (evoStatus && evoStatus.running_QMARK_) {
+        setTimeout(refreshEvoStatus, 3000);
+      }
+    </script>
+  </body>
+</html>

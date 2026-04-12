@@ -1,5 +1,6 @@
 (ns eridu.choice
   (:require
+   [clojure.string :as str]
    [eridu.game :as game]))
 
 ;; =============================================================================
@@ -21,6 +22,17 @@
 (defn add-glory [state player n]
   (update-in state [:players player :glory] + n))
 
+;; ── Game log ─────────────────────────────────────────────────────────────────
+
+(defn add-log
+  "Append a log entry to the game state."
+  [state entry]
+  (update state :log (fnil conj [])
+          (merge {:round  (:round state 1)
+                  :turn   (:turn-in-round state 1)
+                  :player (game/current-player state)}
+                 entry)))
+
 ;; =============================================================================
 ;; Phase 1: Choose a die
 ;; =============================================================================
@@ -38,7 +50,9 @@
                                  (fn [d] (into (subvec d 0 idx) (subvec d (inc idx)))))
                       (update-in [:players player :dice-used] conj die-val)
                       (assoc :player-turn {:phase :choose-astronomer
-                                           :die-value die-val}))])
+                                           :die-value die-val})
+                      (add-log {:type :die :message (str "Selected die " die-val)
+                                :die-value die-val}))])
            dice))))
 
 ;; =============================================================================
@@ -55,11 +69,18 @@
     (into {}
           (map-indexed
            (fn [idx current-space]
-             (let [dest (game/move-astronomer-clockwise current-space die-val)]
+             (let [dest (game/move-astronomer-clockwise current-space die-val)
+                   astros-on-dest (count (game/astronomers-on-space state dest))]
                [idx (-> state
                         (assoc-in [:players player :astronomers idx] dest)
                         (assoc :player-turn {:phase :resolve-landing
-                                            :landed-space dest}))]))
+                                            :landed-space dest})
+                        (add-log {:type :astronomer
+                                  :message (str "Moved astronomer " (inc idx)
+                                                " from space " current-space
+                                                " to space " dest
+                                                " (" (inc astros-on-dest) " astronomers there)")
+                                  :from-space current-space :to-space dest}))]))
            astronomers))))
 
 ;; =============================================================================
@@ -77,18 +98,28 @@
         num-actions (count all-on-space)
         ;; If space 7, take first-player card
         state (if (= space 7)
-                (assoc state :first-player player)
+                (-> state
+                    (assoc :first-player player)
+                    (add-log {:type :first-player :message "Takes First Player card (space 7)"}))
                 state)]
     (if (= num-actions 1)
       ;; Alone: may increase a role track (or skip)
-      {:increase-role (assoc state :player-turn {:phase :choose-role-increase})
-       :skip          (game/advance-turn state)}
+      {:increase-role (-> state
+                          (assoc :player-turn {:phase :choose-role-increase})
+                          (add-log {:type :landing :message (str "Alone on space " space " — may increase a role")}))
+       :skip          (-> state
+                          (add-log {:type :landing :message (str "Alone on space " space " — skipped role increase")})
+                          game/advance-turn)}
       ;; Multiple astronomers: take N actions, can't repeat same icon
-      {:begin (assoc state :player-turn
-                     {:phase :choose-action
-                      :space space
-                      :actions-remaining num-actions
-                      :used-icons #{}})})))
+      {:begin (-> state
+                  (assoc :player-turn
+                         {:phase :choose-action
+                          :space space
+                          :actions-remaining num-actions
+                          :used-icons #{}})
+                  (add-log {:type :landing
+                            :message (str num-actions " astronomers on space " space
+                                          " — taking " num-actions " actions")}))})))
 
 ;; =============================================================================
 ;; Role increase (when alone on a space)
@@ -110,10 +141,20 @@
           [role (cond-> state
                   cost (spend-resource player cost)
                   true (assoc-in [:players player :roles role] next-level)
+                  true (add-log {:type :role-increase
+                                 :message (str "Increased " (name role)
+                                               " to level " next-level
+                                               (when cost (str " (paid " (name cost) ")")))
+                                 :role role :level next-level :cost cost})
                   true (game/advance-turn))])]
     (if (seq increasable)
-      (into {:skip (game/advance-turn state)} increasable)
-      {:skip (game/advance-turn state)})))
+      (into {:skip (-> state
+                       (add-log {:type :role-increase :message "Skipped role increase"})
+                       game/advance-turn)}
+            increasable)
+      {:skip (-> state
+                 (add-log {:type :role-increase :message "No roles available to increase"})
+                 game/advance-turn)})))
 
 ;; =============================================================================
 ;; Action selection (when multiple astronomers on space)
@@ -139,19 +180,27 @@
       (into {}
             (for [idx available
                   :let [action (nth (:actions (get game/action-spaces space)) idx)]]
-              [idx (assoc state :player-turn
-                          {:phase (case (:type action)
-                                   :take     :resolve-take
-                                   :sell     :resolve-sell
-                                   :deploy   :resolve-deploy
-                                   :travel   :resolve-travel
-                                   :influence :resolve-influence
-                                   :temple   :resolve-temple)
-                           :space space
-                           :action action
-                           :action-index idx
-                           :actions-remaining (dec actions-remaining)
-                           :used-icons (conj used-icons idx)})])))))
+              [idx (-> state
+                       (assoc :player-turn
+                              {:phase (case (:type action)
+                                       :take     :resolve-take
+                                       :sell     :resolve-sell
+                                       :deploy   :resolve-deploy
+                                       :travel   :resolve-travel
+                                       :influence :resolve-influence
+                                       :temple   :resolve-temple)
+                               :space space
+                               :action action
+                               :action-index idx
+                               :actions-remaining (dec actions-remaining)
+                               :used-icons (conj used-icons idx)})
+                       (add-log {:type :action-select
+                                 :message (str "Selected action: "
+                                               (get game/action-icons (:type action) "")
+                                               " " (name (:type action))
+                                               (when (:resources action)
+                                                 (str " (" (str/join ", " (map name (:resources action))) ")")))
+                                 :action-type (:type action)}))])))))
 
 ;; =============================================================================
 ;; Action: Take Goods
@@ -162,11 +211,16 @@
         resources (get-in state [:player-turn :action :resources])
         next-state (reduce #(add-resource %1 player %2 1) state resources)
         turn (:player-turn state)]
-    {:done (assoc next-state :player-turn
-                  {:phase :choose-action
-                   :space (:space turn)
-                   :actions-remaining (:actions-remaining turn)
-                   :used-icons (:used-icons turn)})}))
+    {:done (-> next-state
+               (assoc :player-turn
+                      {:phase :choose-action
+                       :space (:space turn)
+                       :actions-remaining (:actions-remaining turn)
+                       :used-icons (:used-icons turn)})
+               (add-log {:type :take
+                         :message (str "Took goods: "
+                                       (str/join ", " (map #(str (get game/resource-icons % "") " " (name %))
+                                                           resources)))}))}))
 
 ;; =============================================================================
 ;; Action: Sell
@@ -207,19 +261,34 @@
                                   (assoc-in [:city-demands city] new-demands)
                                   (update-in [:players player :demand-tokens] conj demand)
                                   (add-amity player amity-score))]
-                        (cond-> s
-                          (pos? glory-bonus) (add-glory player glory-bonus)
-                          true (assoc :player-turn
-                                      {:phase :choose-action
-                                       :space (:space turn)
-                                       :actions-remaining (:actions-remaining turn)
-                                       :used-icons (:used-icons turn)})))]))
+                        (-> (cond-> s
+                              (pos? glory-bonus) (add-glory player glory-bonus))
+                            (assoc :player-turn
+                                   {:phase :choose-action
+                                    :space (:space turn)
+                                    :actions-remaining (:actions-remaining turn)
+                                    :used-icons (:used-icons turn)})
+                            (add-log {:type :sell
+                                      :message (str "Sold " (get game/resource-icons demand "")
+                                                    " " (name demand) " in "
+                                                    (str/capitalize (name city))
+                                                    " → +" amity-score " Amity"
+                                                    " (Merchant lv" merchant-level ")"
+                                                    (when (pos? glory-bonus)
+                                                      (str ", +" glory-bonus " Glory"
+                                                           " (Leader lv" leader-level
+                                                           " magistrate bonus)")))
+                                      :city city :demand demand
+                                      :amity amity-score :glory glory-bonus})))]))
       ;; Nothing to sell
-      {:skip (assoc state :player-turn
-                    {:phase :choose-action
-                     :space (:space turn)
-                     :actions-remaining (:actions-remaining turn)
-                     :used-icons (:used-icons turn)})})))
+      {:skip (-> state
+                 (assoc :player-turn
+                        {:phase :choose-action
+                         :space (:space turn)
+                         :actions-remaining (:actions-remaining turn)
+                         :used-icons (:used-icons turn)})
+                 (add-log {:type :sell :message (str "No sellable demands in "
+                                                     (str/capitalize (name city)))}))})))
 
 ;; =============================================================================
 ;; Action: Temple
@@ -243,7 +312,7 @@
                                     :used-icons (:used-icons turn)}))]
     (if (and (pos? supply) (< placed max-temples))
       (let [caravan-city (:caravan pdata)
-            all-magistrate-cities (vals (:magistrates state))
+            all-magistrate-cities (keys (:magistrates state))
             valid-cities (distinct
                           (for [city (cons caravan-city all-magistrate-cities)
                                 :when (and city
@@ -255,9 +324,23 @@
                   [city (-> state
                             (assoc-in [:players player :temples city] :face-up)
                             (update-in [:players player :temples-supply] dec)
-                            return-to-actions)]))
-          {:skip (return-to-actions state)}))
-      {:skip (return-to-actions state)})))
+                            return-to-actions
+                            (add-log {:type :temple
+                                      :message (str "Placed face-up temple in "
+                                                    (str/capitalize (name city))
+                                                    (when (= city caravan-city) " (caravan)")
+                                                    (when (game/magistrate-in-city? state city)
+                                                      " (magistrate city)"))
+                                      :city city}))]))
+          {:skip (-> state return-to-actions
+                     (add-log {:type :temple :message "No valid cities for temple"}))}))
+      {:skip (-> state return-to-actions
+                 (add-log {:type :temple
+                           :message (str "Cannot place temple"
+                                         (when-not (pos? supply) " (none in supply)")
+                                         (when-not (< placed max-temples)
+                                           (str " (max " max-temples " at Priest lv" (get-in pdata [:roles :priest] 1) ")"))
+                                         )}))})))
 
 ;; =============================================================================
 ;; Action: Deploy
@@ -294,7 +377,8 @@
                             (seq placeable))]
         (if can-place?
           (into {:skip (return-to-actions state)}
-                (for [rk placeable]
+                (for [rk placeable
+                      :let [[c1 c2] rk]]
                   [rk (-> state
                           (assoc-in [:players player :raiders rk] :raiding)
                           (update-in [:players player :raiders-supply] dec)
@@ -305,8 +389,15 @@
                                   :action-index (get-in state [:player-turn :action-index])
                                   :actions-remaining (:actions-remaining turn)
                                   :used-icons (:used-icons turn)
-                                  :deploys-left (dec deploys-left)}))]))
-          {:done (return-to-actions state)})))))
+                                  :deploys-left (dec deploys-left)})
+                          (add-log {:type :deploy
+                                    :message (str "Placed raider between "
+                                                  (str/capitalize (name c1)) " and "
+                                                  (str/capitalize (name c2))
+                                                  " (raiding side)")
+                                    :route rk}))]))
+          {:done (-> state return-to-actions
+                     (add-log {:type :deploy :message "No more raiders to deploy"}))})))))
 
 ;; =============================================================================
 ;; Action: Travel
@@ -327,8 +418,16 @@
             leader-level (get-in state [:players player :roles :leader] 1)
             has-magistrate? (game/magistrate-in-city? state city)
             glory-bonus (if has-magistrate? (get game/leader-bonus leader-level 0) 0)]
-        (cond-> state
-          (pos? glory-bonus) (add-glory player glory-bonus)))
+        (-> (cond-> state
+              (pos? glory-bonus) (add-glory player glory-bonus))
+            (add-log {:type :temple-visit
+                      :message (str "Visited temple in " (str/capitalize (name city))
+                                    " — flipped face-down → +" face-down-count " Amity"
+                                    " (" face-down-count " face-down temples)"
+                                    (when (pos? glory-bonus)
+                                      (str ", +" glory-bonus " Glory"
+                                           " (Leader lv" leader-level " magistrate bonus)")))
+                      :city city :amity face-down-count :glory glory-bonus})))
       state)))
 
 (defn flip-enemy-raiders-on-route
@@ -338,7 +437,14 @@
    (fn [s pk pdata]
      (if (and (not= pk player)
               (= :raiding (get-in pdata [:raiders route-key])))
-       (assoc-in s [:players pk :raiders route-key] :point)
+       (-> s
+           (assoc-in [:players pk :raiders route-key] :point)
+           (add-log {:type :raider-flip
+                     :message (str "Flipped " pk "'s raider on "
+                                   (str/capitalize (name (first route-key))) "—"
+                                   (str/capitalize (name (second route-key)))
+                                   " to point side (caravan passed)")
+                     :owner pk :route route-key}))
        s))
    state
    (:players state)))
@@ -351,7 +457,13 @@
       (-> state
           (update-in [:players player :raiders] dissoc route-key)
           (update-in [:players player :raiders-supply] inc)
-          (add-glory player 4))
+          (add-glory player 4)
+          (add-log {:type :raider-score
+                    :message (str "Scored own raider on "
+                                  (str/capitalize (name (first route-key))) "—"
+                                  (str/capitalize (name (second route-key)))
+                                  " → +4 Glory (raider returned to supply)")
+                    :route route-key :glory 4}))
       state)))
 
 (defn travel-to-city
@@ -361,6 +473,10 @@
         rk (game/route-key current-city destination)]
     (-> state
         (assoc-in [:players player :caravan] destination)
+        (add-log {:type :travel
+                  :message (str "Traveled from " (str/capitalize (name current-city))
+                                " to " (str/capitalize (name destination)))
+                  :from current-city :to destination})
         (flip-enemy-raiders-on-route player rk)
         (score-own-raider-on-route player rk)
         (visit-temples-on-travel player destination))))
@@ -418,6 +534,10 @@
                   :when (pos? (get resources r 0))]
               [r (-> state
                      (spend-resource player r)
+                     (add-log {:type :travel-extend
+                               :message (str "Discarded " (get game/resource-icons r "")
+                                             " " (name r) " to travel again")
+                               :resource r})
                      (assoc :player-turn
                             {:phase :resolve-travel
                              :space (:space turn)
@@ -430,8 +550,27 @@
 ;; Action: Influence
 ;; =============================================================================
 
+(defn flip-raiders-on-route
+  "Flip ALL raiders (any player) on a route to their point side.
+   Used when a magistrate passes through."
+  [state route-key]
+  (reduce-kv
+   (fn [s pk pdata]
+     (if (= :raiding (get-in pdata [:raiders route-key]))
+       (-> s
+           (assoc-in [:players pk :raiders route-key] :point)
+           (add-log {:type :magistrate-raider-flip
+                     :message (str "Magistrate flipped " pk "'s raider on "
+                                   (str/capitalize (name (first route-key))) "—"
+                                   (str/capitalize (name (second route-key)))
+                                   " to point side")
+                     :owner pk :route route-key}))
+       s))
+   state
+   (:players state)))
+
 (defn resolve-influence-choices
-  "Move a magistrate clockwise along roads."
+  "Move a magistrate clockwise along roads. Flip raiders on routes passed through."
   [state]
   (let [player (game/current-player state)
         pdata (game/player-data state player)
@@ -446,25 +585,38 @@
                                     :actions-remaining (:actions-remaining turn)
                                     :used-icons (:used-icons turn)}))
         magistrate-entries (vec (:magistrates state))
-          choices
-          (into {}
-                (for [[mag-city _] magistrate-entries
-                      steps (range 1 (inc max-move))
-                      :let [dest (reduce (fn [c _]
-                                           (game/road-clockwise-next c active-cities))
-                                         mag-city
-                                         (range steps))
-                            rk-key [mag-city dest steps]]
-                      :when dest]
-                  [rk-key (-> state
-                              (assoc :magistrates
-                                     (-> (:magistrates state)
-                                         (dissoc mag-city)
-                                         (assoc dest :neutral)))
-                              return-to-actions)]))]
-      (if (seq choices)
-        (assoc choices :skip (return-to-actions state))
-        {:skip (return-to-actions state)})))
+        choices
+        (into {}
+              (for [[mag-city _] magistrate-entries
+                    steps (range 1 (inc max-move))
+                    :let [;; Trace the full clockwise path
+                          path (game/road-clockwise-path mag-city steps active-cities)
+                          dest (if (seq path) (second (last path)) nil)
+                          rk-key [mag-city dest steps]]
+                    :when dest]
+                [rk-key (let [;; Update magistrate position
+                              s (-> state
+                                    (assoc :magistrates
+                                           (-> (:magistrates state)
+                                               (dissoc mag-city)
+                                               (assoc dest :neutral)))
+                                    (add-log {:type :influence
+                                              :message (str "Moved magistrate from "
+                                                            (str/capitalize (name mag-city))
+                                                            " to " (str/capitalize (name dest))
+                                                            " (" steps " space"
+                                                            (when (> steps 1) "s") ")"
+                                                            " (Leader lv" leader-level ")")
+                                              :from mag-city :to dest :steps steps}))]
+                          ;; Flip raiders on each route the magistrate passes through
+                          (-> (reduce (fn [st [from to]]
+                                        (flip-raiders-on-route st (game/route-key from to)))
+                                      s
+                                      path)
+                              return-to-actions))]))]
+    (if (seq choices)
+      (assoc choices :skip (return-to-actions state))
+      {:skip (return-to-actions state)})))
 
 ;; =============================================================================
 ;; State machine
