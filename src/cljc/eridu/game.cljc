@@ -1,4 +1,5 @@
-(ns eridu.game)
+(ns eridu.game
+  (:require [clojure.set]))
 
 ;; Forward declarations for functions used by feat evaluation and bonus board effects
 (declare count-temples-placed count-face-down-temples count-raiders-deployed
