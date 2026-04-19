@@ -57,7 +57,8 @@
      "eridu/play.html"
      {:player player-key
       :play play-key
-      :preferences preferences})))
+      :preferences preferences
+      :timestamp (System/currentTimeMillis)})))
 
 (defn observe-page
   [db request]
@@ -109,7 +110,8 @@
      "eridu/play.html"
      {:player player-key
       :play game-key
-      :preferences "{}"})))
+      :preferences "{}"
+      :timestamp (System/currentTimeMillis)})))
 
 (defn create-game!
   "POST handler: create a new eridu game."
@@ -119,10 +121,12 @@
         players   (get params :players (get params "players"))
         bots      (get params :bots (get params "bots" []))
         mode      (keyword (get params :mode (get params "mode" "normal")))]
-    (if (and (seq play-name) (seq players))
-      (let [state   (if (= mode :solo)
-                      (game/initial-solo-state (first (vec players)))
-                      (game/initial-state (vec players)))
+    (if (and (seq play-name) (seq players)
+             (<= (count players) (if (= mode :solo) 1 4)))
+      (let [players (if (= mode :solo) [(first players)] (vec (take 4 players)))
+            state   (if (= mode :solo)
+                      (game/initial-solo-state (first players))
+                      (game/initial-state players))
             bot-set (set bots)]
         (swap! eridu-ws/games
                assoc-in [:games play-name]

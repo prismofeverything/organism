@@ -11,17 +11,14 @@
 ;; Headless game runner
 ;; =============================================================================
 
+(def ^:private sim-protected-phases
+  "Phases the simulation stops at to let the AI make decisions."
+  #{:choose-die :choose-action :resolve-landing :game-over})
+
 (defn- advance-through-trivial
   "Advance state through single-choice non-interactive phases."
   [state]
-  (loop [s state n 0]
-    (if (> n 200) s ;; safety valve
-      (let [[p cs] (choice/find-state-raw s)]
-        (if (and (= 1 (count cs))
-                 (not (contains? #{:choose-die :choose-action :resolve-landing :game-over} p)))
-          (let [ns (first (vals cs))]
-            (if ns (recur ns (inc n)) s))
-          s)))))
+  (choice/advance-through-trivial state sim-protected-phases))
 
 (defn- take-snapshot
   "Capture a per-player snapshot of the current game state."
@@ -48,17 +45,39 @@
      :raiders-supply   (:raiders-supply pdata 0)
      :temples-supply   (:temples-supply pdata 0)
      :demands-fulfilled (count (:demand-tokens pdata []))
+     :wild-points   (:wild-points pdata 0)
+     :feats-claimed (count (filter #(some #{player-key} (val %))
+                                   (:contest-claims state {})))
+     :travels-this-round (:travels-this-round pdata 0)
+     :total-travels (:total-travels pdata 0)
+     :dice-quads   (get-in pdata [:dice-stats :quad] 0)
+     :dice-triples (get-in pdata [:dice-stats :triple] 0)
+     :dice-doubles (get-in pdata [:dice-stats :double] 0)
+     :dice-unique  (get-in pdata [:dice-stats :unique] 0)
      :caravan-city  (:caravan pdata)
      :bonus-board-id (get-in state [:bonus-boards player-key])}))
 
 (defn run-game
   "Run a complete game headlessly.
    `player-configs` is a vector of {:key :personality} maps.
-   Returns {:final-state :snapshots :result}."
-  [player-configs]
-  (let [player-keys (mapv :key player-configs)
+   Optional `:seed` for deterministic replay — records the seed used in the result.
+   Returns {:final-state :snapshots :steps :seed}.
+   For solo mode, pass a single player config."
+  [player-configs & {:keys [seed]}]
+  (let [seed (or seed (System/nanoTime))
+        _    (.setSeed (java.util.Random.) seed)  ;; record only; true seeding needs replay tool
+        player-keys (mapv :key player-configs)
         personality-map (into {} (map (juxt :key :personality) player-configs))
-        initial (game/initial-state player-keys)
+        initial (if (= 1 (count player-configs))
+                  (game/initial-solo-state (first player-keys))
+                  (game/initial-state player-keys))
+        ;; Cache personality weights on player state for feat-claiming decisions
+        initial (reduce (fn [s [pk weights]]
+                          (assoc-in s [:players pk :personality-cache]
+                                    (select-keys weights [:tempo :feat-awareness
+                                                          :prefer-onetime-bonus
+                                                          :feat-sequence :feat-closure-urgency])))
+                        initial personality-map)
         ;; Run the game to completion
         result
         (loop [state initial
@@ -93,15 +112,23 @@
     (let [final-snaps (mapv #(assoc (take-snapshot (:final-state result) %)
                                     :round 99 :turn 0 :phase :game-over)
                             player-keys)]
-      (assoc result :snapshots (into (:snapshots result) final-snaps)))))
+      (assoc result
+             :snapshots (into (:snapshots result) final-snaps)
+             :seed seed))))
 
 (defn game-result-summary
   "Extract summary from a completed game."
   [game-result player-configs]
   (let [state (:final-state game-result)
-        players (:players state)]
+        game-seed (:seed game-result)
+        players (:players state)
+        ;; Game-level context
+        contests (mapv :id (:contests state []))
+        contest-str (str/join ";" (map name contests))]
     (for [{:keys [key personality]} player-configs
-          :let [pdata (get players key)]]
+          :let [pdata (get players key)
+                card (:starting-card pdata)
+                board-id (get-in state [:bonus-boards key])]]
       {:player        key
        :personality   (:name personality "Unknown")
        :amity         (:amity pdata 0)
@@ -114,7 +141,64 @@
        :temples-placed  (game/count-temples-placed pdata)
        :temples-flipped (game/count-face-down-temples pdata)
        :raiders-deployed (game/count-raiders-deployed pdata)
-       :demands-fulfilled (count (:demand-tokens pdata []))})))
+       :demands-fulfilled (count (:demand-tokens pdata []))
+       ;; Game setup context
+       :starting-card-num  (:number card)
+       :starting-city      (when card (name (:city card)))
+       :starting-role      (when card (name (:role card)))
+       :starting-resource  (when card (name (:resource card)))
+       :bonus-board-id     (or board-id 0)
+       :wild-points        (:wild-points pdata 0)
+       :feats-claimed      (count (filter #(some #{key} (val %))
+                                          (:contest-claims state {})))
+       :target-feat-1      (when-let [t (first (:target-feats pdata))]
+                             (name (:id t)))
+       :target-feat-2      (when-let [t (second (:target-feats pdata))]
+                             (name (:id t)))
+       ;; Space usage stats
+       :space-visits        (count (:space-visits pdata []))
+       :avg-astros-on-visit (let [visits (:space-visits pdata [])]
+                              (if (seq visits)
+                                (double (/ (reduce + (map :astronomers visits))
+                                           (count visits)))
+                                0.0))
+       :solo-landings       (count (filter #(= 1 (:astronomers %))
+                                          (:space-visits pdata [])))
+       :top-space           (let [visits (:space-visits pdata [])
+                                  freqs (frequencies (map :space visits))]
+                              (if (seq freqs)
+                                (first (apply max-key second (seq freqs)))
+                                0))
+       ;; Per-space visit counts
+       :sp1 (count (filter #(= 1 (:space %)) (:space-visits pdata [])))
+       :sp2 (count (filter #(= 2 (:space %)) (:space-visits pdata [])))
+       :sp3 (count (filter #(= 3 (:space %)) (:space-visits pdata [])))
+       :sp4 (count (filter #(= 4 (:space %)) (:space-visits pdata [])))
+       :sp5 (count (filter #(= 5 (:space %)) (:space-visits pdata [])))
+       :sp6 (count (filter #(= 6 (:space %)) (:space-visits pdata [])))
+       :sp7 (count (filter #(= 7 (:space %)) (:space-visits pdata [])))
+       ;; Top-2 space pair (e.g. "3-7" means spaces 3 and 7 were 1st and 2nd most used)
+       :top-pair           (let [visits (:space-visits pdata [])
+                                 freqs (sort-by (comp - second) (frequencies (map :space visits)))]
+                             (if (>= (count freqs) 2)
+                               (str (first (first freqs)) "-" (first (second freqs)))
+                               (if (seq freqs)
+                                 (str (first (first freqs)) "-" (first (first freqs)))
+                                 "0-0")))
+       ;; Travel action count (total across all rounds)
+       :total-travels       (:total-travels pdata 0)
+       ;; Dice roll statistics (across all rounds)
+       :dice-quads   (get-in pdata [:dice-stats :quad] 0)
+       :dice-triples (get-in pdata [:dice-stats :triple] 0)
+       :dice-doubles (get-in pdata [:dice-stats :double] 0)
+       :dice-unique  (get-in pdata [:dice-stats :unique] 0)
+       ;; Board effect diagnostics
+       :board-effects-fired (count (filter :changed (:board-effects-log pdata [])))
+       :board-effects-noop  (count (remove :changed (:board-effects-log pdata [])))
+       :board-effect-amity  (reduce + (map :delta-amity (:board-effects-log pdata [])))
+       :board-effect-glory  (reduce + (map :delta-glory (:board-effects-log pdata [])))
+       :contests-in-play   contest-str
+       :seed               (or game-seed 0)})))
 
 ;; =============================================================================
 ;; Batch simulation
@@ -167,7 +251,15 @@
   [:game-id :player-count :player :personality
    :amity :glory :reputation
    :merchant-lv :priest-lv :raider-lv :leader-lv
-   :temples-placed :temples-flipped :raiders-deployed :demands-fulfilled])
+   :temples-placed :temples-flipped :raiders-deployed :demands-fulfilled
+   :starting-card-num :starting-city :starting-role :starting-resource
+   :space-visits :avg-astros-on-visit :solo-landings :top-space
+   :sp1 :sp2 :sp3 :sp4 :sp5 :sp6 :sp7 :top-pair
+   :bonus-board-id :wild-points :feats-claimed
+   :target-feat-1 :target-feat-2 :total-travels
+   :dice-quads :dice-triples :dice-doubles :dice-unique
+   :board-effects-fired :board-effects-noop :board-effect-amity :board-effect-glory
+   :contests-in-play :seed])
 
 (def snapshot-columns
   [:game-id :player-count :round :turn :player :phase

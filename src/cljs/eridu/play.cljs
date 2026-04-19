@@ -19,6 +19,7 @@
 (defonce bots-set      (r/atom #{}))
 (defonce can-undo?     (r/atom false))
 (defonce server-choices (r/atom nil))
+(defonce pending-claim  (r/atom nil))
 
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,12 @@
 
 (defn send-undo! []
   (ws/send-transit-message! {:type "undo"}))
+
+(defn send-claim-feat!
+  ([feat-id] (send-claim-feat! feat-id nil))
+  ([feat-id slot-idx]
+   (ws/send-transit-message! (cond-> {:type "claim-feat" :feat-id (name feat-id)}
+                               slot-idx (assoc :slot-idx slot-idx)))))
 
 ;; ── Unicode die faces ─────────────────────────────────────────────────────────
 
@@ -122,9 +129,9 @@
 
 ;; ── Rendering: Action board (wheel) ──────────────────────────────────────────
 
-(def action-board-cx 220)
-(def action-board-cy 220)
-(def action-board-r 150)
+(def action-board-cx 280)
+(def action-board-cy 280)
+(def action-board-r 190)
 
 (defn action-space-pos [space-id]
   (let [angle (- (* (/ (* 2 js/Math.PI) 7) (dec space-id)) (/ js/Math.PI 2))
@@ -136,21 +143,31 @@
   {:take "#5B8C3E" :sell "#C4A535"  :deploy "#C44B35"
    :travel "#3581A8" :influence "#8B5BC4" :temple "#C45BA8"})
 
-(defn action-board-component [state]
+(defn action-board-component [state my-player]
   (let [current-space (get-in state [:player-turn :landed-space])
+        landed-space (or current-space
+                         (get-in state [:player-turn :space]))
         phase (game/current-phase state)
         player (game/current-player state)
-        p-color (game/player-color state player)]
-    [:svg {:viewBox "0 0 440 440" :width 420 :height 420
+        p-color (game/player-color state player)
+        my-turn (my-turn? state my-player)
+        [_ choices] (when state (choice/find-state-raw state))
+        ;; In choose-astronomer, highlight my eligible astronomers
+        astronomer-choosable (when (and my-turn (= phase :choose-astronomer))
+                               (set (keys choices)))
+        ;; In choose-action, highlight eligible action indices on landed space
+        action-choosable (when (and my-turn (= phase :choose-action))
+                           (set (filter integer? (keys choices))))]
+    [:svg {:viewBox "0 0 560 560" :width 540 :height 540
            :style {:background "radial-gradient(circle, #0d0d1e, #050510)"
                    :background-color "#070712"
                    :border-radius 8 :border (str "1px solid #333")}}
      ;; Title with star
-     [:text {:x 220 :y 22 :text-anchor "middle" :fill "#886622" :font-size 13
+     [:text {:x 280 :y 26 :text-anchor "middle" :fill "#886622" :font-size 16
              :font-weight "bold"}
       "✦ Astronomy Board ✦"]
      ;; Center star decoration
-     [:text {:x 220 :y 225 :text-anchor "middle" :fill "#221a00" :font-size 50}
+     [:text {:x 280 :y 285 :text-anchor "middle" :fill "#221a00" :font-size 60}
       "✸"]
      ;; Connection lines (clockwise circle)
      (for [i (range 1 8)
@@ -171,17 +188,17 @@
        [:g
         ;; Outer glow for landed space
         (when is-landed
-          [:circle {:cx x :cy y :r 48 :fill "none"
+          [:circle {:cx x :cy y :r 58 :fill "none"
                     :stroke "#aa8833" :stroke-width 2 :opacity 0.6
                     :stroke-dasharray "3,3"}])
         ;; Main circle
-        [:circle {:cx x :cy y :r 40
+        [:circle {:cx x :cy y :r 50
                   :fill (if is-landed "#1a1a10" "#0e0e1e")
                   :stroke (if is-landed "#aa8833" "#334")
                   :stroke-width (if is-landed 2.5 1.5)}]
         ;; Space number
-        [:text {:x x :y (- y 18) :text-anchor "middle"
-                :fill (if is-landed "#ee8" "#777") :font-size 13 :font-weight "bold"}
+        [:text {:x x :y (- y 24) :text-anchor "middle"
+                :fill (if is-landed "#ee8" "#777") :font-size 15 :font-weight "bold"}
          (if (= space-id 7) "★" (str space-id))]
         ;; Action icons in a grid
         (let [n (count actions)
@@ -190,15 +207,40 @@
           (for [[idx action] (map-indexed vector actions)
                 :let [col (mod idx cols)
                       row (quot idx cols)
-                      ax (+ x (* (- col (/ (dec cols) 2)) 20))
-                      ay (+ y -2 (* row 16))
+                      ax (+ x (* (- col (/ (dec cols) 2)) 24))
+                      ay (+ y -4 (* row 22))
                       atype (:type action)
                       color (get action-type-colors atype "#666")
-                      icon (get game/action-icons atype "?")]]
+                      icon (get game/action-icons atype "?")
+                      resources (:resources action)
+                      ;; Is this action clickable right now?
+                      clickable? (and (= space-id landed-space)
+                                      (contains? (or action-choosable #{}) idx))]]
             ^{:key (str "act-" space-id "-" idx)}
-            [:text {:x ax :y ay :text-anchor "middle" :fill color :font-size 12
-                    :style {:filter (when is-landed "brightness(1.3)")}}
-             icon]))
+            [:g (cond-> {:style {:cursor (when clickable? "pointer")}}
+                  clickable? (assoc :on-click #(send-action! idx)))
+             ;; Clickable background circle (bigger hit target + glow)
+             (when clickable?
+               [:circle {:cx ax :cy (- ay 4) :r 16
+                         :fill "#1a3a1a" :stroke "#5f5" :stroke-width 2
+                         :opacity 0.8}])
+             (if (and (= atype :take) resources)
+               ;; Take action: show the two resource icons
+               (for [[ri res] (map-indexed vector resources)
+                     :let [rx (+ ax (* (- ri 0.5) 14))
+                           res-icon (get game/resource-icons res "?")
+                           res-color (get game/resource-colors res "#888")]]
+                 ^{:key (str "take-res-" space-id "-" idx "-" ri)}
+                 [:text {:x rx :y ay :text-anchor "middle"
+                         :fill (if clickable? "#fff" res-color) :font-size 16
+                         :style {:pointer-events "none"}}
+                  res-icon])
+               ;; Other actions: use action icon
+               [:text {:x ax :y ay :text-anchor "middle"
+                       :fill (if clickable? "#fff" color)
+                       :font-size 22
+                       :style {:pointer-events "none"}}
+                icon])]))
         ;; Astronomer dots with player/solo-color
         (let [solo? (game/solo-mode? state)
               solo-pairs (:solo-pairs state [[0 1] [2 3] [4 5]])
@@ -213,31 +255,52 @@
                               (game/player-color state pk)))]
           (for [[didx [pk astro-idx]] (map-indexed vector astros)
                 :let [acolor (astro-color pk astro-idx)
-                      is-active (or (not solo?) (contains? active-pair astro-idx))]]
+                      is-active (or (not solo?) (contains? active-pair astro-idx))
+                      ;; Is this astronomer clickable right now?
+                      clickable? (and (= pk my-player)
+                                      (contains? (or astronomer-choosable #{}) astro-idx))
+                      cx (+ x -16 (* didx 14))
+                      cy (+ y 34)
+                      glyph (if solo?
+                              (let [pair-idx (some (fn [[pi pair]]
+                                                     (when (some #{astro-idx} pair) pi))
+                                                   (map-indexed vector solo-pairs))]
+                                (get ["α" "β" "γ"] (or pair-idx 0) "?"))
+                              "★")]]
             ^{:key (str "astro-" space-id "-" didx)}
-            [:g
-             [:circle {:cx (+ x -10 (* didx 10)) :cy (+ y 28) :r 5
-                       :fill acolor :stroke (if is-active "#fff" "#444")
-                       :stroke-width (if is-active 0.8 0.5)
+            [:g (cond-> {:style {:cursor (when clickable? "pointer")}}
+                  clickable? (assoc :on-click #(send-action! astro-idx)))
+             ;; Pulsing halo when clickable
+             (when clickable?
+               [:circle {:cx cx :cy cy :r 14
+                         :fill "none" :stroke "#8f8" :stroke-width 2
+                         :opacity 0.85
+                         :stroke-dasharray "3,2"}])
+             ;; Main astronomer disc
+             [:circle {:cx cx :cy cy :r 9
+                       :fill acolor
+                       :stroke (cond clickable? "#8f8"
+                                     is-active "#fff"
+                                     :else "#444")
+                       :stroke-width (if (or clickable? is-active) 1.5 0.5)
                        :opacity (if is-active 1.0 0.4)}]
-             [:text {:x (+ x -10 (* didx 10)) :y (+ y 31)
-                     :text-anchor "middle" :fill (if is-active "#fff" "#444")
-                     :font-size 5 :font-weight "bold"}
-              (if solo?
-                (let [pair-idx (some (fn [[pi pair]]
-                                       (when (some #{astro-idx} pair) pi))
-                                     (map-indexed vector solo-pairs))]
-                  (get ["α" "β" "γ"] (or pair-idx 0) "?"))
-                "★")]]))])
+             [:text {:x cx :y (+ cy 3)
+                     :text-anchor "middle"
+                     :fill (cond clickable? "#fff"
+                                 is-active "#fff"
+                                 :else "#666")
+                     :font-size 10 :font-weight "bold"
+                     :style {:pointer-events "none"}}
+              glyph]]))])
      ;; Legend
      (let [legend-items [[:take "🌾 Take"] [:sell "⚖ Sell"] [:deploy "⚔ Deploy"]
                          [:travel "🐪 Travel"] [:influence "👑 Influence"] [:temple "🏛 Temple"]]]
        (for [[idx [atype label]] (map-indexed vector legend-items)]
          ^{:key (str "legend-" idx)}
-         [:text {:x (+ 30 (* (mod idx 3) 140))
-                 :y (+ 418 (* (quot idx 3) 14))
+         [:text {:x (+ 40 (* (mod idx 3) 170))
+                 :y (+ 536 (* (quot idx 3) 18))
                  :fill (get action-type-colors atype "#666")
-                 :font-size 9}
+                 :font-size 13}
           label]))]))
 
 ;; ── Rendering: City board ─────────────────────────────────────────────────────
@@ -256,24 +319,67 @@
   (let [graph (:city-graph state)
         routes (:routes state)
         cities (keys graph)
-        current-player-key (game/current-player state)]
-    [:svg {:viewBox "0 0 500 470" :width 480 :height 450
+        current-player-key (game/current-player state)
+        ;; Identify route choices: keys are vectors [city1 city2]
+        route-choices (when choices
+                        (set (filter #(and (vector? %) (= 2 (count %))
+                                           (keyword? (first %))
+                                           (keyword? (second %))
+                                           (not= (first %) (second %)))
+                                     (keys choices))))
+        ;; Identify influence choices: keys are [mag-city dest steps]
+        ;; Map destination city → best (longest) choice key
+        influence-by-dest
+        (when choices
+          (reduce (fn [m k]
+                    (if (and (vector? k) (= 3 (count k)) (number? (nth k 2)))
+                      (let [dest (second k)]
+                        (if (or (not (contains? m dest))
+                                (> (nth k 2) (nth (get m dest) 2)))
+                          (assoc m dest k)
+                          m))
+                      m))
+                  {}
+                  (keys choices)))
+        ;; City-level choices (travel, temple, sell-city)
+        city-choices (when choices
+                       (set (filter keyword? (keys choices))))]
+    [:svg {:viewBox "0 0 500 470" :width 540 :height 510
            :style {:background "linear-gradient(180deg, #080812, #0a0a1a)"
                    :background-color "#090914"
                    :border-radius 8 :border "1px solid #333"}}
-     [:text {:x 250 :y 22 :text-anchor "middle" :fill "#886622" :font-size 13
+     [:text {:x 250 :y 22 :text-anchor "middle" :fill "#886622" :font-size 15
              :font-weight "bold"}
       "✦ City Board ✦"]
-     ;; Route lines
+     ;; Route lines (with click for deploy)
      (for [{:keys [from to type]} routes
            :let [{x1 :x y1 :y} (get city-positions from)
-                 {x2 :x y2 :y} (get city-positions to)]]
+                 {x2 :x y2 :y} (get city-positions to)
+                 rk1 [from to]
+                 rk2 [to from]
+                 selectable-rk (cond
+                                 (contains? (or route-choices #{}) rk1) rk1
+                                 (contains? (or route-choices #{}) rk2) rk2)]]
        ^{:key (str "route-" (name from) "-" (name to))}
-       [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2
-               :stroke (if (= type :river) "#1a4a6a" "#4a3a1a")
-               :stroke-width (if (= type :river) 3 2.5)
-               :stroke-dasharray (when (= type :river) "8,4")
-               :opacity 0.7}])
+       [:g
+        ;; Wider invisible click target
+        (when selectable-rk
+          [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2
+                  :stroke "#5a5" :stroke-width 12 :opacity 0.25
+                  :on-click #(send-action! selectable-rk)
+                  :style {:cursor "pointer"}}])
+        [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2
+                :stroke (cond selectable-rk "#5a5"
+                              (= type :river) "#1a4a6a"
+                              :else "#4a3a1a")
+                :stroke-width (cond selectable-rk 4
+                                    (= type :river) 3
+                                    :else 2.5)
+                :stroke-dasharray (when (= type :river) "8,4")
+                :opacity (if selectable-rk 0.95 0.7)
+                :style (when selectable-rk {:cursor "pointer"
+                                             :filter "drop-shadow(0 0 3px #8f8)"})
+                :on-click (when selectable-rk #(send-action! selectable-rk))}]])
      ;; Raiders on routes
      (for [[pk pdata] (:players state)
            [rk raider-state] (:raiders pdata)
@@ -290,61 +396,73 @@
         (if is-raiding
           ;; Raiding state: shield shape with sword
           [:g
-           [:rect {:x (- mx 9) :y (- my 9) :width 18 :height 18
-                   :fill p-color :rx 3 :stroke "#fff" :stroke-width 1 :opacity 0.9}]
-           [:text {:x mx :y (+ my 5) :text-anchor "middle" :fill "#fff" :font-size 13}
+           [:rect {:x (- mx 12) :y (- my 12) :width 24 :height 24
+                   :fill p-color :rx 4 :stroke "#fff" :stroke-width 1.5 :opacity 0.9}]
+           [:text {:x mx :y (+ my 6) :text-anchor "middle" :fill "#fff" :font-size 17}
             "⚔"]]
           ;; Point state: flag/banner (flipped, ready to score)
           [:g
-           [:rect {:x (- mx 9) :y (- my 9) :width 18 :height 18
-                   :fill "#111" :rx 3 :stroke p-color :stroke-width 2}]
-           [:text {:x mx :y (+ my 5) :text-anchor "middle" :fill p-color :font-size 12}
+           [:rect {:x (- mx 12) :y (- my 12) :width 24 :height 24
+                   :fill "#111" :rx 4 :stroke p-color :stroke-width 2}]
+           [:text {:x mx :y (+ my 6) :text-anchor "middle" :fill p-color :font-size 16}
             "🏴"]])])
-     ;; Magistrates on cities (rendered before cities so they appear as decoration)
-     (for [[mag-city _owner] (:magistrates state)
-           :let [{:keys [x y]} (get city-positions mag-city)]
-           :when (get city-positions mag-city)]
-       ^{:key (str "magistrate-" (name mag-city))}
-       [:g
-        ;; Gold crown glow
-        [:circle {:cx x :cy (- y 28) :r 12
-                  :fill "#2a2210" :stroke "#C4A535" :stroke-width 1.5}]
-        [:text {:x x :y (- y 23) :text-anchor "middle" :fill "#FFD700" :font-size 16}
-         "👑"]])
+     ;; Magistrates on cities (offset when stacked)
+     (let [mag-by-city (reduce (fn [m [c _]] (update m c (fnil inc 0)))
+                               {} (:magistrates state))
+           mag-offset (atom {})] ;; track how many drawn per city
+       (for [[mag-city _owner] (:magistrates state)
+             :let [{:keys [x y]} (get city-positions mag-city)
+                   idx (get (swap! mag-offset update mag-city (fnil inc 0)) mag-city)
+                   offset-x (* (dec idx) 22)]
+             :when (get city-positions mag-city)]
+         ^{:key (str "magistrate-" (name mag-city) "-" idx)}
+         [:g
+          ;; Gold crown glow
+          [:circle {:cx (+ x offset-x) :cy (- y 30) :r 14
+                    :fill "#2a2210" :stroke "#C4A535" :stroke-width 1.5}]
+          [:text {:x (+ x offset-x) :y (- y 24) :text-anchor "middle"
+                  :fill "#FFD700" :font-size 20}
+           "👑"]]))
      ;; Cities
      (for [city cities
            :let [{:keys [x y]} (get city-positions city)
                  demands (get-in state [:city-demands city] [])
                  has-magistrate (game/magistrate-in-city? state city)
-                 is-choice? (and choices (contains? choices city))]]
+                 ;; City clickable via direct choice OR influence destination
+                 is-direct-choice? (and choices (contains? choices city))
+                 influence-key (get influence-by-dest city)
+                 is-influence-dest? (some? influence-key)
+                 is-clickable? (or is-direct-choice? is-influence-dest?)
+                 click-action (cond is-direct-choice? city
+                                    is-influence-dest? influence-key)]]
        ^{:key (str "city-" (name city))}
-       [:g {:on-click (when is-choice? #(send-action! city))
-            :style (when is-choice? {:cursor "pointer"})}
+       [:g {:on-click (when is-clickable? #(send-action! click-action))
+            :style (when is-clickable? {:cursor "pointer"})}
         ;; City rectangle
         [:rect {:x (- x 42) :y (- y 18) :width 84 :height 36
-                :rx 6 :fill (cond is-choice? "#1a2a1a"
+                :rx 6 :fill (cond is-clickable? "#1a2a1a"
                                   has-magistrate "#1c1c10"
                                   :else "#0e0e1e")
-                :stroke (cond is-choice? "#5a5"
+                :stroke (cond is-clickable? "#5a5"
                               has-magistrate "#C4A535"
                               :else "#334")
-                :stroke-width (if (or is-choice? has-magistrate) 2 1.5)}]
+                :stroke-width (if (or is-clickable? has-magistrate) 2 1.5)}]
         ;; City name
         [:text {:x x :y (+ y 4) :text-anchor "middle"
-                :fill (cond is-choice? "#8f8"
+                :fill (cond is-clickable? "#8f8"
                             has-magistrate "#FFD700"
                             :else "#ccc")
-                :font-size 11 :font-weight "bold"}
+                :font-size 13 :font-weight "bold"}
          (str/capitalize (name city))]
         ;; Demand tokens with resource icons
         (for [[idx token] (map-indexed vector demands)]
           ^{:key (str "demand-" (name city) "-" idx)}
           [:g
-           [:circle {:cx (+ (- x 20) (* idx 16)) :cy (+ y 16) :r 6
+           [:circle {:cx (+ (- x 22) (* idx 18)) :cy (+ y 18) :r 8
                      :fill (get game/resource-colors token "#444")
-                     :stroke "#fff" :stroke-width 0.5 :opacity 0.9}]
-           [:text {:x (+ (- x 20) (* idx 16)) :cy (+ y 19)
-                   :y (+ y 19) :text-anchor "middle" :fill "#fff" :font-size 7}
+                     :stroke "#fff" :stroke-width 0.8 :opacity 0.9}]
+           [:text {:x (+ (- x 22) (* idx 18)) :cy (+ y 21)
+                   :y (+ y 21) :text-anchor "middle" :fill "#fff" :font-size 10}
             (get game/resource-icons token "?")]])
         ;; Temples (per player, with player color)
         (for [[pk pdata] (:players state)
@@ -356,11 +474,11 @@
           [:g
            [:text {:x (+ x 30) :y (- y 6) :text-anchor "middle"
                    :fill (if is-face-up p-color "#444")
-                   :font-size 14
+                   :font-size 18
                    :opacity (if is-face-up 1.0 0.5)}
             "🏛"]
            (when is-face-up
-             [:circle {:cx (+ x 38) :cy (- y 10) :r 3
+             [:circle {:cx (+ x 40) :cy (- y 10) :r 4
                        :fill p-color :stroke "#fff" :stroke-width 0.5}])])])
      ;; Caravans with player colors
      (for [[pk pdata] (:players state)
@@ -370,16 +488,112 @@
                  p-idx (.indexOf (:turn-order state) pk)]]
        ^{:key (str "caravan-" pk)}
        [:g
-        [:text {:x (+ (- x 12) (* p-idx 12)) :y (- y 22)
-                :text-anchor "middle" :fill p-color :font-size 16}
-         "🐪"]
-        [:rect {:x (+ (- x 15) (* p-idx 12)) :y (- y 18)
-                :width 8 :height 3 :fill p-color :rx 1 :opacity 0.8}]])]))
+        ;; Colored background pill for caravan
+        [:rect {:x (+ (- x 20) (* p-idx 18)) :y (- y 32)
+                :width 22 :height 22 :rx 11
+                :fill p-color :opacity 0.25
+                :stroke p-color :stroke-width 1.5}]
+        [:text {:x (+ (- x 10) (* p-idx 18)) :y (- y 18)
+                :text-anchor "middle" :fill p-color :font-size 18}
+         "🐪"]])]))
 
 ;; ── Rendering: Player info ────────────────────────────────────────────────────
 
 (def role-icons
   {:merchant "⚖" :priest "🏛" :raider "⚔" :leader "👑"})
+
+(def role-track-colors
+  {:merchant "#6ac" :priest "#6ac" :raider "#ca6" :leader "#ca6"})
+
+(def role-bonus-descriptions
+  "What each level grants, per role."
+  {:merchant {1 "2" 2 "3" 3 "4" 4 "5" 5 "5"}
+   :priest   {1 "3" 2 "4" 3 "5" 4 "8" 5 "8"}
+   :raider   {1 "2" 2 "3" 3 "4" 4 "6" 5 "6"}
+   :leader   {1 "1/1" 2 "2/1" 3 "4/2" 4 "5/2" 5 "5/3"}})
+
+(def role-bonus-labels
+  {:merchant "Amity/sell" :priest "max temples" :raider "max raiders" :leader "move/glory"})
+
+;; End-game lv5 bonus track (opposite of in-game scoring per game.cljc/role-end-game-bonus)
+(def role-track-label
+  {:merchant "Glory" :priest "Glory" :raider "Amity" :leader "Amity"})
+
+(defn role-table-component
+  "Consolidated role table showing level track, thresholds, bonuses, and current level.
+   When in choose-role-increase phase, available roles are clickable."
+  [pk pdata p-color state my-player]
+  (let [roles (:roles pdata)
+        phase (game/current-phase state)
+        is-my-turn (and (= pk (game/current-player state)) (= pk my-player))
+        role-choosable? (and is-my-turn (= phase :choose-role-increase))
+        [_ role-choices] (when role-choosable? (choice/find-state-raw state))]
+    [:table {:style {:border-collapse "collapse" :width "100%" :font-size 12
+                     :margin "6px 0"}}
+     [:thead
+      [:tr {:style {:border-bottom "1px solid #333"}}
+       [:th {:style {:text-align "left" :padding "4px 6px" :color "#888" :font-size 11}} "Role"]
+       (for [lv (range 1 6)]
+         ^{:key (str pk "-th-" lv)}
+         [:th {:style {:text-align "center" :padding "4px 4px" :color "#888" :font-size 11
+                        :min-width 44}}
+          (str "Lv" lv)])
+       [:th {:style {:text-align "center" :padding "4px 6px" :color "#888" :font-size 11}} "Lv5 End"]]]
+     [:tbody
+      (for [role [:merchant :priest :raider :leader]
+            :let [current-lv (get roles role 1)
+                  icon (get role-icons role "?")
+                  track-color (get role-track-colors role "#888")
+                  thresholds (get game/role-threshold-costs role {})
+                  bonus-map (get role-bonus-descriptions role {})
+                  end-bonus (get game/role-end-game-bonus role)
+                  can-increase? (and role-choices (contains? role-choices role))]]
+        ^{:key (str pk "-role-" (name role))}
+        [:tr (cond-> {:style (cond-> {:border-bottom "1px solid #1a1a2e"}
+                               can-increase? (assoc :background "#0a2a0a"
+                                                     :cursor "pointer"))}
+               can-increase? (assoc :on-click #(send-action! role)))
+         [:td {:style {:padding "5px 6px" :white-space "nowrap"}}
+          [:span {:style {:font-size 18 :margin-right 4}} icon]
+          [:span {:style {:color "#ccc" :font-weight "bold" :font-size 12}}
+           (str/capitalize (name role))]
+          [:div {:style {:color "#555" :font-size 9 :margin-top 1}}
+           (get role-bonus-labels role "")]]
+         (for [lv (range 1 6)
+               :let [is-current (= lv current-lv)
+                     is-past (< lv current-lv)
+                     threshold-cost (get thresholds lv)
+                     cost-resources (cond
+                                      (nil? threshold-cost) []
+                                      (vector? threshold-cost) threshold-cost
+                                      :else [threshold-cost])
+                     bonus-val (get bonus-map lv "")]]
+           ^{:key (str pk "-" (name role) "-lv" lv)}
+           [:td {:style {:text-align "center" :padding "4px 3px" :position "relative"
+                         :background (cond is-current "#1a2a1a"
+                                           is-past "#0d1a0d"
+                                           :else "transparent")
+                         :border (if is-current
+                                   (str "2px solid " p-color)
+                                   "1px solid transparent")
+                         :border-radius 4}}
+            [:div {:style {:font-size 14 :font-weight "bold"
+                           :color (cond is-current "#fff"
+                                        is-past track-color
+                                        :else "#444")}}
+             bonus-val]
+            (when (seq cost-resources)
+              [:div {:style {:font-size 12 :margin-top 1
+                              :display "flex" :gap 2 :justify-content "center"}}
+               (for [cr cost-resources]
+                 ^{:key (str pk "-" (name role) "-lv" lv "-cost-" (name cr))}
+                 [:span {:style {:color (get game/resource-colors cr "#888")
+                                  :font-size 12}}
+                  (get game/resource-icons cr "?")])])])
+         [:td {:style {:text-align "center" :padding "4px 6px"
+                        :color (if (= 5 current-lv) "#ff8" "#555")
+                        :font-size 11 :font-weight "bold"}}
+          (str "+10 " (get role-track-label role ""))]])]]))
 
 (defn player-info-component [state my-player]
   [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :margin "8px 0"}}
@@ -389,44 +603,57 @@
      ^{:key pk}
      [:div {:style {:background (if is-current "#0d1a0d" "#0a0a12")
                     :border (str "2px solid " (if is-current p-color "#222"))
-                    :border-radius 8 :padding 10 :min-width 200 :font-size 11}}
+                    :border-radius 8 :padding 12 :min-width 360 :font-size 13}}
       ;; Player name with color indicator
-      [:div {:style {:display "flex" :align-items "center" :gap 6 :margin-bottom 6}}
-       [:div {:style {:width 10 :height 10 :border-radius "50%"
+      [:div {:style {:display "flex" :align-items "center" :gap 8 :margin-bottom 8}}
+       [:div {:style {:width 14 :height 14 :border-radius "50%"
                       :background p-color}}]
-       [:span {:style {:color p-color :font-weight "bold" :font-size 13}}
-        (str pk (when is-current " ✦"))]]
-      ;; Caravan location
-      [:div {:style {:color "#8aa" :margin-bottom 3}}
-       (str "🐪 " (when (:caravan pdata) (str/capitalize (name (:caravan pdata)))))]
+       [:span {:style {:color p-color :font-weight "bold" :font-size 16}}
+        (str pk (when is-current " ✦"))]
+       [:span {:style {:color "#8aa" :font-size 13 :margin-left 8}}
+        (str "🐪 " (when (:caravan pdata) (str/capitalize (name (:caravan pdata)))))]]
+      ;; Scoring bar
+      [:div {:style {:display "flex" :gap 16 :margin-bottom 8 :font-size 15
+                     :align-items "center"}}
+       [:span {:style {:color "#6ac" :font-size 15}}
+        (str "♥ " (:amity pdata 0))]
+       [:span {:style {:color "#ca6" :font-size 15}}
+        (str "⚡ " (:glory pdata 0))]
+       [:span {:style {:color "#e8e8e8" :font-weight "bold" :font-size 16
+                        :background "#1a1a2e" :padding "2px 10px" :border-radius 4
+                        :border "1px solid #444"}}
+        (str "★ " (min (:amity pdata 0) (:glory pdata 0)))]]
       ;; Resources with icons
-      [:div {:style {:display "flex" :gap 8 :margin-bottom 3 :flex-wrap "wrap"}}
+      [:div {:style {:display "flex" :gap 10 :margin-bottom 8 :flex-wrap "wrap"}}
        (for [[r n] (:resources pdata) :when (pos? n)]
          ^{:key (str pk "-res-" (name r))}
          [:span {:style {:color (get game/resource-colors r "#888")
-                         :background "#111" :padding "1px 5px" :border-radius 4
-                         :border (str "1px solid " (get game/resource-colors r "#333"))}}
+                         :background "#111" :padding "3px 8px" :border-radius 4
+                         :border (str "1px solid " (get game/resource-colors r "#333"))
+                         :font-size 14}}
           (str (get game/resource-icons r "") " " n)])]
-      ;; Roles with levels
-      [:div {:style {:display "flex" :gap 6 :margin-bottom 3 :flex-wrap "wrap"}}
-       (for [[r lv] (:roles pdata)]
-         ^{:key (str pk "-role-" (name r))}
-         [:span {:style {:color "#aaa" :background "#111" :padding "1px 5px"
-                         :border-radius 4 :border "1px solid #333"}}
-          (str (get role-icons r "") " " (subs (name r) 0 3) ":" lv)])]
-      ;; Amity & Glory with visual bars
-      [:div {:style {:display "flex" :gap 12 :margin-bottom 3}}
-       [:span {:style {:color "#6ac"}}
-        (str "♥ Amity:" (:amity pdata 0))]
-       [:span {:style {:color "#ca6"}}
-        (str "⚡ Glory:" (:glory pdata 0))]
-       [:span {:style {:color "#e8e8e8" :font-weight "bold"}}
-        (str "★ " (min (:amity pdata 0) (:glory pdata 0)))]]
-      ;; Supply counts
-      [:div {:style {:color "#555" :font-size 10}}
-       (str "🏛×" (:temples-supply pdata 0)
-            " ⚔×" (:raiders-supply pdata 0)
-            " 🎲" (str/join "," (or (:dice-available pdata) [])))]])])
+      ;; Role table (clickable during choose-role-increase)
+      [role-table-component pk pdata p-color state my-player]
+      ;; Demand tokens earned (goods sold)
+      (let [demands (:demand-tokens pdata [])]
+        (when (seq demands)
+          [:div {:style {:display "flex" :gap 4 :margin-top 4 :flex-wrap "wrap"
+                         :align-items "center"}}
+           [:span {:style {:color "#888" :font-size 11 :margin-right 4}} "Sold:"]
+           (for [[idx d] (map-indexed vector demands)]
+             ^{:key (str pk "-demand-" idx)}
+             [:span {:style {:background (get game/resource-colors d "#444")
+                             :color "#fff" :padding "2px 6px" :border-radius 10
+                             :font-size 11 :opacity 0.9}}
+              (get game/resource-icons d "?")])]))
+      ;; Supply counts + wild points
+      [:div {:style {:color "#777" :font-size 12 :margin-top 6
+                     :display "flex" :gap 14}}
+       [:span (str "🏛 ×" (:temples-supply pdata 0))]
+       [:span (str "⚔ ×" (:raiders-supply pdata 0))]
+       (when (pos? (:wild-points pdata 0))
+         [:span {:style {:color "#ff8" :font-weight "bold"}}
+          (str "★ " (:wild-points pdata 0) " wild")])]])])
 
 ;; ── Rendering: Feat cards & Bonus boards ─────────────────────────────────────
 
@@ -438,41 +665,73 @@
 
 (defn contests-component [state]
   (let [contests (:contests state [])
-        claims (:contest-claims state {})]
+        claims (:contest-claims state {})
+        my-player @player-key
+        ;; Has the player already claimed each feat?
+        my-claimed? (fn [cid] (some #{my-player} (get claims cid [])))
+        ;; Does the current state meet the feat condition?
+        condition-met? (fn [c] (try (game/evaluate-contest state my-player c)
+                                    (catch :default _ false)))
+        ;; Does the player have a covered slot to uncover?
+        my-bonus-board (get-in state [:players my-player :bonus-board]
+                               (vec (repeat 5 :covered)))
+        has-covered-slot? (some #(= % :covered) (rest my-bonus-board))]
     [:div {:style {:background "#0a0a12" :border "1px solid #333"
-                   :border-radius 8 :padding 10 :margin "8px 0"}}
-     [:div {:style {:color "#886622" :font-weight "bold" :font-size 13
-                    :margin-bottom 8}}
-      "✦ Bonus Contests"]
-     [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
+                   :border-radius 8 :padding 12 :margin "8px 0"}}
+     [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
+                    :margin-bottom 10}}
+      "✦ Bonus Contests"
+      [:span {:style {:color "#888" :font-weight "normal" :font-size 12 :margin-left 12}}
+       "(click a glowing feat to claim it)"]]
+     [:div {:style {:display "flex" :gap 10 :flex-wrap "wrap"}}
       (for [contest contests
             :let [contest-id (:id contest)
                   claimers (get claims contest-id [])
                   claimed? (seq claimers)
-                  cat-icon (get contest-category-icons (:category contest) "📜")]]
+                  cat-icon (get contest-category-icons (:category contest) "📜")
+                  ;; Highlight if I can claim it now
+                  claimable? (and (not (my-claimed? contest-id))
+                                  has-covered-slot?
+                                  (condition-met? contest))]]
         ^{:key (str "contest-" (name contest-id))}
-        [:div {:style {:background (if claimed? "#1a1a0a" "#0e0e1e")
-                       :border (str "1px solid " (if claimed? "#aa8" "#333"))
-                       :border-radius 6 :padding 8 :min-width 140 :max-width 180}}
+        [:div {:on-click (when claimable?
+                           #(send-claim-feat! contest-id))
+               :style (cond-> {:background (cond claimable? "#1a3a1a"
+                                                 claimed? "#1a1a0a"
+                                                 :else "#0e0e1e")
+                               :border (str "2px solid "
+                                            (cond claimable? "#5f5"
+                                                  claimed? "#aa8"
+                                                  :else "#333"))
+                               :border-radius 6 :padding 10
+                               :min-width 170 :max-width 220
+                               :transition "all 0.2s"}
+                        claimable? (assoc :cursor "pointer"
+                                          :box-shadow "0 0 12px rgba(85,255,85,0.7)"))}
          ;; Category icon and contest ID
          [:div {:style {:display "flex" :justify-content "space-between"
-                        :align-items "center" :margin-bottom 4}}
-          [:span {:style {:font-size 16}} cat-icon]
-          [:span {:style {:color "#555" :font-size 9}} (name contest-id)]]
+                        :align-items "center" :margin-bottom 6}}
+          [:span {:style {:font-size 22}} cat-icon]
+          [:span {:style {:color (if claimable? "#8f8" "#666") :font-size 11
+                          :font-weight (if claimable? "bold" "normal")}}
+           (if claimable? "✦ CLAIM ✦" (name contest-id))]]
          ;; Contest name
-         [:div {:style {:color (if claimed? "#ee8" "#aaa") :font-weight "bold"
-                        :font-size 10 :margin-bottom 2}}
+         [:div {:style {:color (cond claimable? "#dfd"
+                                     claimed? "#ee8"
+                                     :else "#aaa")
+                        :font-weight "bold"
+                        :font-size 13 :margin-bottom 3}}
           (:name contest)]
          ;; Description
-         [:div {:style {:color "#666" :font-size 9 :margin-bottom 4}}
+         [:div {:style {:color (if claimable? "#aca" "#888") :font-size 11 :margin-bottom 6}}
           (:description contest)]
          ;; Bonus point slots: 3, 2, 1, 1
-         [:div {:style {:display "flex" :gap 3 :justify-content "center"}}
+         [:div {:style {:display "flex" :gap 4 :justify-content "center"}}
           (for [[idx bonus-val] (map-indexed vector game/bonus-contest-values)]
             ^{:key (str "cbonus-" (name contest-id) "-" idx)}
-            [:div {:style {:width 20 :height 20 :border-radius 4
+            [:div {:style {:width 26 :height 26 :border-radius 4
                            :display "flex" :align-items "center" :justify-content "center"
-                           :font-size 9 :font-weight "bold"
+                           :font-size 12 :font-weight "bold"
                            :background (if (< idx (count claimers))
                                          (game/player-color state (nth claimers idx))
                                          "#1a1a2e")
@@ -490,99 +749,174 @@
 ;; ── Rendering: Bonus boards per player ────────────────────────────────────────
 
 (defn bonus-boards-component [state]
-  (let [board-assignments (:bonus-boards state {})]
+  (let [board-assignments (:bonus-boards state {})
+        claim @pending-claim
+        my-player @player-key
+        ;; Is there a pending claim for this player?
+        claiming? (and claim (= (:player claim) my-player))]
     [:div {:style {:background "#0a0a12" :border "1px solid #333"
-                   :border-radius 8 :padding 10 :margin "8px 0"}}
-     [:div {:style {:color "#886622" :font-weight "bold" :font-size 13
-                    :margin-bottom 8}}
-      "✦ Player Bonus Boards"]
-     [:div {:style {:display "flex" :gap 10 :flex-wrap "wrap"}}
-      (for [[pk pdata] (:players state)
-            :let [p-color (game/player-color state pk)
-                  board-id (get board-assignments pk)
-                  board (get game/bonus-boards-by-id board-id)
-                  board-slots (:bonus-board pdata (vec (repeat 5 :covered)))
-                  effects (or (:effects board) [])]]
-        ^{:key (str "bboard-" pk)}
-        [:div {:style {:background "#0e0e1e" :border (str "2px solid " p-color)
-                       :border-radius 8 :padding 8 :min-width 220 :max-width 320}}
-         ;; Header
-         [:div {:style {:display "flex" :justify-content "space-between"
-                        :align-items "center" :margin-bottom 6}}
-          [:span {:style {:color p-color :font-weight "bold" :font-size 12}} pk]
-          [:span {:style {:color "#555" :font-size 9}}
-           (when board (str "Board " (:id board)))]]
-         ;; Effect 1 (persistent ability) - always visible
-         (when (seq effects)
-           [:div {:style {:background "#111" :border "1px solid #2a2a1a"
-                          :border-radius 4 :padding 6 :margin-bottom 4
-                          :font-size 9 :color "#c8a832"}}
-            [:div {:style {:font-size 8 :color "#666" :margin-bottom 2}} "⚡ PASSIVE"]
-            (first effects)])
-         ;; Effects 2-5 (one-time bonuses, uncovered by contests)
-         [:div {:style {:display "flex" :flex-direction "column" :gap 3}}
-          (for [[idx slot] (map-indexed vector board-slots)
-                :let [effect-text (get effects (inc idx) "???")
-                      uncovered? (not= slot :covered)]]
-            ^{:key (str "bslot-" pk "-" idx)}
-            [:div {:style {:background (if uncovered? "#1a1a0a" "#0a0a10")
-                           :border (str "1px solid " (if uncovered? "#aa8" "#222"))
-                           :border-radius 4 :padding "4px 6px"
-                           :font-size 9
-                           :color (if uncovered? "#dda" "#333")}}
-             [:span {:style {:color (if uncovered? "#aa8" "#333")
-                             :font-size 8 :margin-right 4}}
-              (str (inc idx) ".")]
-             (if uncovered?
-               effect-text
-               "▮▮▮▮▮▮▮▮▮")])]])]]))
+                   :border-radius 8 :padding 12 :flex 1 :min-width 480}}
+     [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
+                    :margin-bottom 10}}
+      "✦ Bonus Board"
+      (when claiming?
+        [:span {:style {:color "#8f8" :font-size 12 :margin-left 12
+                        :font-weight "normal"}}
+         (str "Select a slot to uncover for feat " (name (:contest-id claim)))])]
+     (for [[pk pdata] (:players state)
+           :let [p-color (game/player-color state pk)
+                 board-id (get board-assignments pk)
+                 board (get game/bonus-boards-by-id board-id)
+                 full-slots (:bonus-board pdata (vec (repeat 5 :covered)))
+                 effects (or (:effects board) [])
+                 is-my-board (= pk my-player)]]
+       ^{:key (str "bboard-" pk)}
+       [:div {:style {:background "#0e0e1e" :border (str "2px solid " p-color)
+                      :border-radius 8 :padding 10 :margin-bottom 8}}
+        ;; Header
+        [:div {:style {:display "flex" :justify-content "space-between"
+                       :align-items "center" :margin-bottom 8}}
+         [:span {:style {:color p-color :font-weight "bold" :font-size 14}} pk]
+         [:span {:style {:color "#777" :font-size 11}}
+          (when board (str (:name board) " (#" (:id board) ")"))]]
+        ;; HORIZONTAL strip layout (matches physical player board image)
+        [:div {:style {:display "flex" :gap 4}}
+         (for [[idx slot] (map-indexed vector full-slots)
+               :let [effect-text (get effects idx "—")
+                     uncovered? (not= slot :covered)
+                     is-passive (= idx 0)
+                     ;; Slot is selectable if: my board, claiming, covered (including passive)
+                     selectable? (and claiming? is-my-board
+                                      (= slot :covered))]]
+           ^{:key (str "bslot-" pk "-" idx)}
+           [:div (cond-> {:style (cond-> {:flex 1
+                                          :border-radius 5 :padding "6px 8px"
+                                          :font-size 11 :min-height 90
+                                          :transition "all 0.2s"}
+                                   is-passive
+                                   (assoc :background "#1a1a0a"
+                                          :border "1px solid #4a4020"
+                                          :color "#c8a832")
+                                   uncovered?
+                                   (assoc :background "#1a2a0a"
+                                          :border "1px solid #5a7"
+                                          :color "#dda")
+                                   selectable?
+                                   (assoc :background "#0a2a0a"
+                                          :border "2px solid #5f5"
+                                          :color "#cfc"
+                                          :cursor "pointer"
+                                          :box-shadow "0 0 8px rgba(85,255,85,0.5)")
+                                   (and (not is-passive) (not uncovered?) (not selectable?))
+                                   (assoc :background "#0a0a10"
+                                          :border "1px solid #1a1a2e"
+                                          :color "#666"
+                                          :opacity 0.85))}
+                   selectable?
+                   (assoc :on-click #(send-claim-feat! (:contest-id claim) idx)))
+            [:div {:style {:font-size 9
+                           :color (cond is-passive "#aa8"
+                                        selectable? "#8f8"
+                                        uncovered? "#7a5"
+                                        :else "#555")
+                           :font-weight "bold" :margin-bottom 3}}
+             (cond is-passive "⚡ PASSIVE"
+                   selectable? "⬆ SELECT"
+                   uncovered? (str "✓ #" idx)
+                   :else (str "#" idx))]
+            [:div {:style {:font-size 10 :line-height "1.3"}}
+             effect-text]])]])]))
 
 ;; ── Rendering: Choices ────────────────────────────────────────────────────────
 
+(def ^:private board-handled-phases
+  "Phases where choices are handled by clicking board elements, not buttons."
+  #{:choose-die :choose-astronomer :choose-action :choose-role-increase
+    :resolve-deploy :resolve-influence})
+
+;; Auto-advance removed — was causing race conditions that skipped actions.
+;; The :done button is always visible when available; player clicks it explicitly.
+
 (defn choices-panel [state my-player]
   (let [[phase choices] (when state (choice/find-state-raw state))
-        is-my-turn (my-turn? state my-player)]
-    [:div {:style {:margin "8px 0" :padding 12
+        is-my-turn (my-turn? state my-player)
+        ;; Only show buttons for phases NOT handled by board clicks
+        show-buttons? (and is-my-turn
+                           (map? choices) (seq choices)
+                           (not (contains? board-handled-phases phase)))
+]
+    [:div {:style {:margin "4px 0" :padding "8px 12px"
                    :background "#0a0a12" :border-radius 8
-                   :border (str "1px solid " (if is-my-turn "#4a4" "#333"))}}
-     [:div {:style {:color "#888" :font-size 11 :margin-bottom 8
-                    :display "flex" :gap 12 :align-items "center" :flex-wrap "wrap"}}
-      (when (= :solo (:mode state))
-        [:span {:style {:color "#88f" :font-weight "bold"
-                        :background "#1a1a2a" :padding "2px 8px" :border-radius 4}}
-         (str "SOLO — " (get game/solo-color-names (dec (:round state 1)) "?") " astronomers")])
-      [:span {:style {:color "#886622" :font-weight "bold"}}
-       (str "Round " (:round state 1) "/" game/rounds-per-game)]
-      [:span (str "Turn " (:turn-in-round state 1) "/" game/turns-per-round)]
-      [:span {:style {:color "#aaa"}}
-       (str "Phase: " (when phase (name phase)))]
-      [:span {:style {:color (if is-my-turn "#8f8" "#666")}}
-       (str "Player: " (game/current-player state)
-            (when-not is-my-turn " (waiting...)"))]]
-     ;; Special dice display for choose-die phase
-     (when (and is-my-turn (= phase :choose-die))
-       [dice-display state my-player])
-     ;; Action buttons
-     (when (and is-my-turn (map? choices) (seq choices)
-                (not= phase :choose-die)) ;; dice handled by dice-display
-       [:div {:style {:display "flex" :gap 6 :flex-wrap "wrap"}}
-        (for [[k _v] choices]
-          ^{:key (pr-str k)}
-          [:button
-           {:on-click #(send-action! k)
-            :style {:background "#1a2a1a" :color "#8f8"
-                    :border "1px solid #4a4" :border-radius 6
-                    :padding "6px 14px" :cursor "pointer"
-                    :font-size 12 :font-family "monospace"
-                    :transition "all 0.15s"}}
-           (choice-label k)])])
+                   :border (str "1px solid " (if is-my-turn "#4a4" "#222"))
+                   :display "flex" :gap 12 :align-items "center" :flex-wrap "wrap"}}
+     ;; Status bar with clear turn indicator
+     (let [current-p (game/current-player state)
+           is-bot (contains? @bots-set current-p)
+           p-color (game/player-color state current-p)]
+       [:span {:style {:color p-color :font-weight "bold" :font-size 13
+                       :background "#111" :padding "2px 10px" :border-radius 4
+                       :border (str "2px solid " p-color)}}
+        (str current-p (when is-bot " 🤖") "'s turn")])
+     (when (= :solo (:mode state))
+       [:span {:style {:color "#88f" :font-weight "bold"
+                       :background "#1a1a2a" :padding "2px 8px" :border-radius 4
+                       :font-size 12}}
+        (str "SOLO — " (get game/solo-color-names (dec (:round state 1)) "?"))])
+     [:span {:style {:color "#886622" :font-weight "bold" :font-size 12}}
+      (str "R" (:round state 1) "/" game/rounds-per-game
+           " T" (:turn-in-round state 1) "/" (game/turns-per-round state))]
+     [:span {:style {:color (if is-my-turn "#8f8" "#888") :font-size 12}}
+      (when phase
+        (if is-my-turn
+          (case phase
+            :choose-die "Select a die"
+            :choose-astronomer "Click an astronomer to move"
+            :choose-action "Click an action on the board"
+            :choose-role-increase "Click a role to increase"
+            :resolve-sell "Choose a good to sell"
+            :resolve-temple "Choose a city for your temple"
+            :resolve-travel "Choose where to travel"
+            :travel-continue "Discard a good for extra travel, or done"
+            :resolve-deploy "Click a route to deploy"
+            :resolve-influence "Click a magistrate destination"
+            :game-over "Game Over"
+            (name phase))
+          (str "Waiting for " (game/current-player state) "...")))]
+     ;; Action buttons for non-board-handled phases (sell resource, travel dest, etc.)
+     (when show-buttons?
+       (for [[k _v] choices
+             :when (not= k :skip)] ;; skip handled separately
+         ^{:key (pr-str k)}
+         [:button
+          {:on-click #(send-action! k)
+           :style {:background "#1a2a1a" :color "#8f8"
+                   :border "1px solid #4a4" :border-radius 6
+                   :padding "6px 14px" :cursor "pointer"
+                   :font-size 12 :font-family "monospace"}}
+          (choice-label k)]))
+     ;; Skip button when available
+     (when (and is-my-turn (map? choices) (contains? choices :skip))
+       [:button
+        {:on-click #(send-action! :skip)
+         :style {:background "#1a1a1a" :color "#888"
+                 :border "1px solid #333" :border-radius 6
+                 :padding "4px 12px" :cursor "pointer" :font-size 11}}
+        "skip"])
+     ;; Done button when available
+     (when (and is-my-turn (map? choices) (contains? choices :done))
+       [:button
+        {:on-click #(send-action! :done)
+         :style {:background "#1a1a2a" :color "#aaf"
+                 :border "1px solid #449" :border-radius 6
+                 :padding "4px 12px" :cursor "pointer" :font-size 11}}
+        "done"])
+     ;; Undo
      (when (and is-my-turn @can-undo?)
        [:button
         {:on-click send-undo!
          :style {:background "#1a1a1a" :color "#aa8"
                  :border "1px solid #553" :border-radius 6
-                 :padding "4px 12px" :cursor "pointer"
-                 :font-size 11 :margin-top 6}}
+                 :padding "4px 12px" :cursor "pointer" :font-size 11}}
         "↩ undo"])]))
 
 ;; ── Create game form ──────────────────────────────────────────────────────────
@@ -635,8 +969,12 @@
          [:label {:style {:color "#666" :font-size 12 :display "flex" :align-items "center" :gap 4}}
           [:input {:type "checkbox"
                    :checked (contains? bots p)
-                   :on-change #(swap! create-state update :bots
-                                      (if (contains? bots p) disj conj) p)}]
+                   :on-change (fn [_]
+                                (let [current-name (get-in @create-state [:players idx])]
+                                  (when (seq current-name)
+                                    (swap! create-state update :bots
+                                           (if (contains? (:bots @create-state) current-name)
+                                             disj conj) current-name))))}]
           "🤖 bot"]])
       [:button {:on-click #(swap! create-state update :players conj "")
                 :style {:background "#1a2a1a" :color "#8a8" :border "1px solid #343"
@@ -704,16 +1042,15 @@
         current-round (:round state 1)
         current-turn (:turn-in-round state 1)]
     [:div {:style {:background "#0a0a12" :border "1px solid #333"
-                   :border-radius 8 :padding 10
-                   :width 320 :min-width 280
-                   :max-height "calc(100vh - 40px)" :overflow-y "auto"
-                   :flex-shrink 0}}
-     [:div {:style {:color "#886622" :font-weight "bold" :font-size 13
-                    :margin-bottom 8 :position "sticky" :top 0
+                   :border-radius 8 :padding 12
+                   :flex 1 :min-width 320
+                   :max-height 400 :overflow-y "auto"}}
+     [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
+                    :margin-bottom 10 :position "sticky" :top 0
                     :background "#0a0a12" :padding-bottom 4}}
       "✦ Game Log"]
      (if (empty? log)
-       [:div {:style {:color "#444" :font-size 10}} "No actions yet..."]
+       [:div {:style {:color "#444" :font-size 12}} "No actions yet..."]
        (let [prev-round-turn (atom nil)]
          (for [[idx entry] (map-indexed vector log)
                :let [round-turn [(:round entry) (:turn entry)]
@@ -726,12 +1063,12 @@
            ^{:key (str "log-" idx)}
            [:div
             (when show-header
-              [:div {:style {:color "#555" :font-size 9 :margin-top 6
-                             :margin-bottom 2 :border-top "1px solid #222"
-                             :padding-top 4}}
+              [:div {:style {:color "#666" :font-size 11 :margin-top 8
+                             :margin-bottom 3 :border-top "1px solid #222"
+                             :padding-top 5}}
                (str "Round " (:round entry) " · Turn " (:turn entry))])
-            [:div {:style {:display "flex" :gap 4 :margin-bottom 2
-                           :font-size 10 :line-height "1.3"}}
+            [:div {:style {:display "flex" :gap 5 :margin-bottom 3
+                           :font-size 12 :line-height "1.4"}}
              [:span {:style {:flex-shrink 0}} icon]
              [:div
               [:span {:style {:color p-color :font-weight "bold" :margin-right 4}}
@@ -742,37 +1079,29 @@
 
 (defn rules-reference []
   [:div {:style {:background "#0a0a12" :border "1px solid #333"
-                 :border-radius 8 :padding 10 :margin-top 8
-                 :width 320 :min-width 280 :flex-shrink 0}}
-   [:div {:style {:color "#886622" :font-weight "bold" :font-size 13
-                  :margin-bottom 8}}
+                 :border-radius 8 :padding 12
+                 :flex 1 :min-width 320
+                 :max-height 400 :overflow-y "auto"}}
+   [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
+                  :margin-bottom 10}}
     "✦ Quick Reference"]
-   ;; Actions summary
-   [:div {:style {:font-size 9 :color "#999" :line-height "1.5"}}
-    [:div {:style {:color "#5B8C3E" :font-weight "bold" :margin-top 4}} "🌾 Take Goods"]
+   [:div {:style {:font-size 12 :color "#999" :line-height "1.6"}}
+    [:div {:style {:color "#5B8C3E" :font-weight "bold" :margin-top 6 :font-size 13}} "🌾 Take Goods"]
     [:div "Take both listed resources from the action space"]
-    [:div {:style {:color "#C4A535" :font-weight "bold" :margin-top 4}} "⚖ Sell (Merchant)"]
-    [:div "Discard a good matching city demand. Score Amity = Merchant level."]
-    [:div {:style {:color "#666" :font-size 8}} "Merchant: lv1→2, lv2→3, lv3→4, lv4-5→5 Amity"]
-    [:div {:style {:color "#C45BA8" :font-weight "bold" :margin-top 4}} "🏛 Temple (Priest)"]
-    [:div "Place face-up in caravan's city or magistrate's city. When caravan visits: flip face-down, score Amity = # face-down temples."]
-    [:div {:style {:color "#666" :font-size 8}} "Priest: lv1→3, lv2→4, lv3→5, lv4-5→8 max temples"]
-    [:div {:style {:color "#C44B35" :font-weight "bold" :margin-top 4}} "⚔ Deploy (Raider)"]
-    [:div "Place up to 2 raiders on routes next to caravan. Raiding side up. Opposing caravans & magistrates flip to point side. Score 4 Glory when your caravan crosses own point raider."]
-    [:div {:style {:color "#666" :font-size 8}} "Raider: lv1→2, lv2→3, lv3→4, lv4-5→6 max deployed"]
-    [:div {:style {:color "#3581A8" :font-weight "bold" :margin-top 4}} "🐪 Travel"]
-    [:div "Move caravan 1 space (road or river). May discard 1 good to move again. Visits own face-up temples. Flips enemy raiders, scores own point raiders."]
-    [:div {:style {:color "#8B5BC4" :font-weight "bold" :margin-top 4}} "👑 Influence (Leader)"]
-    [:div "Move magistrate clockwise on roads (up to Leader level spaces). Flips raiders passed through. Sell/temple in magistrate city = bonus Glory."]
-    [:div {:style {:color "#666" :font-size 8}} "Leader: lv1→1, lv2→2, lv3→4, lv4→5, lv5→5 spaces. Bonus: lv1-2→1, lv3-4→2, lv5→3 Glory"]
-    [:div {:style {:color "#aa8" :font-weight "bold" :margin-top 6}} "Scoring"]
+    [:div {:style {:color "#C4A535" :font-weight "bold" :margin-top 6 :font-size 13}} "⚖ Sell (Merchant)"]
+    [:div "Discard a good matching city demand. Score Amity based on Merchant level."]
+    [:div {:style {:color "#C45BA8" :font-weight "bold" :margin-top 6 :font-size 13}} "🏛 Temple (Priest)"]
+    [:div "Place face-up in caravan's or magistrate's city. When caravan visits: flip face-down, score Amity = # face-down temples."]
+    [:div {:style {:color "#C44B35" :font-weight "bold" :margin-top 6 :font-size 13}} "⚔ Deploy (Raider)"]
+    [:div "Place up to 2 raiders on routes near caravan. Opposing caravans & magistrates flip to point side. Score 4 Glory crossing own point raider."]
+    [:div {:style {:color "#3581A8" :font-weight "bold" :margin-top 6 :font-size 13}} "🐪 Travel"]
+    [:div "Move caravan 1 space. Discard a good to move again. Visits temples, flips enemy raiders, scores own point raiders."]
+    [:div {:style {:color "#8B5BC4" :font-weight "bold" :margin-top 6 :font-size 13}} "👑 Influence (Leader)"]
+    [:div "Move magistrate clockwise on roads. Flips raiders along the way. Sell/temple in magistrate city = bonus Glory."]
+    [:div {:style {:color "#aa8" :font-weight "bold" :margin-top 8 :font-size 13}} "Scoring"]
     [:div "Reputation = min(Amity, Glory). Highest reputation wins."]
-    [:div {:style {:color "#666" :font-size 8}} "Amity: selling, visiting temples | Glory: scoring raiders (4 each), magistrate bonuses"]
-    [:div {:style {:color "#aa8" :font-weight "bold" :margin-top 6}} "Role Thresholds"]
-    [:div {:style {:color "#666" :font-size 8}}
-     "Merchant: lv3=pottery, lv4=gold | Priest: lv3=tools, lv4=gems"]
-    [:div {:style {:color "#666" :font-size 8}}
-     "Raider: lv3=gold, lv4=tools | Leader: lv3=gems, lv4=pottery"]]])
+    [:div {:style {:color "#777" :font-size 11 :margin-top 2}}
+     "Role levels shown in player info table above."]]])
 
 ;; ── Main game view ────────────────────────────────────────────────────────────
 
@@ -825,25 +1154,105 @@
                   [:div {:style {:color (game/player-color state player)
                                  :font-weight "bold"}} player]
                   (str "♥" amity " ⚡" glory " ★" reputation)])]])]])
-       ;; Main two-column layout: game area left, log right
-       [:div {:style {:display "flex" :gap 12 :align-items "flex-start"}}
-        ;; Left column: boards, player info, choices
-        [:div {:style {:flex 1 :min-width 0}}
-         [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "flex-start"}}
-          [action-board-component state]
-          [city-board-component state my-player
-           (when (and (my-turn? state my-player)
-                      (contains? #{:resolve-travel :resolve-temple
-                                   :resolve-deploy :resolve-influence}
-                                 (game/current-phase state)))
-             (let [[_ choices] (choice/find-state-raw state)]
-               choices))]]
-         [player-info-component state my-player]
-         [choices-panel state my-player]
-         [contests-component state]
+       ;; Layout: feats → boards + choices → my player board → opponents → log
+       [:div {:style {:display "flex" :flex-direction "column" :gap 8}}
+        ;; 1. Feats/contests at top (claim by clicking)
+        [contests-component state]
+        ;; 2. Boards row: action board + dice, city board
+        [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "flex-start"}}
+         [:div {:style {:display "flex" :flex-direction "column" :gap 8}}
+          [action-board-component state my-player]
+          [dice-display state my-player]]
+         [city-board-component state my-player
+          (when (and (my-turn? state my-player)
+                     (contains? #{:resolve-travel :resolve-temple
+                                  :resolve-deploy :resolve-influence}
+                                (game/current-phase state)))
+            (let [[_ choices] (choice/find-state-raw state)]
+              choices))]]
+        ;; 3. Choices panel (skip/done/undo) right below boards
+        [choices-panel state my-player]
+        ;; 4. MY player board: my info + my bonus board side by side
+        [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "stretch"}}
+         ;; Only show MY player info here
+         [:div {:style {:flex 1}}
+          (let [pdata (get-in state [:players my-player])
+                p-color (game/player-color state my-player)
+                is-current (= my-player (game/current-player state))]
+            (when pdata
+              ^{:key (str "my-" my-player)}
+              [:div {:style {:background (if is-current "#0d1a0d" "#0a0a12")
+                             :border (str "2px solid " (if is-current p-color "#222"))
+                             :border-radius 8 :padding 12 :font-size 13}}
+               [:div {:style {:display "flex" :align-items "center" :gap 8 :margin-bottom 8}}
+                [:div {:style {:width 14 :height 14 :border-radius "50%"
+                               :background p-color}}]
+                [:span {:style {:color p-color :font-weight "bold" :font-size 16}}
+                 (str my-player (when is-current " ✦"))]
+                [:span {:style {:color "#8aa" :font-size 13 :margin-left 8}}
+                 (str "🐪 " (when (:caravan pdata) (str/capitalize (name (:caravan pdata)))))]]
+               [:div {:style {:display "flex" :gap 16 :margin-bottom 8 :font-size 15
+                              :align-items "center"}}
+                [:span {:style {:color "#6ac"}} (str "♥ " (:amity pdata 0))]
+                [:span {:style {:color "#ca6"}} (str "⚡ " (:glory pdata 0))]
+                [:span {:style {:color "#e8e8e8" :font-weight "bold" :font-size 16
+                                 :background "#1a1a2e" :padding "2px 10px" :border-radius 4
+                                 :border "1px solid #444"}}
+                 (str "★ " (min (:amity pdata 0) (:glory pdata 0)))]]
+               [:div {:style {:display "flex" :gap 10 :margin-bottom 8 :flex-wrap "wrap"}}
+                (for [[r n] (:resources pdata) :when (pos? n)]
+                  ^{:key (str "my-res-" (name r))}
+                  [:span {:style {:color (get game/resource-colors r "#888")
+                                  :background "#111" :padding "3px 8px" :border-radius 4
+                                  :border (str "1px solid " (get game/resource-colors r "#333"))
+                                  :font-size 14}}
+                   (str (get game/resource-icons r "") " " n)])]
+               [role-table-component my-player pdata p-color state my-player]
+               (let [demands (:demand-tokens pdata [])]
+                 (when (seq demands)
+                   [:div {:style {:display "flex" :gap 4 :margin-top 4 :flex-wrap "wrap"
+                                  :align-items "center"}}
+                    [:span {:style {:color "#888" :font-size 11 :margin-right 4}} "Sold:"]
+                    (for [[idx d] (map-indexed vector demands)]
+                      ^{:key (str "my-demand-" idx)}
+                      [:span {:style {:background (get game/resource-colors d "#444")
+                                      :color "#fff" :padding "2px 6px" :border-radius 10
+                                      :font-size 11 :opacity 0.9}}
+                       (get game/resource-icons d "?")])]))
+               [:div {:style {:color "#777" :font-size 12 :margin-top 6
+                              :display "flex" :gap 14}}
+                [:span (str "🏛 ×" (:temples-supply pdata 0))]
+                [:span (str "⚔ ×" (:raiders-supply pdata 0))]
+                (when (pos? (:wild-points pdata 0))
+                  [:span {:style {:color "#ff8" :font-weight "bold"}}
+                   (str "★ " (:wild-points pdata 0) " wild")])]]))]
          [bonus-boards-component state]]
-        ;; Right column: game log and rules reference
-        [:div {:style {:flex-shrink 0}}
+        ;; 5. Opponent player boards (compact)
+        (let [opponents (remove #(= (first %) my-player) (:players state))]
+          (when (seq opponents)
+            [:div {:style {:background "#0a0a12" :border "1px solid #222"
+                           :border-radius 8 :padding 10}}
+             [:div {:style {:color "#666" :font-size 13 :margin-bottom 6}} "Opponents"]
+             [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
+              (for [[pk pdata] opponents
+                    :let [p-color (game/player-color state pk)
+                          is-current (= pk (game/current-player state))]]
+                ^{:key (str "opp-" pk)}
+                [:div {:style {:background "#0a0a12"
+                               :border (str "1px solid " (if is-current p-color "#222"))
+                               :border-radius 6 :padding 8 :min-width 180 :font-size 11}}
+                 [:div {:style {:color p-color :font-weight "bold" :font-size 12 :margin-bottom 3}}
+                  (str pk (when is-current " ✦") (when (contains? @bots-set pk) " 🤖"))]
+                 [:div {:style {:display "flex" :gap 8 :margin-bottom 2}}
+                  [:span {:style {:color "#6ac"}} (str "♥" (:amity pdata 0))]
+                  [:span {:style {:color "#ca6"}} (str "⚡" (:glory pdata 0))]
+                  [:span {:style {:color "#ccc" :font-weight "bold"}}
+                   (str "★" (min (:amity pdata 0) (:glory pdata 0)))]]
+                 [:div {:style {:color "#777" :font-size 10}}
+                  (str/join " " (for [[r lv] (:roles pdata)]
+                                  (str (get role-icons r "") (subs (name r) 0 3) lv)))]])]]))
+        ;; 6. Bottom: game log and rules reference
+        [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "flex-start"}}
          [game-log-component state]
          [rules-reference]]]]
       [:div {:style {:color "#666" :padding 40 :font-family "monospace"
@@ -886,7 +1295,11 @@
       (when (contains? message :can-undo)
         (reset! can-undo? (:can-undo message)))
       (when (:choices message)
-        (reset! server-choices [(:phase message) (reader/read-string (:choices message))])))
+        (reset! server-choices [(:phase message) (reader/read-string (:choices message))]))
+      ;; Pending feat claim → show slot picker on bonus board
+      (reset! pending-claim
+              (when (:pending-claim message)
+                (reader/read-string (:pending-claim message)))))
 
     "chat"
     (println "chat:" (:message message))

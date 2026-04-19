@@ -163,7 +163,8 @@
   [organisms {:keys [games-per-matchup player-counts]
               :or {games-per-matchup 3 player-counts [2 3 4]}}]
   (let [elo-map (atom (into {} (map (juxt :name :elo) organisms)))
-        rep-totals (atom (into {} (map (juxt :name (constantly {:sum 0.0 :n 0})) organisms)))
+        rep-totals (atom (into {} (map (juxt :name (constantly {:sum 0.0 :n 0 :feats 0}))
+                                       organisms)))
         game-count (atom 0)
         pop-size (count organisms)]
 
@@ -175,10 +176,11 @@
                 result (sim/run-game configs)
                 summary (sim/game-result-summary result configs)]
             (swap! elo-map update-elo summary)
-            (doseq [{:keys [personality reputation]} summary]
+            (doseq [{:keys [personality reputation feats-claimed]} summary]
               (swap! rep-totals update personality
                      (fn [m] {:sum (+ (:sum m 0.0) reputation)
-                              :n (inc (:n m 0))})))
+                              :n (inc (:n m 0))
+                              :feats (+ (:feats m 0) (or feats-claimed 0))})))
             (swap! game-count inc)))))
 
     ;; Update organisms with tournament results
@@ -186,16 +188,19 @@
           final-rep @rep-totals]
       {:organisms
        (mapv (fn [o]
-               (let [rep-data (get final-rep (:name o) {:sum 0 :n 0})
+               (let [rep-data (get final-rep (:name o) {:sum 0 :n 0 :feats 0})
                      new-elo (get final-elo (:name o) initial-elo)
                      avg-rep (if (pos? (:n rep-data))
                                (/ (:sum rep-data) (:n rep-data))
                                0.0)
-                     ;; Compute richness as Elo for gradient tracking
+                     avg-feats (if (pos? (:n rep-data))
+                                 (/ (double (:feats rep-data)) (:n rep-data))
+                                 0.0)
                      delta (- new-elo (:parent-richness o 0))]
                  (assoc o
                         :elo new-elo
                         :avg-reputation avg-rep
+                        :avg-feats avg-feats
                         :games (+ (:games o 0) (:n rep-data 0))
                         :evaluated? true
                         :delta delta
@@ -208,71 +213,80 @@
 ;; =============================================================================
 
 (defn evolve-generation
-  "Create next generation using adaptive cull rate, protection, and niche fitness."
+  "Create next generation using reputation-based selection.
+   1. Remove organisms with avg-feats=0, but only if enough feat-achievers
+      exist to maintain 60% of population. Otherwise mark for lower priority.
+   2. Cut bottom 10% by avg reputation, replace with top 10% clones.
+   3. Apply crossover + mutation to produce children."
   [organisms {:keys [pop-size mutation-rate elite-count]
               :or {pop-size 30 mutation-rate 0.3 elite-count 4}}]
-  (let [;; Measure population health
-        recent-children (filter #(and (pos? (:parent-richness % 0)) (<= (:age % 0) 3))
-                                organisms)
-        health (if (seq recent-children)
-                 (/ (double (count (filter #(pos? (:delta % 0)) recent-children)))
-                    (count recent-children))
-                 0.5)
+  (let [n (count organisms)
+        ;; Sort by avg reputation (the actual score, not Elo)
+        sorted-orgs (sort-by #(- (:avg-reputation % 0)) organisms)
 
-        ;; Adaptive cull rate: healthy → gentle, sick → aggressive
-        cull-fraction (+ 0.15 (* 0.15 (- 1.0 health)))
+        ;; Phase 1: Remove feat-less organisms — but preserve population diversity
+        ;; Only replace feat-failures if enough feat-achievers to fill 60% of population
+        feat-achievers (filterv #(pos? (:avg-feats % 0)) sorted-orgs)
+        feat-failures  (filterv #(zero? (:avg-feats % 0)) sorted-orgs)
+        min-achiever-count (int (* n 0.6))
+        phase1-orgs
+        (if (and (seq feat-achievers)
+                 (seq feat-failures)
+                 (>= (count feat-achievers) min-achiever-count))
+          ;; Enough feat-achievers: replace all failures
+          (let [replacements
+                (mapv (fn [i]
+                        (let [parent (nth feat-achievers
+                                         (mod i (count feat-achievers)))]
+                          (make-organism
+                           (pers/mutate-personality (:personality parent)
+                                                    (* mutation-rate 1.5))
+                           :parent-richness (:avg-reputation parent 0)
+                           :parent-name (:name parent))))
+                      (range (count feat-failures)))]
+            (into (vec feat-achievers) replacements))
+          ;; Not enough achievers: keep everyone, just sort feat-failures to bottom
+          (vec (concat feat-achievers
+                       (sort-by #(- (:avg-reputation % 0)) feat-failures))))
 
-        ;; Sort by niche fitness
-        sorted-orgs (sort-by #(- (niche-fitness % organisms)) organisms)
+        ;; Phase 2: Cut bottom 10% by avg reputation, replace with top 10%
+        phase2-sorted (sort-by #(- (:avg-reputation % 0)) phase1-orgs)
+        n2 (count phase2-sorted)
+        n-cut (max 1 (int (* n2 0.1)))
+        n-keep (- n2 n-cut)
+        survivors (vec (take n-keep phase2-sorted))
+        top-parents (take (max 1 (int (* n2 0.1))) phase2-sorted)
 
-        ;; Protect: young organisms (age < 2) and best-per-region
-        best-by-region (atom #{})
-        region-seen (atom #{})
-        protected (set
-                   (concat
-                    ;; Best per region
-                    (for [o sorted-orgs
-                          :when (not (contains? @region-seen (:region o)))
-                          :let [_ (swap! region-seen conj (:region o))]]
-                      (:name o))
-                    ;; Young organisms
-                    (map :name (filter #(< (:age % 0) 2) organisms))))
-
-        ;; Cull from the bottom, skipping protected
-        n-cull (max 1 (int (* (count organisms) cull-fraction)))
-        reversed-sorted (reverse sorted-orgs)
-        culled (atom 0)
-        survivors (filterv (fn [o]
-                             (if (and (< @culled n-cull)
-                                      (not (contains? protected (:name o))))
-                               (do (swap! culled inc) false)
-                               true))
-                           reversed-sorted)
-        survivors (vec (reverse survivors))
-
-        ;; Top 50% of survivors produce children
-        n-top (max 1 (int (* (count survivors) 0.5)))
+        ;; Phase 3: Generate children — mix of evolved + fresh diversity
         children-needed (- pop-size (count survivors))
-        parents (take n-top survivors)
-        children
+        n-fresh (max 1 (int (* children-needed 0.3)))  ;; 30% fresh randoms
+        n-evolved (- children-needed n-fresh)
+        ;; Use wider parent pool — top 50% of survivors, not just top 10%
+        wide-parents (take (max 2 (int (* (count survivors) 0.5))) survivors)
+        evolved-children
         (vec
-         (for [i (range children-needed)
-               :let [pa (nth parents (mod i (count parents)))
-                     pb (nth parents (mod (inc i) (count parents)))
-                     ;; Gentle mutation for high-fitness organisms
-                     gentle? (> (:elo pa initial-elo) (+ initial-elo 50))
+         (for [i (range (max 0 n-evolved))
+               :let [pa (nth wide-parents (mod i (count wide-parents)))
+                     pb (nth wide-parents (mod (inc i) (count wide-parents)))
+                     ;; Gentle mutation for high-rep organisms
+                     gentle? (> (:avg-reputation pa 0) 8)
                      mut-rate (if gentle? (* mutation-rate 0.5) mutation-rate)
-                     child-personality (-> (pers/crossover (:personality pa) (:personality pb))
+                     child-personality (-> (pers/crossover (:personality pa)
+                                                           (:personality pb))
                                           (pers/mutate-personality mut-rate))]]
            (make-organism child-personality
-                          :parent-richness (:elo pa initial-elo)
-                          :parent-name (:name pa))))]
+                          :parent-richness (:avg-reputation pa 0)
+                          :parent-name (:name pa))))
+        ;; Fresh randoms to prevent population collapse
+        fresh-children (vec (repeatedly n-fresh
+                                        #(make-organism (pers/random-personality))))
+        children (into evolved-children fresh-children)]
 
-    (log/info (str "Evolution: health=" (format "%.2f" health)
-                   " cull=" @culled
-                   " protected=" (count protected)
+    (log/info (str "Evolution: feat-failures=" (count feat-failures)
+                   " cut=" n-cut
                    " survivors=" (count survivors)
-                   " children=" (count children)))
+                   " children=" (count children)
+                   " top-rep=" (format "%.1f" (:avg-reputation (first sorted-orgs) 0.0))))
 
     ;; Age everyone and combine
     (vec (concat

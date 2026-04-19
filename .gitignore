@@ -20,3 +20,6 @@ backup/
 __pycache__/
 .cache/
 checkpoints/
+output/
+run*.sh
+auto.save

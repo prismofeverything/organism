@@ -69,12 +69,14 @@
       (let [[phase choices] (choice/find-state-raw state)]
         (send-channels!
          (:channels game)
-         {:type     "game-state"
-          :state    (pr-str state)
-          :phase    (str phase)
-          :choices  (pr-str (keys choices))
-          :bots     (vec (:bots game))
-          :can-undo (boolean (seq (:history game)))})))))
+         (cond-> {:type     "game-state"
+                  :state    (pr-str state)
+                  :phase    (str phase)
+                  :choices  (pr-str (keys choices))
+                  :bots     (vec (:bots game))
+                  :can-undo (boolean (seq (:history game)))}
+           (:pending-claim game)
+           (assoc :pending-claim (pr-str (:pending-claim game)))))))))
 
 ;; ── Game management ───────────────────────────────────────────────────────────
 
@@ -123,13 +125,7 @@
 (defn- bot-advance
   "Advance state through trivial single-choice phases."
   [state]
-  (loop [s state]
-    (let [[p cs] (choice/find-state-raw s)]
-      (if (and (= 1 (count cs))
-               (not (contains? bot-protected-phases p)))
-        (let [ns (first (vals cs))]
-          (if ns (recur ns) s))
-        s))))
+  (choice/advance-through-trivial state bot-protected-phases))
 
 ;; ── Bot AI helpers ────────────────────────────────────────────────────────────
 
@@ -137,9 +133,10 @@
   "Returns a value 0.0-1.0 indicating how far through the game we are."
   [state]
   (let [round (:round state 1)
-        turn  (:turn-in-round state 1)]
-    (/ (+ (* (dec round) game/turns-per-round) (dec turn))
-       (* game/rounds-per-game game/turns-per-round))))
+        turn  (:turn-in-round state 1)
+        tpr   (game/turns-per-round state)]
+    (/ (+ (* (dec round) tpr) (dec turn))
+       (* game/rounds-per-game tpr))))
 
 (defn- space-has-empty?
   "True if the astronomer would land on a space with no other astronomers (enabling role increase)."
@@ -387,7 +384,7 @@
               ;; ── Action selection ────────────────────────────────────────
               ;; Dynamic priority based on lower track and game state
               :choose-action
-              (if (contains? choices :done)
+              (if (= #{:done} (set (keys choices)))
                 :done
                 (let [space (get-in state [:player-turn :space])
                       caravan-city (:caravan pdata)
@@ -395,24 +392,36 @@
                       has-face-up-temple (city-has-own-face-up-temple? pdata caravan-city)
                       nearby-sellable (seq (cities-with-demands-for state player))
 
+                      ;; Can we actually deploy? (have raiders in supply)
+                      can-deploy? (pos? (:raiders-supply pdata 0))
+                      ;; Can we actually place a temple? (have temples in supply)
+                      can-temple? (pos? (:temples-supply pdata 0))
+
                       ;; Build dynamic priority based on game state
+                      ;; Lower number = higher priority. 99 = never pick.
                       action-priority
                       (cond
                         ;; If amity is lower: prioritize sell and temple
                         (= lower-track :amity)
                         (merge
-                         {:take 3 :travel 5 :deploy 6 :influence 4}
-                         (if can-sell-here {:sell 0} {:sell 4})
-                         (if has-face-up-temple {:temple 7} {:temple 1}))
+                         {:take 3 :travel 5 :influence 4}
+                         ;; Never pick sell if we can't sell
+                         {:sell (if can-sell-here 0 99)}
+                         {:deploy (if can-deploy? 6 99)}
+                         {:temple (cond (not can-temple?) 99
+                                        has-face-up-temple 7
+                                        :else 1)})
 
                         ;; If glory is lower: prioritize deploy and influence
                         :else
                         (merge
-                         {:take 3 :sell 4 :temple 5}
-                         {:deploy 1 :influence 0}
-                         ;; But if we can sell, still do it
-                         (when can-sell-here {:sell 2})
-                         ;; Travel only if we can flip a temple or sell nearby
+                         {:take 3}
+                         {:sell (if can-sell-here 2 99)}
+                         {:deploy (if can-deploy? 1 99)}
+                         {:temple (cond (not can-temple?) 99
+                                        has-face-up-temple 5
+                                        :else 4)}
+                         {:influence 0}
                          {:travel (if (or has-face-up-temple nearby-sellable) 3 7)}))
 
                       action-choices (dissoc choices :done)
@@ -620,7 +629,7 @@
 
 (def ^:private protected-phases
   #{:choose-die :choose-astronomer :choose-action :choose-role-increase
-    :resolve-landing :resolve-sell :resolve-temple :resolve-deploy
+    :resolve-sell :resolve-temple :resolve-deploy
     :resolve-travel :travel-continue :resolve-influence :game-over})
 
 (defn handle-create! [db play-key {:keys [players bots]}]
@@ -650,13 +659,7 @@
               [_phase choices-map] (choice/find-state-raw state)
               next-state           (get choices-map choice-key)]
           (if next-state
-            (let [effective (loop [s next-state]
-                              (let [p  (game/current-phase s)
-                                    cs (second (choice/find-state-raw s))]
-                                (if (and (= 1 (count cs))
-                                         (not (contains? protected-phases p)))
-                                  (recur (first (vals cs)))
-                                  s)))
+            (let [effective (choice/advance-through-trivial next-state protected-phases)
                   old-player    (choice-player state)
                   new-player    (choice-player effective)
                   turn-changed? (not= old-player new-player)
@@ -677,6 +680,60 @@
             (log/warn "Unknown choice key" play-key player-key (pr-str choice-key))))
         (catch Exception e
           (log/error "Failed to apply action" play-key player-key choice (.getMessage e)))))))
+
+(defn handle-claim-feat! [db play-key player-key {:keys [feat-id slot-idx]}]
+  (let [game-data (get-in @games [:games play-key])
+        state     (:state game-data)
+        contest-id (when feat-id (keyword feat-id))
+        contest   (when contest-id
+                    (first (filter #(= (:id %) contest-id) (:contests state []))))
+        already-claimed? (some #{player-key} (get-in state [:contest-claims contest-id] []))
+        condition-met? (when contest
+                         (game/evaluate-contest state player-key contest))
+        bonus-board (get-in state [:players player-key :bonus-board]
+                            (vec (repeat 5 :covered)))
+        ;; slot-idx provided = player chose which slot. nil = just highlight (step 1).
+        chosen-slot (when slot-idx (Integer/parseInt (str slot-idx)))]
+    (cond
+      (not contest)
+      (log/warn "Unknown feat" play-key feat-id)
+
+      already-claimed?
+      (log/warn "Already claimed" play-key feat-id)
+
+      (not condition-met?)
+      (log/warn "Feat condition not met" play-key feat-id)
+
+      ;; No slot chosen yet: store pending claim so UI can show slot picker
+      (nil? chosen-slot)
+      (do
+        (swap! games assoc-in [:games play-key :pending-claim]
+               {:player player-key :contest-id contest-id})
+        (broadcast-state! play-key))
+
+      ;; Slot chosen: execute the claim
+      (not= :covered (nth bonus-board chosen-slot nil))
+      (log/warn "Slot already uncovered" play-key feat-id chosen-slot)
+
+      :else
+      (let [current-claims (get-in state [:contest-claims contest-id] [])
+            claim-count (count current-claims)
+            wild-points (get game/bonus-contest-values claim-count 1)
+            board-id (get-in state [:bonus-boards player-key])
+            new-state (-> state
+                          (update-in [:contest-claims contest-id] (fnil conj []) player-key)
+                          (assoc-in [:players player-key :bonus-board chosen-slot] :uncovered)
+                          (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
+                          (game/apply-bonus-effect player-key board-id chosen-slot))]
+        (swap! games
+               (fn [gs]
+                 (-> gs
+                     (assoc-in [:games play-key :state] new-state)
+                     (update-in [:games play-key] dissoc :pending-claim))))
+        (log/info "Feat claimed" play-key player-key feat-id "slot" chosen-slot
+                  "wild+" wild-points)
+        (broadcast-state! play-key)
+        (save-state! db play-key)))))
 
 (defn handle-undo! [db play-key player-key]
   (let [game-data (get-in @games [:games play-key])
@@ -741,10 +798,11 @@
   (let [{:keys [type] :as message} (read-json raw)]
     (log/info "Eridu MSG" type player)
     (case type
-      "create" (handle-create! db play-key message)
-      "action" (handle-action! db play-key player message)
-      "undo"   (handle-undo! db play-key player)
-      "chat"   (handle-chat! db play-key player message)
+      "create"     (handle-create! db play-key message)
+      "action"     (handle-action! db play-key player message)
+      "undo"       (handle-undo! db play-key player)
+      "claim-feat" (handle-claim-feat! db play-key player message)
+      "chat"       (handle-chat! db play-key player message)
       (log/warn "Unknown eridu message type" type))))
 
 ;; ── Route wiring ─────────────────────────────────────────────────────────────

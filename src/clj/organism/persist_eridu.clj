@@ -27,22 +27,16 @@
 ;; ── Replay ──────────────────────────────────────────────────────────────────
 
 (def ^:private replay-protected-phases
-  #{:choose-action :choose-space-action :choose-deploy-city
-    :choose-travel-destination :choose-build-city :choose-influence-role
-    :choose-temple-city :game-over})
+  "Phases where the player made an active choice during live play.
+   Must stay in sync with protected-phases in eridu_ws.clj."
+  #{:choose-die :choose-astronomer :choose-action :choose-role-increase
+    :resolve-landing :resolve-sell :resolve-temple :resolve-deploy
+    :resolve-travel :travel-continue :resolve-influence :game-over})
 
 (defn- effective-advance
-  "Apply the same effective loop as the server: advance through single-choice
-   non-protected phases."
+  "Advance through single-choice non-protected phases during replay."
   [state]
-  (loop [s state]
-    (let [p  (game/current-phase s)
-          cs (second (choice/find-state-raw s))]
-      (if (and (= 1 (count cs))
-               (not (contains? replay-protected-phases p)))
-        (let [ns (first (vals cs))]
-          (if ns (recur ns) s))
-        s))))
+  (choice/advance-through-trivial state replay-protected-phases))
 
 (defn replay
   "Replay a sequence of choice keys from an initial state.
