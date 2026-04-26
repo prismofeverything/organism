@@ -20,6 +20,21 @@
 (defonce can-undo?     (r/atom false))
 (defonce server-choices (r/atom nil))
 (defonce pending-claim  (r/atom nil))
+(defonce pending-bonus  (r/atom nil))
+(defonce show-tooltips? (r/atom true))
+
+(defn tip
+  "Returns {:title text} when tooltips are enabled, else {}."
+  [text]
+  (if @show-tooltips? {:title text} {}))
+
+(def action-tooltips
+  {:take "Take Goods — take both listed resources"
+   :sell "Sell — discard a good matching city demand, score Amity"
+   :deploy "Deploy — place up to 2 raiders on adjacent routes"
+   :travel "Travel — move caravan 1 space, may extend once"
+   :influence "Influence — move magistrate clockwise along roads"
+   :temple "Temple — place face-up in caravan or magistrate city"})
 
 ;; ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +89,9 @@
    (ws/send-transit-message! (cond-> {:type "claim-feat" :feat-id (name feat-id)}
                                slot-idx (assoc :slot-idx slot-idx)))))
 
+(defn send-resolve-bonus! [choice-val]
+  (ws/send-transit-message! {:type "resolve-bonus" :choice (pr-str choice-val)}))
+
 ;; ── Unicode die faces ─────────────────────────────────────────────────────────
 
 (def die-faces {1 "⚀" 2 "⚁" 3 "⚂" 4 "⚃" 5 "⚄" 6 "⚅"})
@@ -126,6 +144,57 @@
                        :opacity 0.5}}
          [:div (get die-faces die-val (str die-val))]
          [:div {:style {:font-size 9 :color "#333"}} "used"]])]]))
+
+(defn player-dice-row [state pk is-choosing chosen-die]
+  (let [pdata (game/player-data state pk)
+        dice-available (:dice-available pdata [])
+        dice-used (:dice-used pdata [])
+        p-color (game/player-color state pk)
+        is-current (= pk (game/current-player state))]
+    [:div {:style {:background "#0d0d1a" :border-radius 8 :padding 8
+                   :border (str "1px solid " (if is-current p-color "#222"))
+                   :opacity (if is-current 1.0 0.7)}}
+     [:div {:style {:color p-color :font-size 11 :margin-bottom 4 :font-weight "bold"}}
+      (str "🎲 " pk (when is-current " ✦"))]
+     [:div {:style {:display "flex" :gap 6 :align-items "center" :flex-wrap "wrap"}}
+      (for [[idx die-val] (map-indexed vector dice-available)]
+        ^{:key (str "d-" pk "-a-" idx)}
+        [:div {:on-click (when is-choosing #(send-action! idx))
+               :style {:font-size 32 :cursor (when is-choosing "pointer")
+                       :padding "3px 6px" :border-radius 6
+                       :background (if is-choosing "#1a2a1a" "#111")
+                       :border (str "2px solid " (if is-choosing "#4a4" "#333"))
+                       :color (if is-choosing "#8f8" "#ccc")
+                       :text-align "center" :min-width 40}}
+         [:div (get die-faces die-val (str die-val))]
+         [:div {:style {:font-size 9 :color "#666"}} (str die-val)]])
+      (when (and is-current chosen-die)
+        ^{:key (str "d-" pk "-ch")}
+        [:div {:style {:font-size 32 :padding "3px 6px" :border-radius 6
+                       :background "#2a2a1a" :border "2px solid #aa8"
+                       :color "#ff8" :text-align "center" :min-width 40}}
+         [:div (get die-faces chosen-die (str chosen-die))]
+         [:div {:style {:font-size 9 :color "#aa8"}} "chosen"]])
+      (for [[idx die-val] (map-indexed vector dice-used)]
+        ^{:key (str "d-" pk "-u-" idx)}
+        [:div {:style {:font-size 24 :padding "2px 5px" :border-radius 5
+                       :background "#0a0a0a" :border "1px solid #222"
+                       :color "#444" :text-align "center" :min-width 36
+                       :opacity 0.4}}
+         [:div (get die-faces die-val (str die-val))]])]]))
+
+(defn dice-display [state my-player]
+  (let [phase (game/current-phase state)
+        current (game/current-player state)
+        is-my-choosing (and (= phase :choose-die) (= current my-player))
+        chosen-die (when (= phase :choose-astronomer)
+                     (get-in state [:player-turn :die-value]))]
+    [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
+     ;; Always show MY dice
+     [player-dice-row state my-player is-my-choosing chosen-die]
+     ;; Show active opponent's dice when it's their turn
+     (when (not= current my-player)
+       [player-dice-row state current false chosen-die])]))
 
 ;; ── Rendering: Action board (wheel) ──────────────────────────────────────────
 
@@ -219,6 +288,11 @@
             ^{:key (str "act-" space-id "-" idx)}
             [:g (cond-> {:style {:cursor (when clickable? "pointer")}}
                   clickable? (assoc :on-click #(send-action! idx)))
+             ;; SVG tooltip
+             (when @show-tooltips?
+               [:title (str (get action-tooltips atype (name atype))
+                            (when resources
+                              (str " (" (str/join ", " (map name resources)) ")")))])
              ;; Clickable background circle (bigger hit target + glow)
              (when clickable?
                [:circle {:cx ax :cy (- ay 4) :r 16
@@ -380,32 +454,39 @@
                 :style (when selectable-rk {:cursor "pointer"
                                              :filter "drop-shadow(0 0 3px #8f8)"})
                 :on-click (when selectable-rk #(send-action! selectable-rk))}]])
-     ;; Raiders on routes
-     (for [[pk pdata] (:players state)
-           [rk raider-state] (:raiders pdata)
-           :let [[c1 c2] rk
-                 {x1 :x y1 :y} (get city-positions c1)
-                 {x2 :x y2 :y} (get city-positions c2)
-                 mx (/ (+ x1 x2) 2)
-                 my (/ (+ y1 y2) 2)
-                 p-color (game/player-color state pk)
-                 is-raiding (= raider-state :raiding)]]
-       ^{:key (str "raider-" pk "-" (name c1) "-" (name c2))}
-       [:g
-        ;; Raider background shape
-        (if is-raiding
-          ;; Raiding state: shield shape with sword
-          [:g
-           [:rect {:x (- mx 12) :y (- my 12) :width 24 :height 24
-                   :fill p-color :rx 4 :stroke "#fff" :stroke-width 1.5 :opacity 0.9}]
-           [:text {:x mx :y (+ my 6) :text-anchor "middle" :fill "#fff" :font-size 17}
-            "⚔"]]
-          ;; Point state: flag/banner (flipped, ready to score)
-          [:g
-           [:rect {:x (- mx 12) :y (- my 12) :width 24 :height 24
-                   :fill "#111" :rx 4 :stroke p-color :stroke-width 2}]
-           [:text {:x mx :y (+ my 6) :text-anchor "middle" :fill p-color :font-size 16}
-            "🏴"]])])
+     ;; Raiders on routes (offset when multiple on same route)
+     (let [route-counts (atom {})]
+       (for [[pk pdata] (:players state)
+             [rk raider-state] (:raiders pdata)
+             :let [[c1 c2] rk
+                   {x1 :x y1 :y} (get city-positions c1)
+                   {x2 :x y2 :y} (get city-positions c2)
+                   mx (/ (+ x1 x2) 2)
+                   my (/ (+ y1 y2) 2)
+                   ;; Offset perpendicular to route for stacking
+                   idx (get (swap! route-counts update rk (fnil inc 0)) rk)
+                   ;; Perpendicular offset direction
+                   dx (- y2 y1) dy (- x1 x2)
+                   len (js/Math.sqrt (+ (* dx dx) (* dy dy)))
+                   offset (* (- idx 1) 20)
+                   ox (if (pos? len) (* offset (/ dx len)) 0)
+                   oy (if (pos? len) (* offset (/ dy len)) 0)
+                   rx (+ mx ox) ry (+ my oy)
+                   p-color (game/player-color state pk)
+                   is-raiding (= raider-state :raiding)]]
+         ^{:key (str "raider-" pk "-" (name c1) "-" (name c2))}
+         [:g
+          (if is-raiding
+            [:g
+             [:rect {:x (- rx 12) :y (- ry 12) :width 24 :height 24
+                     :fill p-color :rx 4 :stroke "#fff" :stroke-width 1.5 :opacity 0.9}]
+             [:text {:x rx :y (+ ry 6) :text-anchor "middle" :fill "#fff" :font-size 17}
+              "⚔"]]
+            [:g
+             [:rect {:x (- rx 12) :y (- ry 12) :width 24 :height 24
+                     :fill "#111" :rx 4 :stroke p-color :stroke-width 2}]
+             [:text {:x rx :y (+ ry 6) :text-anchor "middle" :fill p-color :font-size 16}
+              "🏴"]])]))
      ;; Magistrates on cities (offset when stacked)
      (let [mag-by-city (reduce (fn [m [c _]] (update m c (fnil inc 0)))
                                {} (:magistrates state))
@@ -1028,14 +1109,16 @@
    :role-increase "📈" :action-select "▶" :take "🌾" :sell "⚖"
    :temple "🏛" :temple-visit "🏛" :deploy "⚔" :travel "🐪"
    :travel-extend "🐪" :influence "👑"
-   :raider-flip "🔄" :raider-score "💀" :magistrate-raider-flip "👑"})
+   :raider-flip "🔄" :raider-score "💀" :magistrate-raider-flip "👑"
+   :feat-claim "🏆" :bonus-effect "✨"})
 
 (def log-type-colors
   {:die "#aaf" :astronomer "#aaf" :landing "#aaa" :first-player "#FFD700"
    :role-increase "#af8" :action-select "#ccc" :take "#5B8C3E" :sell "#C4A535"
    :temple "#C45BA8" :temple-visit "#C45BA8" :deploy "#C44B35" :travel "#3581A8"
    :travel-extend "#3581A8" :influence "#8B5BC4"
-   :raider-flip "#f84" :raider-score "#ff4" :magistrate-raider-flip "#f84"})
+   :raider-flip "#f84" :raider-score "#ff4" :magistrate-raider-flip "#f84"
+   :feat-claim "#ff8" :bonus-effect "#8ff"})
 
 (defn game-log-component [state]
   (let [log (reverse (:log state []))
@@ -1156,6 +1239,13 @@
                   (str "♥" amity " ⚡" glory " ★" reputation)])]])]])
        ;; Layout: feats → boards + choices → my player board → opponents → log
        [:div {:style {:display "flex" :flex-direction "column" :gap 8}}
+        ;; Settings row
+        [:div {:style {:display "flex" :justify-content "flex-end" :margin-bottom 4}}
+         [:label {:style {:color "#555" :font-size 11 :display "flex"
+                          :align-items "center" :gap 4 :cursor "pointer"}}
+          [:input {:type "checkbox" :checked @show-tooltips?
+                   :on-change #(swap! show-tooltips? not)}]
+          "Tooltips"]]
         ;; 1. Feats/contests at top (claim by clicking)
         [contests-component state]
         ;; 2. Boards row: action board + dice, city board
@@ -1172,6 +1262,50 @@
               choices))]]
         ;; 3. Choices panel (skip/done/undo) right below boards
         [choices-panel state my-player]
+        ;; 3b. Bonus resolution picker (when a bonus effect needs player choice)
+        (when-let [bonus @pending-bonus]
+          (when (= (:player bonus) my-player)
+            [:div {:style {:background "#0a2a2a" :border "2px solid #4cc"
+                           :border-radius 8 :padding 12 :margin "4px 0"}}
+             [:div {:style {:color "#8ff" :font-weight "bold" :font-size 14 :margin-bottom 8}}
+              (str "✨ " (:prompt bonus "Choose"))]
+             (case (:choice-type bonus)
+               ;; Resource picker
+               :pick-resource
+               [:div {:style {:display "flex" :gap 8}}
+                (for [r game/resource-types]
+                  ^{:key (str "bonus-res-" (name r))}
+                  [:button
+                   {:on-click #(send-resolve-bonus! r)
+                    :style {:background "#111" :padding "8px 16px" :border-radius 6
+                            :border (str "2px solid " (get game/resource-colors r "#888"))
+                            :color (get game/resource-colors r "#ccc")
+                            :cursor "pointer" :font-size 18}}
+                   (str (get game/resource-icons r "") " " (name r))])]
+               ;; City picker (for magistrate cities)
+               :pick-city
+               [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
+                (for [[city _] (:magistrates state)]
+                  ^{:key (str "bonus-city-" (name city))}
+                  [:button
+                   {:on-click #(send-resolve-bonus! city)
+                    :style {:background "#1a2a1a" :color "#8f8"
+                            :border "1px solid #4a4" :border-radius 6
+                            :padding "8px 16px" :cursor "pointer" :font-size 14}}
+                   (str/capitalize (name city))])]
+               ;; Role picker
+               :pick-role
+               [:div {:style {:display "flex" :gap 8}}
+                (for [r game/roles]
+                  ^{:key (str "bonus-role-" (name r))}
+                  [:button
+                   {:on-click #(send-resolve-bonus! r)
+                    :style {:background "#111" :color "#ccc"
+                            :border "1px solid #555" :border-radius 6
+                            :padding "8px 16px" :cursor "pointer" :font-size 14}}
+                   (str (get role-icons r "") " " (name r))])]
+               ;; Fallback
+               [:div {:style {:color "#888"}} "Unknown choice type"])]))
         ;; 4. MY player board: my info + my bonus board side by side
         [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "stretch"}}
          ;; Only show MY player info here
@@ -1299,7 +1433,11 @@
       ;; Pending feat claim → show slot picker on bonus board
       (reset! pending-claim
               (when (:pending-claim message)
-                (reader/read-string (:pending-claim message)))))
+                (reader/read-string (:pending-claim message))))
+      ;; Pending bonus resolution → show choice picker
+      (reset! pending-bonus
+              (when (:pending-bonus message)
+                (reader/read-string (:pending-bonus message)))))
 
     "chat"
     (println "chat:" (:message message))

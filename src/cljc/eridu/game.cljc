@@ -1320,6 +1320,114 @@
      :needs-demand (count (get by-status :needs-demand []))
      :conditional (count (get by-status :conditional []))}))
 
+(defn bonus-needs-choice?
+  "Returns a choice descriptor if [board-id slot-idx] needs player input,
+   nil if it auto-resolves. Choice types:
+   :pick-resource — player picks one of 4 resources
+   :pick-city — player picks a city (for temple/travel)
+   :pick-role — player picks a role to increase"
+  [board-id slot-idx]
+  (case [board-id slot-idx]
+    ;; Pick resource
+    [3 3]  {:type :pick-resource :prompt "Choose a resource to gain"}
+    [22 3] {:type :pick-resource :prompt "Choose a resource to gain"}
+    [23 3] {:type :pick-resource :prompt "Choose a resource to gain"}
+    [25 4] {:type :pick-resource :prompt "Choose a resource to gain"}
+    [27 4] {:type :pick-resource :prompt "Choose 3 resources to gain" :count 3}
+    [31 3] {:type :pick-resource :prompt "Choose a resource to gain"}
+    [31 4] {:type :pick-resource :prompt "Choose a resource to gain"}
+    ;; Pick city (for temple placement in magistrate cities)
+    [2 3]  {:type :pick-city :prompt "Choose a magistrate city for your temple"
+            :filter :magistrate}
+    [23 4] {:type :pick-city :prompt "Choose a magistrate city for your temple"
+            :filter :magistrate}
+    ;; Pick role
+    [15 3] {:type :pick-role :prompt "Choose a role to increase (lowest tied)"}
+    [35 4] {:type :pick-role :prompt "Choose a role to increase"}
+    ;; Default: auto-resolve
+    nil))
+
+(defn- bonus-trace-snapshot
+  "Capture the player-state slice that bonus coverage tracing diffs against."
+  [pdata]
+  {:amity          (:amity pdata 0)
+   :glory          (:glory pdata 0)
+   :roles          (:roles pdata)
+   :resources      (:resources pdata)
+   :temples        (:temples pdata {})
+   :raiders        (:raiders pdata {})
+   :caravan        (:caravan pdata)
+   :temples-supply (:temples-supply pdata 0)
+   :raiders-supply (:raiders-supply pdata 0)
+   :demand-tokens  (:demand-tokens pdata [])})
+
+(defn- record-coverage-trace
+  "Append a coverage-trace record to (:coverage-traces state). Caller must
+   only invoke when (:coverage-trace? state) is truthy."
+  [state player-key board-id slot-idx pre-snapshot post-snapshot choice-value]
+  (let [delta-roles (into {}
+                          (for [role roles
+                                :let [a (get-in pre-snapshot  [:roles role] 1)
+                                      b (get-in post-snapshot [:roles role] 1)]
+                                :when (not= a b)]
+                            [role (- b a)]))
+        delta-resources (into {}
+                              (for [res [:tools :pottery :gold :gems]
+                                    :let [a (get-in pre-snapshot  [:resources res] 0)
+                                          b (get-in post-snapshot [:resources res] 0)]
+                                    :when (not= a b)]
+                                [res (- b a)]))
+        record {:board-id        board-id
+                :slot-idx        slot-idx
+                :player          player-key
+                :pre-snapshot    pre-snapshot
+                :post-snapshot   post-snapshot
+                :choice-value    choice-value
+                :round           (:round state 1)
+                :turn            (:turn-in-round state 1)
+                :delta-amity     (- (:amity post-snapshot 0) (:amity pre-snapshot 0))
+                :delta-glory     (- (:glory post-snapshot 0) (:glory pre-snapshot 0))
+                :delta-roles     delta-roles
+                :delta-resources delta-resources
+                :delta-temples   (- (count (:temples post-snapshot)) (count (:temples pre-snapshot)))
+                :delta-raiders   (- (count (:raiders post-snapshot)) (count (:raiders pre-snapshot)))
+                :impl-status     (get effect-implementation-status [board-id slot-idx] :unknown)}]
+    (update state :coverage-traces (fnil conj []) record)))
+
+(defn apply-bonus-with-choice
+  "Apply a bonus effect that requires a player choice.
+   `choice-value` is the player's selection (keyword for resource/role, keyword for city).
+   When (:coverage-trace? state) is on, appends a record to :coverage-traces."
+  [state player-key board-id slot-idx choice-value]
+  (let [pre-snapshot (bonus-trace-snapshot (get-in state [:players player-key]))
+        result-state
+        (case [board-id slot-idx]
+          ;; Pick resource effects — grant the chosen resource
+          ([3 3] [22 3] [23 3] [25 4] [31 3] [31 4])
+          (add-player-resource state player-key choice-value 1)
+
+          [27 4] ;; 3 resources — choice-value is a vector of 3
+          (reduce #(add-player-resource %1 player-key %2 1) state
+                  (if (vector? choice-value) choice-value [choice-value]))
+
+          ;; Pick city for temple
+          ([2 3] [23 4])
+          (place-temple-in state player-key choice-value true)
+
+          ;; Pick role to increase
+          ([15 3] [35 4])
+          (increase-role-with-cost state player-key choice-value)
+
+          ;; Fallback: no choice needed, return state unchanged
+          state)]
+    (cond-> result-state
+      (:coverage-trace? state)
+      (record-coverage-trace player-key board-id slot-idx
+                             pre-snapshot
+                             (bonus-trace-snapshot
+                              (get-in result-state [:players player-key]))
+                             choice-value))))
+
 (defn apply-bonus-effect
   "Apply a one-time bonus board effect when a slot is uncovered.
    board-id = the bonus board number, slot-idx = 0-4 (0=persistent).
@@ -1335,6 +1443,7 @@
         pre-resources (:resources pdata)
         pre-temples (count (:temples pdata))
         pre-raiders (count (:raiders pdata))
+        pre-trace-snapshot (bonus-trace-snapshot pdata)
         result-state
     (case [board-id slot-idx]
       ;; ─── Board 1: Shield of Gilgamesh ───────────────────────────
@@ -1566,8 +1675,17 @@
                  (update-in [:players player-key :glory] + 4)))
       [15 3] (let [lowest-role (first (sort-by #(get-in pdata [:roles %] 1) roles))]
                (increase-role-free state player-key lowest-role)) ;; Increase lowest role (partial: no travel)
-      [15 4] (let [rc (count-raiders-deployed pdata)] ;; 2 Amity per raider (partial: no adjacency check)
-               (update-in state [:players player-key :amity] + (* 2 rc)))
+      [15 4] (let [routes (active-routes pc)
+                   route-by-key (into {} (for [r routes]
+                                           [(route-key (:from r) (:to r)) r]))
+                   mag-cities (set (keys (:magistrates state)))
+                   adj-count (reduce (fn [n rk]
+                                       (let [r (get route-by-key rk)]
+                                         (if (and r (or (contains? mag-cities (:from r))
+                                                        (contains? mag-cities (:to r))))
+                                           (inc n) n)))
+                                     0 (keys (:raiders pdata)))]
+               (update-in state [:players player-key :amity] + (* 3 adj-count)))
 
       ;; ─── Board 16: Dominion of Hammurabi ────────────────────────
       [16 1] (let [tc (count-temples-placed pdata)] ;; Pottery per temple
@@ -1597,7 +1715,12 @@
                (if placeable
                  (place-temple-in state player-key placeable true)
                  state))
-      [17 3] (update-in state [:players player-key :amity] + 4) ;; 4 Amity (partial: no Uruk check)
+      [17 3] (let [adj-rks (set (map #(route-key (:from %) (:to %))
+                                      (routes-from-city :uruk (active-routes pc))))
+                   player-rks (set (keys (:raiders pdata)))]
+               (if (and (seq adj-rks) (every? player-rks adj-rks))
+                 (update-in state [:players player-key :amity] + 8)
+                 state))
       [17 4] (let [ml (get-in pdata [:roles :merchant] 1)] ;; Glory = merchant level (partial: no sell)
                (update-in state [:players player-key :glory] + ml))
 
@@ -1607,7 +1730,12 @@
                (update-in state [:players player-key :glory] + 5)
                ;; Partial: 2 Glory if precondition unmet
                (update-in state [:players player-key :glory] + 2))
-      [18 3] (update-in state [:players player-key :amity] + 3) ;; 3 Amity (partial: no surround check)
+      [18 3] (let [adj-rks (set (map #(route-key (:from %) (:to %))
+                                      (routes-from-city :kish (active-routes pc))))
+                   player-rks (set (keys (:raiders pdata)))]
+               (if (and (seq adj-rks) (every? player-rks adj-rks))
+                 (update-in state [:players player-key :amity] + 6)
+                 state))
       [18 4] (let [point-raiders (count (filter #(= :point (val %)) (:raiders pdata)))]
                (update-in state [:players player-key :amity] + (* 4 point-raiders))) ;; 4 Amity per point raider (partial: don't remove)
 
@@ -1926,8 +2054,14 @@
                         :delta-glory (- (:glory post-pdata 0) pre-glory)
                         :delta-temples (- (count (:temples post-pdata)) pre-temples)
                         :delta-raiders (- (count (:raiders post-pdata)) pre-raiders)}]
-      (update-in result-state [:players player-key :board-effects-log]
-                 (fnil conj []) effect-entry))))
+      (let [logged-state (update-in result-state [:players player-key :board-effects-log]
+                                    (fnil conj []) effect-entry)]
+        (cond-> logged-state
+          (:coverage-trace? state)
+          (record-coverage-trace player-key board-id slot-idx
+                                 pre-trace-snapshot
+                                 (bonus-trace-snapshot post-pdata)
+                                 nil))))))
 
 (defn- estimate-effect-value
   "Estimate the immediate value of uncovering a bonus board slot.

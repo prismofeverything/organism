@@ -76,7 +76,9 @@
                   :bots     (vec (:bots game))
                   :can-undo (boolean (seq (:history game)))}
            (:pending-claim game)
-           (assoc :pending-claim (pr-str (:pending-claim game)))))))))
+           (assoc :pending-claim (pr-str (:pending-claim game)))
+           (:pending-bonus game)
+           (assoc :pending-bonus (pr-str (:pending-bonus game)))))))))
 
 ;; ── Game management ───────────────────────────────────────────────────────────
 
@@ -720,18 +722,80 @@
             claim-count (count current-claims)
             wild-points (get game/bonus-contest-values claim-count 1)
             board-id (get-in state [:bonus-boards player-key])
-            new-state (-> state
-                          (update-in [:contest-claims contest-id] (fnil conj []) player-key)
-                          (assoc-in [:players player-key :bonus-board chosen-slot] :uncovered)
-                          (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
-                          (game/apply-bonus-effect player-key board-id chosen-slot))]
+            board (get game/bonus-boards-by-id board-id)
+            effect-text (get (:effects board) chosen-slot "—")
+            contest-name (:name contest "")
+            needs-choice (game/bonus-needs-choice? board-id chosen-slot)
+            ;; Base state: claim feat + uncover slot + wild points + log
+            base-state (-> state
+                           (update-in [:contest-claims contest-id] (fnil conj []) player-key)
+                           (assoc-in [:players player-key :bonus-board chosen-slot] :uncovered)
+                           (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
+                           (update :log conj
+                                   {:type :feat-claim
+                                    :player player-key
+                                    :round (:round state 1)
+                                    :turn (:turn-in-round state 1)
+                                    :message (str "Claimed feat " (name contest-id)
+                                                  " (" contest-name ") → +"
+                                                  wild-points " wild points")}))
+            ;; If effect needs choice, defer; otherwise apply now
+            new-state (if needs-choice
+                        ;; Log that bonus needs resolution
+                        (update base-state :log conj
+                                {:type :bonus-effect :player player-key
+                                 :round (:round state 1) :turn (:turn-in-round state 1)
+                                 :message (str "Bonus #" chosen-slot " uncovered: "
+                                               effect-text " — choose below")})
+                        ;; Auto-resolve + log
+                        (-> base-state
+                            (game/apply-bonus-effect player-key board-id chosen-slot)
+                            (update :log conj
+                                    {:type :bonus-effect :player player-key
+                                     :round (:round state 1) :turn (:turn-in-round state 1)
+                                     :message (str "Bonus #" chosen-slot
+                                                   " uncovered: " effect-text)})))]
         (swap! games
                (fn [gs]
                  (-> gs
                      (assoc-in [:games play-key :state] new-state)
-                     (update-in [:games play-key] dissoc :pending-claim))))
+                     (update-in [:games play-key] dissoc :pending-claim)
+                     ;; If bonus needs choice, store pending-bonus
+                     (cond-> needs-choice
+                       (assoc-in [:games play-key :pending-bonus]
+                                 {:player player-key
+                                  :board-id board-id
+                                  :slot-idx chosen-slot
+                                  :choice-type (:type needs-choice)
+                                  :prompt (:prompt needs-choice)})))))
         (log/info "Feat claimed" play-key player-key feat-id "slot" chosen-slot
-                  "wild+" wild-points)
+                  "wild+" wild-points
+                  (when needs-choice (str " (needs " (:type needs-choice) " choice)")))
+        (broadcast-state! play-key)
+        (save-state! db play-key)))))
+
+(defn handle-resolve-bonus! [db play-key player-key {:keys [choice]}]
+  (let [game-data (get-in @games [:games play-key])
+        state     (:state game-data)
+        pending   (:pending-bonus game-data)]
+    (when (and pending (= player-key (:player pending)))
+      (let [{:keys [board-id slot-idx]} pending
+            choice-val (edn/read-string choice)
+            board (get game/bonus-boards-by-id board-id)
+            effect-text (get (:effects board) slot-idx "—")
+            new-state (-> state
+                          (game/apply-bonus-with-choice player-key board-id slot-idx choice-val)
+                          (update :log conj
+                                  {:type :bonus-effect :player player-key
+                                   :round (:round state 1) :turn (:turn-in-round state 1)
+                                   :message (str "Bonus #" slot-idx " resolved: "
+                                                 effect-text " → chose " (pr-str choice-val))}))]
+        (swap! games
+               (fn [gs]
+                 (-> gs
+                     (assoc-in [:games play-key :state] new-state)
+                     (update-in [:games play-key] dissoc :pending-bonus))))
+        (log/info "Bonus resolved" play-key player-key board-id slot-idx choice-val)
         (broadcast-state! play-key)
         (save-state! db play-key)))))
 
@@ -798,11 +862,12 @@
   (let [{:keys [type] :as message} (read-json raw)]
     (log/info "Eridu MSG" type player)
     (case type
-      "create"     (handle-create! db play-key message)
-      "action"     (handle-action! db play-key player message)
-      "undo"       (handle-undo! db play-key player)
-      "claim-feat" (handle-claim-feat! db play-key player message)
-      "chat"       (handle-chat! db play-key player message)
+      "create"        (handle-create! db play-key message)
+      "action"        (handle-action! db play-key player message)
+      "undo"          (handle-undo! db play-key player)
+      "claim-feat"    (handle-claim-feat! db play-key player message)
+      "resolve-bonus" (handle-resolve-bonus! db play-key player message)
+      "chat"          (handle-chat! db play-key player message)
       (log/warn "Unknown eridu message type" type))))
 
 ;; ── Route wiring ─────────────────────────────────────────────────────────────
