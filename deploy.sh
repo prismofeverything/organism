@@ -28,7 +28,7 @@ build() {
   [ -d node_modules ] || npm install
 
   echo "=== Building ClojureScript (shadow-cljs release) ==="
-  npx shadow-cljs release organism journey journey-bots oroboros future
+  npx shadow-cljs release organism journey journey-bots oroboros eridu future
 
   echo "=== Building uberjar ==="
   lein uberjar
