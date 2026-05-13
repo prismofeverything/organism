@@ -13,7 +13,7 @@
 
 (def ^:private sim-protected-phases
   "Phases the simulation stops at to let the AI make decisions."
-  #{:choose-die :choose-action :resolve-landing :game-over})
+  game/bot-protected-phases)
 
 (defn- advance-through-trivial
   "Advance state through single-choice non-interactive phases."

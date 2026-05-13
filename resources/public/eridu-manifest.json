@@ -1,0 +1,18 @@
+{
+  "name": "Eridu — Offline vs AI",
+  "short_name": "Eridu",
+  "description": "Solo Eridu against an AI personality opponent. Plays fully offline; syncs completed games when online.",
+  "start_url": "/eridu/offline?offline=1",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#222222",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

@@ -60,6 +60,19 @@
       :preferences preferences
       :timestamp (System/currentTimeMillis)})))
 
+(defn offline-page
+  "Render the offline-vs-AI page, gated by login so games can be tagged
+   with the session player and synced back later."
+  [db request]
+  (let [player-key (get-in request [:session :player])
+        preferences (persist/find-player-preferences db player-key)]
+    (layout/render
+     request
+     "eridu/offline.html"
+     {:player player-key
+      :preferences preferences
+      :timestamp (System/currentTimeMillis)})))
+
 (defn observe-page
   [db request]
   (let [player (get-in request [:session :player])
@@ -240,6 +253,29 @@
 (defn top-personalities-endpoint [_db _request]
   (response/response {:personalities (vec (evolve/top-personalities 10))}))
 
+(defn log-offline-game!
+  "Persist a completed offline-vs-AI game record sent from the client.
+   Auth-gated: the server overwrites :human with the session player so
+   clients can't impersonate other users. Returns the saved game-key."
+  [db request]
+  (let [session-player (get-in request [:session :player])
+        body           (or (:body-params request) (:params request))
+        record         (assoc body
+                              :human session-player
+                              :received-at (System/currentTimeMillis))]
+    (cond
+      (not session-player)
+      (-> (response/response {:error "not authenticated"})
+          (response/status 401))
+
+      (or (empty? (:game-key record)) (empty? (:initial-state record)))
+      (-> (response/response {:error "missing required fields :game-key, :initial-state"})
+          (response/status 400))
+
+      :else
+      (do (persist-e/save-offline-game! db record)
+          (response/response {:ok true :game-key (:game-key record)})))))
+
 ;; ── Routes ───────────────────────────────────────────────────────────────────
 
 (defn eridu-routes
@@ -255,6 +291,8 @@
              :middleware [require-auth]}]
    ["/play/:play" {:get (partial play-page db)}]
    ["/play/:play/" {:get (partial play-page db)}]
+   ["/offline" {:get (partial offline-page db)
+                :middleware [require-auth]}]
    ["/observe" {:get (partial observe-page db)}]
    ["/generate" {:get (partial generate-page db)}]
    ["/stats" {:get (partial stats-page db)}]
@@ -271,4 +309,6 @@
    ["/evolve/start" {:post (partial start-evolution-endpoint! db)}]
    ["/evolve/stop" {:post (partial stop-evolution-endpoint! db)}]
    ["/evolve/status" {:get (partial evolution-status-endpoint db)}]
-   ["/evolve/top" {:get (partial top-personalities-endpoint db)}]])
+   ["/evolve/top" {:get (partial top-personalities-endpoint db)}]
+   ["/offline/log" {:post (partial log-offline-game! db)
+                    :middleware [require-auth]}]])

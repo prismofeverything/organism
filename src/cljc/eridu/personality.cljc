@@ -1237,7 +1237,7 @@
   "Generate a random personality by perturbing default weights."
   ([] (random-personality "Random"))
   ([name-prefix]
-   (let [id (subs (str (java.util.UUID/randomUUID)) 0 8)]
+   (let [id (subs (str (random-uuid)) 0 8)]
      (merge default-weights
             {:name (str name-prefix "-" id)
              :sell-weight      (+ 0.2 (rand 1.8))
@@ -1364,5 +1364,5 @@
                      (if (< (rand) 0.5)
                        (:role-priority parent-a)
                        (:role-priority parent-b)))
-        id (subs (str (java.util.UUID/randomUUID)) 0 8)]
+        id (subs (str (random-uuid)) 0 8)]
     (assoc child :name (str "Gen-" id))))

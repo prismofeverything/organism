@@ -202,8 +202,7 @@
 ;; Replay: re-run a game with full action-by-action logging
 ;; =============================================================================
 
-(def ^:private replay-protected-phases
-  #{:choose-die :choose-action :resolve-landing :game-over})
+(def ^:private replay-protected-phases game/human-protected-phases)
 
 (defn replay-game
   "Run a game with full action logging for forensic analysis.

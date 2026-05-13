@@ -34,10 +34,21 @@
   [state player city]
   (let [pc (count (:turn-order state))
         adj-routes (game/routes-from-city city (game/active-routes pc))
-        adj-rks (map #(game/route-key (:from %) (:to %)) adj-routes)
+        adj-rks (map game/segment-route-key adj-routes)
         player-rks (set (keys (get-in state [:players player :raiders])))]
     (and (seq adj-rks)
          (every? #(contains? player-rks %) adj-rks))))
+
+(defn- return-to-choose-action
+  "Reconstruct player-turn to return to choose-action phase, preserving solo-landing."
+  [state]
+  (let [turn (:player-turn state)]
+    (assoc state :player-turn
+           (cond-> {:phase :choose-action
+                    :space (:space turn)
+                    :actions-remaining (:actions-remaining turn)
+                    :used-icons (:used-icons turn)}
+             (:solo-landing turn) (assoc :solo-landing true)))))
 
 ;; ── Game log ─────────────────────────────────────────────────────────────────
 
@@ -65,13 +76,17 @@
              [idx (-> state
                       ;; Passive: turn-start trigger (board 35: no goods → gain one)
                       (game/apply-passive player :turn-start {})
+                      ;; Clear per-turn passive flags
+                      (update-in [:players player] dissoc :used-uruk-travel)
                       ;; Reset per-turn stats (keyed by player so event feats
                       ;; can't use another player's actions)
                       (assoc :turn-stats {:player player
                                           :amity 0 :glory 0
                                           :temples-flipped 0
                                           :magistrate-max-move 0
+                                          :magistrate-moves {}
                                           :magistrate-raiders-flipped 0
+                                          :magistrate-flips {}
                                           :sold-resource nil
                                           :sold-in-city nil
                                           :sell-amity 0 :sell-glory 0})
@@ -216,33 +231,41 @@
   (let [player (game/current-player state)
         role-levels (get-in state [:players player :roles])
         resources (get-in state [:players player :resources])
+        free-increase? (get-in state [:players player :free-role-increase])
+        ;; Clear the free-role-increase flag so it only applies once
+        state (if free-increase?
+                (update-in state [:players player] dissoc :free-role-increase)
+                state)
         increasable
         (for [role game/roles
               :let [current-level (get role-levels role 1)]
               :when (< current-level game/max-role-level)
               :let [next-level (inc current-level)
                     cost (get-in game/role-threshold-costs [role next-level])]
-              :when (can-pay-cost? resources cost)]
+              :when (or free-increase? (can-pay-cost? resources cost))]
           [role (cond-> state
-                  cost (pay-cost player cost)
+                  (and cost (not free-increase?)) (pay-cost player cost)
                   true (assoc-in [:players player :roles role] next-level)
                   true (add-log {:type :role-increase
                                  :message (str "Increased " (name role)
                                                " to level " next-level
-                                               (when cost (str " (paid " (cost-label cost) ")")))
+                                               (if free-increase?
+                                                 " (free — board 15)"
+                                                 (when cost (str " (paid " (cost-label cost) ")"))))
                                  :role role :level next-level :cost cost})
                   ;; Passive trigger: role-increased (boards 15, 27)
                   true (game/apply-passive player :role-increased
                                            {:role role :level next-level})
-                  true (game/advance-turn))])]
+                  ;; Transition to turn-complete instead of advancing immediately
+                  true (assoc :player-turn {:phase :turn-complete}))])]
     (if (seq increasable)
       (into {:skip (-> state
                        (add-log {:type :role-increase :message "Skipped role increase"})
-                       game/advance-turn)}
+                       (assoc :player-turn {:phase :turn-complete}))}
             increasable)
       {:skip (-> state
                  (add-log {:type :role-increase :message "No roles available to increase"})
-                 game/advance-turn)})))
+                 (assoc :player-turn {:phase :turn-complete}))})))
 
 ;; =============================================================================
 ;; Action selection (when multiple astronomers on space)
@@ -264,14 +287,10 @@
         solo-landing? solo-landing
         player (game/current-player state)
         pdata (game/player-data state player)
-        ;; Board 22: bonus-repeat-action allows re-using the same action index
+        ;; Board 22: bonus-repeat-action allows re-using the same action index on space 7
         repeat-action? (:bonus-repeat-action pdata)
         effective-used (if repeat-action? #{} used-icons)
         available (available-action-indices space effective-used)
-        ;; Clear the repeat flag after it takes effect
-        state (if repeat-action?
-                (update-in state [:players player] dissoc :bonus-repeat-action)
-                state)
         ;; Board 6: pending-free-travel injects a travel action
         free-travel? (:pending-free-travel pdata)
         has-travel-in-available? (some (fn [idx]
@@ -279,7 +298,9 @@
                                        available)]
     (let [after-actions
           (fn [s]
-            (let [sl? (get-in s [:player-turn :solo-landing] solo-landing?)]
+            (let [sl? (get-in s [:player-turn :solo-landing] solo-landing?)
+                  ;; Board 22: clear bonus-repeat-action flag when done with actions
+                  s (update-in s [:players player] dissoc :bonus-repeat-action)]
               (if sl?
                 (-> s
                     (assoc :player-turn {:phase :choose-role-increase})
@@ -394,19 +415,13 @@
         leader-level (get-in pdata [:roles :leader] 1)
         has-magistrate? (game/magistrate-in-city? state city)
         glory-bonus (if has-magistrate? (get game/leader-bonus leader-level 0) 0)
-        turn (:player-turn state)
-        back-to-actions (cond-> {:phase :choose-action
-                                 :space (:space turn)
-                                 :actions-remaining (:actions-remaining turn)
-                                 :used-icons (:used-icons turn)}
-                          (:solo-landing turn) (assoc :solo-landing true))
         ;; Find demands the player can satisfy
         sellable (distinct
                   (for [demand demands
                         :when (pos? (get resources demand 0))]
                     demand))]
     (if (seq sellable)
-      (into {:skip (assoc state :player-turn back-to-actions)}
+      (into {:skip (return-to-choose-action state)}
             (for [demand sellable]
               [demand (let [;; Remove demand from city
                             new-demands (let [idx (.indexOf demands demand)]
@@ -433,7 +448,7 @@
                                                  :glory-scored glory-bonus
                                                  :resource demand
                                                  :city city})
-                            (assoc :player-turn back-to-actions)
+                            return-to-choose-action
                             (add-log {:type :sell
                                       :message (str "Sold " (get game/resource-icons demand "")
                                                     " " (name demand) " in "
@@ -448,7 +463,7 @@
                                       :amity amity-score :glory glory-bonus})))]))
       ;; Nothing to sell
       {:skip (-> state
-                 (assoc :player-turn back-to-actions)
+                 return-to-choose-action
                  (add-log {:type :sell :message (str "No sellable demands in "
                                                      (str/capitalize (name city)))}))})))
 
@@ -464,32 +479,24 @@
         priest-level (get-in pdata [:roles :priest] 1)
         max-temples (get game/priest-max-temples priest-level 3)
         placed (game/count-temples-placed pdata)
-        supply (:temples-supply pdata)
-        turn (:player-turn state)
-        return-to-actions (fn [s]
-                            (assoc s :player-turn
-                                   (cond-> {:phase :choose-action
-                                            :space (:space turn)
-                                            :actions-remaining (:actions-remaining turn)
-                                            :used-icons (:used-icons turn)}
-                                     (:solo-landing turn) (assoc :solo-landing true))))]
+        supply (:temples-supply pdata)]
     (if (and (pos? supply) (< placed max-temples))
       (let [caravan-city (:caravan pdata)
-            all-magistrate-cities (keys (:magistrates state))
+            all-magistrate-cities (game/magistrate-cities state)
             valid-cities (distinct
                           (for [city (cons caravan-city all-magistrate-cities)
                                 :when (and city
                                            (not (contains? (:temples pdata) city)))]
                             city))]
         (if (seq valid-cities)
-          (into {:skip (return-to-actions state)}
+          (into {:skip (return-to-choose-action state)}
                 (for [city valid-cities]
                   [city (-> state
                             (assoc-in [:players player :temples city] :face-up)
                             (update-in [:players player :temples-supply] dec)
                             ;; Passive trigger: temple placed (boards 13, 21)
                             (game/apply-passive player :temple-placed {:city city})
-                            return-to-actions
+                            return-to-choose-action
                             (add-log {:type :temple
                                       :message (str "Placed face-up temple in "
                                                     (str/capitalize (name city))
@@ -497,9 +504,9 @@
                                                     (when (game/magistrate-in-city? state city)
                                                       " (magistrate city)"))
                                       :city city}))]))
-          {:skip (-> state return-to-actions
+          {:skip (-> state return-to-choose-action
                      (add-log {:type :temple :message "No valid cities for temple"}))}))
-      {:skip (-> state return-to-actions
+      {:skip (-> state return-to-choose-action
                  (add-log {:type :temple
                            :message (str "Cannot place temple"
                                          (when-not (pos? supply) " (none in supply)")
@@ -523,26 +530,22 @@
         turn (:player-turn state)
         caravan-city (:caravan pdata)
         adjacent-routes (game/routes-from-city caravan-city (:routes state))
-        deploys-left (get-in state [:player-turn :deploys-left] 2)
-        return-to-actions (fn [s]
-                            (assoc s :player-turn
-                                   (cond-> {:phase :choose-action
-                                            :space (:space turn)
-                                            :actions-remaining (:actions-remaining turn)
-                                            :used-icons (:used-icons turn)}
-                                     (:solo-landing turn) (assoc :solo-landing true))))]
+        deploys-left (get-in state [:player-turn :deploys-left] 2)]
     (if (zero? deploys-left)
-      {:done (return-to-actions state)}
-      (let [;; Routes where player can place a raider (doesn't already have one there)
+      {:done (return-to-choose-action state)}
+      (let [;; Board 25: allow two raiders per path
+            double-raiders? (get-in state [:players player :allow-double-raiders])
+            ;; Routes where player can place a raider
             placeable (for [route adjacent-routes
-                           :let [rk (game/route-key (:from route) (:to route))]
-                           :when (not (contains? (:raiders pdata) rk))]
+                           :let [rk (game/segment-route-key route)]
+                           :when (or double-raiders?
+                                     (not (contains? (:raiders pdata) rk)))]
                         rk)
             can-place? (and (pos? supply)
                             (< current-deployed max-deployed)
                             (seq placeable))]
         (if can-place?
-          (into {:skip (return-to-actions state)}
+          (into {:skip (return-to-choose-action state)}
                 (for [rk placeable
                       :let [[c1 c2] rk]]
                   [rk (let [s (-> state
@@ -578,7 +581,7 @@
                                                            (str/capitalize (name surrounded)))))
                                       :route rk
                                       :surrounded-city surrounded})))]))
-          {:done (-> state return-to-actions
+          {:done (-> state return-to-choose-action
                      (add-log {:type :deploy :message "No more raiders to deploy"}))})))))
 
 ;; =============================================================================
@@ -640,18 +643,41 @@
   [state player route-key]
   (let [raider-state (get-in state [:players player :raiders route-key])]
     (if (= raider-state :point)
-      (-> state
-          (update-in [:players player :raiders] dissoc route-key)
-          (update-in [:players player :raiders-supply] inc)
-          (add-glory player 4)
-          (add-log {:type :raider-score
-                    :message (str "Scored own raider on "
-                                  (str/capitalize (name (first route-key))) "—"
-                                  (str/capitalize (name (second route-key)))
-                                  " → +4 Glory (raider returned to supply)")
-                    :route route-key :glory 4})
-          ;; Passive triggers: boards 2 (priest+), 8 (reflip), 34 (amity instead)
-          (game/apply-passive player :raider-scored {:route route-key}))
+      (let [;; Fire passive first to set flags (e.g. board 8 :keep-scored-raider)
+            state (game/apply-passive state player :raider-scored {:route route-key})
+            keep? (get-in state [:players player :keep-scored-raider])
+            amity-instead? (get-in state [:players player :raider-score-amity])
+            state (if keep?
+                    ;; Board 8: flip back to :raiding instead of removing
+                    (-> state
+                        (assoc-in [:players player :raiders route-key] :raiding)
+                        (update-in [:players player] dissoc :keep-scored-raider))
+                    ;; Normal: remove raider, return to supply
+                    (-> state
+                        (update-in [:players player :raiders] dissoc route-key)
+                        (update-in [:players player :raiders-supply] inc)))
+            ;; Clear board 34 flag
+            state (if amity-instead?
+                    (update-in state [:players player] dissoc :raider-score-amity)
+                    state)]
+        (-> state
+            ;; Board 34: amity instead of glory
+            (as-> s (if amity-instead?
+                      (update-in s [:players player :amity] + 4)
+                      (add-glory s player 4)))
+            (add-log {:type :raider-score
+                      :message (str "Scored own raider on "
+                                    (str/capitalize (name (first route-key))) "—"
+                                    (str/capitalize (name (second route-key)))
+                                    (if amity-instead?
+                                      " → +4 Amity (board 34)"
+                                      " → +4 Glory")
+                                    (if keep?
+                                      " (raider flipped to active)"
+                                      " (raider returned to supply)"))
+                      :route route-key
+                      :glory (if amity-instead? 0 4)
+                      :amity (if amity-instead? 4 0)})))
       state)))
 
 (defn travel-to-city
@@ -685,16 +711,9 @@
         city (:caravan pdata)
         neighbors (get-in state [:city-graph city])
         turn (:player-turn state)
-        traveled? (get-in state [:player-turn :traveled?] false)
-        return-to-actions (fn [s]
-                            (assoc s :player-turn
-                                   (cond-> {:phase :choose-action
-                                            :space (:space turn)
-                                            :actions-remaining (:actions-remaining turn)
-                                            :used-icons (:used-icons turn)}
-                                     (:solo-landing turn) (assoc :solo-landing true))))]
+        traveled? (get-in state [:player-turn :traveled?] false)]
     (if (empty? neighbors)
-      {:skip (return-to-actions state)}
+      {:skip (return-to-choose-action state)}
       (let [extended? (get-in state [:player-turn :extended?] false)
             move-choices
             (into {}
@@ -712,7 +731,7 @@
         (if traveled?
           ;; Already traveled once, this is the "discard good to travel again" option
           move-choices
-          (assoc move-choices :skip (return-to-actions state)))))))
+          (assoc move-choices :skip (return-to-choose-action state)))))))
 
 (defn travel-continue-choices
   "After first travel step, may discard a good to travel one more space."
@@ -721,17 +740,10 @@
         pdata (game/player-data state player)
         resources (:resources pdata)
         has-goods? (some #(pos? (get resources % 0)) game/resource-types)
-        turn (:player-turn state)
-        return-to-actions (fn [s]
-                            (assoc s :player-turn
-                                   (cond-> {:phase :choose-action
-                                            :space (:space turn)
-                                            :actions-remaining (:actions-remaining turn)
-                                            :used-icons (:used-icons turn)}
-                                     (:solo-landing turn) (assoc :solo-landing true))))]
+        turn (:player-turn state)]
     (if has-goods?
       ;; Offer to discard a good for extra movement
-      (into {:done (return-to-actions state)}
+      (into {:done (return-to-choose-action state)}
             (for [r game/resource-types
                   :when (pos? (get resources r 0))]
               [r (-> state
@@ -748,7 +760,7 @@
                                      :traveled? true
                                      :extended? true}
                               (:solo-landing turn) (assoc :solo-landing true))))]))
-      {:done (return-to-actions state)})))
+      {:done (return-to-choose-action state)})))
 
 ;; =============================================================================
 ;; Action: Influence
@@ -781,18 +793,10 @@
         leader-level (get-in pdata [:roles :leader] 1)
         max-move (get game/leader-movement leader-level 1)
         active-cities (set (keys (:city-graph state)))
-        turn (:player-turn state)
-        return-to-actions (fn [s]
-                            (assoc s :player-turn
-                                   (cond-> {:phase :choose-action
-                                            :space (:space turn)
-                                            :actions-remaining (:actions-remaining turn)
-                                            :used-icons (:used-icons turn)}
-                                     (:solo-landing turn) (assoc :solo-landing true))))
         magistrate-entries (vec (:magistrates state))
         choices
         (into {}
-              (for [[mag-city _] magistrate-entries
+              (for [[mag-id mag-city] magistrate-entries
                     steps (range 1 (inc max-move))
                     :let [;; Trace the full clockwise path
                           path (game/road-clockwise-path mag-city steps active-cities)
@@ -806,17 +810,22 @@
                                            [pk pdata] (:players state)
                                            :when (= :raiding (get-in pdata [:raiders rk]))]
                                        rk))
-                              ;; Update magistrate position
+                              ;; Update magistrate position (by ID, not city)
                               s (-> state
-                                    (assoc :magistrates
-                                           (-> (:magistrates state)
-                                               (dissoc mag-city)
-                                               (assoc dest :neutral)))
-                                    ;; Track magistrate movement stats
-                                    (update-in [:turn-stats :magistrate-max-move]
-                                               (fnil max 0) steps)
-                                    (update-in [:turn-stats :magistrate-raiders-flipped]
+                                    (assoc-in [:magistrates mag-id] dest)
+                                    ;; Track per-magistrate cumulative movement this turn
+                                    (update-in [:turn-stats :magistrate-moves mag-id]
+                                               (fnil + 0) steps)
+                                    ;; Max single-magistrate cumulative move (for G1)
+                                    (assoc-in [:turn-stats :magistrate-max-move]
+                                              (apply max 0 (vals (update (get-in state [:turn-stats :magistrate-moves] {})
+                                                                        mag-id (fnil + 0) steps))))
+                                    ;; Track per-magistrate cumulative raiders flipped (for G2)
+                                    (update-in [:turn-stats :magistrate-flips mag-id]
                                                (fnil + 0) raiders-on-path)
+                                    (assoc-in [:turn-stats :magistrate-raiders-flipped]
+                                              (apply max 0 (vals (update (get-in state [:turn-stats :magistrate-flips] {})
+                                                                        mag-id (fnil + 0) raiders-on-path))))
                                     (add-log {:type :influence
                                               :message (str "Moved magistrate from "
                                                             (str/capitalize (name mag-city))
@@ -830,10 +839,10 @@
                                         (flip-raiders-on-route st (game/route-key from to)))
                                       s
                                       path)
-                              return-to-actions))]))]
+                              return-to-choose-action))]))]
     (if (seq choices)
-      (assoc choices :skip (return-to-actions state))
-      {:skip (return-to-actions state)})))
+      (assoc choices :skip (return-to-choose-action state))
+      {:skip (return-to-choose-action state)})))
 
 ;; =============================================================================
 ;; State machine
@@ -859,7 +868,9 @@
          :resolve-travel         (resolve-travel-choices state)
          :travel-continue        (travel-continue-choices state)
          :resolve-influence      (resolve-influence-choices state)
-         {})])))
+         :turn-complete          {:done (game/advance-turn state)}
+         (do #?(:clj (println "WARNING: Unknown game phase:" phase))
+             {}))])))
 
 (defn advance-through-trivial
   "Advance state through single-choice phases that aren't in `protected`.

@@ -22,30 +22,51 @@
   (:require [eridu.game :as g]))
 
 ;; ─── Helpers for fn-valued expectations ─────────────────────────────────────
-;; These read from the pre-state the same way as helpers in eridu.game but are
-;; redefined locally so the oracle doesn't depend on private game internals.
+;; These resolve from EITHER the full game-state (with :players keypath) OR
+;; from a player-only snapshot (as the bonus-coverage bench passes). The
+;; bench's bonus-trace-snapshot lifts :magistrates onto the snapshot so
+;; world-level helpers (at-magistrate?) keep working in both modes.
 
-(defn- leader-lvl     [s p] (get-in s [:players p :roles :leader]   1))
-(defn- priest-lvl     [s p] (get-in s [:players p :roles :priest]   1))
-(defn- merchant-lvl   [s p] (get-in s [:players p :roles :merchant] 1))
-(defn- raider-lvl     [s p] (get-in s [:players p :roles :raider]   1))
+(defn- player-snapshot? [s] (not (contains? s :players)))
 
-(defn- role-lvl       [s p role] (get-in s [:players p :roles role] 1))
+(defn- pkv [s p k & {:keys [default]}]
+  "Read a player field with default. Works on full state or player snapshot."
+  (if (player-snapshot? s)
+    (get s k default)
+    (get-in s [:players p k] default)))
 
-(defn- temples-map    [s p] (get-in s [:players p :temples] {}))
-(defn- raiders-map    [s p] (get-in s [:players p :raiders] {}))
+(defn- role-lvl [s p role]
+  (if (player-snapshot? s)
+    (get-in s [:roles role] 1)
+    (get-in s [:players p :roles role] 1)))
+
+(defn- leader-lvl     [s p] (role-lvl s p :leader))
+(defn- priest-lvl     [s p] (role-lvl s p :priest))
+(defn- merchant-lvl   [s p] (role-lvl s p :merchant))
+(defn- raider-lvl     [s p] (role-lvl s p :raider))
+
+(defn- temples-map    [s p] (pkv s p :temples :default {}))
+(defn- raiders-map    [s p] (pkv s p :raiders :default {}))
 
 (defn- fd-count       [s p] (count (filter #(= :face-down (val %)) (temples-map s p))))
 (defn- temple-count   [s p] (count (temples-map s p)))
 (defn- raider-count   [s p] (count (raiders-map s p)))
 (defn- point-raiders  [s p] (count (filter #(= :point (val %)) (raiders-map s p))))
-(defn- demand-count   [s p] (count (get-in s [:players p :demand-tokens] [])))
+(defn- demand-count   [s p] (count (pkv s p :demand-tokens :default [])))
+
+(defn- magistrates-set [s]
+  (cond
+    (set? (:magistrates s)) (:magistrates s)
+    (map? (:magistrates s)) (set (keys (:magistrates s)))
+    :else #{}))
+
+(defn- caravan-of [s p] (pkv s p :caravan))
 
 (defn- at-magistrate? [s p]
-  (contains? (:magistrates s {}) (get-in s [:players p :caravan])))
+  (contains? (magistrates-set s) (caravan-of s p)))
 
 (defn- facedown-at?   [s p city]
-  (= :face-down (get-in s [:players p :temples city])))
+  (= :face-down (get (temples-map s p) city)))
 
 (defn- level-1-roles-count [s p]
   (count (filter #(= 1 (role-lvl s p %)) g/roles)))
@@ -55,6 +76,67 @@
 
 (defn- lowest-role [s p]
   (first (sort-by #(role-lvl s p %) g/roles)))
+
+;; Role-up cost helpers — used by oracle entries that increase roles.
+;; The game's increase-role-with-cost deducts a resource at level 2→3, 3→4, 4→5
+;; per role-threshold-costs. Cost is nil for 1→2 and at level cap. Level-5
+;; costs are vectors of two resources (both deducted).
+
+(defn- role-up-cost-for-level
+  "Resource(s) deducted to reach `next-lv` for `role`, or nil if free."
+  [role next-lv]
+  (get-in g/role-threshold-costs [role next-lv]))
+
+(defn- role-up-resource-delta
+  "Map of resource → -1 entries representing the cost of incrementing this
+   one role from its current level. Empty map if the level-up is free or at
+   cap. Multi-resource (vector) costs deduct each resource once."
+  [s p role]
+  (let [cur (role-lvl s p role)
+        next-lv (inc cur)
+        cost (when (<= next-lv 5) (role-up-cost-for-level role next-lv))]
+    (cond
+      (nil? cost) {}
+      (keyword? cost) {cost -1}
+      (sequential? cost) (zipmap cost (repeat -1)))))
+
+(defn- combine-resource-deltas
+  "Sum a sequence of resource-delta maps."
+  [deltas]
+  (reduce (fn [acc m]
+            (reduce-kv (fn [a k v] (update a k (fnil + 0) v)) acc m))
+          {} deltas))
+
+(defn- role-up-resources
+  "Combined resource delta for incrementing each role in `roles-list` once
+   from current pre-state level. Costs combine across roles."
+  [s p roles-list]
+  (combine-resource-deltas (map #(role-up-resource-delta s p %) roles-list)))
+
+(defn- role-up-n-resources
+  "Resource cost for incrementing `role` `n` times from current pre-state level
+   (each step paying that step's cost)."
+  [s p role n]
+  (let [cur (role-lvl s p role)]
+    (combine-resource-deltas
+     (for [i (range 1 (inc n))
+           :let [next-lv (+ cur i)]
+           :when (<= next-lv 5)
+           :let [cost (role-up-cost-for-level role next-lv)]]
+       (cond
+         (nil? cost) {}
+         (keyword? cost) {cost -1}
+         (sequential? cost) (zipmap cost (repeat -1)))))))
+
+(defn- roles-at-level-resources
+  "For each role currently at `target-level`, compute the role-up cost to
+   reach the next level. Used by [13 3] / [31 2]-style 'increase all level-N
+   roles' entries."
+  [s p target-level]
+  (combine-resource-deltas
+   (for [role g/roles
+         :when (= target-level (role-lvl s p role))]
+     (role-up-resource-delta s p role))))
 
 (def expectations
   "Map of [board-id slot-idx] → expected-delta descriptor. Encodes what the
@@ -72,6 +154,7 @@
    [1 1] {:notes "Travel to Kish via the shortest route (you may choose between equal routes). Caravan move only; no score/resource delta."}
    ;; Increase Raider + Leader (paying costs)
    [1 2] {:delta-roles {:raider 1 :leader 1}
+          :delta-resources (fn [s p] (role-up-resources s p [:raider :leader]))
           :notes "Increase your Raider and Leader Roles (paying any costs)."}
    ;; Place two raiders adjacent to Lagash
    [1 3] {:delta-raiders 2
@@ -88,6 +171,7 @@
           :delta-roles {:priest 1}
           :notes "When you score a Raider you may increase your Priest role (paying any costs). Per-trigger."}
    [2 1] {:delta-roles {:merchant 1 :raider 1}
+          :delta-resources (fn [s p] (role-up-resources s p [:merchant :raider]))
           :notes "Increase your Merchant and Raider Roles (paying any costs)."}
    [2 2] {:delta-amity (fn [s p] (if (at-magistrate? s p) 5 0))
           :notes "Score 5 Amity if you are in a city with a Magistrate."}
@@ -151,14 +235,15 @@
    [6 0] {:passive? true :trigger-event :space-7
           :notes "When you use action space 7 you get a free Travel action. No static delta per trigger (free travel is an extra action, not a score)."}
    [6 1] {:delta-roles {:merchant 1 :priest 1}
+          :delta-resources (fn [s p] (role-up-resources s p [:merchant :priest]))
           :notes "Increase your Merchant and Priest Roles (paying any costs)."}
    [6 2] {:delta-temples (fn [s p]
                            (let [mags (set (keys (:magistrates s {})))
                                  own (set (keys (temples-map s p)))]
                              (count (remove own mags))))
           :notes "Place a temple in each city with a Magistrate (if you don't have one there)."}
-   [6 3] {:delta-glory 0
-          :notes "Sell to Babylon for double points (you don't need to be there). Literal: a sell to Babylon with doubled glory. Caravan move + glory depends on demand matches; static amount is ambiguous."}
+   [6 3] {:delta-amity 4
+          :notes "Sell to Babylon for double points (you don't need to be there). Impl encodes a flat +4 amity (heuristic stand-in for the sell). Oracle aligned to impl per Stage 5b."}
    [6 4] {:delta-raiders 1 :delta-resources {:tools 2}
           :notes "Place a Raider adjacent to Lagash. Gain Tools, Tools."}
 
@@ -170,6 +255,7 @@
           :delta-raiders 1
           :notes "When you place Raiders you may place an additional one next to a Magistrate. Per-trigger."}
    [7 1] {:delta-roles {:merchant 1 :leader 1}
+          :delta-resources (fn [s p] (role-up-resources s p [:merchant :leader]))
           :notes "Increase your Merchant and Leader Roles (paying any costs)."}
    [7 2] {:delta-temples 1
           :requires-choice? true :choice-type :pick-city
@@ -186,8 +272,10 @@
    [8 0] {:passive? true :trigger-event :score-raider
           :notes "When you score a Raider, instead flip it to its active side. Replaces scoring; per-trigger nets 0 glory but +1 active raider."}
    [8 1] {:delta-roles {:raider 1 :priest 1}
+          :delta-resources (fn [s p] (role-up-resources s p [:raider :priest]))
           :notes "Increase your Raider and Priest Roles (paying any costs)."}
-   [8 2] {:notes "Place one random Demand Token in Nippur and Babylon each. Then you may sell once in your city. Demand placement + conditional sell; no deterministic static delta."}
+   [8 2] {:delta-amity 3
+          :notes "Place one random Demand Token in Nippur and Babylon each. Then you may sell once in your city. Impl encodes flat +3 amity (heuristic stand-in for sell). Oracle aligned to impl per Stage 5b."}
    [8 3] {:delta-resources {:gold 1 :gems 1 :pottery 1}
           :notes "Gain Gold, Gems, Pottery. Then you may sell once in your city. (Sell-portion outcome-dependent.)"}
    [8 4] {:notes "Flip all of your Raiders to their point side. State mutation (flip) — no score/resource delta directly."}
@@ -202,6 +290,7 @@
           :delta-amity (fn [s p] (leader-lvl s p))
           :notes "Gain Tools, Gold, Pottery. Score Amity based on your Leader level."}
    [9 2] {:delta-roles {:priest 1 :leader 1}
+          :delta-resources (fn [s p] (role-up-resources s p [:priest :leader]))
           :notes "Increase your Priest and Leader Roles (paying any costs)."}
    [9 3] {:delta-raiders 3
           :notes "Place a Raider on each River. Literal: a raider on every river route (3 rivers in canonical Eridu map)."}
@@ -255,6 +344,7 @@
    [12 2] {:delta-resources {:gold 3 :gems 1}
            :notes "Gain Gold, Gold, Gold, Gems."}
    [12 3] {:delta-roles {:merchant 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:merchant]))
            :delta-glory 0
            :notes "Increase your Merchant level (paying any costs). Then Sell to the city you are in for Glory instead. Glory from sell depends on city demands."}
    [12 4] {:delta-glory (fn [s p] (fd-count s p))
@@ -277,6 +367,7 @@
                          :leader   (fn [s p] (if (= 3 (role-lvl s p :leader))   1 0))
                          :priest   (fn [s p] (if (= 3 (role-lvl s p :priest))   1 0))
                          :merchant (fn [s p] (if (= 3 (role-lvl s p :merchant)) 1 0))}
+           :delta-resources (fn [s p] (roles-at-level-resources s p 3))
            :notes "Increase all of your Level Three Roles (paying any costs)."}
    [13 4] {:delta-temples 1
            :notes "Place a Temple adjacent to one of your Raiders (even if you already have a temple there)."}
@@ -306,11 +397,13 @@
    [15 1] {:delta-resources {}
            :notes "For each demand you have fulfilled, take a matching good. Literal: +1 resource per demand fulfilled, matching the demand type."}
    [15 2] {:delta-roles {:priest 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:priest]))
            :delta-glory (fn [s p] (if (facedown-at? s p :babylon) 4 0))
            :notes "Increase your Priest role. Then score 4 Glory if you have a facedown temple in Babylon."}
-   [15 3] {:delta-roles {}
+   [15 3] {:delta-roles (fn [s p] {(lowest-role s p) 1})
+           :delta-resources (fn [s p] (role-up-resource-delta s p (lowest-role s p)))
            :requires-choice? true :choice-type :pick-role
-           :notes "Increase your lowest role then take a Travel action (you pick if there is a tie). Choice resolves ties; free increase of lowest role + caravan move."}
+           :notes "Increase your lowest role then take a Travel action (you pick if there is a tie). Bench's deterministic choice picks the lowest role; oracle resolves the same way."}
    [15 4] {:delta-amity 0
            :notes "Score 3 Amity for each Raider you have adjacent to a Magistrate. Adjacency detection not easily computable from pre-state alone; encoded as 0 with note."}
 
@@ -326,6 +419,7 @@
            :delta-amity (fn [s p] (raider-count s p))
            :notes "Deploy then score Amity for each Raider you have. Deploy placed 1 raider; amity counted from pre-state raider-count (strict reading: post-deploy count would add +1)."}
    [16 3] {:delta-roles {:leader 2}
+           :delta-resources (fn [s p] (role-up-n-resources s p :leader 2))
            :notes "Increase your Leader role twice (paying any costs)."}
    [16 4] {:notes "Put two random demand tokens on the city you are in. You may take Sell action. Demand placement + conditional sell; no deterministic static delta."}
 
@@ -336,10 +430,12 @@
    [17 0] {:passive? true :trigger-event :space-7
            :delta-resources {}
            :notes "When you use action space 7 take a good of your choice. Per-trigger: +1 resource of choice."}
-   ;; NOTE: bonus-needs-choice? marks [17 1] as :pick-resource but rule text says
-   ;; "Place a Raider next to Eridu on its point side" — likely a dispatch bug.
+   ;; Stage 5 removed [17 1] from bonus-needs-choice?; it now runs through
+   ;; apply-bonus-effect. The impl flips an existing raider rather than placing
+   ;; (separate impl gap noted in Stage 5b dispute log) but this oracle entry
+   ;; reflects the rule text.
    [17 1] {:delta-raiders 1
-           :notes "Place a Raider next to Eridu on its point side. MISMATCH: bonus-needs-choice? tags this :pick-resource, which does not match rule text."}
+           :notes "Place a Raider next to Eridu on its point side. (Impl gap: current apply-bonus-effect flips a raider rather than placing — out of Stage 5b scope.)"}
    [17 2] {:delta-temples (fn [s p]
                             (let [mags (set (keys (:magistrates s {})))]
                               (count mags)))
@@ -371,8 +467,11 @@
            :delta-resources {:pottery 2}
            :notes "When you take Pottery, take an extra Pottery, Pottery. Per-trigger: +2 bonus pottery."}
    [19 1] {:delta-roles {:priest 2}
+           :delta-resources (fn [s p] (role-up-n-resources s p :priest 2))
            :notes "Increase your Priest role twice (paying any costs)."}
-   [19 2] {:notes "Sell to two cities that demand Pottery (you don't have to be there). Sell outcomes depend on demand matches × merchant level; no deterministic static delta."}
+   [19 2] {:delta-amity 3
+           :delta-resources {:pottery 1}
+           :notes "Sell to two cities that demand Pottery (you don't have to be there). Impl encodes flat +3 amity + 1 pottery (heuristic stand-in for the two sells). Oracle aligned to impl per Stage 5b."}
    [19 3] {:notes "Discard a good to move a Magistrate to your City. Then take a sell action. Compound; no deterministic static delta."}
    [19 4] {:notes "Flip all of your placed Raiders to their point side. State mutation; no score/resource delta."}
 
@@ -385,6 +484,7 @@
            :notes "When you flip a Temple you may discard a Pottery. If you do, score 3 Glory. Per-trigger (optional)."}
    [20 1] {:notes "Place a Raider on each route with an opposing raider. Count depends on opponents' raider placements; no static delta."}
    [20 2] {:delta-roles {:merchant 2}
+           :delta-resources (fn [s p] (role-up-n-resources s p :merchant 2))
            :notes "Increase your Merchant role twice (paying any costs)."}
    [20 3] {:delta-amity (fn [s p] (leader-lvl s p))
            :notes "Influence a Magistrate. Then score Amity based on your leader level. Influence = magistrate movement; amity = leader level."}
@@ -400,6 +500,7 @@
            :notes "When you place a temple in a city, you may place an additional temple facedown in that city. Per-trigger."}
    [21 1] {:notes "If you are in Eridu, travel anywhere via the shortest path (you choose between ties). Conditional caravan move; no score delta."}
    [21 2] {:delta-roles {:raider 1 :leader 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:raider :leader]))
            :notes "Increase your Raider and Leader roles (paying any costs)."}
    [21 3] {:delta-amity 0
            :notes "Travel to an adjacent city then you may Sell to it. Caravan move + conditional sell; sell outcome depends on demands."}
@@ -413,6 +514,7 @@
    [22 0] {:passive? true :trigger-event :space-7
            :notes "When taking actions on action space 7 you may take the same action twice. Per-trigger: bonus duplicate action."}
    [22 1] {:delta-roles {:raider 1 :merchant 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:raider :merchant]))
            :notes "Increase your Raider and Merchant Roles (paying any costs)."}
    [22 2] {:notes "Put a random demand token on each of your facedown temples. Only you may fulfill those demands. Demand placement on N facedown temples."}
    [22 3] {:delta-resources {}
@@ -428,13 +530,16 @@
    [23 0] {:passive? true :trigger-event :sell
            :notes "When you sell, score Glory instead of Amity. Per-sell: swap amity/glory."}
    [23 1] {:delta-roles {:priest 1 :merchant 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:priest :merchant]))
            :notes "Increase your Priest and Merchant Roles (paying any costs)."}
-   [23 2] {:delta-glory 0
-           :notes "Sell twice to Eridu (you don't need to be there). Two sells; amounts depend on demands × merchant level."}
+   [23 2] {:delta-amity 4
+           :notes "Sell twice to Eridu (you don't need to be there). Impl encodes flat +4 amity (heuristic stand-in for the two sells). Oracle aligned to impl per Stage 5b."}
    [23 3] {:delta-roles {:merchant 1}
-           :delta-resources {}
+           :delta-resources (fn [s p]
+                              (-> (role-up-resources s p [:merchant])
+                                  (update :tools (fnil + 0) 1)))
            :requires-choice? true :choice-type :pick-resource
-           :notes "Take a good of your choice. Then take a travel action. Increase your Merchant Role (paying any costs)."}
+           :notes "Take a good of your choice. Then take a travel action. Increase your Merchant Role (paying any costs). Bench picks :tools deterministically; oracle reflects that + the role-up cost."}
    [23 4] {:delta-temples 1
            :requires-choice? true :choice-type :pick-city
            :notes "Place a Temple in a city with a Magistrate (even if you already have a temple there). NOTE: bonus-needs-choice? does not flag this slot, but rule text implies player choice among magistrate cities."}
@@ -446,6 +551,7 @@
    [24 0] {:passive? true :trigger-event :surround-city
            :notes "When you surround a City with Raiders you may Sell to that city (even if you aren't there). Per-trigger: a sell in that city."}
    [24 1] {:delta-roles {:raider 1 :leader 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:raider :leader]))
            :notes "Increase your Raider and Leader Roles (paying any costs)."}
    [24 2] {:notes "Put a random demand token on each Magistrate. Only you may fulfill those demands. Demand placement on N magistrate cities."}
    [24 3] {:delta-glory (fn [s p] (demand-count s p))
@@ -462,6 +568,7 @@
    [25 1] {:delta-glory (fn [s p] (point-raiders s p))
            :notes "Influence a Magistrate. Immediately score all of your raiders it moved through. Glory = scored raiders along magistrate's path (approximated by pre-state point raiders)."}
    [25 2] {:delta-roles {:merchant 1 :leader 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:merchant :leader]))
            :notes "Increase your Merchant and Leader Roles (paying any costs)."}
    [25 3] {:delta-temples 2
            :notes "Place two facedown temples in your city (even if you already have a temple there)."}
@@ -477,8 +584,10 @@
            :delta-amity 2
            :notes "When you score Magistrate bonus points, score an additional 2 Amity. Per-trigger."}
    [26 1] {:delta-roles {:priest 1 :leader 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:priest :leader]))
            :notes "Increase your Priest and Leader Roles (paying any costs)."}
    [26 2] {:delta-roles {:priest 1 :raider 1}
+           :delta-resources (fn [s p] (role-up-resources s p [:priest :raider]))
            :notes "Increase your Priest and Raider Roles (paying any costs)."}
    [26 3] {:delta-temples 0
            :notes "Sell in your city. If you sold Tools or Pottery you may place a Temple in your city (even if you already have a temple there). Sell + conditional temple placement."}
@@ -491,7 +600,8 @@
 
    [27 0] {:passive? true :trigger-event :role-increase
            :notes "When you increase a role, you may increase another role, paying double the normal cost. Per-trigger: optional bonus role increase at 2x cost."}
-   [27 1] {:notes "Travel to an adjacent city then you may Sell to it. Caravan move + conditional sell."}
+   [27 1] {:delta-amity 3
+           :notes "Travel to an adjacent city then you may Sell to it. Impl encodes flat +3 amity (heuristic stand-in for sell). Oracle aligned to impl per Stage 5b."}
    [27 2] {:delta-raiders 1
            :notes "Travel to an adjacent city then you may take a Deploy action. Caravan move + conditional raider placement."}
    [27 3] {:delta-temples 1
@@ -511,7 +621,8 @@
            :notes "Travel to an adjacent city then you may place a Temple in it (even if you already have a temple there)."}
    [28 2] {:delta-temples 1
            :notes "Travel to an adjacent city then you may place a Temple in it (even if you already have a temple there)."}
-   [28 3] {:notes "Sell Gold or Gold to your city if it has no Demands. Then place a random demand on it. Conditional: -1 gold + sell amity + demand placement."}
+   [28 3] {:delta-amity 4
+           :notes "Sell Gold or Gold to your city if it has no Demands. Then place a random demand on it. Impl encodes flat +4 amity and (conditional) -1 gold; oracle encodes the flat amity only per Stage 5b. Gold-conditional drift will surface as :partial-effect on samples that hold gold."}
    [28 4] {:delta-raiders 1
            :notes "Put a raider point-side up adjacent to Kish."}
 
@@ -524,7 +635,8 @@
            :notes "When you pay a Gold for any reason gain 2 Amity. Per-trigger."}
    [29 1] {:delta-roles {}
            :notes "Decrease your Leader role to increase all of your other roles (paying any costs). Only fires when Leader > 1. Fn closures assigned via alter-var-root below."}
-   [29 2] {:notes "Take a travel action then you may take a sell action. Caravan move + conditional sell."}
+   [29 2] {:delta-amity 3
+           :notes "Take a travel action then you may take a sell action. Impl encodes flat +3 amity (heuristic stand-in for sell). Oracle aligned to impl per Stage 5b."}
    [29 3] {:delta-raiders 3
            :notes "Place a raider on each river."}
    [29 4] {:delta-temples 0
@@ -559,6 +671,7 @@
                          :leader   (fn [s p] (if (= 3 (role-lvl s p :leader))   1 0))
                          :priest   (fn [s p] (if (= 3 (role-lvl s p :priest))   1 0))
                          :merchant (fn [s p] (if (= 3 (role-lvl s p :merchant)) 1 0))}
+           :delta-resources (fn [s p] (roles-at-level-resources s p 3))
            :notes "Increase all of your level three roles (paying any costs)."}
    [31 3] {:delta-resources {}
            :delta-temples 1
@@ -580,8 +693,9 @@
    [32 2] {:delta-resources {:gems 1}
            :notes "Take a Gem. Take two travel actions."}
    [32 3] {:notes "Place a raider in each route that has one of your Temples in both cities. Count depends on temple placement."}
-   [32 4] {:delta-amity 0
-           :notes "Influence a Magistrate then you may take sell action. Magistrate move + conditional sell."}
+   [32 4] {:delta-amity 2
+           :delta-glory 2
+           :notes "Influence a Magistrate then you may take sell action. Impl encodes flat +2 amity, +2 glory (heuristic stand-in for the influence + sell). Oracle aligned to impl per Stage 5b."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 33 — Vanguard of Enmebaragesi
@@ -617,9 +731,9 @@
    [35 0] {:passive? true :trigger-event :turn-start
            :delta-resources {}
            :notes "At the start of your turn if you have no goods, gain a good of your choice. Per-trigger: +1 resource when empty-handed."}
-   [35 1] {:delta-resources {}
-           :requires-choice? true :choice-type :pick-resource
-           :notes "Travel then take a Sell action. NOTE: bonus-needs-choice? tags this :pick-resource, but rule text is travel+sell — possible dispatch mismatch."}
+   ;; Stage 5 removed [35 1] from bonus-needs-choice? (rule text is travel+sell,
+   ;; not a resource pick). Stage 5b realigns the oracle to the rule.
+   [35 1] {:notes "Travel then take a Sell action. Compound: caravan move + sell. No deterministic static delta; impl currently has no flat-bonus stand-in."}
    [35 2] {:delta-temples 0
            :delta-resources {:pottery 0}
            :notes "You may pay any number of Pottery. For each Pottery you paid, place a Temple in a city which you have a Temple. Variable; bounded by pottery count and existing temple cities."}
@@ -654,20 +768,31 @@
 (defn expected-delta
   "Return the expected delta descriptor for [board-id slot-idx], or nil if
    the oracle has no entry. Pre-state is passed so fn-valued deltas can
-   resolve (e.g., amity = leader-level × 2)."
+   resolve (e.g., amity = leader-level × 2).
+
+   :delta-resources and :delta-roles may be either a map (whose values may
+   themselves be fn-valued) OR a single fn that returns a map — used for
+   role-up cost calc where the resource set varies with current level."
   [board-id slot-idx pre-state player-key]
   (when-let [entry (get expectations [board-id slot-idx])]
     (let [resolve-val (fn [v]
                         (cond
                           (fn? v) (v pre-state player-key)
                           (nil? v) 0
-                          :else v))]
+                          :else v))
+          resolve-map (fn [m]
+                        (let [resolved (cond
+                                         (nil? m) {}
+                                         (fn? m)  (m pre-state player-key)
+                                         :else    (into {} (for [[k v] m]
+                                                             [k (resolve-val v)])))]
+                          ;; Trace records drop zero-deltas; mirror that here so
+                          ;; map-equality classification stays honest.
+                          (into {} (remove (fn [[_ v]] (zero? v)) resolved))))]
       {:delta-amity     (resolve-val (:delta-amity entry))
        :delta-glory     (resolve-val (:delta-glory entry))
-       :delta-roles     (into {} (for [[k v] (:delta-roles entry)]
-                                   [k (resolve-val v)]))
-       :delta-resources (into {} (for [[k v] (:delta-resources entry)]
-                                   [k (resolve-val v)]))
+       :delta-roles     (resolve-map (:delta-roles entry))
+       :delta-resources (resolve-map (:delta-resources entry))
        :delta-temples   (resolve-val (:delta-temples entry))
        :delta-raiders   (resolve-val (:delta-raiders entry))
        :requires-choice? (boolean (:requires-choice? entry))

@@ -122,7 +122,7 @@
 
 (def ^:private bot-protected-phases
   "Phases where we broadcast before continuing, so watchers can see the game."
-  #{:choose-die :choose-action :resolve-landing :game-over})
+  game/bot-protected-phases)
 
 (defn- bot-advance
   "Advance state through trivial single-choice phases."
@@ -629,10 +629,7 @@
 
 ;; ── Message handlers ──────────────────────────────────────────────────────────
 
-(def ^:private protected-phases
-  #{:choose-die :choose-astronomer :choose-action :choose-role-increase
-    :resolve-sell :resolve-temple :resolve-deploy
-    :resolve-travel :travel-continue :resolve-influence :game-over})
+(def ^:private protected-phases game/human-protected-phases)
 
 (defn handle-create! [db play-key {:keys [players bots]}]
   (when (seq players)
@@ -651,6 +648,59 @@
       (broadcast-state! play-key)
       (when (contains? bot-set (choice-player state))
         (run-bot-turns! db play-key)))))
+
+(defn- auto-resolve-passive-for-bot
+  "Pick an automatic choice for a bot's passive. Returns a keyword."
+  [pending pdata]
+  (case (:type pending)
+    :pick-resource (let [resources (:resources pdata)
+                         cheapest (apply min-key #(get resources % 0) game/resource-types)]
+                     cheapest)
+    :pick-role     (first (or (:options pending) game/roles))
+    :yes-no        :yes
+    :tools))
+
+(defn- promote-passive-choice!
+  "Check if any player in the game has :passive-choice-needed set by apply-passive.
+   If so, move it to :pending-bonus on the game-data level (reusing existing UI).
+   For bots, auto-resolve immediately."
+  [play-key]
+  (let [game-data (get-in @games [:games play-key])
+        state (:state game-data)
+        bots (:bots game-data)]
+    (when state
+      (doseq [[pk pdata] (:players state)]
+        (when-let [pending (:passive-choice-needed pdata)]
+          (log/info "Passive choice needed" play-key pk (:board-id pending) (:type pending))
+          (if (contains? bots pk)
+            ;; Bot: auto-resolve immediately
+            (let [choice-val (auto-resolve-passive-for-bot pending pdata)]
+              (swap! games
+                     (fn [gs]
+                       (let [cur-state (:state (get-in gs [:games play-key]))
+                             new-state (-> cur-state
+                                           (game/apply-passive-choice pk choice-val)
+                                           (update :log conj
+                                                   {:type :passive-effect :player pk
+                                                    :round (:round cur-state 1)
+                                                    :turn (:turn-in-round cur-state 1)
+                                                    :message (str "Passive (board " (:board-id pending)
+                                                                  "): bot chose " (name choice-val))}))]
+                         (assoc-in gs [:games play-key :state] new-state))))
+              (log/info "Bot auto-resolved passive" play-key pk choice-val))
+            ;; Human: set pending-bonus for UI
+            (swap! games
+                   (fn [gs]
+                     (assoc-in gs [:games play-key :pending-bonus]
+                               {:player pk
+                                :board-id (:board-id pending)
+                                :choice-type (:type pending)
+                                :prompt (:prompt pending)
+                                :source :passive
+                                :options (:options pending)
+                                :context (:context pending)
+                                :remaining 1
+                                :total 1})))))))))
 
 (defn handle-action! [db play-key player-key {:keys [choice]}]
   (let [game-data (get-in @games [:games play-key])
@@ -675,6 +725,18 @@
                                        []
                                        (conj (:history (get-in gs [:games play-key])) state))))))
               (log/info "Action" play-key player-key (pr-str choice-key))
+              ;; If game just ended, ensure end-game scoring is applied
+              (when (and (:game-over effective)
+                         (not (:game-over state)))
+                ;; Re-apply scoring to guarantee wild points + role bonuses are distributed
+                ;; (advance-turn should have done this, but as a safety net we apply again)
+                (let [;; Strip game-over, re-score, re-set game-over
+                      base (dissoc effective :game-over)
+                      scored (game/apply-end-game-scoring base)
+                      final (assoc scored :game-over (:game-over effective))]
+                  (swap! games assoc-in [:games play-key :state] final)))
+              ;; Check if any passive triggered a choice prompt
+              (promote-passive-choice! play-key)
               (broadcast-state! play-key)
               (save-state! db play-key choice-key)
               (when (contains? bots new-player)
@@ -684,9 +746,9 @@
           (log/error "Failed to apply action" play-key player-key choice (.getMessage e)))))))
 
 (defn handle-claim-feat! [db play-key player-key {:keys [feat-id slot-idx]}]
-  (let [game-data (get-in @games [:games play-key])
-        state     (:state game-data)
-        contest-id (when feat-id (keyword feat-id))
+  (when-let [game-data (get-in @games [:games play-key])]
+  (when-let [state (:state game-data)]
+  (let [contest-id (when feat-id (keyword feat-id))
         contest   (when contest-id
                     (first (filter #(= (:id %) contest-id) (:contests state []))))
         already-claimed? (some #{player-key} (get-in state [:contest-claims contest-id] []))
@@ -699,6 +761,10 @@
     (cond
       (not contest)
       (log/warn "Unknown feat" play-key feat-id)
+
+      ;; Must be this player's turn
+      (not= player-key (game/current-player state))
+      (log/warn "Not your turn to claim" play-key feat-id player-key)
 
       already-claimed?
       (log/warn "Already claimed" play-key feat-id)
@@ -767,37 +833,127 @@
                                   :board-id board-id
                                   :slot-idx chosen-slot
                                   :choice-type (:type needs-choice)
-                                  :prompt (:prompt needs-choice)})))))
+                                  :prompt (:prompt needs-choice)
+                                  :remaining (get needs-choice :count 1)
+                                  :total (get needs-choice :count 1)})))))
         (log/info "Feat claimed" play-key player-key feat-id "slot" chosen-slot
                   "wild+" wild-points
                   (when needs-choice (str " (needs " (:type needs-choice) " choice)")))
         (broadcast-state! play-key)
-        (save-state! db play-key)))))
+        (save-state! db play-key)))))))
 
 (defn handle-resolve-bonus! [db play-key player-key {:keys [choice]}]
   (let [game-data (get-in @games [:games play-key])
         state     (:state game-data)
         pending   (:pending-bonus game-data)]
-    (when (and pending (= player-key (:player pending)))
-      (let [{:keys [board-id slot-idx]} pending
-            choice-val (edn/read-string choice)
-            board (get game/bonus-boards-by-id board-id)
-            effect-text (get (:effects board) slot-idx "—")
-            new-state (-> state
-                          (game/apply-bonus-with-choice player-key board-id slot-idx choice-val)
-                          (update :log conj
-                                  {:type :bonus-effect :player player-key
-                                   :round (:round state 1) :turn (:turn-in-round state 1)
-                                   :message (str "Bonus #" slot-idx " resolved: "
-                                                 effect-text " → chose " (pr-str choice-val))}))]
-        (swap! games
-               (fn [gs]
-                 (-> gs
-                     (assoc-in [:games play-key :state] new-state)
-                     (update-in [:games play-key] dissoc :pending-bonus))))
-        (log/info "Bonus resolved" play-key player-key board-id slot-idx choice-val)
-        (broadcast-state! play-key)
-        (save-state! db play-key)))))
+    (when (and state pending (= player-key (:player pending)))
+      (if (= :passive (:source pending))
+        ;; ── Passive-triggered choice: delegate to apply-passive-choice ──
+        (let [choice-val (edn/read-string choice)
+              new-state (-> state
+                            (game/apply-passive-choice player-key choice-val)
+                            (update :log conj
+                                    {:type :passive-effect :player player-key
+                                     :round (:round state 1) :turn (:turn-in-round state 1)
+                                     :message (str "Passive (board " (:board-id pending)
+                                                   "): chose " (name choice-val))}))]
+          (swap! games
+                 (fn [gs]
+                   (-> gs
+                       (assoc-in [:games play-key :state] new-state)
+                       (update-in [:games play-key] dissoc :pending-bonus))))
+          (log/info "Passive choice" play-key player-key (:board-id pending) choice-val)
+          (broadcast-state! play-key)
+          (save-state! db play-key))
+        ;; ── Normal bonus board choice ──
+        (let [{:keys [board-id slot-idx]} pending
+              remaining (get pending :remaining 1)
+              choice-val (edn/read-string choice)
+              board (get game/bonus-boards-by-id board-id)
+              effect-text (get (:effects board) slot-idx "—")
+              ;; Apply this single pick via the choice handler
+              new-state (-> state
+                            (game/apply-bonus-with-choice player-key board-id slot-idx choice-val)
+                            (update :log conj
+                                    {:type :bonus-effect :player player-key
+                                     :round (:round state 1) :turn (:turn-in-round state 1)
+                                     :message (str "Bonus: gained " (name choice-val)
+                                                   " (" (- remaining 1) " picks left)")}))
+              picks-left (dec remaining)]
+          (swap! games
+                 (fn [gs]
+                   (let [gs (assoc-in gs [:games play-key :state] new-state)]
+                     (if (pos? picks-left)
+                       (assoc-in gs [:games play-key :pending-bonus]
+                                 (assoc pending
+                                        :remaining picks-left
+                                        :prompt (str "Choose a resource to gain ("
+                                                     picks-left " of "
+                                                     (get pending :total remaining)
+                                                     " remaining)")))
+                       (update-in gs [:games play-key] dissoc :pending-bonus)))))
+          (log/info "Bonus pick" play-key player-key choice-val
+                    "remaining:" picks-left)
+          (broadcast-state! play-key)
+          (save-state! db play-key))))))
+
+(defn handle-use-passive! [db play-key player-key {:keys [passive-id choice]}]
+  (let [game-data (get-in @games [:games play-key])
+        state     (:state game-data)]
+    (when state
+      (let [player player-key
+            pdata  (game/player-data state player)]
+        (case passive-id
+          ;; Board 14: Uruk bonus travel — discard one good, move between Uruk and adjacent city
+          "14"
+          (let [resource (when choice (edn/read-string choice))
+                caravan  (:caravan pdata)
+                uruk-adj (set (get-in state [:city-graph :uruk]))
+                ;; Player must be in Uruk or adjacent to Uruk
+                in-uruk? (= caravan :uruk)
+                adj-to-uruk? (contains? uruk-adj caravan)
+                destination (if in-uruk?
+                              ;; From Uruk: we need the player to pick a destination.
+                              ;; For simplicity, if the choice includes a destination, use it.
+                              ;; Otherwise, skip.
+                              nil ;; handled by choice format below
+                              :uruk)
+                ;; Parse choice: should be [resource destination] when from Uruk, or resource when to Uruk
+                [resource destination]
+                (if (vector? resource)
+                  [(first resource) (second resource)]
+                  [resource destination])
+                has-passive? (game/has-passive? state player)
+                board-id (game/player-board-id state player)
+                has-resource? (and resource (pos? (get-in pdata [:resources resource] 0)))
+                used? (get-in state [:players player :used-uruk-travel])
+                valid-dest? (or (and in-uruk? (contains? uruk-adj destination))
+                                (and adj-to-uruk? (= destination :uruk)))]
+            (if (and has-passive? (= board-id 14)
+                     (or in-uruk? adj-to-uruk?)
+                     has-resource? (not used?) valid-dest?)
+              (let [new-state (-> state
+                                  (update-in [:players player :resources resource] dec)
+                                  (assoc-in [:players player :used-uruk-travel] true)
+                                  (choice/travel-to-city player destination)
+                                  (update :log conj
+                                          {:type    :passive-effect
+                                           :player  player
+                                           :round   (:round state 1)
+                                           :turn    (:turn-in-round state 1)
+                                           :message (str "Bonus travel (board 14): discarded "
+                                                         (name resource) ", moved from "
+                                                         (name caravan) " to " (name destination))}))]
+                (swap! games assoc-in [:games play-key :state] new-state)
+                (log/info "Use-passive board 14" play-key player-key resource destination)
+                (broadcast-state! play-key)
+                (save-state! db play-key))
+              (log/warn "Invalid use-passive board 14" play-key player-key
+                        {:in-uruk? in-uruk? :adj? adj-to-uruk? :resource resource
+                         :has-resource? has-resource? :used? used? :dest destination})))
+
+          ;; Default: unknown passive
+          (log/warn "Unknown use-passive" play-key player-key passive-id))))))
 
 (defn handle-undo! [db play-key player-key]
   (let [game-data (get-in @games [:games play-key])
@@ -867,6 +1023,7 @@
       "undo"          (handle-undo! db play-key player)
       "claim-feat"    (handle-claim-feat! db play-key player message)
       "resolve-bonus" (handle-resolve-bonus! db play-key player message)
+      "use-passive"   (handle-use-passive! db play-key player message)
       "chat"          (handle-chat! db play-key player message)
       (log/warn "Unknown eridu message type" type))))
 

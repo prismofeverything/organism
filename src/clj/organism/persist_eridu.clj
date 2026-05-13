@@ -27,11 +27,8 @@
 ;; ── Replay ──────────────────────────────────────────────────────────────────
 
 (def ^:private replay-protected-phases
-  "Phases where the player made an active choice during live play.
-   Must stay in sync with protected-phases in eridu_ws.clj."
-  #{:choose-die :choose-astronomer :choose-action :choose-role-increase
-    :resolve-landing :resolve-sell :resolve-temple :resolve-deploy
-    :resolve-travel :travel-continue :resolve-influence :game-over})
+  "Phases where the player made an active choice during live play."
+  game/human-protected-phases)
 
 (defn- effective-advance
   "Advance through single-choice non-protected phases during replay."
@@ -108,6 +105,89 @@
         :current-player current
         :winner (when go (:winner go))
         :last-move-at (quot (System/currentTimeMillis) 1000)}))))
+
+;; ── Offline (human-vs-AI) games ─────────────────────────────────────────────
+;;
+;; Offline games are stored in :eridu-offline-games separately from live
+;; multi-player games. Bench/ML pipelines can read from both. The schema
+;; preserves enough to replay any game and to compute feat-synergy /
+;; pairwise-claim signals without re-parsing the full state on every query.
+
+(def offline-schema-version 1)
+
+(defn- score-summary [pdata]
+  (let [a (:amity pdata 0)
+        g (:glory pdata 0)]
+    {:amity a :glory g :reputation (min a g)}))
+
+(defn extract-offline-summary
+  "Distill final state + initial state into flat analytics fields. Captures
+   feat-synergy data: which feats were on offer, claim order, and the
+   resulting score per player. Pairwise/groupwise feat synergy can be
+   reconstructed downstream from feat-slate × feat-claims-by-player."
+  [initial-state final-state]
+  (let [players (keys (:players final-state))
+        scored  (into {} (map (juxt identity #(score-summary (get-in final-state [:players %])))) players)
+        winner  (when-let [go (:game-over final-state)] (:winner go))
+        claims  (:contest-claims final-state {})
+        ;; Group claims by player so synergy is one lookup per player
+        claims-by-player
+        (reduce-kv
+         (fn [acc feat-id claimers]
+           (reduce (fn [m c] (update m c (fnil conj []) feat-id))
+                   acc claimers))
+         {} claims)]
+    {:scores            scored
+     :winner            winner
+     :players           (vec players)
+     :rounds            (:round final-state)
+     :feat-slate        (vec (keys (:contests initial-state)))
+     :feat-claims       claims
+     :feat-claims-by-player claims-by-player
+     :bonus-boards      (:bonus-boards initial-state)}))
+
+(defn save-offline-game!
+  "Persist a completed offline (human-vs-AI) game.
+
+   `record` must include:
+     :game-key    unique id (timestamp-based, supplied by client)
+     :human       logged-in username (server validates against session)
+     :bot         bot slot name (e.g. \"warlord-bot\")
+     :archetype   archetype name (\"warlord\")
+     :weights     pr-str'd personality weights snapshot (full reproducibility)
+     :initial-state  pr-str'd initial game state
+     :actions     pr-str'd vector of choice keys
+     :final-state pr-str'd final game state
+     :started-at  epoch ms
+     :completed-at epoch ms"
+  [db record]
+  (db/index! db :eridu-offline-games [:game-key] {:unique true})
+  (db/index! db :eridu-offline-games [:human] {})
+  (db/index! db :eridu-offline-games [:archetype] {})
+  (db/index! db :eridu-offline-games [:completed-at] {})
+  (let [initial (when-let [s (:initial-state record)] (read-string s))
+        final   (when-let [s (:final-state record)] (read-string s))
+        summary (when (and initial final) (extract-offline-summary initial final))
+        merged  (cond-> (assoc record
+                               :game-type "eridu"
+                               :source    "offline-human-vs-ai"
+                               :version   offline-schema-version)
+                  summary (merge summary)
+                  true    (update :feat-claims        #(when % (pr-str %)))
+                  true    (update :feat-claims-by-player #(when % (pr-str %)))
+                  true    (update :feat-slate         #(when % (pr-str %)))
+                  true    (update :bonus-boards       #(when % (pr-str %)))
+                  true    (update :scores             #(when % (pr-str %))))]
+    (db/merge! db :eridu-offline-games {:game-key (:game-key record)} merged)))
+
+(defn load-offline-games
+  "Return offline games matching optional filters."
+  ([db] (load-offline-games db {}))
+  ([db {:keys [human archetype]}]
+   (let [where (cond-> {}
+                 human     (assoc :human human)
+                 archetype (assoc :archetype archetype))]
+     (db/query db :eridu-offline-games where))))
 
 (defn load-observe-games
   "Load all active eridu games for the observe page."

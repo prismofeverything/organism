@@ -146,26 +146,10 @@
    :total-games :cumulative-games :unique-regions])
 
 (def game-summary-columns
-  [:run :generation :game-id :player-count :player :personality
-   :amity :glory :reputation
-   :merchant-lv :priest-lv :raider-lv :leader-lv
-   :temples-placed :temples-flipped :raiders-deployed :demands-fulfilled
-   :starting-card-num :starting-city :starting-role :starting-resource
-   :space-visits :avg-astros-on-visit :solo-landings :top-space
-   :sp1 :sp2 :sp3 :sp4 :sp5 :sp6 :sp7 :top-pair
-   :bonus-board-id :wild-points :feats-claimed
-   :target-feat-1 :target-feat-2 :total-travels
-   :dice-quads :dice-triples :dice-doubles :dice-unique
-   :board-effects-fired :board-effects-noop :board-effect-amity :board-effect-glory
-   :contests-in-play :seed])
+  (into [:run :generation] sim/summary-columns))
 
 (def snapshot-columns
-  [:run :generation :game-id :player-count :round :turn :player :phase
-   :amity :glory :reputation
-   :merchant-lv :priest-lv :raider-lv :leader-lv
-   :tools :pottery :gold :gems
-   :temples-placed :temples-flipped :raiders-deployed :raiders-supply
-   :temples-supply :demands-fulfilled :caravan-city :bonus-board-id])
+  (into [:run :generation] sim/snapshot-columns))
 
 (def weight-columns
   [:run :generation :organism-name :elo :region :age

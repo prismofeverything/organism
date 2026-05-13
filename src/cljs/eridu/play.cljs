@@ -7,21 +7,30 @@
    [ajax.core :refer [POST]]
    [eridu.game :as game]
    [eridu.choice :as choice]
+   [eridu.personality :as personality]
    [organism.ajax :as ajax]
    [organism.websockets :as ws]))
 
 ;; ── State ─────────────────────────────────────────────────────────────────────
 
-(defonce game-state    (r/atom nil))
-(defonce player-key    (r/atom (when (exists? js/playerKey) js/playerKey)))
-(defonce player-preferences (r/atom {}))
-(defonce observe-games (r/atom []))
-(defonce bots-set      (r/atom #{}))
-(defonce can-undo?     (r/atom false))
-(defonce server-choices (r/atom nil))
-(defonce pending-claim  (r/atom nil))
-(defonce pending-bonus  (r/atom nil))
-(defonce show-tooltips? (r/atom true))
+(defonce app-state
+  (r/atom {:game nil
+           :player (when (exists? js/playerKey) js/playerKey)
+           :preferences {} :observe-games []
+           :bots #{} :can-undo? false :server-choices nil
+           :pending-claim nil :pending-bonus nil :show-tooltips? true}))
+
+;; Cursors for backward-compatible deref/swap! semantics
+(def game-state       (r/cursor app-state [:game]))
+(def player-key       (r/cursor app-state [:player]))
+(def player-preferences (r/cursor app-state [:preferences]))
+(def observe-games    (r/cursor app-state [:observe-games]))
+(def bots-set         (r/cursor app-state [:bots]))
+(def can-undo?        (r/cursor app-state [:can-undo?]))
+(def server-choices   (r/cursor app-state [:server-choices]))
+(def pending-claim    (r/cursor app-state [:pending-claim]))
+(def pending-bonus    (r/cursor app-state [:pending-bonus]))
+(def show-tooltips?   (r/cursor app-state [:show-tooltips?]))
 
 (defn tip
   "Returns {:title text} when tooltips are enabled, else {}."
@@ -75,75 +84,271 @@
                               (when (= 3 (count k)) (str " (" (nth k 2) ")")))
     :else               (pr-str k)))
 
+;; ── Offline / solo-vs-AI mode ─────────────────────────────────────────────────
+
+(def offline?-cursor       (r/cursor app-state [:offline?]))
+(def bot-personalities     (r/cursor app-state [:bot-personalities]))
+
+(def ^:private offline-storage-key "eridu-offline-game-v3")
+(def ^:private offline-pending-sync-key "eridu-offline-pending-sync-v1")
+(def ^:private offline-log-endpoint "/eridu/offline/log")
+(def ^:private offline-protected-phases game/bot-protected-phases)
+
+(defn- url-param [k]
+  (try
+    (let [p (.get (js/URLSearchParams. (.-search js/location)) k)]
+      (when (seq p) p))
+    (catch :default _ nil)))
+
+(defn- update-server-choices-from-state! [state]
+  (when state
+    (let [[phase choices] (choice/find-state-raw state)]
+      (reset! server-choices [phase choices]))))
+
+(defn save-offline-game! []
+  (when @offline?-cursor
+    (try
+      (.setItem js/localStorage offline-storage-key
+                (pr-str (select-keys @app-state
+                                     [:game :bot-personalities
+                                      :offline-human :offline-bot :offline-archetype
+                                      :offline-game-id :offline-initial-state
+                                      :offline-actions :offline-started-at])))
+      (catch :default _ nil))))
+
+(defn- load-offline-game []
+  (try
+    (when-let [s (.getItem js/localStorage offline-storage-key)]
+      (reader/read-string s))
+    (catch :default _ nil)))
+
+(defn- record-action!
+  "Append a choice key to the offline action log so the game can be
+   reproduced exactly during sync / replay."
+  [choice-key]
+  (swap! app-state update :offline-actions (fnil conj []) choice-key))
+
+(defn run-ai-loop!
+  "Apply AI moves while it's a bot's turn. Stops when a human has the turn,
+   the game is over, or after a hard iteration cap (safety valve)."
+  []
+  (loop [iters 0]
+    (let [state @game-state
+          current (and state (game/current-player state))
+          bots (set (keys @bot-personalities))]
+      (cond
+        (>= iters 500) nil
+        (or (nil? state) (:game-over state)) (update-server-choices-from-state! state)
+        (not (contains? bots current)) (update-server-choices-from-state! state)
+        :else
+        (let [weights (get @bot-personalities current personality/default-weights)
+              [ck next-state] (personality/personality-step state weights)]
+          (if next-state
+            (let [advanced (choice/advance-through-trivial next-state offline-protected-phases)]
+              (record-action! ck)
+              (reset! game-state advanced)
+              (recur (inc iters)))
+            (update-server-choices-from-state! state)))))))
+
+(defn- read-pending-queue []
+  (try
+    (or (some-> (.getItem js/localStorage offline-pending-sync-key) reader/read-string) [])
+    (catch :default _ [])))
+
+(defn- write-pending-queue! [q]
+  (try
+    (.setItem js/localStorage offline-pending-sync-key (pr-str (vec q)))
+    (catch :default _ nil)))
+
+(defn queue-completed-game!
+  "Build a sync record from the current offline game state and append it
+   to the pending-sync queue. Idempotent: if the same :offline-game-id is
+   already queued, leaves the queue unchanged."
+  []
+  (let [s @app-state
+        gid (:offline-game-id s)]
+    (when (and gid (:game-over (:game s)))
+      (let [record {:game-key      gid
+                    :human         (:offline-human s)
+                    :bot           (:offline-bot s)
+                    :archetype     (:offline-archetype s)
+                    :weights       (pr-str (get-in s [:bot-personalities (:offline-bot s)]))
+                    :initial-state (pr-str (:offline-initial-state s))
+                    :actions       (pr-str (vec (:offline-actions s)))
+                    :final-state   (pr-str (:game s))
+                    :started-at    (:offline-started-at s)
+                    :completed-at  (.now js/Date)}
+            queue   (read-pending-queue)
+            already (some #(= gid (:game-key %)) queue)]
+        (when-not already
+          (write-pending-queue! (conj queue record)))))))
+
+(defn flush-pending-games!
+  "POST each queued game to /eridu/offline/log. On success, drop it from
+   the queue. On network failure, leave it for next attempt. Fire-and-
+   forget — does not block UI."
+  []
+  (let [queue (read-pending-queue)]
+    (doseq [record queue]
+      (POST offline-log-endpoint
+            {:params record
+             :format :transit
+             :response-format :transit
+             :handler (fn [_]
+                        (let [remaining (vec (remove #(= (:game-key %)
+                                                         (:game-key record))
+                                                     (read-pending-queue)))]
+                          (write-pending-queue! remaining)))
+             :error-handler (fn [_]
+                              ;; Silent — leave in queue, retry next time
+                              nil)}))))
+
+(defn apply-choice-locally!
+  "Apply a player choice to local game state, then run AI turns until a
+   human player has the turn (or the game ends)."
+  [choice-key]
+  (let [state @game-state
+        [_phase choices] (choice/find-state-raw state)
+        next-state (get choices choice-key)]
+    (when next-state
+      (let [advanced (choice/advance-through-trivial next-state offline-protected-phases)]
+        (record-action! choice-key)
+        (reset! game-state advanced)
+        (run-ai-loop!)
+        (save-offline-game!)
+        (when (:game-over @game-state)
+          (queue-completed-game!)
+          (flush-pending-games!))))))
+
+(defn- cache-personalities-on-state
+  "Mirror simulate.clj: stash decision-relevant weights on each bot player so
+   downstream feat/bonus heuristics can read them from state."
+  [state pmap]
+  (reduce (fn [s [pk weights]]
+            (assoc-in s [:players pk :personality-cache]
+                      (select-keys weights [:tempo :feat-awareness
+                                            :prefer-onetime-bonus
+                                            :feat-sequence :feat-closure-urgency])))
+          state pmap))
+
+(defn- offline-human-name
+  "Username from the server template (when authenticated), falling back
+   to a generic local id."
+  []
+  (if (and (exists? js/playerName) (seq js/playerName))
+    js/playerName
+    "player"))
+
+(defn- offline-bot-name
+  "A stable, descriptive id for the AI opponent so saved games can be
+   identified by the personality that played them."
+  [archetype-name]
+  (str (or archetype-name "default") "-bot"))
+
+(defn start-offline-game!
+  "Initialize a fresh 2-player offline game.
+
+   Human player slot uses the logged-in username (from js/playerName) so
+   the game record can be tagged with the player's account when synced
+   back to the server. The AI slot is named for its archetype.
+
+   Player keys are strings to match the existing UI components and the
+   server's online-game convention (slot keys are usernames, not :p1)."
+  ([] (start-offline-game! "default"))
+  ([archetype-name]
+   (let [human    (offline-human-name)
+         bot      (offline-bot-name archetype-name)
+         archetype (or (get personality/archetypes archetype-name)
+                       personality/default-weights)
+         pmap     {bot archetype}
+         initial  (-> (game/initial-state [human bot])
+                      (cache-personalities-on-state pmap))
+         advanced (choice/advance-through-trivial initial offline-protected-phases)
+         game-id  (str (random-uuid))
+         now      (.now js/Date)]
+     (swap! app-state assoc
+            :game advanced
+            :player human
+            :offline? true
+            :offline-human human
+            :offline-bot bot
+            :offline-archetype archetype-name
+            :offline-game-id game-id
+            :offline-initial-state initial
+            :offline-actions []
+            :offline-started-at now
+            :bot-personalities pmap
+            :bots #{bot}
+            :can-undo? false
+            :pending-claim nil
+            :pending-bonus nil)
+     (run-ai-loop!)
+     (save-offline-game!)
+     (when (:game-over @game-state)
+       (queue-completed-game!)
+       (flush-pending-games!)))))
+
+(defn resume-offline-game!
+  "Restore an offline game from localStorage, if one is saved. Returns true
+   on successful restore."
+  []
+  (when-let [{:keys [game bot-personalities offline-human offline-bot
+                     offline-archetype offline-game-id offline-initial-state
+                     offline-actions offline-started-at]} (load-offline-game)]
+    (when (and game (seq bot-personalities))
+      (let [human (or offline-human (offline-human-name))]
+        (swap! app-state assoc
+               :game game
+               :player human
+               :offline? true
+               :offline-human human
+               :offline-bot offline-bot
+               :offline-archetype offline-archetype
+               :offline-game-id offline-game-id
+               :offline-initial-state offline-initial-state
+               :offline-actions (vec offline-actions)
+               :offline-started-at offline-started-at
+               :bot-personalities bot-personalities
+               :bots (set (keys bot-personalities)))
+        (update-server-choices-from-state! game)
+        (run-ai-loop!)
+        true))))
+
 ;; ── WebSocket communication ───────────────────────────────────────────────────
 
 (defn send-action! [choice-key]
-  (ws/send-transit-message! {:type "action" :choice (pr-str choice-key)}))
+  (if @offline?-cursor
+    (apply-choice-locally! choice-key)
+    (ws/send-transit-message! {:type "action" :choice (pr-str choice-key)})))
 
 (defn send-undo! []
-  (ws/send-transit-message! {:type "undo"}))
+  (if @offline?-cursor
+    (js/console.warn "undo is not yet supported in offline mode")
+    (ws/send-transit-message! {:type "undo"})))
 
 (defn send-claim-feat!
   ([feat-id] (send-claim-feat! feat-id nil))
   ([feat-id slot-idx]
-   (ws/send-transit-message! (cond-> {:type "claim-feat" :feat-id (name feat-id)}
-                               slot-idx (assoc :slot-idx slot-idx)))))
+   (if @offline?-cursor
+     (js/console.warn "claim-feat is not yet supported in offline mode")
+     (ws/send-transit-message! (cond-> {:type "claim-feat" :feat-id (name feat-id)}
+                                 slot-idx (assoc :slot-idx slot-idx))))))
 
 (defn send-resolve-bonus! [choice-val]
-  (ws/send-transit-message! {:type "resolve-bonus" :choice (pr-str choice-val)}))
+  (if @offline?-cursor
+    (js/console.warn "resolve-bonus is not yet supported in offline mode")
+    (ws/send-transit-message! {:type "resolve-bonus" :choice (pr-str choice-val)})))
+
+(defn send-use-passive! [passive-id choice]
+  (if @offline?-cursor
+    (js/console.warn "use-passive is not yet supported in offline mode")
+    (ws/send-transit-message! {:type "use-passive" :passive-id passive-id :choice (pr-str choice)})))
 
 ;; ── Unicode die faces ─────────────────────────────────────────────────────────
 
 (def die-faces {1 "⚀" 2 "⚁" 3 "⚂" 4 "⚃" 5 "⚄" 6 "⚅"})
 
 ;; ── Rendering: Dice display ──────────────────────────────────────────────────
-
-(defn dice-display [state my-player]
-  (let [player (game/current-player state)
-        pdata (game/player-data state player)
-        dice-available (:dice-available pdata [])
-        dice-used (:dice-used pdata [])
-        phase (game/current-phase state)
-        is-choosing (and (= phase :choose-die)
-                         (my-turn? state my-player))
-        chosen-die (when (= phase :choose-astronomer)
-                     (get-in state [:player-turn :die-value]))
-        p-color (game/player-color state player)]
-    [:div {:style {:background "#0d0d1a" :border-radius 8 :padding 12
-                   :border (str "1px solid " p-color) :margin-bottom 8}}
-     [:div {:style {:color "#aaa" :font-size 11 :margin-bottom 6}}
-      (str "🎲 " player "'s Dice")]
-     ;; Show available dice
-     [:div {:style {:display "flex" :gap 8 :align-items "center" :flex-wrap "wrap"}}
-      (for [[idx die-val] (map-indexed vector dice-available)]
-        ^{:key (str "avail-" idx)}
-        [:div {:on-click (when is-choosing #(send-action! idx))
-               :style {:font-size 36 :cursor (when is-choosing "pointer")
-                       :padding "4px 8px" :border-radius 6
-                       :background (if is-choosing "#1a2a1a" "#111")
-                       :border (str "2px solid " (if is-choosing "#4a4" "#333"))
-                       :color (if is-choosing "#8f8" "#ccc")
-                       :transition "all 0.2s"
-                       :text-align "center" :min-width 44}}
-         [:div (get die-faces die-val (str die-val))]
-         [:div {:style {:font-size 10 :color "#666"}} (str die-val)]])
-      ;; Show chosen die for current turn
-      (when chosen-die
-        ^{:key "chosen"}
-        [:div {:style {:font-size 36 :padding "4px 8px" :border-radius 6
-                       :background "#2a2a1a" :border "2px solid #aa8"
-                       :color "#ff8" :text-align "center" :min-width 44}}
-         [:div (get die-faces chosen-die (str chosen-die))]
-         [:div {:style {:font-size 10 :color "#aa8"}} "chosen"]])
-      ;; Show used dice (grayed out)
-      (for [[idx die-val] (map-indexed vector dice-used)]
-        ^{:key (str "used-" idx)}
-        [:div {:style {:font-size 28 :padding "4px 8px" :border-radius 6
-                       :background "#0a0a0a" :border "1px solid #222"
-                       :color "#444" :text-align "center" :min-width 40
-                       :opacity 0.5}}
-         [:div (get die-faces die-val (str die-val))]
-         [:div {:style {:font-size 9 :color "#333"}} "used"]])]]))
 
 (defn player-dice-row [state pk is-choosing chosen-die]
   (let [pdata (game/player-data state pk)
@@ -161,11 +366,12 @@
         ^{:key (str "d-" pk "-a-" idx)}
         [:div {:on-click (when is-choosing #(send-action! idx))
                :style {:font-size 32 :cursor (when is-choosing "pointer")
-                       :padding "3px 6px" :border-radius 6
+                       :padding "6px 8px" :border-radius 6
                        :background (if is-choosing "#1a2a1a" "#111")
                        :border (str "2px solid " (if is-choosing "#4a4" "#333"))
                        :color (if is-choosing "#8f8" "#ccc")
-                       :text-align "center" :min-width 40}}
+                       :text-align "center" :min-width 44 :min-height 44
+                       :touch-action "manipulation"}}
          [:div (get die-faces die-val (str die-val))]
          [:div {:style {:font-size 9 :color "#666"}} (str die-val)]])
       (when (and is-current chosen-die)
@@ -227,10 +433,12 @@
         ;; In choose-action, highlight eligible action indices on landed space
         action-choosable (when (and my-turn (= phase :choose-action))
                            (set (filter integer? (keys choices))))]
-    [:svg {:viewBox "0 0 560 560" :width 540 :height 540
-           :style {:background "radial-gradient(circle, #0d0d1e, #050510)"
+    [:svg {:viewBox "0 0 560 560"
+           :style {:width "100%" :max-width 540
+                   :background "radial-gradient(circle, #0d0d1e, #050510)"
                    :background-color "#070712"
-                   :border-radius 8 :border (str "1px solid #333")}}
+                   :border-radius 8 :border (str "1px solid #333")
+                   :touch-action "manipulation"}}
      ;; Title with star
      [:text {:x 280 :y 26 :text-anchor "middle" :fill "#886622" :font-size 16
              :font-weight "bold"}
@@ -418,10 +626,12 @@
         ;; City-level choices (travel, temple, sell-city)
         city-choices (when choices
                        (set (filter keyword? (keys choices))))]
-    [:svg {:viewBox "0 0 500 470" :width 540 :height 510
-           :style {:background "linear-gradient(180deg, #080812, #0a0a1a)"
+    [:svg {:viewBox "0 0 500 470"
+           :style {:width "100%" :max-width 540
+                   :background "linear-gradient(180deg, #080812, #0a0a1a)"
                    :background-color "#090914"
-                   :border-radius 8 :border "1px solid #333"}}
+                   :border-radius 8 :border "1px solid #333"
+                   :touch-action "manipulation"}}
      [:text {:x 250 :y 22 :text-anchor "middle" :fill "#886622" :font-size 15
              :font-weight "bold"}
       "✦ City Board ✦"]
@@ -488,15 +698,13 @@
              [:text {:x rx :y (+ ry 6) :text-anchor "middle" :fill p-color :font-size 16}
               "🏴"]])]))
      ;; Magistrates on cities (offset when stacked)
-     (let [mag-by-city (reduce (fn [m [c _]] (update m c (fnil inc 0)))
-                               {} (:magistrates state))
-           mag-offset (atom {})] ;; track how many drawn per city
-       (for [[mag-city _owner] (:magistrates state)
+     (let [mag-offset (atom {})]
+       (for [[mag-id mag-city] (:magistrates state)
              :let [{:keys [x y]} (get city-positions mag-city)
                    idx (get (swap! mag-offset update mag-city (fnil inc 0)) mag-city)
                    offset-x (* (dec idx) 22)]
              :when (get city-positions mag-city)]
-         ^{:key (str "magistrate-" (name mag-city) "-" idx)}
+         ^{:key (str "magistrate-" (name mag-id))}
          [:g
           ;; Gold crown glow
           [:circle {:cx (+ x offset-x) :cy (- y 30) :r 14
@@ -535,32 +743,37 @@
                             :else "#ccc")
                 :font-size 13 :font-weight "bold"}
          (str/capitalize (name city))]
-        ;; Demand tokens with resource icons
+        ;; Demand tokens with resource icons (larger)
         (for [[idx token] (map-indexed vector demands)]
           ^{:key (str "demand-" (name city) "-" idx)}
-          [:g
-           [:circle {:cx (+ (- x 22) (* idx 18)) :cy (+ y 18) :r 8
+          [:g (tip (str "Demand: " (name token)))
+           [:circle {:cx (+ (- x 24) (* idx 22)) :cy (+ y 20) :r 11
                      :fill (get game/resource-colors token "#444")
-                     :stroke "#fff" :stroke-width 0.8 :opacity 0.9}]
-           [:text {:x (+ (- x 22) (* idx 18)) :cy (+ y 21)
-                   :y (+ y 21) :text-anchor "middle" :fill "#fff" :font-size 10}
+                     :stroke "#fff" :stroke-width 1.0 :opacity 0.9}]
+           [:text {:x (+ (- x 24) (* idx 22))
+                   :y (+ y 24) :text-anchor "middle" :fill "#fff" :font-size 14}
             (get game/resource-icons token "?")]])
-        ;; Temples (per player, with player color)
-        (for [[pk pdata] (:players state)
-              :let [temple-state (get-in pdata [:temples city])]
-              :when temple-state
-              :let [p-color (game/player-color state pk)
-                    is-face-up (= temple-state :face-up)]]
-          ^{:key (str "temple-" pk "-" (name city))}
-          [:g
-           [:text {:x (+ x 30) :y (- y 6) :text-anchor "middle"
-                   :fill (if is-face-up p-color "#444")
-                   :font-size 18
-                   :opacity (if is-face-up 1.0 0.5)}
-            "🏛"]
-           (when is-face-up
-             [:circle {:cx (+ x 40) :cy (- y 10) :r 4
-                       :fill p-color :stroke "#fff" :stroke-width 0.5}])])])
+        ;; Temples (per player, with player color, offset to avoid overlap)
+        (let [temple-players (vec (for [[pk pd] (:players state)
+                                        :when (get-in pd [:temples city])]
+                                    pk))]
+          (for [[ti pk] (map-indexed vector temple-players)
+                :let [pdata (game/player-data state pk)
+                      temple-state (get-in pdata [:temples city])
+                      p-color (game/player-color state pk)
+                      is-face-up (= temple-state :face-up)
+                      tx (+ x 24 (* ti 18))
+                      ty (- y 6)]]
+            ^{:key (str "temple-" pk "-" (name city))}
+            [:g (tip (str pk "'s temple (" (if is-face-up "face-up" "face-down") ")"))
+             ;; Player color indicator dot
+             [:circle {:cx tx :cy (- ty 10) :r 4
+                       :fill p-color :stroke "#fff" :stroke-width 0.5}]
+             [:text {:x tx :y ty :text-anchor "middle"
+                     :fill (if is-face-up p-color "#666")
+                     :font-size 16
+                     :opacity (if is-face-up 1.0 0.5)}
+              "🏛"]]))])
      ;; Caravans with player colors
      (for [[pk pdata] (:players state)
            :let [city (:caravan pdata)
@@ -568,15 +781,19 @@
                  p-color (game/player-color state pk)
                  p-idx (.indexOf (:turn-order state) pk)]]
        ^{:key (str "caravan-" pk)}
-       [:g
-        ;; Colored background pill for caravan
-        [:rect {:x (+ (- x 20) (* p-idx 18)) :y (- y 32)
-                :width 22 :height 22 :rx 11
-                :fill p-color :opacity 0.25
-                :stroke p-color :stroke-width 1.5}]
-        [:text {:x (+ (- x 10) (* p-idx 18)) :y (- y 18)
-                :text-anchor "middle" :fill p-color :font-size 18}
-         "🐪"]])]))
+       [:g (tip (str pk "'s caravan"))
+        ;; Colored caravan disc with player initial
+        [:circle {:cx (+ (- x 8) (* p-idx 24)) :cy (- y 24) :r 14
+                  :fill p-color :opacity 0.4
+                  :stroke p-color :stroke-width 2}]
+        [:text {:x (+ (- x 8) (* p-idx 24)) :y (- y 18)
+                :text-anchor "middle" :fill "#fff" :font-size 16
+                :font-weight "bold" :style {:pointer-events "none"}}
+         "🐪"]
+        [:text {:x (+ (- x 8) (* p-idx 24)) :y (- y 31)
+                :text-anchor "middle" :fill p-color :font-size 8
+                :font-weight "bold" :style {:pointer-events "none"}}
+         (subs pk 0 (min 3 (count pk)))]])]))
 
 ;; ── Rendering: Player info ────────────────────────────────────────────────────
 
@@ -630,11 +847,12 @@
                   end-bonus (get game/role-end-game-bonus role)
                   can-increase? (and role-choices (contains? role-choices role))]]
         ^{:key (str pk "-role-" (name role))}
-        [:tr (cond-> {:style (cond-> {:border-bottom "1px solid #1a1a2e"}
+        [:tr (cond-> {:style (cond-> {:border-bottom "1px solid #1a1a2e"
+                                       :min-height 44}
                                can-increase? (assoc :background "#0a2a0a"
                                                      :cursor "pointer"))}
                can-increase? (assoc :on-click #(send-action! role)))
-         [:td {:style {:padding "5px 6px" :white-space "nowrap"}}
+         [:td {:style {:padding "8px 6px" :white-space "nowrap"}}
           [:span {:style {:font-size 18 :margin-right 4}} icon]
           [:span {:style {:color "#ccc" :font-weight "bold" :font-size 12}}
            (str/capitalize (name role))]
@@ -684,7 +902,7 @@
      ^{:key pk}
      [:div {:style {:background (if is-current "#0d1a0d" "#0a0a12")
                     :border (str "2px solid " (if is-current p-color "#222"))
-                    :border-radius 8 :padding 12 :min-width 360 :font-size 13}}
+                    :border-radius 8 :padding 12 :min-width 0 :font-size 13}}
       ;; Player name with color indicator
       [:div {:style {:display "flex" :align-items "center" :gap 8 :margin-bottom 8}}
        [:div {:style {:width 14 :height 14 :border-radius "50%"
@@ -770,8 +988,10 @@
                   claimers (get claims contest-id [])
                   claimed? (seq claimers)
                   cat-icon (get contest-category-icons (:category contest) "📜")
-                  ;; Highlight if I can claim it now
-                  claimable? (and (not (my-claimed? contest-id))
+                  ;; Highlight if I can claim it now (only on MY turn)
+                  is-my-turn (= my-player (game/current-player state))
+                  claimable? (and is-my-turn
+                                  (not (my-claimed? contest-id))
                                   has-covered-slot?
                                   (condition-met? contest))]]
         ^{:key (str "contest-" (name contest-id))}
@@ -785,10 +1005,11 @@
                                                   claimed? "#aa8"
                                                   :else "#333"))
                                :border-radius 6 :padding 10
-                               :min-width 170 :max-width 220
+                               :min-width 140 :max-width 220
                                :transition "all 0.2s"}
                         claimable? (assoc :cursor "pointer"
-                                          :box-shadow "0 0 12px rgba(85,255,85,0.7)"))}
+                                          :box-shadow "0 0 12px rgba(85,255,85,0.7)"
+                                          :touch-action "manipulation"))}
          ;; Category icon and contest ID
          [:div {:style {:display "flex" :justify-content "space-between"
                         :align-items "center" :margin-bottom 6}}
@@ -836,7 +1057,7 @@
         ;; Is there a pending claim for this player?
         claiming? (and claim (= (:player claim) my-player))]
     [:div {:style {:background "#0a0a12" :border "1px solid #333"
-                   :border-radius 8 :padding 12 :flex 1 :min-width 480}}
+                   :border-radius 8 :padding 12 :flex 1 :min-width 0}}
      [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
                     :margin-bottom 10}}
       "✦ Bonus Board"
@@ -861,7 +1082,7 @@
          [:span {:style {:color "#777" :font-size 11}}
           (when board (str (:name board) " (#" (:id board) ")"))]]
         ;; HORIZONTAL strip layout (matches physical player board image)
-        [:div {:style {:display "flex" :gap 4}}
+        [:div {:style {:display "flex" :gap 4 :flex-wrap "wrap"}}
          (for [[idx slot] (map-indexed vector full-slots)
                :let [effect-text (get effects idx "—")
                      uncovered? (not= slot :covered)
@@ -887,7 +1108,8 @@
                                           :border "2px solid #5f5"
                                           :color "#cfc"
                                           :cursor "pointer"
-                                          :box-shadow "0 0 8px rgba(85,255,85,0.5)")
+                                          :box-shadow "0 0 8px rgba(85,255,85,0.5)"
+                                          :touch-action "manipulation")
                                    (and (not is-passive) (not uncovered?) (not selectable?))
                                    (assoc :background "#0a0a10"
                                           :border "1px solid #1a1a2e"
@@ -914,6 +1136,29 @@
   "Phases where choices are handled by clicking board elements, not buttons."
   #{:choose-die :choose-astronomer :choose-action :choose-role-increase
     :resolve-deploy :resolve-influence})
+
+;; ── Board 14: Uruk bonus travel UI state ─────────────────────────────────────
+
+;; UI-local state consolidated into ui-state atom
+(defonce ui-state
+  (r/atom {:create {:play-name "" :players [""] :bots #{} :mode :normal}
+           :uruk-travel nil}))
+
+(def uruk-travel-state (r/cursor ui-state [:uruk-travel]))
+
+(defn- uruk-travel-available?
+  "True if player can use Board 14 Uruk bonus travel this turn."
+  [state player]
+  (when (and state player)
+    (let [pdata (game/player-data state player)
+          board-id (game/player-board-id state player)
+          caravan (:caravan pdata)
+          uruk-adj (set (get-in state [:city-graph :uruk]))]
+      (and (= board-id 14)
+           (game/has-passive? state player)
+           (not (:used-uruk-travel pdata))
+           (or (= caravan :uruk) (contains? uruk-adj caravan))
+           (some #(pos? (get-in pdata [:resources %] 0)) game/resource-types)))))
 
 ;; Auto-advance removed — was causing race conditions that skipped actions.
 ;; The :done button is always visible when available; player clicks it explicitly.
@@ -960,6 +1205,7 @@
             :travel-continue "Discard a good for extra travel, or done"
             :resolve-deploy "Click a route to deploy"
             :resolve-influence "Click a magistrate destination"
+            :turn-complete "Turn complete — claim feats or click done"
             :game-over "Game Over"
             (name phase))
           (str "Waiting for " (game/current-player state) "...")))]
@@ -972,16 +1218,31 @@
           {:on-click #(send-action! k)
            :style {:background "#1a2a1a" :color "#8f8"
                    :border "1px solid #4a4" :border-radius 6
-                   :padding "6px 14px" :cursor "pointer"
-                   :font-size 12 :font-family "monospace"}}
+                   :padding "10px 16px" :cursor "pointer"
+                   :font-size 14 :font-family "monospace"
+                   :min-height 44 :min-width 44
+                   :touch-action "manipulation"}}
           (choice-label k)]))
+     ;; Free travel (Board 6 passive) — shown even in board-handled phases
+     (when (and is-my-turn (map? choices) (contains? choices :free-travel))
+       [:button
+        {:on-click #(send-action! :free-travel)
+         :style {:background "#1a3a1a" :color "#8f8"
+                 :border "2px solid #5f5" :border-radius 6
+                 :padding "8px 16px" :cursor "pointer" :font-size 13
+                 :min-height 44 :min-width 44
+                 :box-shadow "0 0 8px rgba(85,255,85,0.5)"
+                 :touch-action "manipulation"}}
+        "🐪 Free Travel (Board Passive)"])
      ;; Skip button when available
      (when (and is-my-turn (map? choices) (contains? choices :skip))
        [:button
         {:on-click #(send-action! :skip)
          :style {:background "#1a1a1a" :color "#888"
                  :border "1px solid #333" :border-radius 6
-                 :padding "4px 12px" :cursor "pointer" :font-size 11}}
+                 :padding "10px 16px" :cursor "pointer" :font-size 13
+                 :min-height 44 :min-width 44
+                 :touch-action "manipulation"}}
         "skip"])
      ;; Done button when available
      (when (and is-my-turn (map? choices) (contains? choices :done))
@@ -989,21 +1250,94 @@
         {:on-click #(send-action! :done)
          :style {:background "#1a1a2a" :color "#aaf"
                  :border "1px solid #449" :border-radius 6
-                 :padding "4px 12px" :cursor "pointer" :font-size 11}}
+                 :padding "10px 16px" :cursor "pointer" :font-size 13
+                 :min-height 44 :min-width 44
+                 :touch-action "manipulation"}}
         "done"])
+     ;; Board 14: Uruk bonus travel button
+     (when (and is-my-turn (uruk-travel-available? state my-player))
+       (let [ut @uruk-travel-state
+             pdata (game/player-data state my-player)
+             caravan (:caravan pdata)
+             in-uruk? (= caravan :uruk)
+             uruk-adj (set (get-in state [:city-graph :uruk]))]
+         (cond
+           ;; Picking destination (only when in Uruk)
+           (and ut (= (:picking ut) :dest))
+           [:div {:style {:display "flex" :gap 6 :align-items "center"}}
+            [:span {:style {:color "#c90" :font-size 12}} "Travel to:"]
+            (for [dest (sort uruk-adj)]
+              ^{:key dest}
+              [:button
+               {:on-click (fn []
+                            (send-use-passive! "14" [(:resource ut) dest])
+                            (reset! uruk-travel-state nil))
+                :style {:background "#2a1a0a" :color "#fc0"
+                        :border "1px solid #c90" :border-radius 6
+                        :padding "8px 12px" :cursor "pointer" :font-size 12
+                        :min-height 36 :touch-action "manipulation"}}
+               (str (name dest))])
+            [:button
+             {:on-click #(reset! uruk-travel-state nil)
+              :style {:background "#1a1a1a" :color "#888"
+                      :border "1px solid #333" :border-radius 6
+                      :padding "8px 12px" :cursor "pointer" :font-size 12
+                      :min-height 36 :touch-action "manipulation"}}
+             "cancel"]]
+
+           ;; Picking resource to discard
+           (and ut (= (:picking ut) :resource))
+           [:div {:style {:display "flex" :gap 6 :align-items "center"}}
+            [:span {:style {:color "#c90" :font-size 12}} "Discard:"]
+            (for [res game/resource-types
+                  :when (pos? (get-in pdata [:resources res] 0))]
+              ^{:key res}
+              [:button
+               {:on-click (fn []
+                            (if in-uruk?
+                              ;; Need to pick destination next
+                              (reset! uruk-travel-state {:picking :dest :resource res})
+                              ;; Adjacent to Uruk — destination is Uruk
+                              (do (send-use-passive! "14" [res :uruk])
+                                  (reset! uruk-travel-state nil))))
+                :style {:background "#2a1a0a" :color "#fc0"
+                        :border "1px solid #c90" :border-radius 6
+                        :padding "8px 12px" :cursor "pointer" :font-size 12
+                        :min-height 36 :touch-action "manipulation"}}
+               (str (get game/resource-icons res "") " " (name res))])
+            [:button
+             {:on-click #(reset! uruk-travel-state nil)
+              :style {:background "#1a1a1a" :color "#888"
+                      :border "1px solid #333" :border-radius 6
+                      :padding "8px 12px" :cursor "pointer" :font-size 12
+                      :min-height 36 :touch-action "manipulation"}}
+             "cancel"]]
+
+           ;; Initial button
+           :else
+           [:button
+            {:on-click #(reset! uruk-travel-state {:picking :resource})
+             :style {:background "#2a1a0a" :color "#fc0"
+                     :border "1px solid #c90" :border-radius 6
+                     :padding "10px 16px" :cursor "pointer" :font-size 13
+                     :min-height 44 :min-width 44
+                     :touch-action "manipulation"}}
+            (str "Bonus Travel "
+                 (if in-uruk? "(from Uruk)" "(to Uruk)"))])))
      ;; Undo
      (when (and is-my-turn @can-undo?)
        [:button
         {:on-click send-undo!
          :style {:background "#1a1a1a" :color "#aa8"
                  :border "1px solid #553" :border-radius 6
-                 :padding "4px 12px" :cursor "pointer" :font-size 11}}
+                 :padding "10px 16px" :cursor "pointer" :font-size 13
+                 :min-height 44 :min-width 44
+                 :touch-action "manipulation"}}
         "↩ undo"])]))
 
 ;; ── Create game form ──────────────────────────────────────────────────────────
 
-(defonce create-state
-  (r/atom {:play-name "" :players [""] :bots #{} :mode :normal}))
+(def create-state (r/cursor ui-state [:create]))
 
 (defn create-form []
   (let [{:keys [play-name players bots]} @create-state]
@@ -1126,7 +1460,7 @@
         current-turn (:turn-in-round state 1)]
     [:div {:style {:background "#0a0a12" :border "1px solid #333"
                    :border-radius 8 :padding 12
-                   :flex 1 :min-width 320
+                   :flex 1 :min-width 0
                    :max-height 400 :overflow-y "auto"}}
      [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
                     :margin-bottom 10 :position "sticky" :top 0
@@ -1163,7 +1497,7 @@
 (defn rules-reference []
   [:div {:style {:background "#0a0a12" :border "1px solid #333"
                  :border-radius 8 :padding 12
-                 :flex 1 :min-width 320
+                 :flex 1 :min-width 0
                  :max-height 400 :overflow-y "auto"}}
    [:div {:style {:color "#886622" :font-weight "bold" :font-size 15
                   :margin-bottom 10}}
@@ -1193,7 +1527,8 @@
         my-player @player-key]
     (if state
       [:div {:style {:padding 12 :font-family "monospace"
-                     :background "#050510" :min-height "100vh"}}
+                     :background "#050510" :min-height "100vh"
+                     :overflow-x "hidden" :max-width "100vw"}}
        (when (:game-over state)
          [:div {:style {:background (if (= :victory (get-in state [:game-over :solo-result]))
                                       "#1a2a1a" "#2a1a1a")
@@ -1277,33 +1612,64 @@
                   ^{:key (str "bonus-res-" (name r))}
                   [:button
                    {:on-click #(send-resolve-bonus! r)
-                    :style {:background "#111" :padding "8px 16px" :border-radius 6
+                    :style {:background "#111" :padding "10px 16px" :border-radius 6
                             :border (str "2px solid " (get game/resource-colors r "#888"))
                             :color (get game/resource-colors r "#ccc")
-                            :cursor "pointer" :font-size 18}}
+                            :cursor "pointer" :font-size 18
+                            :min-height 44 :min-width 44
+                            :touch-action "manipulation"}}
                    (str (get game/resource-icons r "") " " (name r))])]
-               ;; City picker (for magistrate cities)
+               ;; City picker
                :pick-city
-               [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
-                (for [[city _] (:magistrates state)]
-                  ^{:key (str "bonus-city-" (name city))}
-                  [:button
-                   {:on-click #(send-resolve-bonus! city)
-                    :style {:background "#1a2a1a" :color "#8f8"
-                            :border "1px solid #4a4" :border-radius 6
-                            :padding "8px 16px" :cursor "pointer" :font-size 14}}
-                   (str/capitalize (name city))])]
-               ;; Role picker
+               (let [my-pdata (game/player-data state my-player)
+                     cities (case (:filter bonus)
+                              :magistrate (distinct (vals (:magistrates state)))
+                              :adjacent (get-in state [:city-graph (:caravan my-pdata)])
+                              (keys (:city-graph state)))]
+                 [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
+                  (for [city cities]
+                    ^{:key (str "bonus-city-" (name city))}
+                    [:button
+                     {:on-click #(send-resolve-bonus! city)
+                      :style {:background "#1a2a1a" :color "#8f8"
+                              :border "1px solid #4a4" :border-radius 6
+                              :padding "10px 16px" :cursor "pointer" :font-size 14
+                              :min-height 44 :min-width 44
+                              :touch-action "manipulation"}}
+                     (str/capitalize (name city))])])
+               ;; Role picker (optionally filtered by :options from passive)
                :pick-role
-               [:div {:style {:display "flex" :gap 8}}
-                (for [r game/roles]
-                  ^{:key (str "bonus-role-" (name r))}
-                  [:button
-                   {:on-click #(send-resolve-bonus! r)
-                    :style {:background "#111" :color "#ccc"
-                            :border "1px solid #555" :border-radius 6
-                            :padding "8px 16px" :cursor "pointer" :font-size 14}}
-                   (str (get role-icons r "") " " (name r))])]
+               (let [available (or (:options bonus) game/roles)]
+                 [:div {:style {:display "flex" :gap 8}}
+                  (for [r available]
+                    ^{:key (str "bonus-role-" (name r))}
+                    [:button
+                     {:on-click #(send-resolve-bonus! r)
+                      :style {:background "#111" :color "#ccc"
+                              :border "1px solid #555" :border-radius 6
+                              :padding "10px 16px" :cursor "pointer" :font-size 14
+                              :min-height 44 :min-width 44
+                              :touch-action "manipulation"}}
+                     (str (get role-icons r "") " " (name r))])])
+               ;; Yes/No picker (for passive effects like "discard X for Y?")
+               :yes-no
+               [:div {:style {:display "flex" :gap 12}}
+                [:button
+                 {:on-click #(send-resolve-bonus! :yes)
+                  :style {:background "#1a2a1a" :color "#4d4"
+                          :border "2px solid #4a4" :border-radius 6
+                          :padding "10px 20px" :cursor "pointer" :font-size 16
+                          :min-height 44 :min-width 60
+                          :touch-action "manipulation" :font-weight "bold"}}
+                 "Yes"]
+                [:button
+                 {:on-click #(send-resolve-bonus! :no)
+                  :style {:background "#2a1a1a" :color "#d44"
+                          :border "2px solid #a44" :border-radius 6
+                          :padding "10px 20px" :cursor "pointer" :font-size 16
+                          :min-height 44 :min-width 60
+                          :touch-action "manipulation" :font-weight "bold"}}
+                 "No"]]
                ;; Fallback
                [:div {:style {:color "#888"}} "Unknown choice type"])]))
         ;; 4. MY player board: my info + my bonus board side by side
@@ -1374,7 +1740,7 @@
                 ^{:key (str "opp-" pk)}
                 [:div {:style {:background "#0a0a12"
                                :border (str "1px solid " (if is-current p-color "#222"))
-                               :border-radius 6 :padding 8 :min-width 180 :font-size 11}}
+                               :border-radius 6 :padding 8 :min-width 140 :font-size 11}}
                  [:div {:style {:color p-color :font-weight "bold" :font-size 12 :margin-bottom 3}}
                   (str pk (when is-current " ✦") (when (contains? @bots-set pk) " 🤖"))]
                  [:div {:style {:display "flex" :gap 8 :margin-bottom 2}}
@@ -1446,6 +1812,28 @@
 
 ;; ── Init ──────────────────────────────────────────────────────────────────────
 
+(defn inject-mobile-styles! []
+  (let [style-el (.createElement js/document "style")]
+    (set! (.-textContent style-el)
+          (str
+           ;; Ensure proper mobile viewport behavior
+           "* { box-sizing: border-box; }"
+           ;; Prevent horizontal overflow on mobile
+           "#eridu { overflow-x: hidden; max-width: 100vw; }"
+           ;; Make all buttons and clickable elements easier to tap
+           "#eridu button { min-height: 44px; min-width: 44px; touch-action: manipulation; }"
+           ;; Table rows with on-click need adequate touch height
+           "#eridu tr[style*='cursor'] td { padding-top: 10px !important; padding-bottom: 10px !important; }"
+           ;; SVG elements should not overflow
+           "#eridu svg { max-width: 100%; height: auto; }"
+           ;; Mobile-specific adjustments
+           "@media (max-width: 600px) {"
+           "  #eridu { font-size: 13px; }"
+           "  #eridu table { font-size: 11px; }"
+           "  #eridu table th, #eridu table td { padding: 6px 3px !important; }"
+           "}"))
+    (.appendChild (.-head js/document) style-el)))
+
 (defn mount-components []
   (when-let [el (.getElementById js/document "eridu")]
     (rdom/render [root-component] el)))
@@ -1460,6 +1848,7 @@
           (ws/make-websocket! url handle-ws-message))))))
 
 (defn init! []
+  (inject-mobile-styles!)
   (ajax/load-interceptors!)
   (when (and (exists? js/playerPreferences) js/playerPreferences)
     (try
@@ -1470,4 +1859,9 @@
       (reset! observe-games (reader/read-string js/observeGames))
       (catch :default _ nil)))
   (mount-components)
-  (connect-ws!))
+  (cond
+    (url-param "offline")  (do
+                             (or (resume-offline-game!)
+                                 (start-offline-game! (or (url-param "ai") "default")))
+                             (flush-pending-games!))
+    :else                  (connect-ws!)))

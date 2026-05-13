@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html style="background-color:#222">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1a1a2e">
+    <link rel="manifest" href="/eridu-manifest.json">
+    <link rel="apple-touch-icon" href="/favicon.ico">
+    <title>ERIDU — Offline vs AI</title>
+  </head>
+  <body>
+    <div id="eridu">
+    </div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/assets/material-icons/css/material-icons.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{player}}";
+      var playerName = "{{player}}";
+      var playerPreferences = "{{preferences|addslashes|safe}}";
+      var playKey = "";
+      var isCreate = false;
+      var isObserve = false;
+      var isGenerate = false;
+      var isOffline = true;
+
+      // Make sure ?offline=1 is in the URL so the cljs init detects offline mode
+      // even if the user navigated here via a bare /eridu/offline link.
+      (function ensureOfflineParam() {
+        var u = new URL(window.location.href);
+        if (!u.searchParams.has('offline')) {
+          u.searchParams.set('offline', '1');
+          window.history.replaceState({}, '', u.toString());
+        }
+      })();
+    </script>
+    <script src="/js/eridu.js?v={{timestamp}}" type="application/javascript"></script>
+    <script type="text/javascript">
+      // Register the service worker so the page + bundle become offline-capable
+      // after the first authenticated visit. Failures are silent — the page
+      // still works fine without it, just doesn't survive going offline.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/eridu-sw.js', { scope: '/' })
+            .catch(function(err) { console.warn('eridu-sw registration failed', err); });
+        });
+      }
+    </script>
+  </body>
+</html>
