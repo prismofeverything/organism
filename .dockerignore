@@ -1,0 +1,54 @@
+# VCS / IDE
+.git
+.idea
+.clj-kondo
+
+# Build outputs
+target
+.shadow-cljs
+node_modules
+resources/public/js
+classes
+checkouts
+*.jar
+*.class
+log
+backup
+checkpoints
+
+# Tests (not needed in the prod image)
+test
+
+# Local config
+dev-config.edn
+test-config.edn
+profiles.clj
+.nrepl-port
+.rebel_readline_history
+.env
+
+# Python research code — does not run on the JVM server
+alphazero
+__pycache__
+*.pyc
+.cache
+
+# Research / data artifacts (multi-megabyte, never read by the server)
+aquarium_state.json
+lineage.json
+game_library.json
+search_results
+search_result_v2
+search_result_v3
+search_results_v3
+search_results_chemotaxis
+bonus-coverage
+output
+
+# Misc deploy bits not used by the container
+nginx
+Capstanfile
+Procfile
+deploy.sh
+TODO
+README.md
