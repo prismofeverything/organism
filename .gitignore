@@ -18,10 +18,12 @@ profiles.clj
 /log
 backup/
 __pycache__/
+.venv/
 .cache/
 checkpoints/
 output/
 run*.sh
 auto.save
 /pieces/renders/
+/pieces/out/
 bonus-coverage/
