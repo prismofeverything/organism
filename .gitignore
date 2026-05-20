@@ -24,3 +24,4 @@ output/
 run*.sh
 auto.save
 /pieces/renders/
+bonus-coverage/
