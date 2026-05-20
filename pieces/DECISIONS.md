@@ -301,3 +301,55 @@ pymeshlab; it needs a CUSTOM anisotropic constrained remesher (real R&D). A
 rebuild does NOT fix this — it's an algorithm/tooling gap, not an architecture
 one. RECOMMEND option A (symmetric SHAPE + quality, shippable now) + a
 shape-symmetry invariant; file topological symmetry (B) as a research task.
+
+## RESOLVED (2026-05-20): topological symmetry B ACHIEVED — EAT & GROW 8/8 ✅
+
+The "intractable / needs a research-grade anisotropic remesher" verdict above was
+WRONG. Two findings overturned it:
+
+1. **The `symmetry` failure was a field-solve-ORDER bug, not a meshing limit.**
+   The per-wedge membrane solve gave the two cuts mismatched heights (8 stray
+   verts on GROW, 0.54mm). Solving the field on the FULL replicated mesh — where
+   the FEM operator is rotation-equivariant — makes H symmetric BY CONSTRUCTION
+   (verified 5e-14mm). One reordering. `symmetry` then passes EXACTLY (0.00mm).
+
+2. **Quality without breaking symmetry doesn't need anisotropic remeshing.** The
+   surface is a height-field GRAPH z=H(x,y), so "project to surface" is just
+   re-evaluating H — no BVH, single-valued (moldable) for free. Mesh ONE wedge,
+   replicate+weld (cuts are exact rotations -> exact N-fold), NO global remesh.
+   The wedge top is built by `collar.build_wedge_top`, which AUTO-SELECTS:
+   - SHALLOW domes (EAT, dome_h 6mm): a pure CVT in the 2D domain measuring edges
+     in 3D (`remesh_graph`: fixed point count from 3D area, 3D-area-weighted Lloyd,
+     3D-Delaunay flips). The thin steep rim band resolves fine. Min angle ~21deg.
+   - DEEP domes (GROW, dome_h 18mm): pure CVT slivers at the near-vertical rim
+     (a 3D-equilateral tri there projects to a 2D sliver, so 2D-Delaunay is wrong).
+     Fall back to a STRUCTURED level-set COLLAR over the steep band (rings at
+     z=wall+k*target, lofted as aligned-column quads -> controlled connectivity,
+     not Delaunay) + a CVT cap over the gentle top incl. the apex. Min angle ~19deg.
+
+Other essentials that made it work:
+- **Cut through a LOBE (convex tip), not the valley.** Freezing the matched cut in
+  easy convex geometry leaves the concave notch in the wedge interior where
+  flips/smoothing are free. (Cutting the valley slivered at the notch.)
+- **Independent flat BOTTOM mesh** (`collar.build_bottom_wedge` + `solid.build_solid_split`).
+  A flat copy of the anisotropic collar slivers; the bottom gets its own isotropic
+  mesh sharing only the rim; a wall stitches the two rims (robust to rim-count
+  mismatch).
+- **Exact ring periodicity** (`r[-1]=r[0]`) so wedge copies weld at the lobe tips.
+- **Metric outer-loop**: rebuild rings under the field re-solved on the fine mesh
+  (coarse vs fine H drift caused long edges + additive dips).
+
+RESULT via `build.py` (symmetric path, `build_piece_symmetric`):
+  EAT (5-fold) ALL CLEAR 8/8 · GROW (4-fold) ALL CLEAR 8/8 — exact 0.00mm
+  symmetry + manifold/silhouette/no_overhang/uniform_tris(min 19-21deg)/
+  no_long_edges/smooth/additive. The dead ends above (metric Triangle, cut-locked
+  pymeshlab, etc.) were all 2D-isotropic or face-strip-freeze; the fix is 3D-metric
+  meshing in the graph domain + structured connectivity where the lift is vertical.
+
+REMAINING: **MOVE (3-fold spiral)**. Non-star (a ray crosses the outline >2x), so
+the star pie-slice wedge + radial level-set collar don't apply. Needs: (a) a
+sector-CLIP wedge (shapely: region ∩ 120deg sector, cut through an inter-arm gap,
+matched cut sampling); (b) the arms are tall+thin (very steep transverse) so CVT
+will sliver -> a GENERAL (non-radial) level-set collar along the arm field, or
+accept the structured collar generalized to the clipped wedge. Until then MOVE
+stays on the asymmetric `build_piece` fallback in `__main__`.

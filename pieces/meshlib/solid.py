@@ -38,6 +38,49 @@ def boundary_loops(T):
     return loops
 
 
+def build_solid_split(Vt, Tt, Ht, Vb, Tb, edge=1.0):
+    """Close a solid whose TOP and BOTTOM are INDEPENDENT 2D meshes that share the
+    same rim-loop positions. The top is lifted (z=Ht), the bottom is flat (z=0),
+    and a vertical wall stitches the two rims. Use this when the top needs an
+    anisotropic (collar) triangulation to lift cleanly while the flat bottom needs
+    an isotropic one."""
+    from scipy.spatial import cKDTree
+    Vt = np.asarray(Vt, float); Vb = np.asarray(Vb, float)
+    nt = len(Vt)
+    V = [(Vt[i, 0], Vt[i, 1], Ht[i]) for i in range(nt)]
+    F = [[a, b, c] for a, b, c in Tt]
+    off = len(V)
+    V += [(Vb[i, 0], Vb[i, 1], 0.0) for i in range(len(Vb))]
+    F += [[a + off, c + off, b + off] for a, b, c in Tb]      # bottom reversed
+
+    lt = boundary_loops(Tt)[0]
+    lb = boundary_loops(Tb)[0]
+    order = cKDTree(Vb[lb]).query(Vt[lt])[1]                  # align bottom rim to top rim
+    lb_al = [lb[o] for o in order]
+    m = len(lt)
+    wall_z = float(np.median([Ht[i] for i in lt]))
+    nz = max(1, int(round(wall_z / edge)))
+    rings = [[lt[k] for k in range(m)]]
+    for s in range(1, nz):
+        z = wall_z * (1 - s / nz); ring = []
+        for k in range(m):
+            ring.append(len(V)); V.append((Vt[lt[k], 0], Vt[lt[k], 1], z))
+        rings.append(ring)
+    rings.append([lb_al[k] + off for k in range(m)])
+    for r in range(len(rings) - 1):
+        A, B = rings[r], rings[r + 1]
+        for k in range(m):
+            i0, i1 = A[k], A[(k + 1) % m]
+            j0, j1 = B[k], B[(k + 1) % m]
+            if j0 == j1:                              # rims differ in count here:
+                F.append([i0, i1, j0])               # collapse the quad to a tri
+            elif i0 == i1:
+                F.append([i0, j1, j0])
+            else:
+                F.append([i0, i1, j1]); F.append([i0, j1, j0])
+    return np.array(V, float), np.array(F, int)
+
+
 def build_solid(V2, T, H, edge=1.0):
     """Return (vertices Nx3, faces Mx3) of the closed manifold."""
     n = len(V2)

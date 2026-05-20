@@ -13,14 +13,17 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
+from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
+
 from domain import load_region, round_corners
 from mesh2d import triangulate_region, _infer_boundary
 from field import membrane_field, smooth_scalar
 from profile import height
-from solid import build_solid
+from solid import build_solid, build_solid_split
 from remesh import isotropic_remesh
 from invariants import Spec, validate
 from symmetry import symmetrize_region, wedge_mesh_star, wedge_mesh_metric, replicate2d
+from collar import build_wedge_top, build_bottom_wedge
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "out"; OUT.mkdir(exist_ok=True)
@@ -80,44 +83,79 @@ def build_piece(name):
     return mesh
 
 
-def build_piece_symmetric(name):
-    """Exactly N-fold symmetric build. Mesh ONE wedge with matched radial cuts,
-    replicate+weld into a full symmetric 2D mesh, then solve the membrane field
-    on the FULL mesh. The FEM operator is rotation-equivariant, so on a symmetric
-    mesh the solution is symmetric BY CONSTRUCTION -> the two cuts carry identical
-    heights and the lifted solid is exactly N-fold (vs. the per-wedge solve, which
-    left the cuts mismatched and broke symmetry). NO global remesh (it would break
-    symmetry); triangle quality comes from the frozen-cut remesh stage."""
-    svg, zmax, shape, wall, sm_iters = SPECS[name]
-    fold = FOLD[name]
-    reg = round_corners(symmetrize_region(load_region(ROOT / "inputs" / svg, name), fold),
-                        radius=CORNER_RADIUS)
+SYM_TARGET = 0.7         # wedge triangle size for the symmetric build
 
-    # one wedge -> replicate+weld -> full, exactly-symmetric 2D mesh
-    Vw, Tw, _ = wedge_mesh_star(reg, fold, edge=0.7)
-    V2, T, _inv = replicate2d(Vw, Tw, fold)
+
+def _make_Hfn(V2, H):
+    """Continuous height field z=H(x,y) from a per-vertex solve, for placing the
+    collar rings / measuring 3D edges. Symmetric in, symmetric out."""
+    li = LinearNDInterpolator(V2, H); ne = NearestNDInterpolator(V2, H)
+    def f(P):
+        P = np.atleast_2d(np.asarray(P, float)); z = li(P); nan = np.isnan(z)
+        if nan.any():
+            z[nan] = ne(P[nan])
+        return z
+    return f
+
+
+def _solve_field(V2, T, zmax, shape, wall, sm_iters):
     bnd = _infer_boundary(V2, T)
-
-    # field on the FULL mesh -> symmetric H (cuts now carry identical heights)
     u = membrane_field(V2, T, bnd)
     H = height(u, zmax, shape, wall)
     if sm_iters:
         H = smooth_scalar(V2, T, H, bnd, iters=sm_iters)
     H *= zmax / H.max()
-    H_floor = height(u, zmax, "parabola", wall)
+    return H, height(u, zmax, "parabola", wall)
 
-    V3, F = build_solid(V2, T, H, edge=0.6)
+
+def build_piece_symmetric(name, target=SYM_TARGET, outer=3):
+    """Exactly N-fold symmetric build WITH full mesh quality.
+
+    Mesh ONE wedge as a structured level-set COLLAR over the steep wall->dome rim
+    plus a CVT CAP over the gentle top; the cut runs through a LOBE so the frozen
+    matched cuts sit in easy convex geometry. Replicate+weld (cuts are exact
+    rotations -> exact N-fold), solve the membrane field on the FULL mesh
+    (rotation-equivariant -> symmetric H), lift, and close with an INDEPENDENT flat
+    bottom (its own isotropic mesh; a flat copy of the collar would sliver) + wall.
+    A metric outer-loop refines the field the rings are placed on. No global remesh
+    (it would break symmetry)."""
+    svg, zmax, shape, wall, sm = SPECS[name]
+    fold = FOLD[name]
+    reg = round_corners(symmetrize_region(load_region(ROOT / "inputs" / svg, name), fold),
+                        radius=CORNER_RADIUS)
+
+    # initial coarse field -> metric for ring placement
+    Vw, Tw, _ = wedge_mesh_star(reg, fold, edge=0.6)
+    Vc, Tc, _ = replicate2d(Vw, Tw, fold)
+    Hfn = _make_Hfn(Vc, _solve_field(Vc, Tc, zmax, shape, wall, sm)[0])
+
+    Vt = Tt = Ht = Ff = ring0 = None
+    for _ in range(outer):                       # refine the metric the rings sit on
+        Vtw, Ttw, ring0 = build_wedge_top(reg, fold, Hfn, wall * zmax, zmax, target)
+        Vt, Tt, _ = replicate2d(Vtw, Ttw, fold)
+        Ht, Ff = _solve_field(Vt, Tt, zmax, shape, wall, sm)
+        Hfn = _make_Hfn(Vt, Ht)
+
+    Vbw, Tbw = build_bottom_wedge(fold, ring0, target)
+    Vb, Tb, _ = replicate2d(Vbw, Tbw, fold)
+    V3, F = build_solid_split(Vt, Tt, Ht, Vb, Tb, edge=target)
+
     mesh = trimesh.Trimesh(vertices=V3, faces=F, process=True)
     trimesh.repair.fix_normals(mesh)
     spec = Spec(name, zmax, shape, wall, TARGET_EDGE, fold=fold)
     print(f"\n=== {name} (symmetric) ===  {len(mesh.vertices)} verts, {len(mesh.faces)} faces, "
           f"vol={mesh.volume:.0f}mm^3")
-    ok, _ = validate(mesh, reg, spec, ideal=(H, H_floor))
+    ok, _ = validate(mesh, reg, spec, ideal=(Ht, Ff))
     mesh.export(OUT / f"{name}.obj")
     print(f"  wrote {OUT / f'{name}.obj'}  [{'OK' if ok else 'INVARIANTS FAILED'}]")
     return mesh
 
 
+STAR = {"EAT", "GROW"}   # star-shaped -> symmetric pipeline ready; MOVE = spiral (WIP)
+
 if __name__ == "__main__":
     for nm in (sys.argv[1:] or list(SPECS)):
-        build_piece(nm)
+        if nm in STAR:
+            build_piece_symmetric(nm)
+        else:
+            build_piece(nm)            # MOVE: asymmetric until the spiral sector-clip lands

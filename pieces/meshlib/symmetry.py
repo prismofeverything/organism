@@ -169,16 +169,31 @@ def _wedge_loop(region, fold, edge_b):
     return V, seg, flag, m
 
 
-def _arc_sample_radial(alpha, rmax, Hfn, target, n_fine=400):
+def _cap_2d_spacing(r, min2d):
+    """Merge samples closer than `min2d` in radius (keep first + last). A radial
+    cut sampled by 3D arc length piles up at a vertical rim (2D spacing -> 0);
+    that pile-up makes the constrained Delaunay produce slivers among the frozen
+    cut vertices, so cap how fine the 2D spacing may get."""
+    keep = [r[0]]
+    for x in r[1:-1]:
+        if x - keep[-1] >= min2d:
+            keep.append(x)
+    keep.append(r[-1])
+    return np.array(keep)
+
+
+def _arc_sample_radial(alpha, rmax, Hfn, target, n_fine=400, min2d_frac=0.45):
     """Radii along a radial cut, sampled by 3D ARC LENGTH on the curve
-    (r cos a, r sin a, H) — finer where the lift is steep. Returns r-samples
-    incl. 0 and rmax; both cuts use these same radii, so they match exactly."""
+    (r cos a, r sin a, H) — finer where the lift is steep, but never finer than
+    min2d_frac*target in radius (avoids the vertical-rim pile-up). Returns
+    r-samples incl. 0 and rmax; both cuts use these radii, so they match."""
     r = np.linspace(0.0, rmax, n_fine)
     P = np.column_stack([r * np.cos(alpha), r * np.sin(alpha)])
     s = np.concatenate([[0], np.cumsum(np.linalg.norm(
         np.diff(np.column_stack([P, Hfn(P)]), axis=0), axis=1))])
     n = max(2, int(round(s[-1] / target)))
-    return np.interp(np.linspace(0, s[-1], n + 1), s, r)
+    ri = np.interp(np.linspace(0, s[-1], n + 1), s, r)
+    return _cap_2d_spacing(ri, min2d_frac * target)
 
 
 def _arc_sample_outline(th_s, r_s, a0, a1, Hfn, target, n_fine=600):
@@ -197,8 +212,9 @@ def _arc_sample_outline(th_s, r_s, a0, a1, Hfn, target, n_fine=600):
 def wedge_boundary_star_3d(region, fold, Hfn, target):
     """Ordered, frozen wedge boundary loop (center -> cutA -> arc -> cutB) for a
     STAR region, with cuts + arc sampled by 3D arc length on z=H. Returns
-    (Vb, seg): Vb is the (m,2) loop, seg the closed-loop segments. The two cuts
-    are exact rotations of each other, so replicate2d welds them seamlessly."""
+    (Vb, seg, arc): Vb is the (m,2) loop, seg the closed-loop segments, arc the rim
+    polyline P_alpha..P_beta (shared with the bottom). The two cuts are exact
+    rotations of each other, so replicate2d welds them seamlessly."""
     th_s, r_s = _radial_outline(region)
     beta = 2 * np.pi / fold
     alpha = float(th_s[np.argmin(r_s)])               # cut through a valley
@@ -214,7 +230,7 @@ def wedge_boundary_star_3d(region, fold, Hfn, target):
     Vb = np.array(loop)
     m = len(Vb)
     seg = np.array([[i, (i + 1) % m] for i in range(m)])
-    return Vb, seg
+    return Vb, seg, arc
 
 
 def seed_interior(Vb, seg, target, min_angle=28.0):
