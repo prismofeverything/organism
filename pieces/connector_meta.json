@@ -1,0 +1,18 @@
+{
+  "EAT": {
+    "peg_top_z": 48.0,
+    "has_socket": false
+  },
+  "MOVE": {
+    "peg_top_z": 60.0,
+    "has_socket": true
+  },
+  "GROW": {
+    "peg_top_z": 36.0,
+    "has_socket": true
+  },
+  "FOOD": {
+    "peg_top_z": 9.0,
+    "has_socket": true
+  }
+}
