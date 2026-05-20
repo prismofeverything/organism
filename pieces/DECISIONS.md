@@ -346,10 +346,25 @@ RESULT via `build.py` (symmetric path, `build_piece_symmetric`):
   pymeshlab, etc.) were all 2D-isotropic or face-strip-freeze; the fix is 3D-metric
   meshing in the graph domain + structured connectivity where the lift is vertical.
 
-REMAINING: **MOVE (3-fold spiral)**. Non-star (a ray crosses the outline >2x), so
-the star pie-slice wedge + radial level-set collar don't apply. Needs: (a) a
-sector-CLIP wedge (shapely: region ∩ 120deg sector, cut through an inter-arm gap,
-matched cut sampling); (b) the arms are tall+thin (very steep transverse) so CVT
-will sliver -> a GENERAL (non-radial) level-set collar along the arm field, or
-accept the structured collar generalized to the clipped wedge. Until then MOVE
-stays on the asymmetric `build_piece` fallback in `__main__`.
+REMAINING: **MOVE (3-fold spiral)**. Non-star (a ray crosses the outline up to 3x).
+Approaches tried:
+- sector-CLIP wedge (shapely region ∩ 120deg sector, cut at a single-crossing
+  angle ~-108deg): gives an EXACTLY symmetric framework (0.00mm) BUT the tall thin
+  arms (steep transverse) make a CVT sliver (maxedge ~19mm). The radial collar is
+  star-only; a general offset-ring collar FAILED (3/8: offset curves don't
+  reproduce the silhouette, don't loft to a manifold). Filed as research.
+- "star + deform" (user idea, the promising path): mesh a STRAIGHT-legged 3-fold
+  STAR (star-shaped -> proven pipeline gives 8/8) then DEFORM into the spiral with
+  a per-vertex 3-fold-symmetric warp (preserves topology + exact symmetry, only
+  bends the legs). A rigid twist theta->theta+f(r) does NOT work: MOVE's arms are
+  curls/hooks that wrap >120deg, so no per-radius rotation un-spirals it (min ray
+  crossings stays 3 for every linear/log f). The warp must FOLLOW the arm
+  CENTERLINES (transfinite/centerline sweep of a straight leg into the hook), with
+  bijectivity care so it doesn't fold — a real build (~collar-sized). This is the
+  documented route to a true 8/8 MOVE.
+
+SHIPPED for MOVE now: `build_piece(name, symmetric_shape=True)` — proven global-
+remesh pipeline on the SYMMETRIZED region: exact symmetric SHAPE/silhouette/profile
++ full quality (~7/8; only the per-sector triangle PATTERN differs, and one
+borderline min-angle). Per the spatial-symmetry argument, this is sculpt-ready.
+`__main__` uses it for MOVE; EAT/GROW use `build_piece_symmetric` (true 8/8).

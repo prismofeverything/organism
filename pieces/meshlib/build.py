@@ -56,9 +56,15 @@ def face_min_angles(V, F):
     return np.min(np.array(out), axis=0)
 
 
-def build_piece(name):
+def build_piece(name, symmetric_shape=False):
+    """Asymmetric (global-remesh) build. With symmetric_shape=True the region is
+    first symmetrized, so the SHAPE/silhouette/profile are exactly N-fold and only
+    the triangle pattern is irregular — the practical fallback for MOVE (Blender
+    sculpt symmetry is spatial, so the sculpted result is still symmetric)."""
     svg, zmax, shape, wall, sm_iters = SPECS[name]
     reg = load_region(ROOT / "inputs" / svg, name)
+    if symmetric_shape:
+        reg = symmetrize_region(reg, FOLD[name])
     reg = round_corners(reg, radius=CORNER_RADIUS)
 
     V, T, bnd = triangulate_region(reg, edge=INIT_EDGE)
@@ -158,4 +164,4 @@ if __name__ == "__main__":
         if nm in STAR:
             build_piece_symmetric(nm)
         else:
-            build_piece(nm)            # MOVE: asymmetric until the spiral sector-clip lands
+            build_piece(nm, symmetric_shape=True)   # MOVE: symmetric SHAPE + quality (7/8)

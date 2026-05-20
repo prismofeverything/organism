@@ -28,5 +28,6 @@ networkx>=2.6           # trimesh graph ops: winding repair, face adjacency
 # --- diagnostics / explanatory diagrams ---
 matplotlib>=3.5
 
-# --- optional: raster medial-axis / skeleton, only if we need an explicit spine ---
-# scikit-image>=0.21
+# --- raster medial-axis / skeleton: MOVE spiral centerline ("spine") for the
+#     star+warp build (mesh a straight-legged star, sweep it into the spiral) ---
+scikit-image>=0.21
