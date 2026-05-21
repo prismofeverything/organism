@@ -3,11 +3,14 @@
  ORGANISM BOARD-GAME PIECE GENERATOR  (pieces_v2.py)
 ================================================================================
 
-Generates four 3D pieces — EAT, MOVE, GROW (player pieces) and FOOD (stackable
-disc) — as sculpt-ready OBJ meshes from a single 2D SVG of silhouettes. Each
-piece is built by a PARAMETRIC CONSTRUCTION designed to satisfy six topology
-invariants (see below) simultaneously, so the meshes are clean enough to import
-into Blender for sculpting and eventually optimize for injection molding.
+Generates the three player pieces — EAT, MOVE, GROW — as sculpt-ready OBJ
+meshes from a single 2D SVG of silhouettes. Each piece is built by a PARAMETRIC
+CONSTRUCTION designed to satisfy six topology invariants (see below)
+simultaneously, so the meshes are clean enough to import into Blender for
+sculpting and eventually optimize for injection molding.
+
+(FOOD is NOT generated here — it is hand-managed as pieces/FOOD.obj, converted
+from FoodUniversal.stl, and already carries its own connector.)
 
 --------------------------------------------------------------------------------
  HOW TO RUN
@@ -22,7 +25,7 @@ the SVG of silhouettes (see SVG path constant below).
  ~/Downloads/blender-5.1.1-linux-x64/blender on Linux.)
 
 Outputs, all written next to this script:
-    EAT.obj  MOVE.obj  GROW.obj  FOOD.obj   — the meshes
+    EAT.obj  MOVE.obj  GROW.obj             — the meshes
     connector_meta.json                     — per-piece connector placement
     pieces.blend  pieces.glb                — combined viewing scenes
     renders/*.png                           — workbench renders + topology audit
@@ -79,7 +82,6 @@ Per-piece configuration (current):
   EAT  : cylinder to 7/8 + small hemisphere cap;  fold=5, star polygon
   GROW : cylinder to 1/2 + hemisphere top;        fold=4, star polygon
   MOVE : pure parabola;                           fold=3, NON-star polygon
-  FOOD : circular dish + dome (its own builder)
 
 Every build is followed by check_topology(), which reports the six invariants
 (boundary/non-manifold/tiny/sliver/long-edge/self-intersection) and classifies
@@ -88,7 +90,7 @@ sharp dihedrals into body-interior (real creases) vs intentional rim/apex.
 --------------------------------------------------------------------------------
  THE OPEN PROBLEM:  MOVE's silhouette (invariant 2) vs profile (invariant 3)
 --------------------------------------------------------------------------------
-STATUS: UNSOLVED with the current method. EAT, GROW, FOOD fully satisfy all six
+STATUS: UNSOLVED with the current method. EAT and GROW fully satisfy all six
 invariants. MOVE does not — and the reason is fundamental, not a bug.
 
 MOVE's silhouette is a 3-fold spiral whose arms END IN INWARD HOOK CURLS. As a
@@ -2276,86 +2278,15 @@ def render_cage_views(name, height):
 # Main
 # ===================================================================
 
-def build_food():
-    """FOOD: parabolic dish on top, matching dome on bottom.
-
-    The dish (concave) and dome (convex) have the same parabolic profile, so
-    when two FOOD pieces stack, the upper food's bottom dome nests cleanly
-    into the lower food's top dish. The universal connector (peg+socket) is
-    grafted in the center after sculpting via graft_connector.py.
-
-    Rotationally symmetric, fully triangulated, manifold."""
-    print("\n=== FOOD (parabolic dish on top, matching dome on bottom) ===")
-    me = bpy.data.meshes.new("FOOD")
-    obj = bpy.data.objects.new("FOOD", me)
-    bpy.context.collection.objects.link(obj)
-    bm = bmesh.new()
-
-    n_pts = 64
-    r_max = FOOD_DIA / 2
-    DISH_DEPTH = 2.5    # mm — depth of dish at center, also dome height on bottom
-    thickness = FOOD_HEIGHT   # 9 mm thickness at the rim
-
-    # Parabolic offset: rim at z=0, center at z=-DISH_DEPTH (going down)
-    def offset(r):
-        return -DISH_DEPTH * max(0.0, 1 - r*r/(r_max*r_max))
-
-    # Rim is at z = 0 (bottom) and z = thickness (top)
-    bot_boundary = [bm.verts.new((r_max*cos(2*pi*i/n_pts),
-                                   r_max*sin(2*pi*i/n_pts),
-                                   0))
-                    for i in range(n_pts)]
-    top_boundary = [bm.verts.new((r_max*cos(2*pi*i/n_pts),
-                                   r_max*sin(2*pi*i/n_pts),
-                                   thickness))
-                    for i in range(n_pts)]
-    # Apex of bottom dome (center, lowest point): z = -DISH_DEPTH
-    bot_apex = bm.verts.new((0, 0, offset(0)))
-    # Apex of top dish (center, depressed): z = thickness - DISH_DEPTH
-    # Wait — for a dish on top (concave), center is LOWER than rim. Top rim at z=thickness,
-    # top center at z=thickness - DISH_DEPTH.
-    top_apex = bm.verts.new((0, 0, thickness + offset(0)))
-
-    # Bottom: fan from bot_apex out to bot_boundary, reversed for -Z normal
-    for i in range(n_pts):
-        j = (i+1) % n_pts
-        bm.faces.new([bot_apex, bot_boundary[j], bot_boundary[i]])
-
-    # Top: fan from top_apex out to top_boundary
-    for i in range(n_pts):
-        j = (i+1) % n_pts
-        bm.faces.new([top_boundary[i], top_boundary[j], top_apex])
-
-    # Side walls (a simple cylindrical rim from z=0 to z=thickness)
-    for i in range(n_pts):
-        j = (i+1) % n_pts
-        bm.faces.new([bot_boundary[i], bot_boundary[j], top_boundary[j], top_boundary[i]])
-
-    bmesh.ops.triangulate(bm, faces=list(bm.faces), quad_method='BEAUTY', ngon_method='BEAUTY')
-    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
-    bm.normal_update()
-    bm.to_mesh(me); bm.free()
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-    _remeshed = icosphere_radial_project(obj, subdivisions=6)
-    bpy.data.objects.remove(obj, do_unlink=True)
-    obj = _remeshed
-    shade_smooth(obj)
-    export(obj, "FOOD.obj")
-    save_connector_meta("FOOD", thickness, has_socket=True)
-    return obj, thickness
-
-
 def build_show_scene():
     """Load all three exported OBJs side-by-side and save as .blend + .glb
     so the user can open and rotate them interactively."""
     reset()
     SPACING = 60.0   # mm between pieces, centered
     positions = {
-        "EAT.obj":  (-SPACING*1.5, 0, 0),
-        "MOVE.obj": (-SPACING*0.5, 0, 0),
-        "GROW.obj": ( SPACING*0.5, 0, 0),
-        "FOOD.obj": ( SPACING*1.5, 0, 0),
+        "EAT.obj":  (-SPACING, 0, 0),
+        "MOVE.obj": (0, 0, 0),
+        "GROW.obj": ( SPACING, 0, 0),
     }
     for fname, (x, y, z) in positions.items():
         path = OUT / fname
@@ -2475,19 +2406,18 @@ def main():
     grow, grow_h = build_grow(polygons['GROW'], silhouettes['GROW'])
     render_piece_views("GROW", grow_h)
 
-    reset()
-    food, food_h = build_food()
-    render_piece_views("FOOD", food_h)
+    # FOOD is hand-managed (pieces/FOOD.obj, from FoodUniversal.stl) — this
+    # script operates only on EAT/MOVE/GROW and never writes FOOD.obj.
 
     # Save the per-piece connector metadata for graft_connector.py
     write_connector_meta()
 
     # Topology continuity audit on every exported piece
     print("\n=== Topology continuity audit ===")
-    for name in ['EAT', 'MOVE', 'GROW', 'FOOD']:
+    for name in ['EAT', 'MOVE', 'GROW']:
         check_topology(OUT / f"{name}.obj", name)
 
-    # Step 3: build a "show" scene with all four side-by-side
+    # Step 3: build a "show" scene with the three pieces side-by-side
     print("\nBuilding interactive show scene...")
     build_show_scene()
 
