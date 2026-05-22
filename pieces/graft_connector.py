@@ -14,21 +14,29 @@ Usage:
     --piece  one of {EAT, MOVE, GROW, FOOD}  (controls socket-on-bottom yes/no)
     --out    output path (default: <input>_connected.obj)
     --z      override top-plateau Z; default: max Z of input mesh
+    --fuse   seat the connector on a flat O~16 plateau (at the height where the
+             body is already that wide) and fillet the junction so it reads as
+             grown-in, not stuck-on. Reshapes the narrow apex into a plateau.
+             This is the look you want on the final sculpted bodies.
+    --voxel  fuse remesh voxel size in mm (default 0.30; smaller = more detail)
 """
 import bpy, bmesh, sys, math, json, argparse
+import numpy as np
 from math import pi, cos, sin
 from pathlib import Path
 
 HERE = Path(__file__).parent
 
 # Same spec as pieces_v2.py — keep in sync.
-DOME_DIA       = 6.0
-DOME_HEIGHT    = 3.0
-RIDGE_OD       = 12.0
-RIDGE_ID       = 9.0
-RIDGE_HEIGHT   = 0.6
-RIDGE_PEAK_W   = 1.0
-CLEARANCE      = 0.10
+DOME_DIA       = 3.8
+DOME_HEIGHT    = 4.3
+RIDGE_OD       = 12.8
+RIDGE_ID       = 8.3
+RIDGE_HEIGHT   = 2.75
+RIDGE_PEAK_W   = 2.0
+CLEARANCE      = 0.15      # nominal slip-fit gap (peg <-> socket)
+IM_TOLERANCE   = 0.05      # extra allowance for injection-molding dimensional tolerance
+SOCKET_GAP     = CLEARANCE + IM_TOLERANCE   # total socket oversize
 DOME_SEGS      = 64
 DOME_RES       = 24
 
@@ -45,6 +53,9 @@ def parse_args():
     p.add_argument("--piece", required=True, choices=["EAT", "MOVE", "GROW", "FOOD"])
     p.add_argument("--out", default=None)
     p.add_argument("--z", type=float, default=None)
+    p.add_argument("--fuse", action="store_true",
+                   help="seat on a flat plateau + fillet the junction (grown-in look)")
+    p.add_argument("--voxel", type=float, default=0.30, help="fuse remesh voxel size (mm)")
     return p.parse_args(argv)
 
 
@@ -141,19 +152,58 @@ def add_peg(parent, top_z):
 
 
 def add_socket(parent):
-    dome  = build_parabolic_dome("CavDome",  DOME_DIA/2 + CLEARANCE, DOME_HEIGHT + CLEARANCE, z_offset=0)
-    dome.scale.z = -1; bpy.context.view_layer.objects.active = dome
-    bpy.ops.object.transform_apply(scale=True)
-    ridge = build_ridge_ring("CavRidge", RIDGE_OD + 2*CLEARANCE, RIDGE_ID - 2*CLEARANCE,
-                             RIDGE_HEIGHT + CLEARANCE, RIDGE_PEAK_W, z_offset=0)
-    ridge.scale.z = -1; bpy.context.view_layer.objects.active = ridge
-    bpy.ops.object.transform_apply(scale=True)
+    # Cavity opens at the bottom face (z=0) and narrows upward into the body, so the
+    # peg of the piece below seats into it. SOCKET_GAP = fit clearance + IM tolerance.
+    dome  = build_parabolic_dome("CavDome",  DOME_DIA/2 + SOCKET_GAP, DOME_HEIGHT + SOCKET_GAP, z_offset=0)
+    ridge = build_ridge_ring("CavRidge", RIDGE_OD + 2*SOCKET_GAP, RIDGE_ID - 2*SOCKET_GAP,
+                             RIDGE_HEIGHT + SOCKET_GAP, RIDGE_PEAK_W, z_offset=0)
     for child in (dome, ridge):
         bpy.context.view_layer.objects.active = parent
         m = parent.modifiers.new(f"C_{child.name}", 'BOOLEAN')
         m.operation='DIFFERENCE'; m.object=child; m.solver='EXACT'
         bpy.ops.object.modifier_apply(modifier=f"C_{child.name}")
         bpy.data.objects.remove(child, do_unlink=True)
+
+
+def flatten_plateau(body, plateau_r):
+    """Bake transform, cut the narrow tip off at the height where the body is still
+    >= plateau_r in radius, and cap it -> a flat plateau wide enough to host the
+    connector. Returns the plateau Z (Blender Z-up)."""
+    bpy.ops.object.select_all(action='DESELECT'); body.select_set(True)
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    co = np.array([(v.co.x, v.co.y, v.co.z) for v in body.data.vertices])
+    r = np.hypot(co[:, 0], co[:, 1]); z = co[:, 2]
+    zc = z[r >= plateau_r]
+    z_plat = float(zc.max()) if len(zc) else float(z.max())
+    bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.bisect(plane_co=(0, 0, z_plat), plane_no=(0, 0, 1),
+                        clear_inner=False, clear_outer=True, use_fill=True)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return z_plat
+
+
+def fillet_junction(body, z_plat, voxel):
+    """Voxel-remesh for uniform topology, then relax the plateau-rim band so the
+    connector flares into the body (dome/ridge tops stay crisp for the mate)."""
+    body.data.remesh_voxel_size = voxel
+    bpy.ops.object.select_all(action='DESELECT'); body.select_set(True)
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.voxel_remesh()
+    me = body.data; bm = bmesh.new(); bm.from_mesh(me)
+    rim = RIDGE_OD / 2
+    for v in bm.verts:
+        rr = (v.co.x ** 2 + v.co.y ** 2) ** 0.5
+        v.select = (rim - 1.4 <= rr <= rim + 6.0) and (z_plat - 6.5 <= v.co.z <= z_plat + 1.6)
+    for e in bm.edges: e.select = all(x.select for x in e.verts)
+    for f in bm.faces: f.select = all(x.select for x in f.verts)
+    bm.to_mesh(me); bm.free()
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=30)
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.fill_holes(sides=12)              # close small remesh holes (not the socket)
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
 
 
 def main():
@@ -173,20 +223,40 @@ def main():
     body = bpy.context.view_layer.objects.active
     body.name = args.piece
 
-    # Determine peg insertion z. Default: max Z of mesh (where the plateau is).
-    if args.z is not None:
-        peg_top_z = args.z
+    if args.fuse:
+        # Seat the connector on a flat plateau and fillet it in (grown-in look).
+        plateau_r = max(RIDGE_OD / 2 + 2.0, 8.0)
+        z_plat = args.z if args.z is not None else flatten_plateau(body, plateau_r)
+        print(f"  fuse: plateau at z = {z_plat:.2f} mm (O{2*plateau_r:.0f} seat)")
+        add_peg(body, z_plat)
+        # cut the socket BEFORE the fuse remesh, so the remesh re-knits peg+body+
+        # socket into ONE clean watertight manifold (it softens the socket by ~half
+        # a voxel, which only makes the mate more forgiving)
+        if args.piece != "EAT":
+            add_socket(body); print(f"  socket carved at z = 0")
+        fillet_junction(body, z_plat, args.voxel)
     else:
-        bb = [body.matrix_world @ v.co for v in body.data.vertices]
-        peg_top_z = max(v.z for v in bb)
-    print(f"  peg base at z = {peg_top_z:.2f} mm")
+        # Determine peg insertion z. Default: max Z of mesh (where the plateau is).
+        if args.z is not None:
+            peg_top_z = args.z
+        else:
+            bb = [body.matrix_world @ v.co for v in body.data.vertices]
+            peg_top_z = max(v.z for v in bb)
+        print(f"  peg base at z = {peg_top_z:.2f} mm")
+        add_peg(body, peg_top_z)
+        # FOOD/MOVE/GROW get the bottom socket; EAT doesn't (food never goes UNDER EAT)
+        if args.piece != "EAT":
+            add_socket(body)
+            print(f"  socket carved at z = 0")
 
-    add_peg(body, peg_top_z)
-
-    # FOOD/MOVE/GROW get the bottom socket; EAT doesn't (food never goes UNDER EAT)
-    if args.piece != "EAT":
-        add_socket(body)
-        print(f"  socket carved at z = 0")
+    # Merge boolean-induced coincident verts -> watertight 2-manifold
+    bpy.ops.object.select_all(action='DESELECT')
+    body.select_set(True); bpy.context.view_layer.objects.active = body
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.remove_doubles(threshold=1e-4)
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
 
     out_path = Path(args.out) if args.out else in_path.parent / f"{in_path.stem}_connected.obj"
     bpy.ops.object.select_all(action='DESELECT')

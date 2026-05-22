@@ -102,11 +102,19 @@ Connector spec (from `pieces_v2.py` / `graft_connector.py`, keep in sync):
 3. Voxel-remesh (0.4–0.5 mm) and block out — Clay Strips, Grab.
 4. Detail pass — dyntopo Constant Detail ~0.4 mm, or voxel 0.25–0.3 mm; Crease / Draw Sharp / Pinch.
 5. **Final Voxel Remesh** (clean manifold), keeping the top plateau flat. Export OBJ.
-6. Re-attach the connector:
+6. Re-attach the connector. For the **fused / grown-in look** (what you want on the
+   final pieces) add `--fuse`:
    ```sh
-   blender --background --python graft_connector.py -- --in <sculpt>.obj --piece EAT --out <final>.obj
+   blender --background --python graft_connector.py -- --in <sculpt>.obj --piece EAT --fuse --out <final>.obj
    ```
-   (`--piece` one of EAT / MOVE / GROW — controls the bottom socket.)
+   - `--piece` — EAT / MOVE / GROW (controls the bottom socket).
+   - `--fuse` — seats the connector on a flat Ø~17 plateau (at the height where the
+     body is already that wide), grafts it, then voxel-remeshes + fillets the rim so
+     it flows into the body instead of perching on the narrow apex. Reshapes the tip
+     into a plateau. Omit `--fuse` to get the plain peg at the apex ("sits on top").
+   - `--voxel N` — fuse remesh size in mm (default 0.30). EAT comes out watertight;
+     socketed MOVE/GROW may carry a few non-manifold edges (clear with the 3D-Print
+     Toolbox, or cleaner on real sculpts).
 7. Optional: `invariants.py` to re-validate; 3D-Print Toolbox to confirm watertight + wall thickness.
 
 ## Related

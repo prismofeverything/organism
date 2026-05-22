@@ -163,13 +163,15 @@ SVG = Path.home()/"Downloads/01_organism-elements_wyn_02-01.svg"
 ORIG_EAT_OBJ = Path.home()/"code/elephantlaboratories/resources/public/tts/organism/EAT.07.obj"
 
 # === Connector spec (parabolic dome + outer ridge) ===
-DOME_DIA       = 6.0
-DOME_HEIGHT    = 3.0
-RIDGE_OD       = 12.0
-RIDGE_ID       = 9.0
-RIDGE_HEIGHT   = 0.6
-RIDGE_PEAK_W   = 1.0
-CLEARANCE      = 0.10
+DOME_DIA       = 3.8
+DOME_HEIGHT    = 4.3
+RIDGE_OD       = 12.8
+RIDGE_ID       = 8.3
+RIDGE_HEIGHT   = 2.75
+RIDGE_PEAK_W   = 2.0
+CLEARANCE      = 0.15      # nominal slip-fit gap (peg <-> socket)
+IM_TOLERANCE   = 0.05      # extra allowance for injection-molding dimensional tolerance
+SOCKET_GAP     = CLEARANCE + IM_TOLERANCE   # total socket oversize
 EDGE_FILLET    = 0.5
 DOME_SEGS      = 64
 DOME_RES       = 24
@@ -532,13 +534,11 @@ def add_connector_peg(parent_obj, top_z):
 
 
 def add_connector_socket(parent_obj):
-    dome  = build_parabolic_dome("CavDome",  DOME_DIA/2 + CLEARANCE,  DOME_HEIGHT + CLEARANCE,  z_offset=0)
-    dome.scale.z = -1; bpy.context.view_layer.objects.active = dome
-    bpy.ops.object.transform_apply(scale=True)
-    ridge = build_ridge_ring("CavRidge", RIDGE_OD + 2*CLEARANCE, RIDGE_ID - 2*CLEARANCE,
-                             RIDGE_HEIGHT + CLEARANCE, RIDGE_PEAK_W, z_offset=0)
-    ridge.scale.z = -1; bpy.context.view_layer.objects.active = ridge
-    bpy.ops.object.transform_apply(scale=True)
+    # Cavity opens at the bottom face (z=0) and narrows upward into the body, so the
+    # peg of the piece below seats into it. SOCKET_GAP = fit clearance + IM tolerance.
+    dome  = build_parabolic_dome("CavDome",  DOME_DIA/2 + SOCKET_GAP,  DOME_HEIGHT + SOCKET_GAP,  z_offset=0)
+    ridge = build_ridge_ring("CavRidge", RIDGE_OD + 2*SOCKET_GAP, RIDGE_ID - 2*SOCKET_GAP,
+                             RIDGE_HEIGHT + SOCKET_GAP, RIDGE_PEAK_W, z_offset=0)
     for child in (dome, ridge):
         bpy.context.view_layer.objects.active = parent_obj
         m = parent_obj.modifiers.new(f"C_{child.name}", 'BOOLEAN')
