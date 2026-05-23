@@ -27,3 +27,4 @@ auto.save
 /pieces/renders/
 /pieces/out/
 bonus-coverage/
+*.mp4

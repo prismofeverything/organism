@@ -36,12 +36,9 @@
 
 (def ^:private pretty (json/object-mapper {:pretty true}))
 
-(defn norm-space
-  "Canonicalize a space id to [keyword int] (Mongo may load it as [\"red\" 3])."
-  [[color n]]
-  [(keyword (name color)) n])
-
 (defn space->str
+  "Encode a space id [ring-label index] as \"label:index\". Works whether the ring
+   label is a keyword (:red) or a string (\"A\")."
   [[color n]]
   (str (name color) ":" n))
 
@@ -51,9 +48,10 @@
     [(keyword (subs s 0 i)) (Integer/parseInt (subs s (inc i)))]))
 
 (defn board-symmetry
-  "Board rotational symmetry = number of spaces adjacent to the center."
-  [adjacencies center]
-  (count (get adjacencies (norm-space center))))
+  "Board rotational symmetry = degree of the center space, matched by string id
+   (robust to keyword-vs-string ring labels)."
+  [str-adjacencies center-str]
+  (count (get str-adjacencies center-str)))
 
 (defn element->tuple
   [el]
@@ -87,18 +85,20 @@
   (let [players (mapv name (:players invocation))
         colors-list (map (comp name last) (:colors invocation))
         adjacencies (:adjacencies game)
-        center (:center game)
-        spaces (sort-by space->str (keys adjacencies))]
+        str-adj (into {} (map (fn [[sp adjs]] [(space->str sp) (mapv space->str adjs)])) adjacencies)
+        center-str (space->str (:center game))
+        spaces (vec (sort (keys str-adj)))
+        ring-colors (vec (distinct (map #(first (string/split % #":")) spaces)))]
     {:format "organism"
      :version 1
      :name key
-     :symmetry (board-symmetry adjacencies center)
+     :symmetry (board-symmetry str-adj center-str)
      :players players
      :colors (zipmap players colors-list)
-     :board {:center (space->str center)
-             :ring-colors (mapv name (distinct (map first (keys adjacencies))))
-             :spaces (mapv space->str spaces)
-             :adjacencies (into {} (map (fn [[sp adjs]] [(space->str sp) (mapv space->str adjs)])) adjacencies)}
+     :board {:center center-str
+             :ring-colors ring-colors
+             :spaces spaces
+             :adjacencies str-adj}
      :frames (vec (map-indexed state->frame history))}))
 
 (defn ogf->game

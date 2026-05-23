@@ -37,6 +37,7 @@ RIDGE_PEAK_W   = 2.0
 CLEARANCE      = 0.15      # nominal slip-fit gap (peg <-> socket)
 IM_TOLERANCE   = 0.05      # extra allowance for injection-molding dimensional tolerance
 SOCKET_GAP     = CLEARANCE + IM_TOLERANCE   # total socket oversize
+SEAT_MARGIN    = 0.6       # plateau radius past the connector base, so it seats flush
 DOME_SEGS      = 64
 DOME_RES       = 24
 
@@ -165,17 +166,18 @@ def add_socket(parent):
         bpy.data.objects.remove(child, do_unlink=True)
 
 
-def flatten_plateau(body, plateau_r):
+def flatten_plateau(body, plateau_r, z_plat=None):
     """Bake transform, cut the narrow tip off at the height where the body is still
-    >= plateau_r in radius, and cap it -> a flat plateau wide enough to host the
-    connector. Returns the plateau Z (Blender Z-up)."""
+    >= plateau_r in radius (or at an explicit z_plat), and cap it -> a flat plateau
+    wide enough to host the whole connector base. Returns the plateau Z (Blender Z-up)."""
     bpy.ops.object.select_all(action='DESELECT'); body.select_set(True)
     bpy.context.view_layer.objects.active = body
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    co = np.array([(v.co.x, v.co.y, v.co.z) for v in body.data.vertices])
-    r = np.hypot(co[:, 0], co[:, 1]); z = co[:, 2]
-    zc = z[r >= plateau_r]
-    z_plat = float(zc.max()) if len(zc) else float(z.max())
+    if z_plat is None:
+        co = np.array([(v.co.x, v.co.y, v.co.z) for v in body.data.vertices])
+        r = np.hypot(co[:, 0], co[:, 1]); z = co[:, 2]
+        zc = z[r >= plateau_r]
+        z_plat = float(zc.max()) if len(zc) else float(z.max())
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.bisect(plane_co=(0, 0, z_plat), plane_no=(0, 0, 1),
                         clear_inner=False, clear_outer=True, use_fill=True)
@@ -226,7 +228,7 @@ def main():
     if args.fuse:
         # Seat the connector on a flat plateau and fillet it in (grown-in look).
         plateau_r = max(RIDGE_OD / 2 + 2.0, 8.0)
-        z_plat = args.z if args.z is not None else flatten_plateau(body, plateau_r)
+        z_plat = flatten_plateau(body, plateau_r, args.z)
         print(f"  fuse: plateau at z = {z_plat:.2f} mm (O{2*plateau_r:.0f} seat)")
         add_peg(body, z_plat)
         # cut the socket BEFORE the fuse remesh, so the remesh re-knits peg+body+
@@ -236,14 +238,14 @@ def main():
             add_socket(body); print(f"  socket carved at z = 0")
         fillet_junction(body, z_plat, args.voxel)
     else:
-        # Determine peg insertion z. Default: max Z of mesh (where the plateau is).
-        if args.z is not None:
-            peg_top_z = args.z
-        else:
-            bb = [body.matrix_world @ v.co for v in body.data.vertices]
-            peg_top_z = max(v.z for v in bb)
-        print(f"  peg base at z = {peg_top_z:.2f} mm")
-        add_peg(body, peg_top_z)
+        # Truncate the narrow tip to a flat plateau wide enough for the WHOLE connector
+        # base, then seat the peg flush on it. Without this the peg lands on the apex and
+        # floats over a too-thin tip (MOVE's spike is ~7mm too narrow). Per-piece: each
+        # truncates only what it needs (EAT/GROW ~1-2mm, MOVE ~8mm).
+        plateau_r = RIDGE_OD / 2 + SEAT_MARGIN
+        z_plat = flatten_plateau(body, plateau_r, args.z)
+        print(f"  truncated to plateau z = {z_plat:.2f} mm (O{2*plateau_r:.0f} seat); peg seated flush")
+        add_peg(body, z_plat)
         # FOOD/MOVE/GROW get the bottom socket; EAT doesn't (food never goes UNDER EAT)
         if args.piece != "EAT":
             add_socket(body)
