@@ -56,7 +56,7 @@ def imp(path,name):
 T={t:imp(f"{P}/{m}_connected.obj",t) for t,m in [("eat","EAT"),("move","MOVE"),("grow","GROW")]}
 FOODT=imp(os.environ.get("FOOD_OBJ",f"{P}/renders/food/FOOD_nosnap.obj"),"FOODT"); PSCALE=0.9; FSCALE=0.94
 def topz(o): return max((o.matrix_world@v.co).z for v in o.data.vertices)
-PHTOP={t:topz(T[t])*PSCALE for t in T}
+PHTOP={t:(topz(T[t])-4.3)*PSCALE for t in T}   # plateau (peg base), so the food's socket swallows the peg instead of perching on its tip
 tracks=ogf.track(G)
 last_turn=(len(G["frames"])-1) if TURN_LIMIT==0 else min(TURN_LIMIT,len(G["frames"]))-1
 def ks(o,fr,s): o.scale=(s,s,s); o.keyframe_insert("scale",frame=fr)

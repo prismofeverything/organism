@@ -6,6 +6,10 @@ silhouettes. Each piece is built by a parametric construction designed to
 satisfy six topology invariants simultaneously (see
 `pieces_v2.py` module docstring and `invariants.py`).
 
+> **FOOD is now its own thing.** The stackable food token + the universal connector are
+> *solids of revolution* built with the `sor.py` library — see **`FOOD.md`** for the
+> principles, the build/measure/render/video pipeline (`Makefile`), and how to print.
+
 ## What you need (clone-from-scratch)
 
 1. **Blender 5.1.x** — the script runs inside Blender's bundled Python and uses
