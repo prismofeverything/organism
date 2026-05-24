@@ -17,12 +17,16 @@ measure:     ## nesting % (mesh-accurate)
 preview:     ## CPU 3D + cross-section render of the built food
 	$(PY) render_food.py $(OUT)/FOOD_nosnap.obj
 
-video:       ## full gameplay animation with the new food -> scene/*.mp4
+plate:       ## lay out a print plate: 3 slip + 3 snap food + 1 each piece -> one watertight STL
+	$(BLENDER) $(BFLAGS) build_print_plate.py
+	$(PY) preview_plate.py
+
+video:       ## full gameplay animation -> scene/*.mp4 (gentle: nice + 2 threads; slow but won't freeze)
 	rm -f /tmp/play4/f*.png
-	TURN_LIMIT=0 $(BLENDER) $(BFLAGS) build_play_real.py
-	ffmpeg -y -framerate 24 -i /tmp/play4/f%04d.png -c:v libx264 -pix_fmt yuv420p \
+	TURN_LIMIT=0 nice -n 19 $(BLENDER) --background --threads 2 --python build_play_real.py
+	nice -n 19 ffmpeg -y -framerate 24 -i /tmp/play4/f%04d.png -c:v libx264 -pix_fmt yuv420p \
 		scene/zach-dan-ryan-play-newfood.mp4
 
 all: food measure preview   ## everything except the video
 
-.PHONY: food stl measure preview video all
+.PHONY: food stl measure preview plate video all

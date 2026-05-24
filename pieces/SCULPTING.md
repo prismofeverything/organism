@@ -20,7 +20,8 @@ the universal connector. Grounded in the actual meshes in `pieces/`.
 | MOVE | 13,411 | 26,818 | 36.6 × 35.8 × **60.0** | 0.82 mm | yes | thin legs/arches → finer voxel |
 
 All three are **watertight 2-manifold**, ~37 mm footprint, ~0.7–0.8 mm average edge length.
-(`MOVE` is still the placeholder body — see README "Status" — but the settings below apply.)
+(`MOVE`'s *uniform-scaling parametric* recipe is the open item — see README "Status" — but the blank
+here is a real spiral body and sculpts like the others; the settings below apply.)
 
 ## 0. Scene setup (once per file)
 
@@ -66,22 +67,22 @@ For solid pieces headed to a printer, make **Voxel Remesh** the base (Sculpt hea
 
 The connector is grafted **after** sculpting, so the body is yours — but keep its landing zones clean:
 
-- **Top:** keep a flat, level disc **~Ø16 mm** at the top center. The peg (Ø6 dome + Ø12 ridge)
+- **Top:** keep a flat, level disc **~Ø16 mm** at the top center. The peg (Ø3.8 dome + Ø12.8 ridge)
   unions at the mesh's max-Z; mask/Face-Set that disc so brushes can't tilt or bump it. A sloped or
   pointed top makes the peg land crooked.
-- **Bottom (MOVE & GROW only):** keep z=0 flat and solid across the center **~Ø12–13 mm** so the
-  socket carve (Ø6 dome + clearance) doesn't punch through. **EAT has no socket** (food never sits
-  under EAT) — its underside is unconstrained.
+- **Bottom (MOVE & GROW only):** keep z=0 flat and solid across the center **~Ø13–14 mm** so the
+  socket carve (Ø3.8 dome + Ø12.8 ridge groove + clearance) doesn't punch through. **EAT has no socket**
+  (food never sits under EAT) — its underside is unconstrained.
 
 Connector spec (from `pieces_v2.py` / `graft_connector.py`, keep in sync):
 
 | param | value |
 |---|---|
-| dome | Ø6.0 mm × 3.0 mm tall (parabolic) |
-| ridge | OD 12.0 / ID 9.0 mm × 0.6 mm tall, peak width 1.0 |
-| plateau | Ø16.0 mm |
-| clearance (socket) | 0.10 mm |
-| peg top z | EAT 48 (no socket) · MOVE 60 (socket) · GROW 36 (socket) |
+| dome | Ø3.8 mm × 4.3 mm tall (parabolic) |
+| ridge | OD 12.8 / ID 8.3 mm × 2.75 mm tall, peak width 2.0 |
+| plateau (default graft) | Ø14.0 mm (`RIDGE_OD/2 + SEAT_MARGIN 0.6`) |
+| clearance (socket) | 0.20 mm (`CLEARANCE 0.15 + IM_TOLERANCE 0.05`) |
+| peg top z (blank) | EAT 48 (no socket) · MOVE 60 (socket) · GROW 36 (socket) |
 
 ## 4. Mesh integrity & cleanup
 

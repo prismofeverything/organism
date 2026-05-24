@@ -26,7 +26,7 @@ recreate-from-scratch + how-to-print guide.
 ## The FOOD shape (current)
 
 A shallow parabola flaring **up** out of the connector to a rounded rim — a meniscus. Nests
-**on the connector** (the flares clear): ~27% per piece. Ø28.7 × 11.1 mm. Knobs in `build_food.py`:
+**on the connector** (the flares clear): ~38% per piece. Ø28.1 × 11.3 mm. Knobs in `build_food.py`:
 `FOOD_R` (shoulder radius), `FOOD_FLAREUP` (rim rise), `FOOD_WALL` (invariant IM wall, 2.5 mm),
 `FOOD_GAP` (connector fit), `FOOD_OUT` (output path).
 
@@ -71,6 +71,18 @@ make stl       # print-ready STL export + manifold report
 - Orient **peg up / socket down**; support the flared rim overhang. Print **both** fits and feel
   the snap vs slip — the −0.10 mm interference is a starting guess, confirm by hand.
 - Snap material wants a little give (PETG / tough resin).
+
+### Full test plate (`make plate`)
+
+`make plate` lays out a ready-to-slice plate — **3 slip + 3 snap food + 1 each piece** — dropped to the
+bed in a 3×3 grid (~117 mm square, fits a 220 or 256 mm bed), exported as ONE STL:
+`renders/food/print_plate.stl` (+ `print_plate_top.png` layout preview). All 9 bodies watertight.
+- The **pieces are tall** (EAT 51, MOVE 55, GROW 38 mm) — supports for the overhangs + a brim for
+  adhesion; food (11 mm) is quick. Slice the food row alone first to test fit/stacking fast.
+- **MOVE** prints as a real sculpted spiral — its genus-3 mesh is the actual hooks/holes (*not* the
+  gap-filled parametric *placeholder*, which would be a genus-0 blob). The pure-parametric *recipe* for
+  MOVE is a separate open problem (README `## Status` / `pieces_v2.py`); the built body is fine.
+- Counts/spacing live at the top of `build_print_plate.py` (or `PLATE_CELL=..`, `PLATE_OUT=..`).
 
 ## Open items
 

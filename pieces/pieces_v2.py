@@ -141,6 +141,12 @@ subset of the base interior while still tapering to a clean apex and holding a
 parabolic profile. That method has not been designed yet. Until then MOVE is
 left in its current (invariant-#2-violating) state as a placeholder.
 
+NOTE (2026-05): this "UNSOLVED/placeholder" verdict is about THIS uniform-scaling parametric
+method only. A separate non-parametric method (meshlib/, a height-field build -- see DECISIONS.md)
+DID produce a valid MOVE spiral body that keeps the silhouette; that is the MOVE we now
+sculpt/graft/print (MOVE_connected.obj, a real watertight genus-3 spiral). "Placeholder" here
+means THIS recipe can't make MOVE, not that no MOVE body exists.
+
 --------------------------------------------------------------------------------
  OLD APPROACH (pre-parametric, now removed)
 --------------------------------------------------------------------------------

@@ -407,11 +407,16 @@
 
 (defn find-next-choices
   [initial-game]
-  (loop [game initial-game]
+  (loop [game initial-game
+         n 0]
     (let [[turn choices] (find-state game)
           game-elements (get-in game [:state :elements])
           choice-elements (get-in (:advance choices) [:state :elements])]
       (if (or
+           ;; Safety bound: a diverged or cyclic state must never spin the
+           ;; (client) main thread and freeze the tab. Legitimate auto-advance
+           ;; chains skip only a handful of trivial single-choice phases.
+           (> n 1000)
            (empty? choices)
            (= turn :check-integrity)
            (= turn :player-victory)
@@ -422,7 +427,7 @@
              (= turn :resolve-conflicts))
             (not (elements= game-elements choice-elements))))
         [game turn choices]
-        (recur (first (vals choices)))))))
+        (recur (first (vals choices)) (inc n))))))
 
 (defn take-path
   [game path]

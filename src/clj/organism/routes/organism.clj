@@ -79,7 +79,7 @@
 ;; ── Generate page (all-bot game) ─────────────────────────────────────────
 
 (def ^:private generate-bot-names
-  ["oroboros" "helios" "selene" "atlas"])
+  ["oroboros" "helios" "selene" "atlas" "aurora"])
 
 (def ^:private generate-words
   ["solar" "lunar" "stellar" "cosmic" "astral" "void" "nebula" "nova"
@@ -93,7 +93,7 @@
   "Build an invocation suitable for an all-bot generated game."
   [players]
   (let [n (count players)
-        ring-count 4
+        ring-count 6
         colors (board/generate-colors-buffer board/total-rings ring-count n)
         captures (vec (repeat n board/default-player-captures))]
     {:ring-count ring-count
@@ -128,16 +128,19 @@
     (persist/create-game! db (assoc (dissoc initial-state :channels)
                                     :created-by (or player-key "system")
                                     :game-type "organism"))
-    ;; Run the bot in the background. Each turn the bot sends the list of
-    ;; choice keys it picked, and the client replays them via find-state.
+    ;; Run the bot in the background. Each turn the bot broadcasts the full
+    ;; resulting state (like journey) so observers render it directly. We do
+    ;; NOT send choice keys for client-side replay: an all-bot game streams
+    ;; turns continuously, and any replay divergence sends the client's
+    ;; find-next-choices into a spin that freezes the tab.
     (bot/run-bot-turns!
      ws/games game-key 200
-     (fn [choice-keys _next-game]
+     (fn [_choice-keys next-game]
        (let [channels (get-in @ws/games [:games game-key :channels])]
          (when (seq channels)
            (ws/send-channels! channels
-                              {:type "bot-choices"
-                               :choices choice-keys}))))
+                              {:type "game-state"
+                               :game (:state next-game)}))))
      (fn [next-state]
        (persist/update-state! db game-key next-state))
      db)

@@ -24,9 +24,11 @@
 (mount/defstate ^{:on-reload :noop} http-server
   :start
   (let [port (or (-> env :options :port) (:port env) 3000)
-        host (or (:host env) "0.0.0.0")]
-    (log/info "Starting HTTP server on" (str host ":" port))
-    (hk/run-server (handler/app) {:ip host :port port :max-ws 65536}))
+        host (or (:host env) "0.0.0.0")
+        url (str "http://" (if (= host "0.0.0.0") "localhost" host) ":" port)]
+    (log/info "Starting HTTP server on" (str host ":" port) "->" url)
+    (hk/run-server (handler/app) {:ip host :port port :max-ws 65536})
+    (println (str "\n  ORGANISM running at " url "\n")))
   :stop
   (when http-server
     (http-server)))

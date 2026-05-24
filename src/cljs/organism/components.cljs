@@ -334,6 +334,10 @@
                    :font-size "1.3em"
                    :text-decoration "none"}}
        game-key]]
+     (when (and description (not (string/blank? description)))
+       [:span {:style {:margin "0px 20px" :color "#888"
+                       :font-style "italic"}}
+        description])
      (when round
        [:span {:style {:margin "0px 20px" :color "#aaa"}}
         (str " round " (inc (or round 0)))])
@@ -359,10 +363,7 @@
                        :color color
                        :text-decoration "none"
                        :font-family font-family})}
-         game-player]])
-     (when (and description (not (string/blank? description)))
-       [:div {:style {:margin "0px 40px" :color "#aaa"}}
-        description])]))
+         game-player]])]))
 
 (defn observe-page
   "Complete observe page renderer. Props:

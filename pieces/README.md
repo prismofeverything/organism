@@ -15,7 +15,7 @@ satisfy six topology invariants simultaneously (see
 1. **Blender 5.1.x** — the script runs inside Blender's bundled Python and uses
    `bpy` / `bmesh` / `mathutils`. There is **nothing to `pip install`**; all
    dependencies ship with Blender.
-   - During development: `~/Downloads/blender-5.1.1-linux-x64/blender` (Linux
+   - During development: `~/Downloads/blender-5.1.2-linux-x64/blender` (Linux
      portable build). Any 5.1.x build on any OS works.
 
 2. **The silhouette SVG** at the path in the `SVG` constant near the top of
@@ -63,13 +63,18 @@ See `invariants.py` for how to add a new invariant (drop a function into the
 
 ## Status
 
-- **EAT, GROW, FOOD** — satisfy all six invariants.
-- **MOVE** — UNSOLVED. Its spiral-with-hooks silhouette is a non-star polygon;
-  uniform-scaling extrusion fills the spiral gaps in the top-down view
-  (invariant #2). A new construction method is needed — see the "OPEN PROBLEM"
-  section in the `pieces_v2.py` module docstring. We will not compromise the
-  invariants; MOVE stays in its current placeholder state until the new method
-  exists.
+- **EAT, GROW** — satisfy all six invariants. (FOOD is excluded — see above; it isn't a tapering
+  single-apex body, so the six body invariants don't apply.)
+- **MOVE** — two separate things, don't conflate them:
+  - The **uniform-scaling parametric method here is UNSOLVED for MOVE**: its spiral-with-hooks
+    silhouette is a non-star polygon, so uniform-scaling extrusion fills the spiral gaps (invariant
+    #2 — see the "OPEN PROBLEM" in the `pieces_v2.py` docstring). We won't compromise the invariants,
+    so *that recipe* stays open.
+  - But MOVE is **not** stuck as a blob: a separate non-parametric method (`meshlib/`, height-field —
+    see `DECISIONS.md` 2026-05-20) builds a real "rounded spiral mound" that keeps the silhouette, and
+    **that** is the MOVE body we sculpt / graft / print. `MOVE_connected.obj` is a genuine genus-3
+    spiral (hooks/holes real), watertight and printable — not the gap-filled placeholder. So: the
+    *piece* works; the *uniform-scaling recipe* is the open item.
 
 ## Post-sculpt
 
