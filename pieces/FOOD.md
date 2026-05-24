@@ -68,8 +68,13 @@ make stl       # print-ready STL export + manifold report
 `make food` writes `renders/food/FOOD_{nosnap,snap}.stl` (units = **mm**), now **watertight
 (0 non-manifold, euler 2)** — slice directly, no repair needed.
 - Slice in Cura/PrusaSlicer (FDM) or Lychee/Chitubox (resin).
-- Orient **peg up / socket down**; support the flared rim overhang. Print **both** fits and feel
-  the snap vs slip — the −0.10 mm interference is a starting guess, confirm by hand.
+- Orient **peg up / socket down**, but **BLOCK supports inside the socket** (PrusaSlicer: paint-on
+  supports → "Block supports" over the bottom cavity, or Add support blocker). Otherwise supports jam
+  in the ridge groove and are miserable to dig out. It prints faithfully without them: the socket's
+  **mating surfaces are its vertical walls** (clean layer-by-layer); only the small cavity ceiling
+  bridges, and that's not a mating surface so it doesn't affect the fit. Still support the flared rim
+  overhang from the build plate. Print **both** fits and feel the snap vs slip — the −0.10 mm
+  interference is a starting guess, confirm by hand.
 - Snap material wants a little give (PETG / tough resin).
 
 ### Full test plate (`make plate`)

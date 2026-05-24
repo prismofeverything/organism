@@ -194,6 +194,7 @@ def revolve(prof, name="part", seg=120):
     for a, b in zip(vs, vs[1:]): bm.edges.new((a, b))
     me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
     o = bpy.data.objects.new(name, me); bpy.context.collection.objects.link(o)
+    bpy.ops.object.select_all(action='DESELECT')    # else Edit-mode spin hits other meshes (multi-object edit)
     bpy.context.view_layer.objects.active = o; o.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.spin(steps=seg, angle=_m.radians(360), axis=(0, 0, 1), center=(0, 0, 0))
