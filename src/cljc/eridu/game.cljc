@@ -1442,6 +1442,16 @@
     ([3 4] [27 1] [21 3] [29 2] [35 1])
     {:type :pick-city :prompt "Travel to adjacent city and sell"
      :filter :adjacent :action :sell}
+
+    ;; ── Board 34 #4/#5: sell in each city with Magistrate + your Temple
+    ;; (you don't have to be there) — multi-pick, repeats until all done
+    ([34 3] [34 4])
+    {:type :pick-city
+     :prompt "Take a Sell action in a city with a Magistrate + your Temple (no travel)"
+     :filter :magistrate-and-my-temple
+     :action :sell
+     :no-travel true
+     :multi true}
     ;; deploy after travel
     ([5 3] [27 2] [33 4])
     {:type :pick-city :prompt "Travel to adjacent city and deploy"
@@ -1606,6 +1616,10 @@
             ;; ── Travel adjacent + sell ─────────────────────────────
             ([3 4] [27 1] [21 3] [29 2])
             (-> state (travel-to choice-value) (auto-sell-in choice-value))
+
+            ;; ── Sell only (no travel) — Board 34 #4/#5 ─────────────
+            ([34 3] [34 4])
+            (auto-sell-in state choice-value)
 
             ;; ── Travel adjacent + deploy ───────────────────────────
             ([5 3] [27 2] [33 4])
@@ -2215,24 +2229,20 @@
                    avail (remove #(contains? (:raiders pdata) %)
                                  (for [r routes] (segment-route-key r)))]
                (reduce #(place-raider-on %1 player-key %2) state (take 2 avail)))
-      [34 3] (let [mag-cities (magistrate-cities state) ;; Sell at mag+temple cities
-                   valid (first (filter #(and (contains? mag-cities %)
-                                               (contains? (:temples pdata) %))
-                                        (keys (:temples pdata))))]
-               (if valid
-                 (-> state
-                     (assoc-in [:players player-key :caravan] valid)
-                     (update-in [:players player-key :amity] + 3))
-                 (update-in state [:players player-key :amity] + 2)))
-      [34 4] (let [mag-cities (magistrate-cities state) ;; Same as 34-3
-                   valid (first (filter #(and (contains? mag-cities %)
-                                               (contains? (:temples pdata) %))
-                                        (keys (:temples pdata))))]
-               (if valid
-                 (-> state
-                     (assoc-in [:players player-key :caravan] valid)
-                     (update-in [:players player-key :amity] + 3))
-                 (update-in state [:players player-key :amity] + 2)))
+      ;; Board 34 #4 / #5 — "Take a Sell action in each city with a Magistrate +
+      ;; your Temple (you don't have to be there)". Real handling goes through
+      ;; bonus-needs-choice? + apply-bonus-with-choice (multi-pick). This bot
+      ;; fallback approximates each qualifying city as 1 amity, no travel.
+      [34 3] (let [mag-cities (magistrate-cities state)
+                   qualifying (filter #(and (contains? mag-cities %)
+                                            (contains? (:temples pdata) %))
+                                      (keys (:temples pdata)))]
+               (update-in state [:players player-key :amity] + (count qualifying)))
+      [34 4] (let [mag-cities (magistrate-cities state)
+                   qualifying (filter #(and (contains? mag-cities %)
+                                            (contains? (:temples pdata) %))
+                                      (keys (:temples pdata)))]
+               (update-in state [:players player-key :amity] + (count qualifying)))
 
       ;; ─── Board 35: Wanderer of Dumuzi ──────────────────────────
       [35 1] (-> state ;; Travel + sell
@@ -3093,6 +3103,14 @@
   "Set of cities currently hosting magistrates."
   [state]
   (set (vals (:magistrates state {}))))
+
+(defn magistrate-and-my-temple-cities
+  "Cities where this player has a temple AND a magistrate is present.
+   Used by Board 34 #4/#5: take a sell action in each such city."
+  [state player-key]
+  (let [mag (magistrate-cities state)
+        my-temples (set (keys (get-in state [:players player-key :temples] {})))]
+    (vec (filter mag my-temples))))
 
 ;; =============================================================================
 ;; Turn & round management

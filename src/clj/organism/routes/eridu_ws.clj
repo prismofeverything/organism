@@ -791,7 +791,19 @@
             board (get game/bonus-boards-by-id board-id)
             effect-text (get (:effects board) chosen-slot "—")
             contest-name (:name contest "")
-            needs-choice (game/bonus-needs-choice? board-id chosen-slot)
+            raw-needs-choice (game/bonus-needs-choice? board-id chosen-slot)
+            ;; For multi-pick effects with dynamic eligibility, compute the
+            ;; eligible target set up front. If the set is empty, treat as a
+            ;; no-op rather than entering an unresolvable pending state.
+            multi? (:multi raw-needs-choice)
+            eligible-cities (when (and multi?
+                                       (= :magistrate-and-my-temple
+                                          (:filter raw-needs-choice)))
+                              (game/magistrate-and-my-temple-cities state player-key))
+            needs-choice (cond
+                           (not raw-needs-choice) nil
+                           (and multi? (empty? eligible-cities)) nil
+                           :else raw-needs-choice)
             ;; Base state: claim feat + uncover slot + wild points + log
             base-state (-> state
                            (update-in [:contest-claims contest-id] (fnil conj []) player-key)
@@ -806,14 +818,23 @@
                                                   " (" contest-name ") → +"
                                                   wild-points " wild points")}))
             ;; If effect needs choice, defer; otherwise apply now
-            new-state (if needs-choice
-                        ;; Log that bonus needs resolution
+            new-state (cond
+                        needs-choice
                         (update base-state :log conj
                                 {:type :bonus-effect :player player-key
                                  :round (:round state 1) :turn (:turn-in-round state 1)
                                  :message (str "Bonus #" chosen-slot " uncovered: "
                                                effect-text " — choose below")})
-                        ;; Auto-resolve + log
+
+                        (and multi? (empty? eligible-cities))
+                        (update base-state :log conj
+                                {:type :bonus-effect :player player-key
+                                 :round (:round state 1) :turn (:turn-in-round state 1)
+                                 :message (str "Bonus #" chosen-slot " uncovered: "
+                                               effect-text
+                                               " — no qualifying cities, no effect")})
+
+                        :else
                         (-> base-state
                             (game/apply-bonus-effect player-key board-id chosen-slot)
                             (update :log conj
@@ -829,13 +850,19 @@
                      ;; If bonus needs choice, store pending-bonus
                      (cond-> needs-choice
                        (assoc-in [:games play-key :pending-bonus]
-                                 {:player player-key
-                                  :board-id board-id
-                                  :slot-idx chosen-slot
-                                  :choice-type (:type needs-choice)
-                                  :prompt (:prompt needs-choice)
-                                  :remaining (get needs-choice :count 1)
-                                  :total (get needs-choice :count 1)})))))
+                                 (let [n (if multi? (count eligible-cities)
+                                             (get needs-choice :count 1))]
+                                   (cond-> {:player player-key
+                                            :board-id board-id
+                                            :slot-idx chosen-slot
+                                            :choice-type (:type needs-choice)
+                                            :prompt (:prompt needs-choice)
+                                            :filter (:filter needs-choice)
+                                            :action (:action needs-choice)
+                                            :remaining n
+                                            :total n}
+                                     (seq eligible-cities)
+                                     (assoc :eligible-cities (vec eligible-cities)))))))))
         (log/info "Feat claimed" play-key player-key feat-id "slot" chosen-slot
                   "wild+" wild-points
                   (when needs-choice (str " (needs " (:type needs-choice) " choice)")))
@@ -869,33 +896,40 @@
         (let [{:keys [board-id slot-idx]} pending
               remaining (get pending :remaining 1)
               choice-val (edn/read-string choice)
-              board (get game/bonus-boards-by-id board-id)
-              effect-text (get (:effects board) slot-idx "—")
-              ;; Apply this single pick via the choice handler
-              new-state (-> state
-                            (game/apply-bonus-with-choice player-key board-id slot-idx choice-val)
-                            (update :log conj
-                                    {:type :bonus-effect :player player-key
-                                     :round (:round state 1) :turn (:turn-in-round state 1)
-                                     :message (str "Bonus: gained " (name choice-val)
-                                                   " (" (- remaining 1) " picks left)")}))
-              picks-left (dec remaining)]
-          (swap! games
-                 (fn [gs]
-                   (let [gs (assoc-in gs [:games play-key :state] new-state)]
-                     (if (pos? picks-left)
-                       (assoc-in gs [:games play-key :pending-bonus]
-                                 (assoc pending
-                                        :remaining picks-left
-                                        :prompt (str "Choose a resource to gain ("
-                                                     picks-left " of "
-                                                     (get pending :total remaining)
-                                                     " remaining)")))
-                       (update-in gs [:games play-key] dissoc :pending-bonus)))))
-          (log/info "Bonus pick" play-key player-key choice-val
-                    "remaining:" picks-left)
-          (broadcast-state! play-key)
-          (save-state! db play-key))))))
+              eligible (get pending :eligible-cities)
+              ;; If we're tracking a restricted set of targets (e.g. board 34),
+              ;; the chosen value must come from it.
+              eligible-set (when eligible (set eligible))
+              valid? (or (nil? eligible-set) (contains? eligible-set choice-val))]
+          (if-not valid?
+            (log/warn "Bonus pick not in eligible set" play-key player-key
+                      choice-val "eligible:" eligible)
+            (let [;; Apply this single pick via the choice handler
+                  new-state (-> state
+                                (game/apply-bonus-with-choice player-key board-id slot-idx choice-val)
+                                (update :log conj
+                                        {:type :bonus-effect :player player-key
+                                         :round (:round state 1) :turn (:turn-in-round state 1)
+                                         :message (str "Bonus pick: " (name choice-val)
+                                                       " (" (- remaining 1) " left)")}))
+                  picks-left (dec remaining)
+                  new-eligible (when eligible (vec (remove #(= % choice-val) eligible)))]
+              (swap! games
+                     (fn [gs]
+                       (let [gs (assoc-in gs [:games play-key :state] new-state)]
+                         (if (and (pos? picks-left) (or (nil? eligible) (seq new-eligible)))
+                           (assoc-in gs [:games play-key :pending-bonus]
+                                     (cond-> (assoc pending
+                                                    :remaining picks-left
+                                                    :prompt (str (:prompt pending)
+                                                                 " (" picks-left " of "
+                                                                 (:total pending) " left)"))
+                                       new-eligible (assoc :eligible-cities new-eligible)))
+                           (update-in gs [:games play-key] dissoc :pending-bonus)))))
+              (log/info "Bonus pick" play-key player-key choice-val
+                        "remaining:" picks-left)
+              (broadcast-state! play-key)
+              (save-state! db play-key))))))))
 
 (defn handle-use-passive! [db play-key player-key {:keys [passive-id choice]}]
   (let [game-data (get-in @games [:games play-key])

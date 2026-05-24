@@ -344,6 +344,36 @@
     (js/console.warn "use-passive is not yet supported in offline mode")
     (ws/send-transit-message! {:type "use-passive" :passive-id passive-id :choice (pr-str choice)})))
 
+;; ── Bug report: ship the player's typed report + game snapshot to the server ──
+
+(defonce bug-report-text (r/atom ""))
+(defonce bug-report-status (r/atom nil))
+
+(defn send-bug-report! [text]
+  (let [play-key (when (exists? js/playKey) js/playKey)
+        player   @player-key
+        state    @game-state
+        record   {:text     text
+                  :play-key play-key
+                  :player   player
+                  :offline? (boolean @offline?-cursor)
+                  :ts       (.toISOString (js/Date.))
+                  :url      (.-href js/location)
+                  :state    (pr-str state)}]
+    (reset! bug-report-status :sending)
+    (POST "/eridu/bug-report"
+          {:params  record
+           :format  :transit
+           :response-format :transit
+           :handler (fn [_]
+                      (reset! bug-report-status :sent)
+                      (reset! bug-report-text "")
+                      (js/setTimeout #(reset! bug-report-status nil) 3000))
+           :error-handler (fn [err]
+                            (js/console.warn "bug-report failed" (pr-str err))
+                            (reset! bug-report-status :error)
+                            (js/setTimeout #(reset! bug-report-status nil) 5000))})))
+
 ;; ── Unicode die faces ─────────────────────────────────────────────────────────
 
 (def die-faces {1 "⚀" 2 "⚁" 3 "⚂" 4 "⚃" 5 "⚄" 6 "⚅"})
@@ -1454,6 +1484,39 @@
    :raider-flip "#f84" :raider-score "#ff4" :magistrate-raider-flip "#f84"
    :feat-claim "#ff8" :bonus-effect "#8ff"})
 
+(defn bug-report-component []
+  (let [status @bug-report-status
+        text   @bug-report-text]
+    [:div {:style {:background "#1a0a0a" :border "1px solid #633"
+                   :border-radius 8 :padding 10 :margin-top 8}}
+     [:div {:style {:color "#c66" :font-weight "bold" :font-size 13 :margin-bottom 6}}
+      "🐞 Report a bug (sends current game state)"]
+     [:textarea
+      {:value text
+       :on-change #(reset! bug-report-text (-> % .-target .-value))
+       :placeholder "What went wrong? e.g. \"Board 34 #4 didn't ask me to sell at Kish.\""
+       :style {:width "100%" :min-height 60 :background "#0a0508" :color "#fcc"
+               :border "1px solid #533" :border-radius 4 :padding 6
+               :font-family "monospace" :font-size 12 :resize "vertical"
+               :box-sizing "border-box"}}]
+     [:div {:style {:display "flex" :gap 8 :align-items "center" :margin-top 6}}
+      [:button
+       {:on-click #(when (seq (.trim text)) (send-bug-report! text))
+        :disabled (or (empty? (.trim text)) (= :sending status))
+        :style {:background (if (seq (.trim text)) "#3a1a1a" "#222")
+                :color (if (seq (.trim text)) "#fcc" "#666")
+                :border "1px solid #844" :border-radius 4
+                :padding "6px 14px" :cursor "pointer" :font-size 13}}
+       (case status :sending "Sending…" :sent "✓ Sent" :error "✗ Failed" "Send")]
+      (when status
+        [:span {:style {:color (case status :sent "#7c7" :error "#c77" "#888")
+                        :font-size 11}}
+         (case status
+           :sending "uploading game state…"
+           :sent "queued for triage"
+           :error "send failed (check console)"
+           "")])]]))
+
 (defn game-log-component [state]
   (let [log (reverse (:log state []))
         current-round (:round state 1)
@@ -1622,10 +1685,14 @@
                ;; City picker
                :pick-city
                (let [my-pdata (game/player-data state my-player)
-                     cities (case (:filter bonus)
-                              :magistrate (distinct (vals (:magistrates state)))
-                              :adjacent (get-in state [:city-graph (:caravan my-pdata)])
-                              (keys (:city-graph state)))]
+                     cities (or (:eligible-cities bonus)
+                                (case (:filter bonus)
+                                  :magistrate-and-my-temple
+                                  (filter (set (vals (:magistrates state)))
+                                          (keys (:temples my-pdata)))
+                                  :magistrate (distinct (vals (:magistrates state)))
+                                  :adjacent (get-in state [:city-graph (:caravan my-pdata)])
+                                  (keys (:city-graph state))))]
                  [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
                   (for [city cities]
                     ^{:key (str "bonus-city-" (name city))}
@@ -1753,7 +1820,9 @@
                                   (str (get role-icons r "") (subs (name r) 0 3) lv)))]])]]))
         ;; 6. Bottom: game log and rules reference
         [:div {:style {:display "flex" :gap 12 :flex-wrap "wrap" :align-items "flex-start"}}
-         [game-log-component state]
+         [:div {:style {:flex 1 :min-width 0 :display "flex" :flex-direction "column"}}
+          [game-log-component state]
+          [bug-report-component]]
          [rules-reference]]]]
       [:div {:style {:color "#666" :padding 40 :font-family "monospace"
                      :text-align "center"}}

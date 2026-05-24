@@ -253,6 +253,31 @@
 (defn top-personalities-endpoint [_db _request]
   (response/response {:personalities (vec (evolve/top-personalities 10))}))
 
+(def ^:private bug-report-file
+  "Where in-game bug reports get appended (JSON Lines)."
+  (str (System/getProperty "user.home") "/Documents/eridu-bug-reports.jsonl"))
+
+(defn report-bug!
+  "Append a player-submitted bug report (plus the game state snapshot) to a
+   local JSONL file so a separate watcher script can pick them up and triage."
+  [_db request]
+  (let [session-player (get-in request [:session :player])
+        body           (or (:body-params request) (:params request))
+        record         (assoc body
+                              :session-player session-player
+                              :received-at (System/currentTimeMillis)
+                              :remote-addr (:remote-addr request))]
+    (try
+      (let [file (java.io.File. ^String bug-report-file)]
+        (-> file .getParentFile (.mkdirs)))
+      (with-open [w (java.io.FileWriter. ^String bug-report-file true)]
+        (.write w (pr-str record))
+        (.write w "\n"))
+      (response/response {:ok true})
+      (catch Exception e
+        (-> (response/response {:error (.getMessage e)})
+            (response/status 500))))))
+
 (defn log-offline-game!
   "Persist a completed offline-vs-AI game record sent from the client.
    Auth-gated: the server overwrites :human with the session player so
@@ -311,4 +336,5 @@
    ["/evolve/status" {:get (partial evolution-status-endpoint db)}]
    ["/evolve/top" {:get (partial top-personalities-endpoint db)}]
    ["/offline/log" {:post (partial log-offline-game! db)
-                    :middleware [require-auth]}]])
+                    :middleware [require-auth]}]
+   ["/bug-report" {:post (partial report-bug! db)}]])
