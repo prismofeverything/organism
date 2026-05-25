@@ -235,7 +235,142 @@ def build_socket_bottom(b, rim, rim_pts, lev):
         b.F.append([idmap[i], idmap[k], idmap[j]])
 
 
+# ============== structured symmetric MOVE BLANK (8/8 target) ==================
+BLANK_M = 96            # 3*2^5; perimeter/M ~= target edge (not over-fine like graft)
+BLANK_FILLET = 1.6      # rounded bottom rim; also the slice floor -> must clear the
+                        # SOURCE out/MOVE.obj's own rounded rim (build.py RIM_FILLET=1.1)
+                        # so we read the FULL outline, not its already-inset rim.
+
+
+def _perim(P):
+    return float(np.sum(np.hypot(*np.diff(np.vstack([P, P[:1]]), axis=0).T)))
+
+
+def offset_loop_inward(P, d):
+    """Inset a CCW loop by `d` along its inward MITER normal (perpendicular to the
+    local edges) -- correct for a NON-STAR loop, where radial inset pushes hooked
+    points into the gaps between arms (outside the region)."""
+    P = np.asarray(P, float)
+    e = np.roll(P, -1, axis=0) - P
+    e = e / np.maximum(np.hypot(e[:, 0], e[:, 1]), 1e-9)[:, None]
+    inw = np.stack([-e[:, 1], e[:, 0]], axis=1)          # left normal = interior (CCW)
+    vn = inw + np.roll(inw, 1, axis=0)
+    return P + vn / np.maximum(np.hypot(vn[:, 0], vn[:, 1]), 1e-9)[:, None] * d
+
+
+def _flat_base_sym(b, inset_idx, inset, fold, target=0.8):
+    """Symmetric flat base (z=0) filling the inset outline. Triangle ONE wedge
+    (centre + 1/fold arc), then place it `fold` times REUSING the existing inset-ring
+    vertices (`inset_idx`) for each rotated arc -> shared-ring weld to the fillet (no
+    coincidence-merge) + exact symmetry; only the interior Steiner points are new."""
+    M = len(inset); k = M // fold; beta = 2 * np.pi / fold
+    loop = np.vstack([[0.0, 0.0], inset[:k + 1]])        # centre + one sector arc
+    seg = np.array([[i, (i + 1) % len(loop)] for i in range(len(loop))])
+    out = tr.triangulate({"vertices": loop, "segments": seg},
+                         f"pq28a{target * target * 0.43:.4f}Y")  # Y: no boundary Steiner ->
+    Vw, Tw = out["vertices"], out["triangles"]           # cuts+arc stay exact -> wedges weld
+    cen = b.vert(0.0, 0.0, 0.0)
+    for r in range(fold):
+        c, s = np.cos(r * beta), np.sin(r * beta); R = np.array([[c, -s], [s, c]])
+        g = {0: cen}
+        for i in range(1, k + 2):                        # arc -> existing inset ring verts
+            g[i] = inset_idx[(r * k + i - 1) % M]
+        for i in range(k + 2, len(Vw)):                  # Steiner -> new rotated verts
+            x, y = R @ Vw[i]; g[i] = b.vert(x, y, 0.0)
+        for t in Tw:
+            b.F.append([g[t[0]], g[t[2]], g[t[1]]])      # winding fixed by fix_normals
+
+
+def _blevel(P, m, target=0.8):
+    """2:1 coarsening level so a ring's edge spacing stays ~target (subsample [::2^L])."""
+    return int(np.clip(round(np.log2(m * target / max(_perim(P), 1e-6))), 0, 5))
+
+
+def _stack_cap(b, rings, zs, base_idx, pole_z, target=0.8):
+    """Loft a stack of M-point symmetric rings (rings[0] = `base_idx`), coarsening the
+    angular count 2:1 toward the small end so triangles stay uniform, then fan the last
+    ring to a pole vertex. Subsampling [::2^L] of a 3-fold ring stays 3-fold. fix_normals
+    (in mesh()) orients the winding, so we don't track it here."""
+    m = len(rings[0]); Ls = [0]
+    for P in rings[1:]:
+        Ls.append(min(max(_blevel(P, m, target), Ls[-1]), Ls[-1] + 1))
+    prev, prevL = base_idx, 0
+    for i in range(1, len(rings)):
+        cur = b.ring_pts(rings[i][::2 ** Ls[i]], zs[i])
+        (b.loft if Ls[i] == prevL else b.belt)(prev, cur)
+        prev, prevL = cur, Ls[i]
+    pole = b.vert(0.0, 0.0, pole_z); n = len(prev)
+    for k in range(n):
+        b.F.append([prev[k], prev[(k + 1) % n], pole])
+
+
+def build_move_blank():
+    """WIP (2026-05-24): symmetry SOLVED (body exact 3-fold, all body invariants pass),
+    bottom not yet watertight (euler ~-13). The flat base needs a non-star wedge mesher
+    with MATCHED RADIAL CUTS (the wedge_mesh_star pattern: subdivide the centre->throat
+    cuts so adjacent wedges weld + no long cut edge) + shared-ring weld. Not wired into
+    build.py; out/MOVE.obj stays the 6/8 global-remesh blank.
+
+    Exactly 3-fold MOVE blank: re-stack the (global-remeshed) out/MOVE.obj as
+    symmetric M-rings rim->apex (coarsening to the apex pole) + a rounded bottom
+    (quarter-round fillet -> radially-inset flat base, coarsening to the centre).
+    No global remesh -> exact symmetry; structured rings + shorter-diagonal loft keep
+    triangles uniform. Replaces build.py's global-remesh MOVE blank (which fails the
+    symmetry invariant)."""
+    mesh = trimesh.load(OUT / "MOVE.obj", process=False)
+    Mb, rf = BLANK_M, BLANK_FILLET
+    b = Builder()
+
+    # body cross-sections, rim (z=rf) up to near the apex
+    rings, zs = [], []; ref = None; a0 = None
+    for z in np.linspace(rf, ZMAX - 0.3, 80):
+        sec = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
+        if sec is None:
+            break
+        loop = max(sec.discrete, key=len)[:, :2]
+        if _signed_area(loop) < 0:
+            loop = loop[::-1]
+        if _perim(loop) < 1.0:
+            break
+        r = resample_arclen(loop, Mb)
+        if a0 is None:
+            a0 = float(np.arctan2(*loop[np.argmin(np.hypot(*loop.T))][::-1]))
+            r = roll_anchor(r, a0)
+        r = symmetrize_ring(r, FOLD)
+        if ref is not None:
+            r = align_to(ref, r)
+        rings.append(r); zs.append(float(z)); ref = r
+    rim = rings[0]
+
+    # bottom: MITER-inset (non-star safe) flat base + quarter-round fillet to the rim
+    inset = symmetrize_ring(offset_loop_inward(rim, rf), FOLD)
+    inset_idx = b.ring_pts(inset, 0.0); prev = inset_idx
+    _flat_base_sym(b, inset_idx, inset, FOLD)             # base reuses inset ring (shared weld)
+    nfil = max(2, int(round(rf / 0.5)) + 1); cur = prev
+    for s in range(1, nfil + 1):
+        phi = (s / nfil) * (np.pi / 2)
+        cur = (b.ring_pts(rim, rf) if s == nfil
+               else b.ring_pts(inset + (rim - inset) * np.sin(phi), rf * (1 - np.cos(phi))))
+        b.loft(prev, cur); prev = cur
+
+    # body up to the apex
+    _stack_cap(b, rings, zs, cur, ZMAX)
+    return b.mesh()
+
+
 def main():
+    if "blank" in sys.argv:
+        mesh = build_move_blank()
+        V = mesh.vertices; a = 2 * np.pi / FOLD; c, s = np.cos(a), np.sin(a)
+        Vr = V @ np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
+        from scipy.spatial import cKDTree
+        d, _ = cKDTree(V).query(Vr)
+        print(f"=== MOVE blank (structured) ===  {len(V)} verts, {len(mesh.faces)} faces, "
+              f"watertight={mesh.is_watertight} euler={mesh.euler_number} "
+              f"vol={mesh.volume:.0f} zmax={V[:,2].max():.2f}")
+        print(f"  120deg symmetry mismatch: mean={d.mean():.3f} max={d.max():.3f} mm")
+        out = OUT / "MOVE_blank.obj"; mesh.export(out); print(f"  wrote {out}")
+        return
     mesh = build()
     print(f"=== MOVE graft (loft) ===  {len(mesh.vertices)} verts, {len(mesh.faces)} faces, "
           f"vol={mesh.volume:.0f}mm^3  watertight={mesh.is_watertight} "
