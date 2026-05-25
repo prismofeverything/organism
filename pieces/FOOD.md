@@ -46,7 +46,7 @@ A shallow parabola flaring **up** out of the connector to a rounded rim — a me
 In the repo (git has the scripts), you also need these **external** pieces:
 
 1. **Blender 5.1.x** (portable build ok). Set `BLENDER=...` for the Makefile.
-2. **The venv** (CPU side): `python -m venv .venv && .venv/bin/pip install -r pieces/requirements.txt`
+2. **The venv** (CPU side, managed with uv): `uv sync` at the repo root (reads `pyproject.toml` + `uv.lock`, creates `.venv`). The Makefile's `PY=../.venv/bin/python` then points at it.
 3. **ffmpeg** (video encode): system package.
 4. **Prototype art folder** for the video — `~/Downloads/organism/prototype` (the `ART` path in
    `build_play_real.py`) + `pieces/board_hex_2000.png`. **This is the stuff that gets lost** —

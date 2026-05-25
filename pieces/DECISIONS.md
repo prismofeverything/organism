@@ -143,8 +143,8 @@ For the spiral, under the OLD radial method:
 
 ## Build progress (2026-05-20)
 
-Standalone `meshlib/` works through stage 5 (deps in `requirements.txt`, install
-proven in a clean venv):
+Standalone `meshlib/` works through stage 5 (deps in `pyproject.toml` / `uv.lock`,
+`uv sync`; install proven in a clean venv):
 - `domain.py` (SVG→region), `mesh2d.py` (Triangle, min-angle 30°), `field.py`
   (cotangent-FEM membrane), `profile.py` (transfer fns), `solid.py` (close),
   `build.py` (end-to-end), `preview.py` (viz).
