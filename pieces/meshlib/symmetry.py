@@ -233,6 +233,165 @@ def wedge_boundary_star_3d(region, fold, Hfn, target):
     return Vb, seg, arc
 
 
+# ------------------------------------------------- horizontal-slice re-stack utils
+# MOVE's hub is a near-vertical cliff that a radial cut can't resolve (it would need
+# duplicate points). The cure is to stack HORIZONTAL slices of an existing mesh: each
+# slice is a simple loop, the cliff becomes closely-spaced rings, and the symmetry cut
+# follows the drifting throat (one point per slice) instead of a fixed ray.
+
+def slice_loop(mesh, z):
+    """Largest closed loop of mesh ∩ {Z=z} as a CCW (N,2) polyline (world x,y)."""
+    sec = mesh.section(plane_origin=[0, 0, z], plane_normal=[0, 0, 1])
+    if sec is None:
+        raise ValueError(f"no section at z={z}")
+    loop = max(sec.discrete, key=len)[:, :2]
+    if 0.5 * np.sum(loop[:, 0] * np.roll(loop[:, 1], -1)
+                    - np.roll(loop[:, 0], -1) * loop[:, 1]) < 0:
+        loop = loop[::-1]
+    return loop
+
+
+def resample_ring(loop, m):
+    """`m` points equally spaced by arc length around a closed loop."""
+    P = np.vstack([loop, loop[:1]])
+    s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(P, axis=0).T))])
+    si = np.linspace(0, s[-1], m, endpoint=False)
+    return np.column_stack([np.interp(si, s, P[:, 0]), np.interp(si, s, P[:, 1])])
+
+
+def roll_anchor(pts, ang):
+    """Roll so index 0 is the point whose angle is nearest `ang` (kills loft twist)."""
+    th = np.arctan2(pts[:, 1], pts[:, 0])
+    k = int(np.argmin(np.abs((th - ang + np.pi) % (2 * np.pi) - np.pi)))
+    return np.roll(pts, -k, axis=0)
+
+
+def symmetrize_ring(pts, fold):
+    """Average each point with the rotated corresponding points of the other sectors
+    -> exactly `fold`-fold (pts anchored, len divisible by fold). Makes index i+m/fold
+    the EXACT 120 deg partner of i, so column i and column i+m/fold are a clean cut."""
+    m = len(pts); step = m // fold
+    out = np.zeros_like(pts)
+    for k in range(fold):
+        a = k * 2 * np.pi / fold; c, s = np.cos(a), np.sin(a)
+        Rinv = np.array([[c, s], [-s, c]])
+        out += (np.roll(pts, -k * step, axis=0) @ Rinv.T)
+    return out / fold
+
+
+def align_ring(ref, cur):
+    """Cyclically roll `cur` to best-match `ref` (min sum of squared index-wise
+    distance) -- removes loft twist on the hooked spiral rings; propagated down the
+    stack it keeps every ring registered."""
+    best_k, best_d = 0, np.inf
+    for k in range(len(cur)):
+        d = float(np.sum((np.roll(cur, -k, axis=0) - ref) ** 2))
+        if d < best_d:
+            best_d, best_k = d, k
+    return np.roll(cur, -best_k, axis=0)
+
+
+# ---------------------------------------------------------------- NON-STAR wedge
+# MOVE is a spiral: r(theta) is multi-valued (rays cross the boundary up to 3x),
+# so the star wedge (cut+arc from _r_at) collapses. A 3-fold region instead splits
+# at its 3 THROATS (global minima of r, exactly 120 deg apart): each throat-to-throat
+# boundary run is one arm, an exact rotation of the next. The wedge = center ->
+# radial cut to throat0 -> the REAL boundary arc (the arm) -> radial cut back. The
+# two cuts are exact rotations (both radial at the throats, where the boundary
+# tangent is perpendicular to the radius) so replicate2d welds them. Confirmed: the
+# arm bulges past the cut ray only at r > throat radius, where the cut has no length,
+# so the wedge polygon is simple.
+
+def _nonstar_sector(region, fold):
+    """(alpha, rmax, arc): the throat angle, throat radius, and the ORDERED real
+    boundary polyline of one arm (throat0 -> throat1, CCW), endpoints snapped to
+    the throat / its 120 deg rotation so the cuts are exact rotations."""
+    P = region.outer
+    r = np.hypot(P[:, 0], P[:, 1])
+    i0 = int(np.argmin(r))                            # global throat
+    T0 = P[i0].copy(); alpha = float(np.arctan2(T0[1], T0[0])); rmax = float(np.hypot(*T0))
+    beta = 2 * np.pi / fold
+    c, s = np.cos(beta), np.sin(beta)
+    T1 = np.array([c * T0[0] - s * T0[1], s * T0[0] + c * T0[1]])   # throat0 rotated by +beta
+    i1 = int(np.argmin(np.hypot(P[:, 0] - T1[0], P[:, 1] - T1[1])))
+    n = len(P)
+    idx = list(range(i0, i1 + 1)) if i1 > i0 else list(range(i0, n)) + list(range(0, i1 + 1))
+    arc = P[idx].copy()
+    arc[0] = T0; arc[-1] = T1                          # snap endpoints to exact rotations
+    return alpha, rmax, arc
+
+
+def _arc_sample_real(arc, Hfn, target, n_fine=1500):
+    """Resample a real boundary polyline by 3D ARC LENGTH on z=H(x,y) to ~target
+    spacing (endpoints preserved). Densify first by 2D arc length so the 3D measure
+    is accurate, then space points evenly along the lifted curve."""
+    seg = np.hypot(*np.diff(arc, axis=0).T)
+    s = np.concatenate([[0], np.cumsum(seg)])
+    sf = np.linspace(0, s[-1], n_fine)
+    fine = np.column_stack([np.interp(sf, s, arc[:, 0]), np.interp(sf, s, arc[:, 1])])
+    s3 = np.concatenate([[0], np.cumsum(np.linalg.norm(
+        np.diff(np.column_stack([fine, Hfn(fine)]), axis=0), axis=1))])
+    nn = max(2, int(round(s3[-1] / target)))
+    si = np.linspace(0, s3[-1], nn + 1)
+    out = np.column_stack([np.interp(si, s3, fine[:, 0]), np.interp(si, s3, fine[:, 1])])
+    out[0] = arc[0]; out[-1] = arc[-1]
+    return out
+
+
+def wedge_mesh_nonstar(region, fold, edge=1.0, min_angle=28.0):
+    """Coarse Triangle mesh of one NON-STAR 1/fold wedge (matched radial cuts +
+    the real boundary arc), for the INITIAL field solve. Returns (V, T, is_outline)."""
+    alpha, rmax, arc = _nonstar_sector(region, fold)
+    beta = 2 * np.pi / fold
+    ncut = max(2, int(round(rmax / edge)))
+    rad = np.linspace(0.0, rmax, ncut + 1)
+    cutA = np.column_stack([rad * np.cos(alpha), rad * np.sin(alpha)])
+    cutB = np.column_stack([rad * np.cos(alpha + beta), rad * np.sin(alpha + beta)])
+    arc_rs = _resample_open2d(arc, edge)
+    loop, flag = [(0.0, 0.0)], [False]
+    for p in cutA[1:-1]: loop.append(tuple(p)); flag.append(False)
+    for i, p in enumerate(arc_rs): loop.append(tuple(p)); flag.append(True)
+    for p in cutB[1:-1][::-1]: loop.append(tuple(p)); flag.append(False)
+    V = np.array(loop); m = len(V)
+    seg = np.array([[i, (i + 1) % m] for i in range(m)])
+    out = tr.triangulate({"vertices": V, "segments": seg},
+                         f"pq{min_angle}a{base_area(edge):.6f}Y")
+    VV, T = out["vertices"], out["triangles"]
+    fixed = np.arange(len(VV)) < m
+    VV, T = _improve_wedge(VV, T, fixed, seg)
+    is_outline = np.zeros(len(VV), bool); is_outline[:m] = flag
+    return VV, T, is_outline
+
+
+def _resample_open2d(P, edge):
+    """Resample an OPEN polyline to ~edge 2D spacing, keeping both endpoints."""
+    seg = np.hypot(*np.diff(P, axis=0).T)
+    s = np.concatenate([[0], np.cumsum(seg)])
+    n = max(2, int(round(s[-1] / edge)))
+    si = np.linspace(0, s[-1], n + 1)
+    return np.column_stack([np.interp(si, s, P[:, 0]), np.interp(si, s, P[:, 1])])
+
+
+def wedge_boundary_nonstar(region, fold, Hfn, target):
+    """Frozen wedge boundary (center -> cutA -> real arc -> cutB) for a NON-STAR
+    region, cuts + arc sampled by 3D arc length on z=H. Returns (Vb, seg, arc).
+    Drop-in for wedge_boundary_star_3d -> remesh_graph then gives a uniform wedge."""
+    alpha, rmax, arc_full = _nonstar_sector(region, fold)
+    beta = 2 * np.pi / fold
+    rr = _arc_sample_radial(alpha, rmax, Hfn, target)
+    cutA = np.column_stack([rr * np.cos(alpha), rr * np.sin(alpha)])
+    cutB = np.column_stack([rr * np.cos(alpha + beta), rr * np.sin(alpha + beta)])
+    arc = _arc_sample_real(arc_full, Hfn, target)
+    arc[0] = cutA[-1]; arc[-1] = cutB[-1]             # snap to the cut ends (exact)
+    loop = [(0.0, 0.0)]
+    loop += [tuple(p) for p in cutA[1:-1]]
+    loop += [tuple(p) for p in arc]
+    loop += [tuple(p) for p in cutB[1:-1][::-1]]
+    Vb = np.array(loop); m = len(Vb)
+    seg = np.array([[i, (i + 1) % m] for i in range(m)])
+    return Vb, seg, arc
+
+
 def seed_interior(Vb, seg, target, min_angle=28.0):
     """A coarse 2D-uniform interior point seed for the remesh (Triangle Steiner
     points inside the frozen loop). The graph remesh then redistributes them for
