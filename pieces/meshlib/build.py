@@ -19,7 +19,7 @@ from domain import load_region, round_corners
 from mesh2d import triangulate_region, _infer_boundary
 from field import membrane_field, smooth_scalar
 from profile import height
-from solid import build_solid, build_solid_split
+from solid import build_solid, build_solid_split, inset_ring
 from remesh import isotropic_remesh
 from invariants import Spec, validate
 from symmetry import symmetrize_region, wedge_mesh_star, wedge_mesh_metric, replicate2d
@@ -31,6 +31,7 @@ INIT_EDGE = 0.5          # initial lift resolution
 REMESH_EDGE = 0.8        # final uniform triangle size
 TARGET_EDGE = 1.0        # nominal size for invariants (long-edge limit = 1.5x)
 CORNER_RADIUS = 1.5      # round sharp silhouette corners (edge/radius < 45deg)
+RIM_FILLET = 1.1         # round the bottom rim (G1, sculptable) instead of a hard 90deg edge
 
 FOLD = {"EAT": 5, "MOVE": 3, "GROW": 4}   # rotational symmetry order
 
@@ -39,7 +40,7 @@ FOLD = {"EAT": 5, "MOVE": 3, "GROW": 4}   # rotational symmetry order
 # its thin spiral crest smooth, then the height is rescaled back up to z_max.
 SPECS = {
     "EAT":  ("eat.svg",  48.0, "hemisphere", 7 / 8,  40),
-    "MOVE": ("move.svg", 60.0, "shallow",    0.0,     0),  # tall; arms RAISED (additive); crest=spine
+    "MOVE": ("move.svg", 60.0, "shallow",    0.03,    0),  # tall; arms RAISED; small wall lifts rim for the bottom fillet
     "GROW": ("grow.svg", 36.0, "hemisphere", 0.5,   40),
 }
 
@@ -74,7 +75,7 @@ def build_piece(name, symmetric_shape=False):
         H = smooth_scalar(V, T, H, bnd, iters=sm_iters)    # fillet the wall->dome shoulder
     H *= zmax / H.max()                                    # rescale to exact target height
     H_floor = height(u, zmax, "parabola", wall)            # additive floor: never carve below
-    V3, F = build_solid(V, T, H, edge=INIT_EDGE)
+    V3, F = build_solid(V, T, H, edge=INIT_EDGE, fillet_r=RIM_FILLET)
     Vr, Fr = isotropic_remesh(V3, F, target_edge=REMESH_EDGE)
 
     mesh = trimesh.Trimesh(vertices=Vr, faces=Fr, process=True)
@@ -142,9 +143,9 @@ def build_piece_symmetric(name, target=SYM_TARGET, outer=3):
         Ht, Ff = _solve_field(Vt, Tt, zmax, shape, wall, sm)
         Hfn = _make_Hfn(Vt, Ht)
 
-    Vbw, Tbw = build_bottom_wedge(fold, ring0, target)
+    Vbw, Tbw = build_bottom_wedge(fold, inset_ring(ring0, RIM_FILLET), target)
     Vb, Tb, _ = replicate2d(Vbw, Tbw, fold)
-    V3, F = build_solid_split(Vt, Tt, Ht, Vb, Tb, edge=target)
+    V3, F = build_solid_split(Vt, Tt, Ht, Vb, Tb, edge=target, fillet_r=RIM_FILLET)
 
     mesh = trimesh.Trimesh(vertices=V3, faces=F, process=True)
     trimesh.repair.fix_normals(mesh)
