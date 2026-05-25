@@ -30,14 +30,14 @@ from invariants import Spec, validate                          # noqa: E402
 from solid import build_solid                                  # noqa: E402
 import connector_field as cf                                   # noqa: E402
 
-# per-piece: svg, fold, z_max, has_socket (food seats UNDER it), corner-round, collar knee
+# per-piece: svg, fold, z_max, has_socket (food seats UNDER it), corner-round, collar knee,
+# m = master angle count = fold * 2^k (so EVERY 2:1 belt level stays fold-symmetric).
 SPECS = {
-    "EAT":  dict(svg="eat.svg",  fold=5, zmax=48.0, socket=False, rnd=2.0, knee=0.70),
-    "GROW": dict(svg="grow.svg", fold=4, zmax=36.0, socket=True,  rnd=2.0, knee=0.70),
-    "MOVE": dict(svg="move.svg", fold=3, zmax=60.0, socket=True,  rnd=2.0, knee=0.70),
+    "EAT":  dict(svg="eat.svg",  fold=5, zmax=48.0, socket=False, rnd=2.0, knee=0.70, m=160),
+    "GROW": dict(svg="grow.svg", fold=4, zmax=36.0, socket=True,  rnd=2.0, knee=0.70, m=128),
+    "MOVE": dict(svg="move.svg", fold=3, zmax=60.0, socket=True,  rnd=2.0, knee=0.70, m=192),
 }
 FULLNESS = 0.6
-M = 160              # master angle count (mult of fold; power-of-2 ladder for belts)
 N_COL = 22           # collar meridian samples
 TARGET = 0.7
 
@@ -91,9 +91,9 @@ class Builder:
         return m
 
 
-def _level_fn(target):
+def _level_fn(target, m):
     def level(r):
-        return int(np.clip(round(np.log2(M * target / (2 * np.pi * max(r, 1e-3)))), 0, 5))
+        return int(np.clip(round(np.log2(m * target / (2 * np.pi * max(r, 1e-3)))), 0, 5))
     return level
 
 
@@ -133,9 +133,10 @@ def build(name):
         load_region(HERE / "inputs" / sp["svg"], name), fold), radius=sp["rnd"])
     th_s, r_s = _radial_outline(reg)
     fz = cf.seat_z(zmax); z_knee = knee * fz
-    TH = arc_angles(th_s, r_s, fold, M)
+    TH = arc_angles(th_s, r_s, fold, sp["m"])
     lev = lambda L: TH[::2 ** L]
-    level = _level_fn(TARGET)
+    level = _level_fn(TARGET, sp["m"])
+    M = sp["m"]
     b = Builder()
 
     # ---------- connector boss (peg) on top ----------
