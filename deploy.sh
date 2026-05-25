@@ -10,6 +10,9 @@
 #   ./deploy.sh tail         — tail the remote log file (Ctrl-C to quit)
 #   ./deploy.sh log [N]      — print last N lines of remote log (default 100)
 #   ./deploy.sh status       — show whether the remote server is running
+#   ./deploy.sh bugs [...]   — pull in-game bug reports from prod, print new ones
+#                              (extra args pass through to eridu_bug_watch.py;
+#                               e.g. ./deploy.sh bugs --spawn-claude)
 #   ./deploy.sh sync-bot --game journey --owner prismofeverything --name OBO
 #                            — push a bot from local MongoDB to remote
 #
@@ -157,12 +160,46 @@ case "${1:-build}" in
       fi
     '"
     ;;
+  bugs)
+    # Pull the in-game bug-report log from playorganism.io to ~/Documents over
+    # HTTPS (no SSH needed). The /eridu/bug-report/dump endpoint requires a
+    # logged-in session, so we read the cookie from ~/.config/eridu-cookie.txt
+    # (Netscape format). To create it once:
+    #   1. Log in at https://playorganism.io in your browser
+    #   2. Export the cookies for playorganism.io (browser extensions like
+    #      "Get cookies.txt" or `cookieextractor` work) to:
+    #        ~/.config/eridu-cookie.txt
+    #
+    # Any extra args after `bugs` pass through to eridu_bug_watch.py
+    # (e.g. ./deploy.sh bugs --spawn-claude).
+    DUMP_URL="https://playorganism.io/eridu/bug-report/dump"
+    LOCAL_BUG_FILE="$HOME/Documents/eridu-bug-reports.jsonl"
+    COOKIE_FILE="$HOME/.config/eridu-cookie.txt"
+    mkdir -p "$HOME/Documents" "$HOME/.config"
+    if [ ! -f "$COOKIE_FILE" ]; then
+      echo "Missing cookie file: $COOKIE_FILE"
+      echo "Log in at https://playorganism.io, export cookies to that path,"
+      echo "then re-run ./deploy.sh bugs."
+      exit 1
+    fi
+    echo "=== Fetching $DUMP_URL ==="
+    http_status=$(curl -sS -o "$LOCAL_BUG_FILE" -w "%{http_code}" \
+                       -b "$COOKIE_FILE" "$DUMP_URL")
+    if [ "$http_status" != "200" ]; then
+      echo "Fetch failed (HTTP $http_status). Cookie may be expired — re-export it."
+      exit 1
+    fi
+    lines=$(wc -l < "$LOCAL_BUG_FILE")
+    echo "fetched $lines report(s) -> $LOCAL_BUG_FILE"
+    shift
+    ~/bin/eridu_bug_watch.py --reset --once "$@"
+    ;;
   sync-bot)
     sync_bot "$@"
     ;;
   *)
     echo "Unknown command: $1"
-    echo "Commands: build, clean, ship, push, tail, log, status, sync-bot"
+    echo "Commands: build, clean, ship, push, tail, log, status, bugs, sync-bot"
     exit 1
     ;;
 esac

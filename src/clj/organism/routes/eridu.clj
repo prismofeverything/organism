@@ -257,6 +257,23 @@
   "Where in-game bug reports get appended (JSON Lines)."
   (str (System/getProperty "user.home") "/Documents/eridu-bug-reports.jsonl"))
 
+(defn dump-bug-reports
+  "Stream the local bug-report JSONL back to any logged-in user. Lets
+   Mohammad pull reports via HTTPS instead of needing SSH access. The
+   require-auth middleware ensures the request has a session player; the
+   content-disposition makes browsers save it as a file."
+  [_db _request]
+  (let [file (java.io.File. ^String bug-report-file)]
+    (if (.exists file)
+      (-> (response/response (slurp file))
+          (response/content-type "application/x-ndjson")
+          (response/header "Content-Disposition"
+                           "attachment; filename=eridu-bug-reports.jsonl"))
+      (-> (response/response "")
+          (response/content-type "application/x-ndjson")
+          (response/header "Content-Disposition"
+                           "attachment; filename=eridu-bug-reports.jsonl")))))
+
 (defn report-bug!
   "Append a player-submitted bug report (plus the game state snapshot) to a
    local JSONL file so a separate watcher script can pick them up and triage."
@@ -337,4 +354,6 @@
    ["/evolve/top" {:get (partial top-personalities-endpoint db)}]
    ["/offline/log" {:post (partial log-offline-game! db)
                     :middleware [require-auth]}]
-   ["/bug-report" {:post (partial report-bug! db)}]])
+   ["/bug-report" {:post (partial report-bug! db)}]
+   ["/bug-report/dump" {:get (partial dump-bug-reports db)
+                        :middleware [require-auth]}]])
