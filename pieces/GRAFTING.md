@@ -89,28 +89,41 @@ region-localized — crisp connector, smooth only the skirt.* Every method above
 blend is masked/weighted to leave the connector alone. The global voxel remesh ignored this and that
 is exactly why it lumps.
 
-## Next-session prompt
+## Status (2026-05-24): direction (F) WORKS — EAT + GROW grafted
 
-> We're designing the *Organism* game pieces (`pieces/`). FOOD is solved — its connector is built into
-> a single solid-of-revolution meridian (`sor.py` / `build_food.py`, watertight, "principle 7"). The
-> three player pieces (EAT/MOVE/GROW; sculpted bodies `EAT.obj`/`MOVE.obj`/`GROW.obj`, heights
-> 48/60/36 mm) need the same universal connector (`graft_connector.py` dims: Ø3.8 dome×4.3, Ø8.3–12.8
-> ridge×2.75, mirror socket) seated on top — but they're organic sculpts (star / spiral / clover), not
-> solids of revolution. **Every post-hoc graft we've tried (boolean, voxel-fuse, revolved-crown union)
-> leaves a lumpy / torn / cliffed seam** where the circular connector meets the non-circular body. The
-> full record + renders + a methods survey are in `pieces/GRAFTING.md`.
+The generative height-field-boss route succeeded, realized NOT in the old sculpt world but in a new
+parametric builder `build_graft.py` (+ `meshlib/connector_field.py`), run with **uv** (`uv run python
+pieces/build_graft.py EAT GROW`). The connector is a single-valued radial boss (`peg_height`), the body
+flows up to a circular seat (r=`R_SEAT`=7) via a star→circle **collar** (`collar_meridian`), and the
+socket is the oversized mirror (`socket_height`, `R_SOCK`=6.6) on the bottom — one watertight,
+N-fold-symmetric, dimensionally-exact mesh, no boolean / no global remesh. **EAT** (peg only) and
+**GROW** (peg + socket) are done. Key reframe: the strict `meshlib/invariants.py` are the **blank /
+sculpting** bar; **post-graft** the bar is just *continuous + prints well* (belt/pole triangle artifacts
+are acceptable). Full record: `memory/project_connector_graft_approach.md`.
+
+## Next-session prompt (MOVE)
+
+> Continue the Organism connector graft — **MOVE** (`pieces/`, everything via `uv run`). The graft is a
+> single-valued height-field **boss** + star→circle **collar** (principle 7 generalized); `build_graft.py`
+> is the parametrized builder (`SPECS`, `build(name)`, shared `revolution_cap()` for the up-peg and
+> down-socket; geometry in `meshlib/connector_field.py`: `peg_height` / `socket_height` /
+> `collar_meridian`, `R_SEAT`=7.0, `R_SOCK`=6.6, `SOCKET_GAP`=0.20). **EAT and GROW are DONE**
+> (watertight, euler 2, exact symmetry, GROW has the socket). **Post-graft bar is RELAXED** — continuous
+> + prints well; do NOT chase the 8 blank invariants. Full record in
+> `memory/project_connector_graft_approach.md`.
 >
-> Goal: a clean, *principled* merge — body preserved, connector mating surfaces exact, ONE
-> G1-continuous surface flowing from the body up to the connector seat, watertight.
->
-> Start from `pieces/GRAFTING.md`'s survey. Preferred direction: **(F) integrate the connector into the
-> body's generative `meshlib` construction** (a boss in the height field / SDF, blended by the FEM
-> membrane — the principle-7 analog); failing that, **(B) OpenVDB level-set CSG + seam-masked
-> smoothing** (`pyopenvdb`) so only the skirt blends. While the connector is open, also deliver the
-> **self-supporting socket** (constraint #5 — 45° mouth chamfer + ≤45° cavity ceilings, applied to both
-> `sor.food` and `graft_connector.add_socket`, seating walls unchanged). First step: prototype on **EAT only**, judged in
-> cross-section AND a 3D cavity render (`render_crown_closeup.py`), before touching MOVE/GROW. Keep
-> renders light (`nice -n 19 --threads 2`) and ALWAYS print the output path.
+> Task: graft **MOVE** (3-spiral, z_max 60, fold 3, has socket). It is NOT just a flare — `build_graft`
+> produces garbage on MOVE (~70% asymmetric, 11.6 mm edges) because MOVE's spiral has inward **hooks** →
+> `r(θ)` is **multi-valued** (throat r=6.21 < seat r=7; outline θ non-monotonic), and the builder's
+> wall/collar/bottom (`_r_at`) assume a single-valued star. MOVE also needs an **aggressive outward
+> flare** (its top is r≈3–5.5, narrower than the Ø14 connector in *every* direction → the cap must bulge
+> OUT to the seat). Pick a path: **(A) non-star perimeter builder** — sample the outline by arc length
+> *around the perimeter* (preserve hooks), morph perimeter→circular seat (the `pieces_v2.parametric_body_polygon`
+> idea ported into meshlib); or **(B) flared cap onto the real mesh** — take `out/MOVE.obj`
+> (`uv run python pieces/meshlib/build.py MOVE`), cut the spike, loft the hooked cross-section out to the
+> Ø14 seat + peg, add the socket. Keep `M = fold·2^k` (MOVE 192). Judge in cross-section + a Blender
+> Workbench cavity render (`render_graft_blender.py`; Blender at `~/Downloads/blender-5.1.1-linux-x64/blender`,
+> `nice -n 19 --threads 2`). The user does all git ops.
 
 ## File inventory (this session)
 
