@@ -85,19 +85,6 @@ def inset_ring(P, d):
     return P * np.clip(1.0 - d / np.maximum(r, 1e-9), 0.0, 1.0)[:, None]
 
 
-def offset_loop_inward(P, d):
-    """Inset a CCW loop by `d` mm along its inward MITER normal (perpendicular to
-    the local edges), not radially — so concave valleys inset by the same `d` as
-    convex tips instead of crowding toward the centre (which slivered the base)."""
-    P = np.asarray(P, float)
-    e = np.roll(P, -1, axis=0) - P
-    e = e / np.maximum(np.hypot(e[:, 0], e[:, 1]), 1e-9)[:, None]
-    inw = np.stack([-e[:, 1], e[:, 0]], axis=1)          # left normal = interior (CCW)
-    vn = inw + np.roll(inw, 1, axis=0)                   # miter = mean of adjacent edge normals
-    vn = vn / np.maximum(np.hypot(vn[:, 0], vn[:, 1]), 1e-9)[:, None]
-    return P + vn * d
-
-
 def build_solid_split(Vt, Tt, Ht, Vb, Tb, edge=1.0, fillet_r=0.0):
     """Close a solid whose TOP and BOTTOM are INDEPENDENT 2D meshes that share the
     same rim-loop positions. The top is lifted (z=Ht), the bottom is flat (z=0),
