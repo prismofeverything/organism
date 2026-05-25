@@ -1003,6 +1003,39 @@
         (broadcast-state! play-key)
         (save-state! db play-key)))))
 
+(defn handle-resign! [db play-key player-key]
+  ;; Mark the game over with :resigned-by + a winner = the other live player
+  ;; (or nil in solo). Player must be in the game; can't resign someone else's.
+  (let [game-data (get-in @games [:games play-key])
+        state     (:state game-data)]
+    (when (and state
+               (contains? (set (:turn-order state)) player-key)
+               (not (:game-over state)))
+      (let [others (remove #{player-key} (:turn-order state))
+            ;; Pick a winner by current reputation among remaining players
+            winner (when (seq others)
+                     (apply max-key
+                            (fn [pk]
+                              (let [pd (get-in state [:players pk])]
+                                (min (:amity pd 0) (:glory pd 0))))
+                            others))
+            new-state (-> state
+                          (assoc :game-over {:reason :resigned
+                                             :resigned-by player-key
+                                             :winner winner})
+                          (update :log (fnil conj [])
+                                  {:type :resign
+                                   :player player-key
+                                   :round (:round state 1)
+                                   :turn (:turn-in-round state 1)
+                                   :message (str (name player-key) " resigned"
+                                                 (when winner
+                                                   (str " — " (name winner) " wins")))}))]
+        (swap! games assoc-in [:games play-key :state] new-state)
+        (log/info "Resign" play-key player-key "winner:" winner)
+        (broadcast-state! play-key)
+        (save-state! db play-key)))))
+
 (defn handle-chat! [db play-key player-key {:keys [message]}]
   (let [msg {:type    "chat"
              :player  player-key
@@ -1055,6 +1088,7 @@
       "create"        (handle-create! db play-key message)
       "action"        (handle-action! db play-key player message)
       "undo"          (handle-undo! db play-key player)
+      "resign"        (handle-resign! db play-key player)
       "claim-feat"    (handle-claim-feat! db play-key player message)
       "resolve-bonus" (handle-resolve-bonus! db play-key player message)
       "use-passive"   (handle-use-passive! db play-key player message)

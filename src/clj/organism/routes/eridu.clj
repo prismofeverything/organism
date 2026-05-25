@@ -37,15 +37,49 @@
       :preferences preferences})))
 
 (defn play-list-page
-  "Show the logged-in player's eridu games."
+  "Show the logged-in player's eridu games. Each row gets last-move age,
+   whose-turn-it-is, and whether the viewer is on the clock — so abandoned
+   games are visually distinct from ones waiting on you."
   [db request]
-  (let [player (get-in request [:session :player])
-        player-games (persist/load-player-games db player "eridu")]
+  (let [player    (get-in request [:session :player])
+        summaries (when player
+                    (persist-e/load-player-game-summaries db player))
+        now-s     (quot (System/currentTimeMillis) 1000)
+        flash     (get-in request [:params :cleanup-deleted])
+        rows
+        (for [s (or summaries [])]
+          (let [ts   (or (:last-move-at s) (:updated s))
+                age  (when ts (- now-s ts))
+                days (when age (quot age 86400))
+                hrs  (when age (quot age 3600))
+                age-str (cond
+                          (nil? age) "—"
+                          (> days 1) (str days " days ago")
+                          (> hrs 1)  (str hrs " hours ago")
+                          :else      "just now")
+                go?  (some? (:game-over s))
+                cp   (:current-player s)]
+            {:key            (:key s)
+             :round          (or (:round s) 0)
+             :players        (str/join ", " (:players s))
+             :status         (cond
+                               go? "complete"
+                               (= cp player) "your turn"
+                               cp (str cp "'s turn")
+                               :else "—")
+             :status-class   (cond
+                               go? "done"
+                               (= cp player) "you"
+                               :else "other")
+             :age            age-str
+             :age-days       (or days 0)}))]
     (layout/render
      request
      "eridu/games.html"
-     {:session-player player
-      :player-games (pr-str player-games)})))
+     {:session-player    player
+      :games             (vec rows)
+      :game-count        (count rows)
+      :cleanup-deleted   flash})))
 
 (defn play-page
   [db request]
@@ -257,6 +291,124 @@
   "Where in-game bug reports get appended (JSON Lines)."
   (str (System/getProperty "user.home") "/Documents/eridu-bug-reports.jsonl"))
 
+(defn- read-bug-reports
+  "Parse the JSONL log into a vector of maps. Best-effort: any line that
+   doesn't read as EDN is skipped."
+  []
+  (let [f (java.io.File. ^String bug-report-file)]
+    (when (.exists f)
+      (->> (slurp f)
+           str/split-lines
+           (keep (fn [line]
+                   (when (seq line)
+                     (try
+                       (read-string line)
+                       (catch Exception _ nil)))))
+           (map-indexed (fn [idx r] (assoc r :idx idx)))
+           vec))))
+
+(defn bug-report-page
+  "Standalone bug-report form, accessible without a game in progress."
+  [_db request]
+  (layout/render
+   request
+   "eridu/bug-report.html"
+   {:session-player (get-in request [:session :player])
+    :sent? (= "1" (get-in request [:params :sent]))}))
+
+(defn submit-bug-form!
+  "Handle the form POST from /eridu/bug-report. Appends to the same JSONL
+   the in-game POST writes to, then redirects back to the form with a
+   sent flag so the user sees a confirmation."
+  [_db request]
+  (let [session-player (get-in request [:session :player])
+        params         (or (:form-params request) (:params request))
+        text           (get params "text" (get params :text ""))
+        record         {:text     text
+                        :session-player session-player
+                        :player   session-player
+                        :ts       (str (java.time.Instant/now))
+                        :url      (get-in request [:headers "referer"])
+                        :remote-addr (:remote-addr request)
+                        :received-at (System/currentTimeMillis)}]
+    (if (str/blank? text)
+      (response/redirect "/eridu/bug-report")
+      (do
+        (try
+          (let [file (java.io.File. ^String bug-report-file)]
+            (-> file .getParentFile (.mkdirs)))
+          (with-open [w (java.io.FileWriter. ^String bug-report-file true)]
+            (.write w (pr-str record))
+            (.write w "\n"))
+          (catch Exception _ nil))
+        (response/redirect "/eridu/bug-report?sent=1")))))
+
+(defn bug-report-list-page
+  "Admin viewer: lists every report in the JSONL with metadata + links to
+   download the per-report state snapshot when present."
+  [_db request]
+  (let [reports (or (read-bug-reports) [])]
+    (layout/render
+     request
+     "eridu/bugs-list.html"
+     {:session-player (get-in request [:session :player])
+      :reports (vec (reverse reports))
+      :report-count (count reports)})))
+
+(defn bug-report-state-download
+  "Stream a saved state snapshot by index from the JSONL. We re-emit the
+   raw EDN so the watcher script's stash directory isn't needed for
+   browser-driven workflows."
+  [_db request]
+  (let [idx (try (Integer/parseInt (get-in request [:path-params :idx] "-1"))
+                 (catch Exception _ -1))
+        reports (or (read-bug-reports) [])
+        report  (nth reports idx nil)
+        state   (:state report)]
+    (if state
+      (-> (response/response state)
+          (response/content-type "application/edn")
+          (response/header "Content-Disposition"
+                           (str "attachment; filename=eridu-state-" idx ".edn")))
+      (-> (response/response "no such state")
+          (response/status 404)))))
+
+(defn cleanup-preview
+  "Return a count of how many active games would be deleted by a cleanup
+   with the given `days` threshold. Used for the confirm dialog."
+  [db request]
+  (let [days (try (Integer/parseInt (get-in request [:params :days] "30"))
+                  (catch Exception _ 30))
+        cutoff (- (quot (System/currentTimeMillis) 1000) (* days 86400))
+        victims (persist-e/stale-games db cutoff)]
+    (-> (response/response {:days days :count (count victims)
+                            :sample (take 10 (map :key victims))})
+        (response/content-type "application/edn"))))
+
+(defn cleanup-execute!
+  "Delete all active games older than `days` days. Returns count deleted.
+   Restricted to logged-in users via require-auth on the route."
+  [db request]
+  (let [params (or (:form-params request) (:params request))
+        days (try (Integer/parseInt (str (or (get params "days")
+                                             (get params :days)
+                                             "30")))
+                  (catch Exception _ 30))
+        cutoff (- (quot (System/currentTimeMillis) 1000) (* days 86400))
+        deleted (persist-e/delete-stale-games! db cutoff)]
+    (response/redirect (str "/eridu/play?cleanup-deleted=" deleted))))
+
+(defn leaderboard-page
+  "Per-player aggregate ranking and hall-of-fame of top single-game scores."
+  [db request]
+  (let [data (persist-e/leaderboard-data db)]
+    (layout/render
+     request
+     "eridu/leaderboard.html"
+     {:session-player (get-in request [:session :player])
+      :aggregate (:aggregate data)
+      :hall-of-fame (:hall-of-fame data)})))
+
 (defn dump-bug-reports
   "Stream the local bug-report JSONL back to any logged-in user. Lets
    Mohammad pull reports via HTTPS instead of needing SSH access. The
@@ -354,6 +506,17 @@
    ["/evolve/top" {:get (partial top-personalities-endpoint db)}]
    ["/offline/log" {:post (partial log-offline-game! db)
                     :middleware [require-auth]}]
-   ["/bug-report" {:post (partial report-bug! db)}]
+   ["/bug-report" {:get  (partial bug-report-page db)
+                   :post (partial report-bug! db)}]
+   ["/bug-report/submit" {:post (partial submit-bug-form! db)
+                          :middleware [require-auth]}]
+   ["/bug-report/list" {:get (partial bug-report-list-page db)
+                        :middleware [require-auth]}]
+   ["/bug-report/state/:idx" {:get (partial bug-report-state-download db)
+                              :middleware [require-auth]}]
    ["/bug-report/dump" {:get (partial dump-bug-reports db)
-                        :middleware [require-auth]}]])
+                        :middleware [require-auth]}]
+   ["/cleanup" {:get  (partial cleanup-preview db)
+                :post (partial cleanup-execute! db)
+                :middleware [require-auth]}]
+   ["/leaderboard" {:get (partial leaderboard-page db)}]])

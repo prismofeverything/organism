@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html style="background-color:#04040E">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ERIDU - leaderboard</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #04040E; color: #AABBCC; font-family: monospace; padding: 32px; max-width: 1000px; margin: 0 auto; }
+      h2 { color: #BB9944; margin-bottom: 4px; }
+      h3 { color: #BB9944; margin: 32px 0 12px 0; font-size: 1.1rem; border-bottom: 1px solid #5A4A20; padding-bottom: 6px; }
+      .meta { color: #889; margin-bottom: 24px; font-size: 0.9rem; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+      th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #222; font-size: 13px; }
+      th { color: #BB9944; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      tr:hover { background: #08081A; }
+      .rank { color: #557788; width: 40px; }
+      .rank-1 { color: #FFD700; font-weight: bold; }
+      .rank-2 { color: #C0C0C0; }
+      .rank-3 { color: #CD7F32; }
+      .player { color: #adf; font-weight: bold; }
+      .num { text-align: right; color: #ccc; font-variant-numeric: tabular-nums; }
+      .winner { color: #8FFF8F; }
+      .empty { color: #445566; padding: 16px; text-align: center; }
+      .nav-link { display: inline-block; color: #556677; font-size: 0.9rem; text-decoration: none; margin-top: 24px; }
+      .nav-link:hover { color: #AABBCC; }
+      .badge { display: inline-block; background: #1a1a2a; color: #889; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-left: 6px; }
+    </style>
+  </head>
+  <body>
+    <h2>ERIDU &mdash; leaderboard</h2>
+    <p class="meta">Combined multiplayer and offline-vs-AI results.</p>
+
+    <h3>All-time leaders <span style="color:#557788; font-size:0.85rem">ranked by wins, then average reputation</span></h3>
+    {% if aggregate %}
+    <table>
+      <thead>
+        <tr>
+          <th class="rank">#</th>
+          <th>player</th>
+          <th class="num">games</th>
+          <th class="num">wins</th>
+          <th class="num">win %</th>
+          <th class="num">avg reputation</th>
+          <th class="num">avg amity</th>
+          <th class="num">avg glory</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in aggregate %}
+        <tr>
+          <td class="rank rank-{{forloop.counter}}">{{forloop.counter}}</td>
+          <td class="player">{{row.player}}</td>
+          <td class="num">{{row.games}}</td>
+          <td class="num">{{row.wins}}</td>
+          <td class="num">{{row.win-rate|number-format:"%.0f%%" }}</td>
+          <td class="num">{{row.avg-reputation|number-format:"%.1f"}}</td>
+          <td class="num">{{row.avg-amity|number-format:"%.1f"}}</td>
+          <td class="num">{{row.avg-glory|number-format:"%.1f"}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No completed games yet.</div>
+    {% endif %}
+
+    <h3>Hall of fame <span style="color:#557788; font-size:0.85rem">top single-game reputation scores</span></h3>
+    {% if hall-of-fame %}
+    <table>
+      <thead>
+        <tr>
+          <th class="rank">#</th>
+          <th>player</th>
+          <th class="num">reputation</th>
+          <th class="num">amity</th>
+          <th class="num">glory</th>
+          <th>game</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in hall-of-fame %}
+        <tr>
+          <td class="rank rank-{{forloop.counter}}">{{forloop.counter}}</td>
+          <td class="player">{{row.player}}{% if row.winner? %}<span class="badge winner">winner</span>{% endif %}<span class="badge">{{row.game-type}}</span></td>
+          <td class="num">{{row.reputation}}</td>
+          <td class="num">{{row.amity}}</td>
+          <td class="num">{{row.glory}}</td>
+          <td><span style="color:#557788; font-size:11px">{{row.game-key|slice:":16"}}…</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No completed games yet.</div>
+    {% endif %}
+
+    <a class="nav-link" href="/eridu">&larr; eridu home</a>
+  </body>
+</html>

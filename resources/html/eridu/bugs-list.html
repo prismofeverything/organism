@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html style="background-color:#04040E">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ERIDU - bug reports</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #04040E; color: #AABBCC; font-family: monospace; padding: 32px; max-width: 1200px; margin: 0 auto; }
+      h2 { color: #BB9944; margin-bottom: 8px; }
+      .meta { color: #889; margin-bottom: 24px; font-size: 0.9rem; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid #222; font-size: 13px; }
+      th { color: #BB9944; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      tr:hover { background: #08081A; }
+      .ts { color: #557788; white-space: nowrap; }
+      .player { color: #adf; font-weight: bold; }
+      .text { color: #fcc; white-space: pre-wrap; max-width: 480px; }
+      .url { color: #5588aa; font-size: 11px; word-break: break-all; }
+      .actions { white-space: nowrap; }
+      .download { color: #aaccaa; text-decoration: none; padding: 4px 8px; border: 1px solid #2a4a2a; border-radius: 3px; font-size: 11px; }
+      .download:hover { background: #1a2a1a; color: #ccffcc; }
+      .empty { color: #445566; padding: 24px; text-align: center; }
+      .nav { margin-bottom: 16px; display: flex; gap: 12px; }
+      .nav a { color: #556677; font-size: 0.85rem; text-decoration: none; padding: 6px 10px; border: 1px solid #223; border-radius: 3px; }
+      .nav a:hover { color: #AABBCC; border-color: #445; }
+    </style>
+  </head>
+  <body>
+    <h2>ERIDU &mdash; bug reports ({{report-count}})</h2>
+    <p class="meta">Newest first. Each report's full game state can be downloaded as EDN.</p>
+    <div class="nav">
+      <a href="/eridu">&larr; eridu home</a>
+      <a href="/eridu/bug-report">+ new report</a>
+      <a href="/eridu/bug-report/dump">⬇ raw JSONL</a>
+    </div>
+
+    {% if reports %}
+    <table>
+      <thead>
+        <tr>
+          <th>when</th>
+          <th>player</th>
+          <th>text</th>
+          <th>game</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td class="ts">{{r.ts}}</td>
+          <td class="player">{{r.player|default:r.session-player|default:"?"}}</td>
+          <td class="text">{{r.text}}{% if r.url %}<div class="url">{{r.url}}</div>{% endif %}</td>
+          <td>{% if r.play-key %}<a href="/eridu/play/{{r.play-key}}" style="color:#aaccff">{{r.play-key|slice:":12"}}…</a>{% endif %}</td>
+          <td class="actions">
+            {% if r.state %}<a class="download" href="/eridu/bug-report/state/{{r.idx}}">state.edn</a>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No bug reports yet.</div>
+    {% endif %}
+  </body>
+</html>

@@ -6,71 +6,88 @@
     <title>ERIDU - my games</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { background: #04040E; color: #AABBCC; font-family: monospace; padding: 48px; }
-      h2 { color: #BB9944; margin-bottom: 24px; }
-      .game-list { list-style: none; }
-      .game-item {
-        display: block;
-        padding: 12px 16px;
-        margin-bottom: 8px;
-        background: #0A0E1C;
-        border: 1px solid #5A4A20;
-        border-radius: 4px;
-        color: #CCBB88;
-        text-decoration: none;
-        transition: background 0.15s;
+      body { background: #04040E; color: #AABBCC; font-family: monospace; padding: 32px; max-width: 1100px; margin: 0 auto; }
+      h2 { color: #BB9944; margin-bottom: 4px; }
+      .meta { color: #889; margin-bottom: 16px; font-size: 0.9rem; }
+      .top-actions { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; flex-wrap: wrap; }
+      .top-actions a, .top-actions form { display: inline-flex; align-items: center; gap: 8px; }
+      .top-actions a { color: #BB9944; text-decoration: none; padding: 8px 14px; border: 1px solid #5A4A20; border-radius: 4px; font-size: 13px; }
+      .top-actions a:hover { background: #1A1A0A; color: #fff; }
+      .cleanup {
+        background: #1A0A0A; border: 1px solid #5A2020; border-radius: 4px;
+        padding: 8px 14px; color: #FF8888;
       }
-      .game-item:hover { background: #10182A; }
-      .game-meta { color: #556677; font-size: 0.85rem; margin-top: 4px; }
-      .empty { color: #445566; }
-      .nav-link {
-        display: inline-block;
-        color: #556677;
-        font-size: 0.9rem;
-        margin-top: 24px;
-        text-decoration: none;
-      }
+      .cleanup input { background: #0A0408; color: #fcc; border: 1px solid #5A2020; padding: 4px 6px; border-radius: 3px; width: 60px; font-family: monospace; font-size: 13px; }
+      .cleanup button { background: #2A1010; color: #FF8888; border: 1px solid #6A2020; border-radius: 3px; padding: 4px 12px; cursor: pointer; font-family: monospace; font-size: 13px; }
+      .cleanup button:hover { background: #4A1818; color: #FFCCCC; }
+      .flash { background: #0A2A1A; border: 1px solid #2A6A3A; color: #8FFF8F; padding: 10px 14px; border-radius: 4px; margin-bottom: 16px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #1a1a2a; font-size: 13px; }
+      th { color: #BB9944; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      tr.your-turn { background: rgba(255, 215, 0, 0.04); }
+      tr:hover { background: #08081A; }
+      tr.your-turn:hover { background: rgba(255, 215, 0, 0.08); }
+      td.key a { color: #ccbb88; text-decoration: none; font-weight: bold; }
+      td.key a:hover { color: #fff; }
+      .status-you { color: #FFD700; font-weight: bold; }
+      .status-other { color: #889; }
+      .status-done { color: #557788; }
+      .stale { color: #aa4444; }
+      .empty { color: #445566; padding: 32px; text-align: center; }
+      .nav-link { display: inline-block; color: #556677; font-size: 0.9rem; margin-top: 24px; text-decoration: none; }
       .nav-link:hover { color: #AABBCC; }
     </style>
   </head>
   <body>
     <h2>ERIDU &mdash; {{session-player}}'s games</h2>
+    <p class="meta">{{game-count}} game{{game-count|pluralize}}. Games where it's your turn are highlighted.</p>
 
-    <div id="games-list"></div>
+    {% if cleanup-deleted %}
+    <div class="flash">✓ Deleted {{cleanup-deleted}} stale game{{cleanup-deleted|pluralize}}.</div>
+    {% endif %}
+
+    <div class="top-actions">
+      <a href="/eridu/create">+ create game</a>
+      <a href="/eridu/observe">observe</a>
+      <a href="/eridu/leaderboard">leaderboard</a>
+
+      <form class="cleanup" method="POST" action="/eridu/cleanup"
+            onsubmit="return confirm('Delete all active games older than ' + this.days.value + ' days?\n\nThis cannot be undone. Completed games are not affected.');">
+        {% csrf-field %}
+        clean up games older than
+        <input type="number" name="days" value="30" min="1" max="365"/>
+        days
+        <button type="submit">delete</button>
+      </form>
+    </div>
+
+    {% if games %}
+    <table>
+      <thead>
+        <tr>
+          <th>game</th>
+          <th>players</th>
+          <th>round</th>
+          <th>status</th>
+          <th>last move</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in games %}
+        <tr class="{% if g.status-class == "you" %}your-turn{% endif %}">
+          <td class="key"><a href="/eridu/play/{{g.key}}">{{g.key|slice:":18"}}…</a></td>
+          <td>{{g.players}}</td>
+          <td>{{g.round}}</td>
+          <td><span class="status-{{g.status-class}}">{{g.status}}</span></td>
+          <td class="{% if g.age-days > 30 %}stale{% endif %}">{{g.age}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No games yet. <a href="/eridu/create" style="color:#BB9944">Create one?</a></div>
+    {% endif %}
 
     <a class="nav-link" href="/eridu">&larr; eridu home</a>
-
-    <script type="text/javascript">
-      var playerGames = "{{player-games|addslashes|safe}}";
-      (function() {
-        var container = document.getElementById('games-list');
-        try {
-          var raw = playerGames;
-          if (!raw || raw === '[]' || raw === 'nil') {
-            container.innerHTML = '<p class="empty">No games yet. <a href="/eridu/create" style="color:#BB9944">Create one?</a></p>';
-            return;
-          }
-          var keys = [];
-          var re = /:key\s+"([^"]+)"/g;
-          var m;
-          while ((m = re.exec(raw)) !== null) keys.push(m[1]);
-          if (keys.length === 0) {
-            re = /:key\s+:([^\s\}]+)/g;
-            while ((m = re.exec(raw)) !== null) keys.push(m[1]);
-          }
-          if (keys.length === 0) {
-            container.innerHTML = '<p class="empty">No games yet. <a href="/eridu/create" style="color:#BB9944">Create one?</a></p>';
-            return;
-          }
-          var html = '';
-          for (var i = 0; i < keys.length; i++) {
-            html += '<a class="game-item" href="/eridu/play/' + keys[i] + '">' + keys[i] + '</a>';
-          }
-          container.innerHTML = html;
-        } catch(e) {
-          container.innerHTML = '<p class="empty">Error loading games</p>';
-        }
-      })();
-    </script>
   </body>
 </html>

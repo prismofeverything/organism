@@ -326,6 +326,11 @@
     (js/console.warn "undo is not yet supported in offline mode")
     (ws/send-transit-message! {:type "undo"})))
 
+(defn send-resign! []
+  (if @offline?-cursor
+    (js/console.warn "resign is not yet supported in offline mode")
+    (ws/send-transit-message! {:type "resign"})))
+
 (defn send-claim-feat!
   ([feat-id] (send-claim-feat! feat-id nil))
   ([feat-id slot-idx]
@@ -1363,7 +1368,19 @@
                  :padding "10px 16px" :cursor "pointer" :font-size 13
                  :min-height 44 :min-width 44
                  :touch-action "manipulation"}}
-        "↩ undo"])]))
+        "↩ undo"])
+     ;; Resign — only when the game isn't already over
+     (when (and (not (:game-over state)) (not @offline?-cursor))
+       [:button
+        {:on-click #(when (js/confirm "Resign this game? This will end the game and cannot be undone.")
+                      (send-resign!))
+         :style {:background "#1a0a0a" :color "#c66"
+                 :border "1px solid #844" :border-radius 6
+                 :padding "10px 16px" :cursor "pointer" :font-size 13
+                 :min-height 44 :min-width 44
+                 :margin-left "auto"
+                 :touch-action "manipulation"}}
+        "⚑ resign"])]))
 
 ;; ── Create game form ──────────────────────────────────────────────────────────
 
