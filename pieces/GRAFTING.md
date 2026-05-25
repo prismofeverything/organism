@@ -1,5 +1,41 @@
 # Grafting the connector onto a sculpt — problem, attempts, and a clean restart
 
+> ## ⏭️ NEXT SESSION (start here) — MOVE blank → 8/8 (rounded non-star base)
+>
+> Everything via `uv run`; the user does all git. Full state in `memory/project_piece_bottoms.md`.
+>
+> **Done this session:** EAT & GROW *blanks* are **8/8** (rounded sculptable bottom rims; `RIM_FILLET`
+> in `meshlib/build.py`, fillet + `_stitch_rings` shorter-diagonal in `meshlib/solid.py`). Pieces are
+> SOLID-bottomed by design (no socket; only FOOD stacks). The MOVE *connector graft* is done
+> (`build_move_graft.py`). **MOVE blank symmetry is SOLVED:** `build_move_graft.py::build_move_blank()`
+> (`uv run python pieces/build_move_graft.py blank` → `out/MOVE_blank.obj`) re-stacks the global-remeshed
+> `out/MOVE.obj` into BLANK_M=96 symmetric rings → **exactly 3-fold body (0.000 mm), all BODY invariants
+> pass.** That was the deep, long-standing blocker.
+>
+> **Task:** finish the MOVE blank to **8/8** (watertight, euler 2, exact symmetry, all 8 invariants —
+> the BLANK bar is the STRICT 8). Only the rounded **non-star BASE** (bottom ~1 mm, z<0.5) remains:
+> currently euler ≈ −10 with `no_overhang`/`silhouette`/`uniform_tris` failing there.
+> **Exact current bug:** `symmetrize_ring` of the shapely-`buffer(-rf)` inset mis-pairs sectors (the
+> buffer changes per-sector arc-length, so index `i+M/3` is no longer the 120° partner) → the inset arms
+> distort outward (overhang 3.6 mm). Pick one path:
+> - **(A) Finish `build_move_blank`'s base.** Keep the shapely `Polygon(rim).buffer(-rf)` inset (verified
+>   correct/inside). Fix the symmetrize to pair by **sector arc-length** — find the 3 throats on the
+>   buffered inset and resample each sector to M/3 (so `i+M/3` is a true partner), or buffer+sample ONE
+>   wedge and replicate. Then the matched-radial-cut shared-weld base (`_flat_base_sym`, reuses the
+>   fillet's `inset_idx`, cuts shared between wedges) should close to watertight.
+> - **(B) Cleaner — route MOVE through `build_piece_symmetric`.** Write a non-star wedge mesher (one 120°
+>   MOVE wedge meshes cleanly — CONFIRMED: centre→arc, 0 self-intersections, Triangle OK) to replace the
+>   star-only `wedge_mesh_star`, so MOVE reuses the whole symmetric pipeline incl. the **already-8/8
+>   rounded rim** (`build_solid_split` fillet). Caveat: `build_wedge_top` (collar/CVT) is star-only
+>   (`_r_at`) — either generalize it, or use the simpler `build_piece` flow (triangulate one wedge →
+>   `replicate2d` → membrane field → lift → `build_solid` with `fillet_r`, NO global remesh).
+>
+> Then **wire the winner into `meshlib/build.py`** for MOVE (replace the global-remesh path) so
+> `out/MOVE.obj` itself is the 8/8 blank. Validate with `invariants.validate`; render the bottom to
+> confirm a smooth rounded rim (`/tmp/render_rim.py` pattern; Blender `~/Downloads/blender-5.1.1-linux-x64/blender`,
+> `nice -n 19 --threads 2`). Don't regress EAT/GROW (8/8). `out/MOVE.obj` is currently the 6/8
+> global-remesh blank and is the restack SOURCE — keep building it first if you restack.
+
 The universal connector (peg dome+ridge on top, mirror socket below — `graft_connector.py`, with
 *exact* mating dims) must sit on top of each player piece (EAT star, MOVE spiral, GROW clover).
 **FOOD** solved this by building the connector INTO its meridian, so one revolve is smooth and

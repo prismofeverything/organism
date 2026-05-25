@@ -259,26 +259,42 @@ def offset_loop_inward(P, d):
 
 
 def _flat_base_sym(b, inset_idx, inset, fold, target=0.8):
-    """Symmetric flat base (z=0) filling the inset outline. Triangle ONE wedge
-    (centre + 1/fold arc), then place it `fold` times REUSING the existing inset-ring
-    vertices (`inset_idx`) for each rotated arc -> shared-ring weld to the fillet (no
-    coincidence-merge) + exact symmetry; only the interior Steiner points are new."""
+    """Symmetric flat base (z=0) filling the inset outline, watertight + exactly fold-fold.
+    One wedge = centre -> radial cut -> sector arc -> radial cut. The arc REUSES the
+    fillet's inset ring (`inset_idx`); the centre->throat cuts are SHARED between adjacent
+    wedges (cut[r] is wedge r's start and wedge r-1's end) and SUBDIVIDED radially (no long
+    cut edge). Triangle one wedge shape for the interior, mapped/rotated per wedge."""
     M = len(inset); k = M // fold; beta = 2 * np.pi / fold
-    loop = np.vstack([[0.0, 0.0], inset[:k + 1]])        # centre + one sector arc
-    seg = np.array([[i, (i + 1) % len(loop)] for i in range(len(loop))])
-    out = tr.triangulate({"vertices": loop, "segments": seg},
-                         f"pq28a{target * target * 0.43:.4f}Y")  # Y: no boundary Steiner ->
-    Vw, Tw = out["vertices"], out["triangles"]           # cuts+arc stay exact -> wedges weld
     cen = b.vert(0.0, 0.0, 0.0)
+    rthroat = float(np.hypot(*inset[0]))                 # throat radius (cut length)
+    ncut = max(2, int(round(rthroat / target)))
+    cuts = []                                            # cut[r]: indices centre..throat[r]
+    for r in range(fold):
+        line = [cen] + [b.vert(*(inset[r * k] * (j / ncut)), 0.0) for j in range(1, ncut)]
+        line.append(inset_idx[r * k]); cuts.append(line)
+
+    arc0 = inset[:k + 1]                                 # sector-0 arc positions (throat0..throat1)
+    cutpos = lambda thr: [thr * (j / ncut) for j in range(1, ncut)]
+    loop = ([(0.0, 0.0)] + cutpos(inset[0]) + [tuple(p) for p in arc0]
+            + cutpos(inset[k])[::-1])
+    V = np.array(loop); m = len(V)
+    seg = np.array([[i, (i + 1) % m] for i in range(m)])
+    out = tr.triangulate({"vertices": V, "segments": seg},
+                         f"pq28a{target * target * 0.43:.4f}Y")
+    Vw, Tw = out["vertices"], out["triangles"]
     for r in range(fold):
         c, s = np.cos(r * beta), np.sin(r * beta); R = np.array([[c, -s], [s, c]])
         g = {0: cen}
-        for i in range(1, k + 2):                        # arc -> existing inset ring verts
-            g[i] = inset_idx[(r * k + i - 1) % M]
-        for i in range(k + 2, len(Vw)):                  # Steiner -> new rotated verts
-            x, y = R @ Vw[i]; g[i] = b.vert(x, y, 0.0)
+        for j in range(1, ncut):                         # cutA interior = cut[r]
+            g[j] = cuts[r][j]
+        for j in range(k + 1):                           # arc = inset ring
+            g[ncut + j] = inset_idx[(r * k + j) % M]
+        for j in range(1, ncut):                         # cutB interior = cut[r+1] reversed
+            g[ncut + k + j] = cuts[(r + 1) % fold][ncut - j]
+        for i in range(m, len(Vw)):                      # interior Steiner -> new rotated
+            g[i] = b.vert(*(R @ Vw[i]), 0.0)
         for t in Tw:
-            b.F.append([g[t[0]], g[t[2]], g[t[1]]])      # winding fixed by fix_normals
+            b.F.append([g[t[0]], g[t[2]], g[t[1]]])
 
 
 def _blevel(P, m, target=0.8):
@@ -342,8 +358,16 @@ def build_move_blank():
         rings.append(r); zs.append(float(z)); ref = r
     rim = rings[0]
 
-    # bottom: MITER-inset (non-star safe) flat base + quarter-round fillet to the rim
-    inset = symmetrize_ring(offset_loop_inward(rim, rf), FOLD)
+    # bottom: shapely inward buffer (correct non-star inset, stays inside the region) ->
+    # resample + symmetrize back to M; flat base + quarter-round fillet to the rim.
+    from shapely.geometry import Polygon
+    poly = Polygon(rim).buffer(-rf)
+    if poly.geom_type != "Polygon":
+        poly = max(poly.geoms, key=lambda g: g.area)
+    iv = np.array(poly.exterior.coords)[:-1]
+    if _signed_area(iv) < 0:
+        iv = iv[::-1]
+    inset = symmetrize_ring(roll_anchor(resample_arclen(iv, BLANK_M), a0), FOLD)
     inset_idx = b.ring_pts(inset, 0.0); prev = inset_idx
     _flat_base_sym(b, inset_idx, inset, FOLD)             # base reuses inset ring (shared weld)
     nfil = max(2, int(round(rf / 0.5)) + 1); cur = prev
