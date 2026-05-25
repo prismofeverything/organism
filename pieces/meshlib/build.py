@@ -216,9 +216,10 @@ def _inset_loop(ring, d, fold):
 
 def _flat_wedge_from_arc(arc, edge, min_angle=28.0):
     """Flat (z=0) Triangle mesh of one sector bounded by the real `arc` (throat0..throat1)
-    and two radial cuts to the centre -- the SAME simple loop as wedge_mesh_nonstar, which
-    triangulates MOVE's hooked arm cleanly (unlike build_bottom_wedge's CVT, which adds a
-    Steiner on the non-star arc and self-intersects). For the inset flat base. (V2, T)."""
+    and two radial cuts to the centre. Anchoring the cut at the THROAT (not the arm tip)
+    keeps this loop simple even for MOVE's hooked arm -- unlike build_bottom_wedge's CVT,
+    which adds a Steiner on the non-star arc and self-intersects. For the inset flat base.
+    Returns (V2, T)."""
     import triangle as tr
     from mesh2d import base_area
     arc = np.asarray(arc, float)
@@ -235,21 +236,22 @@ def _flat_wedge_from_arc(arc, edge, min_angle=28.0):
     return out["vertices"], out["triangles"]
 
 
-def _move_orange_slice(src, fold, M, wall_z, rf, zmax, edge):
-    """Build ONE orange-slice (sector 0) of MOVE by stacking HORIZONTAL slices of the
+def _move_orange_slice(src, fold, M, wall_z, rf, zmax, edge, zs=None):
+    """Build ONE orange-slice (sector 0) of a piece by stacking HORIZONTAL slices of the
     source mesh. Each slice is resampled to M points, symmetrized (so index i+M/fold is
     the exact 120 deg partner -> column 0 & column M/fold are a clean, exact-rotation
     CUT), and registered to the one above (no spiral twist). The cut follows the drifting
-    throat one point per z-level, so it resolves the steep hub cliff a radial cut can't.
+    throat one point per z-level, so it resolves a steep hub cliff a radial cut can't.
     Closes with a vertical wall -> quarter-round fillet -> miter-inset flat base wedge.
-    Returns (V, F) of the welded slice; replicate3d tiles it into the full solid."""
+    `zs` = z-levels to slice (default: uniform 0.6mm to the tip; build_blank passes adaptive
+    ones). Returns (V, F) of the welded slice; replicate3d tiles it into the full solid."""
     k = M // fold
-    # z-spacing FINER than the remesh target: the cut runs along the slice stack and is
-    # LOCKED by sel-remesh, so its 3D edge length == the z-step (times the throat's r-slope,
-    # which steepens near the apex). 0.6mm keeps even the near-apex cut edges under 1.5mm.
-    nlev = max(24, int(round((zmax - wall_z) / 0.6)))
-    # slice almost to the tip so the apex fan + its locked cut->apex edge stay short.
-    zs = np.linspace(wall_z, zmax - 0.06, nlev)
+    if zs is None:
+        # z-spacing FINER than the remesh target: the cut runs along the slice stack and is
+        # LOCKED by sel-remesh, so its 3D edge == the z-step (times the throat's r-slope,
+        # steepest near the apex). 0.6mm keeps even near-apex cut edges <1.5mm; slice to the
+        # tip so the apex fan + its locked cut->apex edge stay short.
+        zs = np.linspace(wall_z, zmax - 0.06, max(24, int(round((zmax - wall_z) / 0.6))))
     anchored = False; ref = None; rings = []
     for z in zs:
         loop = slice_loop(src, z)
@@ -281,8 +283,8 @@ def _move_orange_slice(src, fold, M, wall_z, rf, zmax, edge):
             if da <= db: F.append([a, b, d]); F.append([a, d, c])
             else: F.append([a, b, c]); F.append([b, d, c])
 
-    body = [addring(rings[j][:k + 1], zs[j]) for j in range(nlev)]
-    for j in range(nlev - 1):
+    body = [addring(rings[j][:k + 1], zs[j]) for j in range(len(zs))]
+    for j in range(len(zs) - 1):
         loft(body[j], body[j + 1])
     apex = len(V); V.append((0.0, 0.0, float(zmax)))      # apex fan
     for i in range(len(body[-1]) - 1):
@@ -357,9 +359,102 @@ def build_move_symmetric(M=MOVE_M, target=REMESH_EDGE, fillet=MOVE_FILLET):
     return mesh
 
 
+# ==================== unified, shape-agnostic blank builder ====================
+# The re-stack -> replicate -> sector-locked-remesh finisher is shape-agnostic (it works
+# for a star or a hooked spiral alike). build_blank wraps it with auto-derived per-piece
+# knobs so ONE call -- silhouette + radial profile + fold -> 8/8 sculptable blank -- covers
+# every piece. The dedicated build_piece_symmetric (star collar) and build_move_symmetric
+# paths are kept alongside.
+
+def _min_neck(P):
+    """Min distance between NON-adjacent points of a loop -- the narrowest 'neck' (e.g. a
+    spiral arm tip). Caps the bottom fillet: a >0.5*neck inset from both sides collapses it."""
+    n = len(P)
+    D = np.hypot(P[:, 0, None] - P[None, :, 0], P[:, 1, None] - P[None, :, 1])
+    ii = np.arange(n); off = np.abs(ii[:, None] - ii[None, :])
+    D[(off <= 2) | (off >= n - 2)] = np.inf
+    return float(D.min())
+
+
+def _auto_blank_knobs(src, fold, target):
+    """Derive (M, fillet, wall_z) for build_blank from the source mesh: M from the widest
+    slice's perimeter (arc spacing ~target, divisible by fold), wall_z just above the
+    source's own rounded rim, fillet from the narrowest neck of the rim ring."""
+    z = src.vertices[:, 2]; zlo, zhi = float(z.min()), float(z.max())
+    wall_z = zlo + RIM_FILLET + 0.3
+    perims = []
+    for zz in np.linspace(wall_z, zhi - 0.5, 14):
+        try:
+            perims.append(_perim_loop(slice_loop(src, zz)))
+        except ValueError:
+            pass
+    M = int(np.ceil(max(perims) / target / fold)) * fold
+    rim = resample_ring(slice_loop(src, wall_z), M)
+    fillet = float(min(RIM_FILLET, 0.38 * _min_neck(rim)))
+    return M, fillet, wall_z
+
+
+def _perim_loop(loop):
+    return float(np.sum(np.hypot(*np.diff(np.vstack([loop, loop[:1]]), axis=0).T)))
+
+
+def _adaptive_zlevels(src, fold, M, wall_z, zmax, target):
+    """z-levels spaced ~uniformly in 3D ALONG THE CUT (column 0 of the symmetric stack):
+    a coarse pass traces the drifting throat, then we resample z by the cut's 3D arc length
+    so its LOCKED edges stay ~target everywhere -- dense through the hub cliff, the wall->
+    dome shoulder, and the apex; sparse on gentle spans. Generalizes the fixed 0.6mm step."""
+    zc = np.linspace(wall_z, zmax - 0.06, 44)
+    anchored = False; ref = None; col0 = []
+    for zz in zc:
+        loop = slice_loop(src, zz); r = resample_ring(loop, M)
+        if not anchored:
+            thr = loop[np.argmin(np.hypot(loop[:, 0], loop[:, 1]))]
+            r = np.roll(r, -int(np.argmin(np.hypot(r[:, 0] - thr[0], r[:, 1] - thr[1]))), axis=0)
+            anchored = True
+        r = symmetrize_ring(r, fold)
+        if ref is not None:
+            r = align_ring(ref, r)
+        ref = r; col0.append(r[0])
+    P = np.column_stack([np.array(col0), zc])
+    s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    n = max(24, int(np.ceil(s[-1] / target)))
+    return np.interp(np.linspace(0, s[-1], n), s, zc)
+
+
+def build_blank(name, target=REMESH_EDGE, export=True):
+    """ONE shape-agnostic path: silhouette + radial profile + fold -> 8/8 sculptable blank.
+    Builds a global-remesh source for the shape, re-stacks its horizontal slices into an
+    exactly fold-fold orange slice (auto M / fillet / adaptive z), replicates, then a
+    sector-locked remesh makes it uniform while staying exactly fold-fold. Works for the
+    star pieces (EAT/GROW) and the non-star spiral (MOVE) without per-shape symmetry code."""
+    svg, zmax, shape, wall, sm = SPECS[name]; fold = FOLD[name]; beta = 2 * np.pi / fold
+    reg = round_corners(symmetrize_region(load_region(ROOT / "inputs" / svg, name), fold),
+                        radius=CORNER_RADIUS)
+    src = build_piece(name, symmetric_shape=True)         # global-remesh source (shape only)
+    M, fillet, wall_z = _auto_blank_knobs(src, fold, target)
+    zs = _adaptive_zlevels(src, fold, M, wall_z, zmax, target)
+    Vs, Fs = _move_orange_slice(src, fold, M, wall_z, fillet, zmax, target, zs=zs)
+    Vfull, Ffull, copy0 = _replicate3d(Vs, Fs, fold, beta)
+    Vr, Fr = _sym_remesh(Vfull, Ffull, copy0, fold, beta, target)
+    mesh = trimesh.Trimesh(vertices=Vr, faces=Fr, process=True)
+    trimesh.repair.fix_normals(mesh)
+    spec = Spec(name, zmax, shape, wall, TARGET_EDGE, fold=fold)
+    print(f"\n=== {name} (build_blank  M={M} fillet={fillet:.2f} zlevels={len(zs)}) ===  "
+          f"{len(mesh.vertices)} verts, {len(mesh.faces)} faces")
+    ok, _ = validate(mesh, reg, spec)
+    if export:
+        mesh.export(OUT / f"{name}.obj")
+        print(f"  wrote {OUT / f'{name}.obj'}  [{'OK' if ok else 'INVARIANTS FAILED'}]")
+    return mesh, ok
+
+
 if __name__ == "__main__":
-    for nm in (sys.argv[1:] or list(SPECS)):
-        if nm == "MOVE":
+    args = sys.argv[1:]
+    blank = "--blank" in args                              # unified shape-agnostic path
+    for nm in ([a for a in args if a in SPECS] or list(SPECS)):
+        if blank:
+            build_blank(nm)
+        elif nm == "MOVE":
             build_move_symmetric()
         else:
             build_piece_symmetric(nm)

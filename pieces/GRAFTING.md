@@ -1,10 +1,34 @@
 # Grafting the connector onto a sculpt — problem, attempts, and a clean restart
 
-> ## ⏭️ NEXT SESSION (start here) — MOVE blank → 8/8 (rounded non-star base)
+> ## ✅ SOLVED (2026-05-24) — MOVE blank is 8/8; all three blanks are 8/8
 >
 > Everything via `uv run`; the user does all git. Full state in `memory/project_piece_bottoms.md`.
 >
-> **Done this session:** EAT & GROW *blanks* are **8/8** (rounded sculptable bottom rims; `RIM_FILLET`
+> **MOVE IS 8/8.** `uv run python pieces/meshlib/build.py` builds all three to `out/{EAT,GROW,MOVE}.obj`.
+> MOVE now routes through **`build_move_symmetric`** (`meshlib/build.py`) — `out/MOVE.obj` IS the 8/8 blank.
+> Method (the non-star, cliffed, twisted spiral): a radial-cut wedge can't resolve MOVE's near-vertical
+> hub CLIFF, and a global remesh of a symmetric input breaks symmetry at the seams (orbit-snap can't fix
+> the count mismatch). The win: (1) `build_piece("MOVE")` global-remesh SOURCE; (2) RE-STACK its
+> horizontal slices into one exactly-3-fold "orange slice" — each slice resampled to M=192,
+> `symmetrize_ring` (columns 0 & M/3 become an exact-rotation CUT) + `align_ring` (kills spiral twist);
+> the cut follows the DRIFTING THROAT one point per z-level → resolves the cliff a radial cut can't
+> (throat-anchor by min-radius POINT, not angle); close with wall → quarter-round fillet → miter-inset
+> base (`_flat_wedge_from_arc`); (3) `_replicate3d` → full solid; (4) `_sym_remesh` = isotropic remesh
+> of **sector 0 only** (`selectedonly=True` LOCKS the cut byte-for-byte) then replicate → uniform AND
+> exactly 3-fold. Knobs: `MOVE_M=192`, `MOVE_WALL_Z=1.4`, `MOVE_FILLET=0.7` (arm tips pinch to ~2mm
+> necks), z-spacing 0.6 (locked cut edge < 1.5 near apex), slice to `zmax-0.06`, remesh `featuredeg=65`
+> (keep the crisp rim, smooth the arm ridge). EAT/GROW unchanged (8/8).
+>
+> **GENERALIZED ✅ (user's idea):** `build_blank(name)` in `meshlib/build.py` (`uv run python
+> pieces/meshlib/build.py --blank`) is ONE shape-agnostic path — silhouette + radial profile + fold →
+> 8/8 sculptable blank — that reproduces **all three** at 8/8 (EAT M=160/fillet0.80, MOVE M=303/0.68,
+> GROW M=152/0.73), auto-deriving the knobs: `M` from the widest slice's perimeter, `fillet` from the
+> rim's narrowest neck (`_min_neck`), and **adaptive z-levels** spaced uniformly in 3D along the cut
+> (`_adaptive_zlevels` — dense through the cliff/shoulder/apex, sparse on gentle spans). It's added
+> ALONGSIDE the dedicated paths (`build_piece_symmetric` collar, `build_move_symmetric`), which stay the
+> default for `build.py` (no `--blank`). Original task notes below (kept for context):
+>
+> **Done earlier:** EAT & GROW *blanks* are **8/8** (rounded sculptable bottom rims; `RIM_FILLET`
 > in `meshlib/build.py`, fillet + `_stitch_rings` shorter-diagonal in `meshlib/solid.py`). Pieces are
 > SOLID-bottomed by design (no socket; only FOOD stacks). The MOVE *connector graft* is done
 > (`build_move_graft.py`). **MOVE blank symmetry is SOLVED:** `build_move_graft.py::build_move_blank()`
