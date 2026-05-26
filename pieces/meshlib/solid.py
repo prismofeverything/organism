@@ -122,15 +122,22 @@ def build_solid_split(Vt, Tt, Ht, Vb, Tb, edge=1.0, fillet_r=0.0):
     else:                                                    # rims coincide -> nearest
         order = cKDTree(Vb[lb]).query(Vt[lt])[1]
         lb_al = [lb[o] for o in order]
-    wall_z = float(np.median([Ht[i] for i in lt]))
-    rf = float(min(fillet_r, wall_z))
+    # PER-COLUMN wall heights: when the top rim is not a uniform plateau (radial lift
+    # case: z varies with r on the silhouette), each wall column must start from ITS
+    # OWN rim z. The previous median-`wall_z` then uniform wall rings created a step
+    # ABOVE target at the short-rim columns (the lobe tips for EAT/GROW). For the
+    # uniform-rim case (membrane lift) this reduces to identical behavior.
+    wall_z_per = np.array([Ht[i] for i in lt], float)
+    wall_z = float(np.median(wall_z_per))
+    rf = float(min(fillet_r, wall_z_per.min()))             # fillet bounded by SHORTEST column
     Rt = Vt[lt]                                             # full top rim (m,2), ordered loop
     Rb = Vb[lb_al]                                          # inset base rim (m,2), already inset
-    rings = [[lt[k] for k in range(m)]]                      # top rim, z=wall_z
-    nz_wall = max(1, int(round((wall_z - rf) / edge)))       # vertical: wall_z -> rf
+    rings = [[lt[k] for k in range(m)]]                     # top rim, each col at its own z=Ht
+    nz_wall = max(1, int(round((wall_z_per.max() - rf) / edge)))   # rings sized by longest col
     for s in range(1, nz_wall + 1):
-        z = wall_z - (wall_z - rf) * s / nz_wall; ring = []
+        t = s / nz_wall; ring = []
         for k in range(m):
+            z = wall_z_per[k] - (wall_z_per[k] - rf) * t    # each column descends to rf
             ring.append(len(V)); V.append((Rt[k, 0], Rt[k, 1], z))
         rings.append(ring)
     if rf > 1e-6:                                            # quarter-round: rf -> 0

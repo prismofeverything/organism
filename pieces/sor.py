@@ -105,6 +105,13 @@ def _dome(r_base, height, z_base, n=22):
     return [(r_base * (1 - i / n), z_base + height * (1 - (1 - i / n) ** 2)) for i in range(n + 1)]
 
 
+def _cone(r_base, apex_h, z_base=0.0, n=18):
+    """Straight cone meridian: apex (0, z_base+apex_h) -> base (r_base, z_base). A POINTED
+    apex (no horizontal roof) makes it self-supporting as a downward-facing socket-cavity
+    ceiling; its walls are steeper than the parabolic dome's, so it prints support-free."""
+    return [(r_base * i / n, z_base + apex_h * (1 - i / n)) for i in range(n + 1)]
+
+
 def _ridge(ir, orr, height, peak_w, z_base, n=26):
     """Peaked annular ridge meridian: (ir, z_base) -> flat peak -> (orr, z_base)."""
     cf = peak_w / (2 * (orr - ir)) if orr > ir else 0.0
@@ -122,17 +129,28 @@ def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
     """The whole FOOD as ONE meridian: socket cavity -> seat -> underside -> rim -> top ->
     peg ridge -> peg dome. A single revolve of this is watertight (no booleans). The socket
     is the connector oversized by `gap` (+ slip / - snap). Returns (points, meta)."""
-    socket_ceiling = dome_h + gap                          # socket cavity depth (from z=0)
+    s_dr, s_dh = dome_r + gap, dome_h + gap                # oversized peg-dome (clearance target)
+    s_ir, s_or, s_rh = ridge_ir - gap, ridge_or + gap, ridge_h + gap   # socket ridge cavity
+    # SELF-SUPPORTING dome cavity: a CONE (pointed apex -> no horizontal roof) tangent ABOVE
+    # the oversized peg parabola, walls >45deg from horizontal, so it prints socket-DOWN
+    # without support (the old parabolic cavity's flat apex was a 90deg overhang needing a
+    # bridge). Also funnels the peg in (lead-in). Cone tip sits a touch deeper than the
+    # parabola apex; the ridge groove (the snap surface) is untouched, so the fit is the same.
+    k = 1.3                                                # |dz/dr|: >1 => >45deg from horizontal
+    r0 = k * s_dr ** 2 / (2 * s_dh)                        # tangent point on the parabola
+    z0 = s_dh * (1 - (r0 / s_dr) ** 2)
+    cone_apex = z0 + k * r0                                # cone tip height (>= s_dh)
+    cone_base = min(r0 + z0 / k, s_ir - 0.05)             # base radius (stays inside the ridge)
+
+    socket_ceiling = cone_apex                             # socket cavity depth (from z=0)
     floor_z = socket_ceiling + wall                        # solid floor under the peg
     peg_tip = floor_z + dome_h
     R_seat = ridge_or + gap + seat_pad
     z_top = lambda r: floor_z + flare_up * ((r - ridge_or) / (R - ridge_or)) ** 2
     rim_b = z_top(R) - wall
     z_bot = lambda r: rim_b * ((r - R_seat) / (R - R_seat)) ** 2
-    s_dr, s_dh = dome_r + gap, dome_h + gap                # socket dome cavity
-    s_ir, s_or, s_rh = ridge_ir - gap, ridge_or + gap, ridge_h + gap   # socket ridge cavity
 
-    P = _dome(s_dr, s_dh, 0.0)[::-1]                        # socket dome: apex -> mouth
+    P = _cone(cone_base, cone_apex)                        # socket dome cavity: pointed apex -> mouth
     P.append((s_ir, 0.0))                                   # flat -> socket ridge inner
     P += _ridge(s_ir, s_or, s_rh, peak_w, 0.0)[1:]         # socket ridge cavity
     P.append((R_seat, 0.0))                                 # flat seat

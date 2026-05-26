@@ -26,7 +26,25 @@
 > rim's narrowest neck (`_min_neck`), and **adaptive z-levels** spaced uniformly in 3D along the cut
 > (`_adaptive_zlevels` — dense through the cliff/shoulder/apex, sparse on gentle spans). It's added
 > ALONGSIDE the dedicated paths (`build_piece_symmetric` collar, `build_move_symmetric`), which stay the
-> default for `build.py` (no `--blank`). Original task notes below (kept for context):
+> default for `build.py` (no `--blank`).
+>
+> **CONNECTOR GRAFTED onto the new blanks ✅ (2026-05-24):** `build_graft(name)` in `meshlib/build.py`
+> (`uv run python pieces/meshlib/build.py graft EAT GROW MOVE`; CLI `build.py blank <name>` /
+> `build.py graft <name>`) puts the universal connector on every blank with ONE method: re-stack the
+> blank body to a knee and blends the top rings to the Ø14 seat circle, with the cap method chosen by
+> regime: **NESTLE** (EAT/GROW, body wider than the seat) uses a **G1 cubic-Bezier collar** per angle
+> that leaves the seat HORIZONTAL (tangent to the flat seat ring -> NO shelf/ridge at the base) and
+> arrives at the foot on the body's wall slope -> one continuous curve up into the connector; **FLARE**
+> (MOVE, body NARROWER than the seat -> the connector necessarily juts out, can't nestle) follows the
+> REAL body slices blended (smoothstep) to the seat -> a smooth flare (a per-angle Bezier here scallops
+> the straddling cross-section into vertical STREAKS; forcing a horizontal seat tangent balloons the
+> overhang into an undercut flange -- both avoided). Detected by `Rb.min() >= R_SEAT`. Then weld the
+> structured connector SoR (peg, dims exact, never remeshed), SOLID rounded bottom (no socket; only FOOD
+> stacks). Connector ridge bump = the intentional snap feature (kept). Renders: `renders/grafts_*.png`,
+> `renders/MOVE_graft_crown.png`. All 3 → watertight, euler 2, single
+> component, connector exact (apex=zmax, dome 4.300, seat r=7.00); relaxed graft bar. Supersedes the
+> separate `build_graft.py`/`build_move_graft.py`. M must be a multiple of `lcm(fold,32)` for the
+> connector belts. Renders: `/tmp/grafts_overview.png`, `/tmp/grafts_cut.png`. Original task notes below:
 >
 > **Done earlier:** EAT & GROW *blanks* are **8/8** (rounded sculptable bottom rims; `RIM_FILLET`
 > in `meshlib/build.py`, fillet + `_stitch_rings` shorter-diagonal in `meshlib/solid.py`). Pieces are
@@ -76,12 +94,15 @@ doc records why, surveys the literature, and sets up a clean next attempt.
 3. **ONE continuous surface in the transition** — G1 (tangent-continuous) from body → connector seat.
    No flat shelf, no sharp rim, no jagged tear, no overhang cliff, no blob.
 4. **Watertight + printable** (0 non-manifold ideally), connector seated ON TOP.
-5. **Socket should print support-free.** Printed socket-down, the socket cavity overhangs and the
-   slicer jams supports into the ridge groove (miserable to remove). The groove ceiling is only ~2 mm
-   so it *bridges* fine if supports are blocked — but the connector rework should make the socket
-   self-supporting by design: a **45° lead-in chamfer at the mouth** (also eases assembly) + a
-   **sloped/steep groove & dome ceiling (≤45° overhang)**, keeping the seating walls/depth so the mate
-   is unchanged. Apply to BOTH the food socket (`sor.food`) and the pieces' socket (`graft_connector.add_socket`).
+5. **Socket should print support-free.** ✅ **DONE for FOOD (2026-05-24)** — and moot for the pieces,
+   which are now SOLID-bottomed (no socket; only FOOD stacks). `sor.food`'s parabolic dome cavity (a
+   flat-apex 90° overhang) was replaced with a **self-supporting CONE** (`sor._cone`, walls ≥52° from
+   horizontal, tangent-above the oversized peg parabola so it still clears the peg) which also serves as
+   the peg lead-in. The cone tip sits a touch deeper → FOOD is ~0.3 mm taller (11.6 mm); the ridge
+   groove (the snap surface) is untouched so the fit is unchanged. The ONLY remaining overhang is the
+   ~1 mm flat at the groove top — forced by the universal peg's flat-topped ridge (a peg change would
+   alter every mate), and it bridges trivially. Watertight (0 non-manifold). Renders:
+   `renders/food_socket_xsec.png` (cross-section), `renders/food_socket_3d.png`.
 
 The tension is (3) vs (1)+(2): the connector is a **circle**; the body cross-section where they meet
 is **non-circular and varies** (star points, spiral arms). A clean merge must morph circle↔outline

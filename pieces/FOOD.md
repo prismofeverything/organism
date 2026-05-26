@@ -26,7 +26,8 @@ recreate-from-scratch + how-to-print guide.
 ## The FOOD shape (current)
 
 A shallow parabola flaring **up** out of the connector to a rounded rim — a meniscus. Nests
-**on the connector** (the flares clear): ~38% per piece. Ø28.1 × 11.3 mm. Knobs in `build_food.py`:
+**on the connector** (the flares clear): ~38% per piece. Ø28.0 × 11.6 mm (socket dome cavity is a
+self-supporting cone — prints support-free; see Printing). Knobs in `build_food.py`:
 `FOOD_R` (shoulder radius), `FOOD_FLAREUP` (rim rise), `FOOD_WALL` (invariant IM wall, 2.5 mm),
 `FOOD_GAP` (connector fit), `FOOD_OUT` (output path).
 
@@ -68,13 +69,15 @@ make stl       # print-ready STL export + manifold report
 `make food` writes `renders/food/FOOD_{nosnap,snap}.stl` (units = **mm**), now **watertight
 (0 non-manifold, euler 2)** — slice directly, no repair needed.
 - Slice in Cura/PrusaSlicer (FDM) or Lychee/Chitubox (resin).
-- Orient **peg up / socket down**, but **BLOCK supports inside the socket** (PrusaSlicer: paint-on
-  supports → "Block supports" over the bottom cavity, or Add support blocker). Otherwise supports jam
-  in the ridge groove and are miserable to dig out. It prints faithfully without them: the socket's
-  **mating surfaces are its vertical walls** (clean layer-by-layer); only the small cavity ceiling
-  bridges, and that's not a mating surface so it doesn't affect the fit. Still support the flared rim
-  overhang from the build plate. Print **both** fits and feel the snap vs slip — the −0.10 mm
-  interference is a starting guess, confirm by hand.
+- Orient **peg up / socket down**. The socket now prints **support-free by design**: the dome cavity
+  is a **self-supporting CONE** (`sor._cone`, walls ≥52° from horizontal — replaced the old parabolic
+  cavity whose flat apex was a 90° overhang), and the cone doubles as a peg lead-in. The cone is also
+  the reason FOOD grew ~0.3 mm taller (a pointed tip sits a touch deeper than the flat-apex dome). The
+  **only** remaining overhang is the ~1 mm flat at the top of the **ridge groove** — forced by the
+  universal peg's flat-topped ridge (changing it would change every piece's mate), and it bridges
+  trivially. So you generally **don't** need to block supports; if your slicer still adds any, block
+  just that little groove. Still support the **flared rim** overhang from the build plate. Print
+  **both** fits and feel the snap vs slip — the −0.10 mm interference is a starting guess, confirm by hand.
 - Snap material wants a little give (PETG / tough resin).
 
 ### Full test plate (`make plate`)

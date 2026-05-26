@@ -76,7 +76,13 @@ def _r_at(th_s, r_s, theta):
 def wedge_mesh_star(region, fold, edge=1.0, min_angle=28.0):
     """Mesh one 1/fold pie-slice of a STAR-shaped region with MATCHED radial cuts
     (cut at alpha and alpha+beta use identical radii, so rotate-copy welds).
-    Returns (V Nx2, T, is_outline bool N)."""
+    Returns (V Nx2, T, is_outline bool N).
+
+    Outline sampling is by ARC LENGTH (not angle): the previous angular sampling
+    used the cut's r (the notch's small r) to size narc, which under-resolved the
+    lobe tip where r is large and the outline runs far per radian -- producing
+    1-3mm horizontal edges that violated no_long_edges. Arc-length gives uniform
+    `edge`-spaced outline samples regardless of the lobe/notch contrast."""
     th_s, r_s = _radial_outline(region)
     beta = 2 * np.pi / fold
     alpha = float(th_s[np.argmin(r_s)])                 # cut through a valley
@@ -85,10 +91,29 @@ def wedge_mesh_star(region, fold, edge=1.0, min_angle=28.0):
     rad = np.linspace(0.0, rmax, ncut + 1)
     cutA = np.column_stack([rad * np.cos(alpha), rad * np.sin(alpha)])
     cutB = np.column_stack([rad * np.cos(alpha + beta), rad * np.sin(alpha + beta)])
-    narc = max(2, int(round(rmax * beta / edge)))
-    tt = np.linspace(alpha, alpha + beta, narc + 1)
+    # arc-length sampling along the silhouette portion from alpha -> alpha+beta
+    tt_d = np.linspace(alpha, alpha + beta, 800)
+    rr_d = _r_at(th_s, r_s, tt_d)
+    xy_d = np.column_stack([rr_d * np.cos(tt_d), rr_d * np.sin(tt_d)])
+    s_d = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy_d, axis=0), axis=1))])
+    total = float(s_d[-1])
+    narc = max(2, int(round(total / edge)))
+    s_target = np.linspace(0.0, total, narc + 1)
+    tt = np.interp(s_target, s_d, tt_d)
     rr = _r_at(th_s, r_s, tt)
     arc = np.column_stack([rr * np.cos(tt), rr * np.sin(tt)])
+    # CRITICAL: force the arc's endpoints to be EXACT rotations of the cut tips. The
+    # symmetrize_region utility doesn't always produce a perfectly fold-symmetric
+    # polygon (small interpolation asymmetry between sampled verts), so _r_at(alpha)
+    # and _r_at(alpha+beta) can differ by ~0.02mm. That makes arc[0]/arc[-1] sit at
+    # SLIGHTLY different r from cutA[-1] and rotate(cutA[-1], beta), so after
+    # replicate2d the matched cuts don't weld -- adjacent wedges get a ~0.02mm gap
+    # of near-coincident verts at every notch, producing folded-fin wall triangles
+    # at the seam (the visible 5-line seam on EAT). Snapping to the rotated cut tip
+    # restores exact replicate weld.
+    cA = cutA[-1]; cB = np.array([cA[0]*np.cos(beta) - cA[1]*np.sin(beta),
+                                  cA[0]*np.sin(beta) + cA[1]*np.cos(beta)])
+    arc[0] = cA; arc[-1] = cB
     loop, flag = [(0.0, 0.0)], [False]                  # center
     for p in cutA[1:-1]: loop.append(tuple(p)); flag.append(False)
     loop.append(tuple(cutA[-1])); flag.append(True)     # P_alpha (outline)
@@ -104,7 +129,28 @@ def wedge_mesh_star(region, fold, edge=1.0, min_angle=28.0):
     VV, T = _improve_wedge(VV, T, fixed, seg)            # Lloyd quality, cuts fixed
     is_outline = np.zeros(len(VV), bool)
     is_outline[:m] = flag                               # input verts kept first
-    return VV, T, is_outline
+    # also expose `is_loop`: True for the first m verts (the entire wedge boundary --
+    # outline + cuts + center). Callers doing adaptive refinement need this to keep
+    # cut/outline edges intact while only splitting interior edges.
+    is_loop = np.zeros(len(VV), bool); is_loop[:m] = True
+    return VV, T, is_outline, is_loop
+
+
+def improve_wedge(V, T, fixed, seg, iters=12):
+    """Public alias for the Lloyd+CDT smoothing used inside wedge_mesh_star.
+    Callers that do their own refinement (e.g. adaptive edge-bisection in
+    build.py) can re-apply this to relax newly-added Steiner points and clean
+    up sliver triangles from the bisection."""
+    return _improve_wedge(V, T, fixed, seg, iters=iters)
+
+
+def redelaunay_wedge(V, seg):
+    """Re-triangulate the wedge (CDT) without moving any vertex -- only edge flips.
+    Use this after adaptive bisection to swap diagonals of sliver pairs into the
+    Delaunay-optimal configuration; verts stay where they are (so the refinement's
+    densification near the steep equator is preserved)."""
+    out = tr.triangulate({"vertices": np.asarray(V, float), "segments": seg}, "pQ")
+    return out["vertices"], out["triangles"]
 
 
 def _improve_wedge(V, T, fixed, seg, iters=12):
@@ -217,7 +263,9 @@ def wedge_boundary_star_3d(region, fold, Hfn, target):
     rotations of each other, so replicate2d welds them seamlessly."""
     th_s, r_s = _radial_outline(region)
     beta = 2 * np.pi / fold
-    alpha = float(th_s[np.argmin(r_s)])               # cut through a valley
+    alpha = float(th_s[np.argmax(r_s)])               # cut through a LOBE (convex tip): the replicate
+    # seam lands on the rounded point, where it's nearly invisible, instead of scarring the concave
+    # notch (a sharp vertical ridge); the notch stays in the wedge interior. Matches build_collar_rings.
     rmax = float(_r_at(th_s, r_s, alpha))
     rr = _arc_sample_radial(alpha, rmax, Hfn, target)
     cutA = np.column_stack([rr * np.cos(alpha), rr * np.sin(alpha)])
