@@ -693,6 +693,14 @@ def build_graft(name, target=REMESH_EDGE):
     lcm = 32 * fold // math.gcd(32, fold)                  # connector belts need M % (fold*2^5)
     M = max(lcm, round(M / lcm) * lcm)                     # so lev(L)=TH[::2^L] halves cleanly
     seat_z = cf.seat_z(zmax); flare_z = GRAFT_KNEE * seat_z
+    # PROFILE_MATCH pieces with a tall dome (= significant seat-above-wall_top span):
+    # snap flare_z to wall_z so the body ENDS at the dome's start. Otherwise the body
+    # extends INTO the dome zone (where the radial lift has already clipped the lobes)
+    # and shows a hard horizontal "shaved" edge at flare_z. With flare_z = wall_z, the
+    # body is the silhouette wall (lobes full to the wall_top) and the cap takes the
+    # full dome-to-seat transition -- continuous with the blank's shape.
+    if PROFILE_MATCH.get(name, True) and (seat_z - wall * zmax) > 4.0:
+        flare_z = wall * zmax
     b = B_()
 
     # master angles from the foot ring (real body section at the knee, throat-anchored)
@@ -740,11 +748,14 @@ def build_graft(name, target=REMESH_EDGE):
         return list(range(base, len(b.V)))
 
     prev = seat_ring
-    if Rb.min() >= cf.R_SEAT:
-        # NESTLE (body wider than the seat everywhere): a G1 cubic Bezier per angle leaves the seat
-        # HORIZONTAL (tangent to the flat seat ring -> no shelf/ridge where the connector sits) and
-        # arrives at the foot along the body's own wall slope -> one continuous curve. Sampled at
-        # PLANAR z-levels (uniform-t rings would be non-planar and facet).
+    if Rb.max() >= cf.R_SEAT:
+        # NESTLE / STRADDLE (body wider than the seat at SOME angle): a G1 cubic Bezier per angle
+        # leaves the seat HORIZONTAL (tangent to the flat seat ring -> no shelf/ridge where the
+        # connector sits) and arrives at the foot along the body's own wall slope -> one continuous
+        # curve. The control point P1 uses sign(Rb-R_SEAT) so each angle nestles inward (lobe wider
+        # than seat) OR flares outward (notch narrower than seat) on a SINGLE bezier -- handles
+        # straddling pieces (e.g. radial-lift GROW where Rb.min<R_SEAT<Rb.max). Sampled at PLANAR
+        # z-levels (uniform-t rings would be non-planar and facet).
         Rlo = _r_at_angle(slice_loop(src, flare_z - 1.0), TH)
         slope = Rb - Rlo
         P0 = np.column_stack([np.full(M, cf.R_SEAT), np.full(M, seat_z)])
