@@ -29,7 +29,7 @@ ax.set_box_aspect((2 * Rb, 2 * Rb, np.ptp(Z)))
 ax.set_title(f"FOOD — Ø{2*r.max():.1f} mm, {np.ptp(Z):.1f} mm tall", weight="bold")
 ax.set_axis_off(); ax.view_init(elev=18, azim=-55)
 fig.tight_layout()
-p3 = OBJ.with_name("FOOD_fixed_3d.png"); fig.savefig(p3, dpi=130); print("wrote", p3)
+p3 = OBJ.with_name(f"{OBJ.stem}_3d.png"); fig.savefig(p3, dpi=130); print("wrote", p3)
 
 # --- cross-section (mesh only) --------------------------------------------
 # outer silhouette = max radius per height bin; rim apex = highest outer point
@@ -53,4 +53,4 @@ ax.set_title(f"Cross-section — Ø{2*r.max():.1f}, {np.ptp(Z):.1f} mm tall  "
              f"{abs(tip_z-rim_apex_z):.1f} mm)", weight="bold")
 ax.legend(loc="upper right", fontsize=8)
 fig.tight_layout()
-px = OBJ.with_name("FOOD_fixed_xsec.png"); fig.savefig(px, dpi=130); print("wrote", px)
+px = OBJ.with_name(f"{OBJ.stem}_xsec.png"); fig.savefig(px, dpi=130); print("wrote", px)

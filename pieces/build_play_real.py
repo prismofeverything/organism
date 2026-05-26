@@ -48,13 +48,24 @@ plane("Table",2400,colmat("table",(0.3,0.31,0.34),0.95),(0,0,-2))
 plane("Board",540,imgmat("Board",f"{P}/board_hex_2000.png"),(0,0,0))
 PM={p:colmat("pc"+str(i),hsl_rgb(c)) for i,(p,c) in enumerate(G["colors"].items())}
 foodmat=colmat("food",(0.95,0.9,0.62),0.4)
-def imp(path,name):
-    bpy.ops.wm.obj_import(filepath=path,forward_axis='NEGATIVE_Z',up_axis='Y')
+def imp(path,name,zup=True):
+    # sculpt + new parametric grafts are Z-up files (written by trimesh / our Blender
+    # export with up_axis='Z'); the old *_connected.obj was Y-up (Blender default).
+    if zup: bpy.ops.wm.obj_import(filepath=path, up_axis='Z', forward_axis='Y')
+    else:   bpy.ops.wm.obj_import(filepath=path, forward_axis='NEGATIVE_Z', up_axis='Y')
     o=[x for x in bpy.context.selected_objects if x.type=='MESH'][0];o.name=name
     o.data.materials.clear();o.data.materials.append(colmat(name+"_d",(0.7,0.7,0.7)))
     o.hide_render=True;o.location=(9000,9000,0);return o
-T={t:imp(f"{P}/{m}_connected.obj",t) for t,m in [("eat","EAT"),("move","MOVE"),("grow","GROW")]}
-FOODT=imp(os.environ.get("FOOD_OBJ",f"{P}/renders/food/FOOD_nosnap.obj"),"FOODT"); PSCALE=0.9; FSCALE=0.94
+def piece_path(name):
+    """Sculpt graft if present, else fall back to the new parametric graft."""
+    sculpt = f"{P}/out/{name}_sculpt_graft.obj"
+    parametric = f"{P}/out/{name}_graft.obj"
+    if os.path.exists(sculpt): print(f"  {name}: SCULPT  {os.path.basename(sculpt)}"); return sculpt
+    print(f"  {name}: PARAMETRIC  {os.path.basename(parametric)}"); return parametric
+T={t:imp(piece_path(m),t) for t,m in [("eat","EAT"),("move","MOVE"),("grow","GROW")]}
+# FOOD is Y-up (Blender default export from build_food.py); pass zup=False so the
+# importer rotates Y->Z and the peg stands upright.
+FOODT=imp(os.environ.get("FOOD_OBJ",f"{P}/renders/food/FOOD_nosnap.obj"),"FOODT",zup=False); PSCALE=0.9; FSCALE=0.94
 def topz(o): return max((o.matrix_world@v.co).z for v in o.data.vertices)
 PHTOP={t:(topz(T[t])-4.3)*PSCALE for t in T}   # plateau (peg base), so the food's socket swallows the peg instead of perching on its tip
 tracks=ogf.track(G)
@@ -85,16 +96,54 @@ cd=bpy.data.cameras.new("C");cd.lens=38;cd.clip_end=20000
 cam=bpy.data.objects.new("C",cd);C().objects.link(cam);sc.camera=cam
 cam.rotation_mode='QUATERNION'
 sc.frame_start=0; sc.frame_end=last_turn*FPT+FPT; sc.render.fps=24
-# Orbiting camera: 1.5 revolutions + elevation sweep 14..86deg (2 cycles) to read depth
-N=sc.frame_end; target=Vector((0,0,12)); dist=500.0; orbits=1.5; ecyc=2.0
-fr_set=list(range(0,N+1,10))
-if fr_set[-1]!=N: fr_set.append(N)
-for f in fr_set:
-    t=f/N if N else 0.0
-    az=math.radians(360*orbits*t); el=math.radians(50+36*math.sin(2*math.pi*ecyc*t))
-    loc=Vector((dist*math.cos(el)*math.cos(az), dist*math.cos(el)*math.sin(az), 12+dist*math.sin(el)))
-    cam.location=loc; cam.rotation_quaternion=(target-loc).to_track_quat('-Z','Y')
-    cam.keyframe_insert("location",frame=f); cam.keyframe_insert("rotation_quaternion",frame=f)
+# Random-position camera with a FIBONACCI RHYTHM for the intervals between changes.
+# Building the iteration pattern:
+#   step 1: [5]
+#   step 2: [5] + [5, 8]              = [5, 5, 8]
+#   step 3: prev + [5, 8, 13]         = [5, 5, 8, 5, 8, 13]
+#   step 4: prev + [5, 8, 13, 21]     = ...
+# Keep iterating until the sum >= total turns. Then shuffle to get a varied,
+# rhythmically-uneven sequence of camera hold-times (some short, some long).
+# At each interval boundary, the camera eases (Bezier auto-clamped, Blender default)
+# to a new random azimuth/elevation/distance — closer and further away alternate.
+import random
+random.seed(1234)
+target=Vector((0,0,12))
+n_turns=last_turn+1
+FIB=[5, 8, 13, 21, 34, 55, 89, 144]                         # Fibonacci-ish, starting at 5
+intervals=[]; step=1
+while sum(intervals) < n_turns:
+    intervals.extend(FIB[:step])
+    step += 1
+random.shuffle(intervals)
+# turn-positions for the keyframes (cumulative sum, clamped to n_turns)
+key_turns=[0]
+for iv in intervals:
+    nxt=key_turns[-1]+iv
+    if nxt >= n_turns:
+        key_turns.append(n_turns); break
+    key_turns.append(nxt)
+if key_turns[-1] != n_turns: key_turns.append(n_turns)
+print(f"camera holds (turns): {[key_turns[i+1]-key_turns[i] for i in range(len(key_turns)-1)]}")
+prev_q=None
+for kt in key_turns:
+    f=min(kt*FPT, sc.frame_end)
+    az=math.radians(random.uniform(0, 360))
+    el=math.radians(random.uniform(22, 62))                 # gimbal-safe band
+    dist=random.uniform(280, 700)                           # closer and further
+    tz=random.uniform(8, 20)
+    target=Vector((0, 0, tz))
+    loc=Vector((dist*math.cos(el)*math.cos(az),
+                dist*math.cos(el)*math.sin(az),
+                tz + dist*math.sin(el)))
+    q=(target-loc).to_track_quat('-Z','Y')
+    if prev_q is not None and prev_q.dot(q) < 0:
+        q = -q
+    prev_q = q
+    cam.location=loc; cam.rotation_quaternion=q
+    cam.keyframe_insert("location",       frame=f)
+    cam.keyframe_insert("rotation_quaternion", frame=f)
+# Blender's default Bezier auto-clamped interpolation handles the smooth ease.
 sc.render.filepath=f"{FR}/f"; sc.render.image_settings.file_format='PNG'
 print("tracks:",len(tracks),"turns:",last_turn+1,"frames:",sc.frame_end+1)
 bpy.ops.render.render(animation=True)

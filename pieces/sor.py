@@ -125,24 +125,18 @@ def _ridge(ir, orr, height, peak_w, z_base, n=26):
 
 
 def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
-         ridge_ir=4.15, ridge_or=6.4, ridge_h=2.75, peak_w=2.0, seat_pad=0.6, nb=48):
+         ridge_ir=4.15, ridge_or=6.4, ridge_h=2.75, peak_w=2.0, seat_pad=0.0, nb=48):
     """The whole FOOD as ONE meridian: socket cavity -> seat -> underside -> rim -> top ->
     peg ridge -> peg dome. A single revolve of this is watertight (no booleans). The socket
     is the connector oversized by `gap` (+ slip / - snap). Returns (points, meta)."""
     s_dr, s_dh = dome_r + gap, dome_h + gap                # oversized peg-dome (clearance target)
     s_ir, s_or, s_rh = ridge_ir - gap, ridge_or + gap, ridge_h + gap   # socket ridge cavity
-    # SELF-SUPPORTING dome cavity: a CONE (pointed apex -> no horizontal roof) tangent ABOVE
-    # the oversized peg parabola, walls >45deg from horizontal, so it prints socket-DOWN
-    # without support (the old parabolic cavity's flat apex was a 90deg overhang needing a
-    # bridge). Also funnels the peg in (lead-in). Cone tip sits a touch deeper than the
-    # parabola apex; the ridge groove (the snap surface) is untouched, so the fit is the same.
-    k = 1.3                                                # |dz/dr|: >1 => >45deg from horizontal
-    r0 = k * s_dr ** 2 / (2 * s_dh)                        # tangent point on the parabola
-    z0 = s_dh * (1 - (r0 / s_dr) ** 2)
-    cone_apex = z0 + k * r0                                # cone tip height (>= s_dh)
-    cone_base = min(r0 + z0 / k, s_ir - 0.05)             # base radius (stays inside the ridge)
-
-    socket_ceiling = cone_apex                             # socket cavity depth (from z=0)
+    # PARABOLIC dome cavity: exact mirror of the peg dome, oversized by `gap` so the food
+    # nestles snugly onto a piece's peg. The cavity ceiling has a flat-apex (dz/dr=0 at the
+    # axis) which is a 90deg overhang when printed socket-DOWN; handle by painting a SUPPORT
+    # BLOCKER in the slicer over the cavity region (PrusaSlicer: paint-on supports / Bambu /
+    # Cura per-object setting). A 2mm-wide flat apex bridges cleanly with PETG.
+    socket_ceiling = s_dh                                  # cavity apex at z=s_dh
     floor_z = socket_ceiling + wall                        # solid floor under the peg
     peg_tip = floor_z + dome_h
     R_seat = ridge_or + gap + seat_pad
@@ -150,7 +144,7 @@ def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
     rim_b = z_top(R) - wall
     z_bot = lambda r: rim_b * ((r - R_seat) / (R - R_seat)) ** 2
 
-    P = _cone(cone_base, cone_apex)                        # socket dome cavity: pointed apex -> mouth
+    P = _dome(s_dr, s_dh, 0.0)[::-1]                       # socket dome cavity: apex (0, s_dh) -> base (s_dr, 0)
     P.append((s_ir, 0.0))                                   # flat -> socket ridge inner
     P += _ridge(s_ir, s_or, s_rh, peak_w, 0.0)[1:]         # socket ridge cavity
     P.append((R_seat, 0.0))                                 # flat seat

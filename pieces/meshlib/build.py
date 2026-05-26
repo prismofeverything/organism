@@ -675,8 +675,7 @@ def build_graft(name, target=REMESH_EDGE):
     knee, smoothstep-blend the top rings to the Ø14 seat circle (in for EAT/GROW, out for
     MOVE), weld the structured connector SoR (peg, exact dims), and close with the rounded
     SOLID bottom (no socket). Watertight, symmetric, dims-exact connector; relaxed bar."""
-    sys.path.insert(0, str(ROOT))
-    from build_graft import Builder as _GB, revolution_cap, _level_fn  # noqa: E402
+    from graft_lib import Builder as _GB, revolution_cap, _level_fn   # noqa: E402
     import connector_field as cf                                       # noqa: E402
     import triangle as tr                                             # noqa: E402
     from mesh2d import base_area                                       # noqa: E402
@@ -748,14 +747,16 @@ def build_graft(name, target=REMESH_EDGE):
         return list(range(base, len(b.V)))
 
     prev = seat_ring
-    if Rb.max() >= cf.R_SEAT:
-        # NESTLE / STRADDLE (body wider than the seat at SOME angle): a G1 cubic Bezier per angle
-        # leaves the seat HORIZONTAL (tangent to the flat seat ring -> no shelf/ridge where the
-        # connector sits) and arrives at the foot along the body's own wall slope -> one continuous
-        # curve. The control point P1 uses sign(Rb-R_SEAT) so each angle nestles inward (lobe wider
-        # than seat) OR flares outward (notch narrower than seat) on a SINGLE bezier -- handles
-        # straddling pieces (e.g. radial-lift GROW where Rb.min<R_SEAT<Rb.max). Sampled at PLANAR
-        # z-levels (uniform-t rings would be non-planar and facet).
+    if Rb.min() >= cf.R_SEAT:
+        # NESTLE (body wider than the seat at EVERY angle): a G1 cubic Bezier per angle leaves the
+        # seat HORIZONTAL (tangent to the flat seat ring -> no shelf/ridge where the connector sits)
+        # and arrives at the foot along the body's own wall slope -> one continuous curve. P1 is
+        # placed RADIALLY OUTWARD from the seat (sign=+1 always, since Rb > R_SEAT at every angle),
+        # so the curve flares OUT then down to meet the body. STRADDLING bodies (Rb.min < R_SEAT <
+        # Rb.max — e.g. MOVE's spiral) use the FLARE branch below instead, because a sign-flip in P1
+        # would create per-angle Bezier OVERSHOOTS: bulges at the arm tips and undercuts at the
+        # throats (the "3 wings + 3 cavities" pattern MOVE used to show). Sampled at PLANAR z-levels
+        # (uniform-t rings would be non-planar and facet).
         Rlo = _r_at_angle(slice_loop(src, flare_z - 1.0), TH)
         slope = Rb - Rlo
         P0 = np.column_stack([np.full(M, cf.R_SEAT), np.full(M, seat_z)])
@@ -778,12 +779,14 @@ def build_graft(name, target=REMESH_EDGE):
                 ring = cap_ring(np.column_stack([bz(0.5 * (lo + hi), 0), np.full(M, zk)]))
             b.loft(ring, prev); prev = ring
     else:
-        # FLARE/TRUMPET (MOVE: body narrower than the seat -> would leave a lip). Two-stage cap so
-        # the body becomes a NESTLE at the top: a smoothstep flare follows the real slices up to a
-        # Ø14+ mesa (so above the mesa the body is wider than the seat), then a short G1 Bezier
-        # roll-over (vertical at the mesa, horizontal at the seat) tucks it tangentially into the
-        # connector's flat seat -> no lip. All columns reach the mesa uniformly, so the roll-over's
-        # rings are planar (no streaks).
+        # FLARE/TRUMPET (any STRADDLE or fully-narrower body — Rb.min < R_SEAT): the per-angle
+        # NESTLE Bezier would overshoot (its L is height-scaled), producing bulges where Rb > R_SEAT
+        # and undercut cavities where Rb < R_SEAT. Two-stage cap so the body becomes a NESTLE at the
+        # top: a smoothstep flare blends the FIXED foot ring up to a Ø14+ mesa CIRCLE (the foot's
+        # 3-fold pattern smoothly morphs to a circle — no body re-slicing, so no spiral-twist noise);
+        # then a short G1 Bezier roll-over (vertical at the mesa, horizontal at the seat) tucks it
+        # tangentially into the connector's flat seat -> no lip. All columns reach the mesa
+        # uniformly, so the roll-over's rings are planar (no streaks).
         margin = 0.5; R_mesa = cf.R_SEAT + margin
         bez_span = min(3.0, 0.45 * (seat_z - flare_z))
         z_mesa = seat_z - bez_span
@@ -800,14 +803,16 @@ def build_graft(name, target=REMESH_EDGE):
             t = (j / n_bez) ** 1.6                         # dense near the seat (the roll-over)
             ring = cap_ring(np.column_stack([np.full(M, bz(t, 0)), np.full(M, bz(t, 1))]))
             b.loft(ring, prev); prev = ring
-        # smoothstep trumpet flare from mesa top down to the body foot
+        # smoothstep trumpet flare from mesa down to the FIXED foot ring (no body re-slicing —
+        # the spiral twists below flare_z, and re-sampling it at z>flare_z fed the cap a rotating
+        # cross-section that created visible kinks)
         for j in range(1, n_flare + 1):
             if j == n_flare:
                 ring = b.ring_pts(foot, flare_z)
             else:
                 z = z_mesa + (flare_z - z_mesa) * (j / n_flare)
                 w = _smoothstep((z - flare_z) / (z_mesa - flare_z))
-                R = (1 - w) * _r_at_angle(slice_loop(src, z), TH) + w * R_mesa
+                R = (1 - w) * Rb + w * R_mesa
                 ring = cap_ring(np.column_stack([R, np.full(M, z)]))
             b.loft(ring, prev); prev = ring
 
@@ -859,10 +864,11 @@ def _render_pieces(which="blanks"):
     """Fire-and-forget Blender render of the current blanks (or grafts) into
     pieces/renders/<which>_overview.png. Called by the CLI after every blank/graft
     rebuild so the on-disk render always reflects the current state of out/*.obj."""
-    import subprocess, json
-    blender = Path.home() / "Downloads" / "blender-5.1.1-linux-x64" / "blender"
+    import subprocess, json, os
+    blender = Path(os.environ.get(
+        "BLENDER", Path.home() / "Downloads" / "blender-5.1.2-linux-x64" / "blender"))
     if not blender.exists():
-        print(f"  [render skipped: {blender} not found]")
+        print(f"  [render skipped: {blender} not found; set $BLENDER]")
         return
     suffix = "_graft" if which == "grafts" else ""
     items = [(nm, str(OUT / f"{nm}{suffix}.obj")) for nm in SPECS]

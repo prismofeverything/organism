@@ -1,85 +1,107 @@
-# Organism board-game piece generator
+# Organism piece pipeline
 
-Generates four sculpt-ready 3D pieces — **EAT**, **MOVE**, **GROW** (player
-pieces) and **FOOD** (stackable disc) — as OBJ meshes from a single SVG of 2D
-silhouettes. Each piece is built by a parametric construction designed to
-satisfy six topology invariants simultaneously (see
-`pieces_v2.py` module docstring and `invariants.py`).
+Generates the print-ready meshes for the **EAT**, **MOVE**, **GROW** player
+pieces and the **FOOD** stackable disc, with the universal connector grafted
+on. The whole pipeline is driven by `make`.
 
-> **FOOD is now its own thing.** The stackable food token + the universal connector are
-> *solids of revolution* built with the `sor.py` library — see **`FOOD.md`** for the
-> principles, the build/measure/render/video pipeline (`Makefile`), and how to print.
+## One-shot
 
-## What you need (clone-from-scratch)
-
-1. **Blender 5.1.x** — the script runs inside Blender's bundled Python and uses
-   `bpy` / `bmesh` / `mathutils`. There is **nothing to `pip install`**; all
-   dependencies ship with Blender.
-   - During development: `~/Downloads/blender-5.1.2-linux-x64/blender` (Linux
-     portable build). Any 5.1.x build on any OS works.
-
-2. **The silhouette SVG** at the path in the `SVG` constant near the top of
-   `pieces_v2.py`:
-   ```
-   ~/Downloads/01_organism-elements_wyn_02-01.svg
-   ```
-   This is the ONLY external input. It contains three filled curves (EAT, MOVE,
-   GROW silhouettes); the script imports it, converts curves to meshes, walks
-   each outline, and uses them as the piece footprints. FOOD is purely
-   parametric (a circle) and needs no SVG input. If your SVG lives elsewhere,
-   edit the `SVG` constant.
-
-3. **(Optional) ImageMagick** (`convert`) — only used by ad-hoc diagnostic
-   scripts that turn raycast `.pgm` masks into `.png`. The main pipeline does
-   not need it.
-
-## Run
+From this directory:
 
 ```sh
-blender --background --python pieces_v2.py
+make print
 ```
 
-(Substitute your Blender binary path.) Everything is written next to the script:
+End-to-end: builds the 3 blank bodies, grafts the universal connector onto
+each, builds the slip + snap FOOD STLs, and lays them all out on a combined
+print plate. Output for the slicer:
 
-| Output | What it is |
+```
+renders/food/print_plate.stl
+```
+
+## Targets
+
+```sh
+make             # list targets
+make print       # end-to-end -> slicer-ready print_plate.stl
+make blanks      # 3 sculpt-ready blank bodies in out/
+make grafts      # 3 connector-grafted pieces in out/ (needs blanks)
+make food        # slip + snap FOOD STLs in renders/food/
+make plate       # combined print plate STL (needs grafts + food)
+make all         # rebuild everything (skips video)
+make clean       # nuke out/ blanks+grafts and print_plate.stl
+make measure     # FOOD nesting % measurement
+make preview     # CPU 3D + cross-section render of FOOD
+make video       # gameplay animation -> scene/*.mp4
+```
+
+Each stage is incremental — running `make print` after `make grafts` only
+rebuilds what's stale.
+
+## Where things land
+
+| Path | What |
 |---|---|
-| `EAT.obj` `MOVE.obj` `GROW.obj` `FOOD.obj` | the meshes |
-| `connector_meta.json` | per-piece connector placement for `graft_connector.py` |
-| `pieces.blend` / `pieces.glb` | combined viewing scenes (drag the GLB into any glTF viewer) |
-| `renders/*.png` | workbench renders + topology-audit diagnostics |
+| `out/{EAT,MOVE,GROW}.obj` | sculpt-ready blank bodies (built by `meshlib/build.py`) |
+| `out/{EAT,MOVE,GROW}_graft.obj` | blanks with the universal connector grafted on |
+| `renders/food/FOOD_{nosnap,snap}.{obj,stl,profile.json}` | the two FOOD fits |
+| `renders/food/print_plate.stl` | **the slicer input**: 3× slip + 3× snap FOOD + 1× each piece |
+| `renders/{blanks,grafts}_overview.png` | auto-rendered overview shots (fire-and-forget) |
+
+Both `out/` and `renders/` are gitignored by default.
+
+## Dependencies
+
+- **Blender 5.1.x** for FOOD revolves, the plate layout, and auto-render.
+  Default path is `~/Downloads/blender-5.1.2-linux-x64/blender`. Override:
+
+  ```sh
+  make print BLENDER=/path/to/blender
+  ```
+
+  The Makefile exports `BLENDER` to `meshlib/build.py` so both agree on one
+  binary.
+
+- **`uv`** for the core mesh pipeline (blanks + grafts run under the
+  repo's `.venv`, no Blender needed). `uv sync` from the repo root creates
+  the venv from `pyproject.toml` + `uv.lock`.
 
 ## Validate the invariants
 
-```sh
-blender --background --python invariants.py -- EAT.obj
-```
+`meshlib/invariants.py` runs the eight blank-bar invariants (manifold,
+silhouette, no overhang, uniform tris, smooth, additive, symmetry,
+profile) against any OBJ. The CLI in `meshlib/build.py` runs them
+automatically after each blank/graft build and prints a pass/fail
+report. Grafts are checked under a **relaxed bar** (continuous +
+prints — belt/pole artifacts allowed). The strict 8-invariant bar is
+the **blank** standard.
 
-Runs every registered invariant against the mesh and prints a pass/fail report.
-Omit the filename to check the three main pieces (EAT, MOVE, GROW). FOOD is
-excluded — it's already designed (shallow parabolic dish + bottom dome) and
-isn't a tapering single-apex body, so the six body invariants don't apply.
-See `invariants.py` for how to add a new invariant (drop a function into the
-`INVARIANTS` registry).
+## Architecture pointers
 
-## Status
+- **`meshlib/`** — the modern build pipeline. `build.py` is the CLI;
+  `connector_field.py` is the universal connector spec (peg dome,
+  ridge, socket cavity); `graft_lib.py` is the ring-loft mesh primitive;
+  `symmetry.py`, `solid.py`, `collar.py`, `field.py`, `domain.py`,
+  `mesh2d.py`, `remesh.py`, `profile.py`, `invariants.py` are the rest.
+- **`FOOD.md`** — the FOOD token: solid of revolution with the
+  connector built into the meridian (principle 7). `sor.py` is the SoR
+  library; `build_food.py` is the Blender entry point.
+- **`GRAFTING.md`** — the full graft-attempt journey, the survey of
+  blending methods (smin / OpenVDB / biharmonic / loft), and why the
+  current generative approach won.
+- **`DECISIONS.md`** — design lab notebook (append-only).
 
-- **EAT, GROW** — satisfy all six invariants. (FOOD is excluded — see above; it isn't a tapering
-  single-apex body, so the six body invariants don't apply.)
-- **MOVE** — two separate things, don't conflate them:
-  - The **uniform-scaling parametric method here is UNSOLVED for MOVE**: its spiral-with-hooks
-    silhouette is a non-star polygon, so uniform-scaling extrusion fills the spiral gaps (invariant
-    #2 — see the "OPEN PROBLEM" in the `pieces_v2.py` docstring). We won't compromise the invariants,
-    so *that recipe* stays open.
-  - But MOVE is **not** stuck as a blob: a separate non-parametric method (`meshlib/`, height-field —
-    see `DECISIONS.md` 2026-05-20) builds a real "rounded spiral mound" that keeps the silhouette, and
-    **that** is the MOVE body we sculpt / graft / print. `MOVE_connected.obj` is a genuine genus-3
-    spiral (hooks/holes real), watertight and printable — not the gap-filled placeholder. So: the
-    *piece* works; the *uniform-scaling recipe* is the open item.
+## Per-piece notes
 
-## Post-sculpt
+| Piece | Fold | z_max | Socket | Method (meshlib/build.py) |
+|---|---|---|---|---|
+| EAT  | 5 | 48 | no  | star, height-field boss + collar (NESTLE) |
+| GROW | 4 | 36 | yes | clover, height-field boss + collar (NESTLE) |
+| MOVE | 3 | 60 | yes | spiral, perimeter loft + flare cap (FLARE) |
 
-After sculpting a body in Blender, re-attach the universal connector with:
-
-```sh
-blender --background --python graft_connector.py -- --in sculpted.obj --piece MOVE --out final.obj
-```
+MOVE was the hard one: its connector seat (Ø14) is wider than the
+body's top cross-section, so the cap must flare outward. The height-field
+boss that works for EAT/GROW can't represent that overhang, so MOVE uses
+a perimeter-loft path that morphs the real hooked cross-section to the
+circular seat. Details in `GRAFTING.md`.

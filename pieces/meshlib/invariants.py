@@ -65,8 +65,7 @@ def _near_boundary(mids_xy, region, band=2.5):
     """True for creases within `band` mm of the silhouette boundary — the rim /
     shoulder / arm-edge / corner region, where surface sharpness reflects the
     SVG's edge features (intended) rather than a body defect. The wide body
-    interior stays checked. (Boundary is finely resampled, so nearest-vertex
-    distance approximates distance-to-outline.)"""
+    interior stays checked."""
     from scipy.spatial import cKDTree
     pts = np.vstack(list(region.all_rings))
     return cKDTree(pts).query(np.asarray(mids_xy))[0] < band
@@ -147,11 +146,20 @@ def inv_no_long_edges(mesh, region, spec):
                   f"{n}/{len(L)} edges > {limit:.1f}mm (worst {L.max():.2f}mm)")
 
 
-def inv_smooth(mesh, region, spec, min_radius=0.5):
+def inv_smooth(mesh, region, spec, min_radius=0.5, connector_band=5.0):
     """A 'crease' is a fold sharper than `min_radius` mm, measured as the local
     radius of curvature = (shared-edge length) / (dihedral angle). This is
     resolution-independent and distinguishes intended organic curvature (large
-    radius) from construction seams (tiny radius). Rim and apex are exempt."""
+    radius) from construction seams (tiny radius).
+
+    Exempt zones: the rim, the connector at the top (an absolute `connector_band`
+    mm — the universal peg dome + ridge has intended sharp shoulders), CREST /
+    SPINE folds (convex-up — a ridge crest, generalized apex), and the
+    silhouette-extrusion ridges on the body wall (near-boundary AND vertically
+    aligned edges only — horizontal tangent breaks in a cap or collar that sit
+    on the boundary are NOT exempted). `connector_band` defaults to 5mm so the
+    universal connector's 4.3mm dome + ridge margin is fully covered regardless
+    of piece height."""
     z = mesh.vertices[:, 2]
     zmin, zmax = z.min(), z.max(); span = zmax - zmin + 1e-9
     ev = mesh.face_adjacency_edges
@@ -159,11 +167,8 @@ def inv_smooth(mesh, region, spec, min_radius=0.5):
     elen = np.linalg.norm(mesh.vertices[ev[:, 0]] - mesh.vertices[ev[:, 1]], axis=1)
     radius = elen / (mesh.face_adjacency_angles + 1e-9)
     ez = z[ev]
-    # exempt the rim, the apex, and CREST/SPINE folds. A convex-up fold (both
-    # opposite verts below the shared edge) is a ridge crest — the spiral's
-    # apex generalized from a point to a curve; allowed to be sharp like a peak.
     is_rim = (ez.max(1) - zmin) < 0.05 * span
-    is_apex = (zmax - ez.min(1)) < 0.03 * span
+    is_apex = (zmax - ez.min(1)) < max(connector_band, 0.03 * span)
     is_crest = z[ov].max(1) < ez.max(1)
     is_edge = _near_boundary(mesh.vertices[ev].mean(1)[:, :2], region)
     body = ~is_rim & ~is_apex & ~is_crest & ~is_edge

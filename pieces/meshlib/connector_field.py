@@ -25,8 +25,15 @@ RIDGE_OR     = RIDGE_OD / 2     # 6.40
 RIDGE_IR     = RIDGE_ID / 2     # 4.15
 RIDGE_HEIGHT = 2.75
 RIDGE_PEAK_W = 2.0
-SEAT_MARGIN  = 0.6
-R_SEAT       = RIDGE_OR + SEAT_MARGIN     # 7.00  functional radius; connector exact within
+SEAT_MARGIN  = 0.0     # dropped (was 0.6) — see R_SEAT comment
+# R_SEAT = connector outer radius. The active mating surface is the RIDGE
+# (RIDGE_IR..RIDGE_OR), where snap engagement happens with the food's socket-ridge.
+# The previous 0.6mm flat seat margin past RIDGE_OR added a nominal flat-to-flat
+# contact ring with the food's outer rim, but the food's outer rim sits at R=13
+# anyway — it's cantilevered on the peg+ridge regardless. Dropping the margin:
+# smaller connector footprint, MOVE-style tapered pieces can seat ~2mm higher
+# (arms reach 6.4 vs 7.0), and EAT-style cradle's residual annulus shrinks.
+R_SEAT       = RIDGE_OR                   # 6.40  ridge outer edge
 
 
 def seat_z(zmax):
