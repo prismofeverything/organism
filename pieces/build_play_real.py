@@ -3,8 +3,9 @@ from mathutils import Vector
 sys.path.insert(0, "/home/youdonotexist/code/organism/pieces")
 import organism_format as ogf
 ROOT="/home/youdonotexist/code/organism"; P=f"{ROOT}/pieces"; ART="/home/youdonotexist/Downloads/organism/prototype"
-FR="/tmp/play4"; os.makedirs(FR, exist_ok=True)
-TURN_LIMIT=int(os.environ.get("TURN_LIMIT","0")); FPT=4; SCALE=43.0
+# Frame sequence goes to /mnt/data (sysytem disk fills if rendered to /tmp); override with FR env var
+FR=os.environ.get("FR", "/mnt/data/archive/organism-renders/play"); os.makedirs(FR, exist_ok=True)
+TURN_LIMIT=int(os.environ.get("TURN_LIMIT","0")); FPT=int(os.environ.get("FPT","8")); SCALE=43.0
 G=ogf.load_ogf(f"{ROOT}/ogf/zach-dan-ryan.json"); LOC=ogf.board_locations(G)
 BROT=math.radians(30)   # printed art lattice is 30deg off board.cljc tau/12 beam phase
 def P2(sp):
@@ -110,7 +111,7 @@ import random
 random.seed(1234)
 target=Vector((0,0,12))
 n_turns=last_turn+1
-FIB=[5, 8, 13, 21, 34, 55, 89, 144]                         # Fibonacci-ish, starting at 5
+FIB=[8, 13, 21, 34, 55, 89, 144, 233]                       # Fibonacci-ish, starting at 8
 intervals=[]; step=1
 while sum(intervals) < n_turns:
     intervals.extend(FIB[:step])
@@ -124,26 +125,65 @@ for iv in intervals:
         key_turns.append(n_turns); break
     key_turns.append(nxt)
 if key_turns[-1] != n_turns: key_turns.append(n_turns)
-print(f"camera holds (turns): {[key_turns[i+1]-key_turns[i] for i in range(len(key_turns)-1)]}")
-prev_q=None
+print(f"camera target rhythm (turns): {[key_turns[i+1]-key_turns[i] for i in range(len(key_turns)-1)]}")
+# Critically-damped SPRING camera: the camera is always integrating, chasing a target
+# that snaps to a new random position at each Fibonacci-interval boundary. Because the
+# spring takes ~3-4s to settle and short intervals are shorter than that, the camera
+# is continuously moving (never reaches a hard stop). A small sinusoidal noise overlay
+# keeps even long, settled holds from feeling completely frozen — organic micro-drift.
+OMEGA = float(os.environ.get("OMEGA", str(2*math.pi*0.30)))   # natural freq (Hz); ~3.3s settle
+ZETA  = 1.0                                                   # critical damping (no overshoot)
+NOISE_R = float(os.environ.get("NOISE_R", "2.5"))             # mm of organic micro-drift
+# Camera positions: each new azimuth is bounded to ±120deg of the previous one
+# (the 2/3 of the circle adjacent to the current position), so the spring never has
+# to traverse a half-circle in one step — keeps successive positions close-ish.
+AZ_DELTA_MAX = math.radians(120.0)
+positions=[]
+prev_az = math.radians(random.uniform(0, 360))                # seed start
 for kt in key_turns:
-    f=min(kt*FPT, sc.frame_end)
-    az=math.radians(random.uniform(0, 360))
-    el=math.radians(random.uniform(22, 62))                 # gimbal-safe band
-    dist=random.uniform(280, 700)                           # closer and further
+    az = prev_az + random.uniform(-AZ_DELTA_MAX, AZ_DELTA_MAX)
+    prev_az = az
+    el=math.radians(random.uniform(22, 62))
+    dist=random.uniform(280, 700)
     tz=random.uniform(8, 20)
-    target=Vector((0, 0, tz))
     loc=Vector((dist*math.cos(el)*math.cos(az),
                 dist*math.cos(el)*math.sin(az),
                 tz + dist*math.sin(el)))
-    q=(target-loc).to_track_quat('-Z','Y')
-    if prev_q is not None and prev_q.dot(q) < 0:
-        q = -q
+    target=Vector((0, 0, tz))
+    positions.append((kt, loc, target))
+# spring state — initialize at the first target so we don't fly in from origin
+cur_loc      = positions[0][1].copy()
+cur_target   = positions[0][2].copy()
+vel_loc      = Vector((0,0,0))
+vel_target   = Vector((0,0,0))
+target_idx   = 0
+prev_q       = None
+dt           = 1.0 / sc.render.fps                            # seconds per frame
+for f in range(sc.frame_end + 1):
+    turn = f / FPT
+    while target_idx + 1 < len(positions) and positions[target_idx + 1][0] <= turn:
+        target_idx += 1
+    _, tgt_loc, tgt_pt = positions[target_idx]
+    # spring step for location
+    accel_loc = -2*ZETA*OMEGA*vel_loc - OMEGA*OMEGA*(cur_loc - tgt_loc)
+    vel_loc  += accel_loc * dt
+    cur_loc  += vel_loc * dt
+    # spring step for look-at target
+    accel_t   = -2*ZETA*OMEGA*vel_target - OMEGA*OMEGA*(cur_target - tgt_pt)
+    vel_target += accel_t * dt
+    cur_target += vel_target * dt
+    # organic micro-drift overlay (3 incommensurate sinusoids per axis)
+    nx = NOISE_R * math.sin(f * 0.067 + 1.3)
+    ny = NOISE_R * math.sin(f * 0.058 + 2.1)
+    nz = NOISE_R * 0.4 * math.sin(f * 0.091 + 0.8)
+    render_loc = cur_loc + Vector((nx, ny, nz))
+    q = (cur_target - render_loc).to_track_quat('-Z','Y')
+    if prev_q is not None and prev_q.dot(q) < 0: q = -q
     prev_q = q
-    cam.location=loc; cam.rotation_quaternion=q
+    cam.location = render_loc
+    cam.rotation_quaternion = q
     cam.keyframe_insert("location",       frame=f)
     cam.keyframe_insert("rotation_quaternion", frame=f)
-# Blender's default Bezier auto-clamped interpolation handles the smooth ease.
 sc.render.filepath=f"{FR}/f"; sc.render.image_settings.file_format='PNG'
 print("tracks:",len(tracks),"turns:",last_turn+1,"frames:",sc.frame_end+1)
 bpy.ops.render.render(animation=True)
