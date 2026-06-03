@@ -75,7 +75,7 @@
       <tbody>
         {% for g in games %}
         <tr class="{% if g.status-class == "you" %}your-turn{% endif %}">
-          <td class="key"><a href="/eridu/play/{{g.key}}">{{g.key|slice:":18"}}…</a></td>
+          <td class="key"><a href="/eridu/play/{{g.key}}">{{g.key-short}}</a></td>
           <td>{{g.players}}</td>
           <td>{{g.round}}</td>
           <td><span class="status-{{g.status-class}}">{{g.status}}</span></td>

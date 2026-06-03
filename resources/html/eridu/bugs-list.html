@@ -52,7 +52,7 @@
           <td class="ts">{{r.ts}}</td>
           <td class="player">{{r.player|default:r.session-player|default:"?"}}</td>
           <td class="text">{{r.text}}{% if r.url %}<div class="url">{{r.url}}</div>{% endif %}</td>
-          <td>{% if r.play-key %}<a href="/eridu/play/{{r.play-key}}" style="color:#aaccff">{{r.play-key|slice:":12"}}…</a>{% endif %}</td>
+          <td>{% if r.play-key %}<a href="/eridu/play/{{r.play-key}}" style="color:#aaccff">{{r.play-key-short}}</a>{% endif %}</td>
           <td class="actions">
             {% if r.state %}<a class="download" href="/eridu/bug-report/state/{{r.idx}}">state.edn</a>{% endif %}
           </td>

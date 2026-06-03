@@ -36,6 +36,15 @@
      {:session-player player
       :preferences preferences})))
 
+(defn- short-key
+  "Truncate an id-style string for display in a table cell."
+  ([s] (short-key s 16))
+  ([s n]
+   (cond
+     (nil? s) ""
+     (<= (count s) n) s
+     :else (str (subs s 0 n) "…"))))
+
 (defn play-list-page
   "Show the logged-in player's eridu games. Each row gets last-move age,
    whose-turn-it-is, and whether the viewer is on the clock — so abandoned
@@ -60,6 +69,7 @@
                 go?  (some? (:game-over s))
                 cp   (:current-player s)]
             {:key            (:key s)
+             :key-short      (short-key (:key s) 18)
              :round          (or (:round s) 0)
              :players        (str/join ", " (:players s))
              :status         (cond
@@ -347,13 +357,17 @@
   "Admin viewer: lists every report in the JSONL with metadata + links to
    download the per-report state snapshot when present."
   [_db request]
-  (let [reports (or (read-bug-reports) [])]
+  (let [reports (or (read-bug-reports) [])
+        decorated (mapv (fn [r]
+                          (assoc r :play-key-short
+                                 (when-let [pk (:play-key r)] (short-key pk 12))))
+                        reports)]
     (layout/render
      request
      "eridu/bugs-list.html"
      {:session-player (get-in request [:session :player])
-      :reports (vec (reverse reports))
-      :report-count (count reports)})))
+      :reports (vec (reverse decorated))
+      :report-count (count decorated)})))
 
 (defn bug-report-state-download
   "Stream a saved state snapshot by index from the JSONL. We re-emit the
@@ -401,13 +415,16 @@
 (defn leaderboard-page
   "Per-player aggregate ranking and hall-of-fame of top single-game scores."
   [db request]
-  (let [data (persist-e/leaderboard-data db)]
+  (let [data (persist-e/leaderboard-data db)
+        hof (mapv (fn [row]
+                    (assoc row :game-key-short (short-key (:game-key row) 16)))
+                  (:hall-of-fame data))]
     (layout/render
      request
      "eridu/leaderboard.html"
      {:session-player (get-in request [:session :player])
       :aggregate (:aggregate data)
-      :hall-of-fame (:hall-of-fame data)})))
+      :hall-of-fame hof})))
 
 (defn dump-bug-reports
   "Stream the local bug-report JSONL back to any logged-in user. Lets
