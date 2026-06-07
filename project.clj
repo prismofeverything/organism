@@ -55,6 +55,18 @@
   :target-path "target/%s/"
   :main ^:skip-aot organism.core
 
+  ;; Heap cap + crash-don't-thrash policy for every `lein run` (web server AND
+  ;; `lein run -m eridu.bench ...`). Without -Xmx the JVM defaults to ~1/4 RAM
+  ;; and, under a leak, can drag the whole machine into swap-thrash before it
+  ;; ever hits its own ceiling (this froze the laptop on 2026-06-07). With the
+  ;; cap, a runaway heap instead dumps + exits cleanly, leaving the host alive.
+  ;; Profile :jvm-opts (e.g. -Dconf=...) are concatenated, so this is additive.
+  ;; Bump -Xmx if a legit bench run OOMs; the dumps land in ./heapdumps/.
+  :jvm-opts ["-Xmx4g"
+             "-XX:+HeapDumpOnOutOfMemoryError"
+             "-XX:HeapDumpPath=heapdumps"
+             "-XX:+ExitOnOutOfMemoryError"]
+
   :plugins []
 
   :profiles

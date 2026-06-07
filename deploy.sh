@@ -52,7 +52,7 @@ ship() {
       rm -f organism.pid
       sleep 2
     fi
-    nohup java -jar organism.jar > organism.log 2>&1 &
+    nohup java -Xmx4g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=heapdumps -XX:+ExitOnOutOfMemoryError -jar organism.jar > organism.log 2>&1 &
     echo \$! > organism.pid
     sleep 3
     if kill -0 \$(cat organism.pid) 2>/dev/null; then
