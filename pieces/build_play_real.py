@@ -6,7 +6,8 @@ ROOT="/home/youdonotexist/code/organism"; P=f"{ROOT}/pieces"; ART="/home/youdono
 # Frame sequence goes to /mnt/data (sysytem disk fills if rendered to /tmp); override with FR env var
 FR=os.environ.get("FR", "/mnt/data/archive/organism-renders/play"); os.makedirs(FR, exist_ok=True)
 TURN_LIMIT=int(os.environ.get("TURN_LIMIT","0")); FPT=int(os.environ.get("FPT","8")); SCALE=43.0
-G=ogf.load_ogf(f"{ROOT}/ogf/zach-dan-ryan.json"); LOC=ogf.board_locations(G)
+OGF_PATH=os.environ.get("OGF", f"{ROOT}/ogf/zach-dan-ryan.json")
+G=ogf.load_ogf(OGF_PATH); LOC=ogf.board_locations(G)
 BROT=math.radians(30)   # printed art lattice is 30deg off board.cljc tau/12 beam phase
 def P2(sp):
     x,y=LOC[sp]
@@ -108,7 +109,7 @@ sc.frame_start=0; sc.frame_end=last_turn*FPT+FPT; sc.render.fps=24
 # At each interval boundary, the camera eases (Bezier auto-clamped, Blender default)
 # to a new random azimuth/elevation/distance — closer and further away alternate.
 import random
-random.seed(1234)
+random.seed(int(os.environ.get("SEED", "1234")))
 target=Vector((0,0,12))
 n_turns=last_turn+1
 FIB=[8, 13, 21, 34, 55, 89, 144, 233]                       # Fibonacci-ish, starting at 8
