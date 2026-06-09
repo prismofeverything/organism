@@ -5,7 +5,7 @@
 # Per stage: make blanks | grafts | food | plate
 # Override:  make print BLENDER=/path/to/blender  (also read by meshlib/build.py)
 
-BLENDER ?= $(HOME)/Downloads/blender-5.1.2-linux-x64/blender
+BLENDER ?= $(HOME)/Downloads/blender-5.1.1-linux-x64/blender
 PY      ?= ../.venv/bin/python
 UV      ?= uv
 BFLAGS  := --background --threads 4 --python
@@ -62,7 +62,9 @@ preview: $(FOOD_STLS)       ## CPU 3D + cross-section render of FOOD
 #   make video FPT=12 SEED=42               # slower playback, different camera
 OGF       ?= $(ROOT)/../ogf/zach-dan-ryan.json
 OGF_NAME  := $(basename $(notdir $(OGF)))
-FR        ?= /mnt/data/archive/organism-renders/play   # frames go to /mnt/data, not /tmp
+# frames -> pieces/renders/play (gitignored); override FR=/path for a scratch disk.
+# NB: no inline comment here — Make keeps trailing whitespace, which breaks $(FR)/f*.png.
+FR        ?= $(ROOT)/renders/play
 FPT       ?= 8                                         # frames per game turn (8 = 0.33s at 24fps)
 SEED      ?= 1234                                      # camera RNG seed
 VIDEO_OUT ?= $(ROOT)/scene/$(OGF_NAME)-play.mp4

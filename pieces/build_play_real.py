@@ -1,10 +1,11 @@
 import bpy, sys, math, re, colorsys, os
 from mathutils import Vector
-sys.path.insert(0, "/home/youdonotexist/code/organism/pieces")
+P=os.path.dirname(os.path.abspath(__file__)); ROOT=os.path.dirname(P)   # portable: pieces/ and repo root from __file__
+sys.path.insert(0, P)
 import organism_format as ogf
-ROOT="/home/youdonotexist/code/organism"; P=f"{ROOT}/pieces"; ART="/home/youdonotexist/Downloads/organism/prototype"
-# Frame sequence goes to /mnt/data (sysytem disk fills if rendered to /tmp); override with FR env var
-FR=os.environ.get("FR", "/mnt/data/archive/organism-renders/play"); os.makedirs(FR, exist_ok=True)
+# Frame sequence defaults to pieces/renders/play (gitignored); override with FR env var.
+# (Historically went to /mnt/data so the system disk wouldn't fill when rendered to /tmp.)
+FR=os.environ.get("FR", f"{P}/renders/play"); os.makedirs(FR, exist_ok=True)
 TURN_LIMIT=int(os.environ.get("TURN_LIMIT","0")); FPT=int(os.environ.get("FPT","8")); SCALE=43.0
 OGF_PATH=os.environ.get("OGF", f"{ROOT}/ogf/zach-dan-ryan.json")
 G=ogf.load_ogf(OGF_PATH); LOC=ogf.board_locations(G)
@@ -67,7 +68,13 @@ def piece_path(name):
 T={t:imp(piece_path(m),t) for t,m in [("eat","EAT"),("move","MOVE"),("grow","GROW")]}
 # FOOD is Y-up (Blender default export from build_food.py); pass zup=False so the
 # importer rotates Y->Z and the peg stands upright.
-FOODT=imp(os.environ.get("FOOD_OBJ",f"{P}/renders/food/FOOD_nosnap.obj"),"FOODT",zup=False); PSCALE=0.9; FSCALE=0.94
+def _food_obj():
+    """First existing FOOD obj: explicit FOOD_OBJ, else nosnap/slip/snap (naming drifted nosnap->slip)."""
+    for p in [os.environ.get("FOOD_OBJ"), f"{P}/renders/food/FOOD_nosnap.obj",
+              f"{P}/renders/food/FOOD_slip.obj", f"{P}/renders/food/FOOD_snap.obj"]:
+        if p and os.path.exists(p): return p
+    raise SystemExit("no FOOD obj in renders/food/ (build with `make food`)")
+FOODT=imp(_food_obj(),"FOODT",zup=False); PSCALE=0.9; FSCALE=0.94
 def topz(o): return max((o.matrix_world@v.co).z for v in o.data.vertices)
 PHTOP={t:(topz(T[t])-4.3)*PSCALE for t in T}   # plateau (peg base), so the food's socket swallows the peg instead of perching on its tip
 tracks=ogf.track(G)

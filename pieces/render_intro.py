@@ -130,7 +130,7 @@ print("seat z per piece:", seat_z)
 # y=+74.5 (43mm spacing), reading as the green band of spaces behind the camera's
 # central view. Same rotation+scale convention as build_play_real.py (BROT=30deg
 # rotates the canonical hex frame into the printed art's lattice).
-ROOM = os.environ.get("OGF", "/home/youdonotexist/code/organism/ogf/zach-dan-ryan.json")
+ROOM = os.environ.get("OGF", os.path.join(os.path.dirname(HERE), "ogf", "zach-dan-ryan.json"))
 G = ogf.load_ogf(ROOM); LOC = ogf.board_locations(G)
 BROT = math.radians(30); SCALE = 43.0
 def P2(sp):
