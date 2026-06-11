@@ -4,7 +4,6 @@
    [cljs.reader :as reader]
    [reagent.core :as r]
    [reagent.dom :as rdom]
-   [ajax.core :refer [POST]]
    [journey.game :as game]
    [journey.choice :as choice]
    [journey.board :as board]
@@ -695,101 +694,17 @@
    :font-family "monospace" :font-size "14px"})
 
 (defn create-page []
-  (let [play-name (r/atom "")
-        ;; Each slot: {:name "..." :bot? true/false}
-        slots     (r/atom [{:name (or @player-key "") :bot? false}
-                           {:name "" :bot? true}])
-        error     (r/atom nil)]
-    (fn []
-      (let [ss @slots]
-        [:div {:style {:color "#AABBCC" :padding "48px"
-                       :font-family "monospace" :background "#04040E"
-                       :min-height "100vh"}}
-         [:h2 {:style {:color "#7AAAE0" :margin-bottom "24px"}} "JOURNEY — New Game"]
-
-         ;; Play name
-         [:div {:style {:margin-bottom "20px"}}
-          [:label {:style {:color "#556677" :display "block" :margin-bottom "6px"}}
-           "Game name"]
-          [:input {:type "text" :value @play-name
-                   :on-change #(reset! play-name (-> % .-target .-value))
-                   :placeholder "my-game"
-                   :style (merge input-style {:width "260px"})}]]
-
-         ;; Player slots
-         [:div {:style {:margin-bottom "20px"}}
-          [:label {:style {:color "#556677" :display "block" :margin-bottom "10px"}}
-           "Players (1–5)"]
-          (for [i (range (count ss))]
-            (let [{:keys [name bot?]} (nth ss i)]
-              [:div {:key i :style {:display "flex" :align-items "center"
-                                    :gap "8px" :margin-bottom "8px"}}
-               [:span {:style {:color "#445566" :width "20px"}} (str (inc i) ".")]
-               (if bot?
-                 [:input {:type "text" :value name
-                          :on-change #(swap! slots assoc-in [i :name] (-> % .-target .-value))
-                          :placeholder "Bot name"
-                          :style (merge input-style {:width "180px"})}]
-                 [components/player-search-input
-                  {:slot-id   (str "journey-" i)
-                   :value     name
-                   :color     "#10182A"
-                   :search?   true
-                   :placeholder "Player name"
-                   :on-change (fn [v] (swap! slots assoc-in [i :name] v))
-                   :on-select (fn [v] (swap! slots assoc-in [i :name] v))}])
-               [:button
-                {:on-click #(swap! slots update-in [i :bot?] not)
-                 :style (merge btn-style
-                               {:padding "6px 14px" :font-size "12px"
-                                :background (if bot? "#1A2810" "#10182A")
-                                :color (if bot? "#88CC66" "#7AAAE0")})}
-                (if bot? "BOT" "HUMAN")]
-               (when (> (count ss) 1)
-                 [:button
-                  {:on-click #(swap! slots (fn [v] (vec (concat (subvec v 0 i) (subvec v (inc i))))))
-                   :style (merge btn-style {:padding "6px 10px" :font-size "12px"
-                                            :color "#886666" :border-color "#4A2A2A"})}
-                  "✕"])]))]
-
-         ;; Add player button
-         (when (< (count ss) 5)
-           [:button {:on-click #(swap! slots conj {:name "" :bot? true})
-                     :style (merge btn-style {:margin-bottom "20px"})}
-            "+ Add Player"])
-
-         ;; Error
-         (when @error
-           [:div {:style {:color "#CC4444" :margin-bottom "12px"}} @error])
-
-         ;; Create button
-         [:button
-          {:on-click
-           (fn []
-             (let [pname (str/trim @play-name)
-                   players (mapv #(str/trim (:name %)) ss)
-                   bots    (vec (keep-indexed #(when (:bot? %2) (str/trim (:name %2))) ss))]
-               (cond
-                 (empty? pname)
-                 (reset! error "Game name is required")
-                 (some empty? players)
-                 (reset! error "All player names are required")
-                 (not= (count players) (count (set players)))
-                 (reset! error "Player names must be unique")
-                 :else
-                 (do (reset! error nil)
-                     (POST "/journey/create"
-                       {:params  {:play-name pname :players players :bots bots}
-                        :format  :transit
-                        :response-format :transit
-                        :handler (fn [resp]
-                                   (let [pk (get resp :play-key)]
-                                     (set! js/window.location
-                                           (str "/journey/play/" pk))))
-                        :error-handler (fn [err]
-                                         (reset! error (str "Create failed: " (pr-str err))))})))))
-           :style (merge btn-style {:padding "12px 36px" :font-size "16px"})}
-          "Create Game"]]))))
+  [components/create-lobby
+   {:game-type      "journey"
+    :title          "JOURNEY — New Game"
+    :current-player (when (and (exists? js/playerKey)
+                               (not (str/blank? js/playerKey)))
+                      js/playerKey)
+    :min-players    1
+    :max-players    5
+    :accent         "#7AAAE0"
+    :slot-bg        "#10182A"
+    :background     "#04040E"}])
 
 (defn observe-page []
   (let [games @observe-games]

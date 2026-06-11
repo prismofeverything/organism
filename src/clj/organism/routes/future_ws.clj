@@ -2,38 +2,10 @@
   "WebSocket handler for Future game play."
   (:require
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.tools.logging :as log]
-   [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
-   [future.game :as game])
-  (:import
-   [java.io ByteArrayOutputStream]))
-
-;; ── Transit helpers ─────────────────────────────────────────────────────────
-
-(defn- ->stream [input]
-  (cond (string? input) (io/input-stream (.getBytes ^String input))
-        :else input))
-
-(defn read-json [input]
-  (with-open [ins (->stream input)]
-    (-> ins (transit/reader :json) transit/read)))
-
-(defn write-json [output]
-  (let [out (ByteArrayOutputStream. 4096)
-        w   (transit/writer out :json)
-        _   (transit/write w output)
-        ret (.toString out)]
-    (.reset out)
-    ret))
-
-(defn send! [channel message]
-  (hk/send! channel (write-json message)))
-
-(defn send-channels! [channels message]
-  (doseq [ch channels]
-    (send! ch message)))
+   [organism.game-ws :as gws :refer [read-json send! send-channels!]]
+   [future.game :as game]))
 
 ;; ── Games atom ──────────────────────────────────────────────────────────────
 ;; {:games {play-key → {:key play-key
@@ -63,20 +35,8 @@
    :state nil
    :channels #{channel}})
 
-(defn append-channel! [play-key channel]
-  (swap! games update-in [:games play-key :channels] conj channel))
-
-(defn load-game! [play-key channel]
-  (let [g (empty-game play-key channel)]
-    (swap! games assoc-in [:games play-key] g)
-    g))
-
 (defn find-game! [play-key channel]
-  (let [existing (get-in @games [:games play-key])]
-    (if (empty? existing)
-      (load-game! play-key channel)
-      (do (append-channel! play-key channel)
-          (update existing :channels conj channel)))))
+  (gws/find-game! games play-key channel empty-game))
 
 ;; ── Message handlers ────────────────────────────────────────────────────────
 
@@ -123,13 +83,7 @@
 
 (defn disconnect! [{:keys [play-key player]} channel status]
   (log/info "Future DISCONNECT" player status)
-  (swap! games
-         (fn [gs]
-           (let [remaining (remove #{channel}
-                                   (get-in gs [:games play-key :channels]))]
-             (if (empty? remaining)
-               (update-in gs [:games] dissoc play-key)
-               (assoc-in gs [:games play-key :channels] (set remaining)))))))
+  (gws/remove-channel! games play-key channel))
 
 (defn notify-clients! [{:keys [play-key player]} _channel raw]
   (let [message (read-json raw)
@@ -143,10 +97,8 @@
 ;; ── Route wiring ────────────────────────────────────────────────────────────
 
 (defn websocket-callbacks [player play-key]
-  (let [cfg {:player player :play-key play-key}]
-    {:on-open    (partial connect!        cfg)
-     :on-close   (partial disconnect!     cfg)
-     :on-receive (partial notify-clients! cfg)}))
+  (gws/make-callbacks {:player player :play-key play-key}
+                      {:on-open connect! :on-close disconnect! :on-receive notify-clients!}))
 
 (defn ws-handler [{:keys [path-params session] :as request}]
   (let [play   (:play path-params)

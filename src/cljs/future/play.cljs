@@ -7,6 +7,8 @@
    [reagent.core :as r]
    [reagent.dom :as rdom]
    [organism.websockets :as ws]
+   [organism.ajax :as ajax]
+   [organism.components :as components]
    [future.board :as board]
    [future.game :as game]))
 
@@ -388,43 +390,20 @@
           (pr-str ak)])])))
 
 ;; ── Create game form ────────────────────────────────────────────────────────
-
-(defonce create-player-count (r/atom 2))
-(defonce create-game-key (r/atom ""))
+;; Delegates to the shared create lobby (organism.components/create-lobby).
 
 (defn create-form []
-  [:div {:style {:padding "48px" :color "#aabbcc" :font-family "monospace"}}
-   [:h2 {:style {:color "#ff8844" :margin-bottom "24px"}} "CREATE FUTURE GAME"]
-   [:div {:style {:margin-bottom "12px"}}
-    [:label "Game key: "]
-    [:input {:type "text"
-             :value @create-game-key
-             :on-change #(reset! create-game-key (-> % .-target .-value))
-             :style {:background "#1a1a2a" :color "#ccc" :border "1px solid #444"
-                     :padding "4px 8px" :font-family "monospace"}}]]
-   [:div {:style {:margin-bottom "12px"}}
-    [:label "Players: "]
-    [:select {:value @create-player-count
-              :on-change #(reset! create-player-count
-                                  (js/parseInt (-> % .-target .-value)))
-              :style {:background "#1a1a2a" :color "#ccc" :border "1px solid #444"
-                      :padding "4px 8px"}}
-     [:option {:value 2} "2"]
-     [:option {:value 3} "3"]
-     [:option {:value 4} "4"]
-     [:option {:value 5} "5"]]]
-   [:button
-    {:on-click (fn []
-                 (let [_n @create-player-count
-                       key (if (str/blank? @create-game-key)
-                             (str "future-" (random-uuid))
-                             @create-game-key)]
-                   (set! (.-href js/location)
-                         (str "/future/play/" key))))
-     :style {:padding "8px 16px" :background "#4a3a6a" :color "#ccbbee"
-             :border "1px solid #6a5a8a" :border-radius "3px"
-             :cursor "pointer" :font-family "monospace"}}
-    "CREATE"]])
+  [components/create-lobby
+   {:game-type      "future"
+    :title          "FUTURE — New Game"
+    :current-player (when (and (exists? js/playerKey)
+                               (not (str/blank? js/playerKey)))
+                      js/playerKey)
+    :min-players    2
+    :max-players    5
+    :accent         "#ff8844"
+    :slot-bg        "#1a1a2a"
+    :background     "#04040E"}])
 
 ;; ── Observe page ────────────────────────────────────────────────────────────
 
@@ -651,4 +630,5 @@
     (connect-ws! js/playKey)))
 
 (defn init! []
+  (ajax/load-interceptors!)
   (mount-components))

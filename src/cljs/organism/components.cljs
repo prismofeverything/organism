@@ -480,3 +480,134 @@
             (col-color (:won      stat-column-hues) (/ wins     max-wins))]
            [stat-cell "created"  created
             (col-color (:created  stat-column-hues) (/ created  max-created))]])])]))
+
+;; ── Create lobby (shared create form) ───────────────────────────────────────
+
+(defn create-lobby
+  "Canonical create form shared by all games. Renders a game-name field and a
+   dynamic list of player slots (human → autocomplete search, bot → plain
+   input), validates, then POSTs {:play-name :players :bots} and boots into the
+   game on success.
+
+   Props:
+   :game-type       — string, e.g. \"future\" (drives bot autocomplete + slot ids)
+   :title           — heading text (default \"New Game\")
+   :current-player  — logged-in player name, seeds slot 1 (optional)
+   :min-players     — minimum slots (default 1)
+   :max-players     — maximum slots (default 5)
+   :post-url        — where to POST (default \"/<game-type>/create\")
+   :play-url-prefix — redirect prefix on success (default \"/<game-type>/play/\")
+   :accent          — accent color for headings/labels (default \"#7AAAE0\")
+   :slot-bg         — background for human search inputs (default \"#10182A\")
+   :background      — page background (default \"#04040E\")"
+  [{:keys [game-type title current-player min-players max-players
+           post-url play-url-prefix accent slot-bg background]
+    :or   {title "New Game" min-players 1 max-players 5
+           accent "#7AAAE0" slot-bg "#10182A" background "#04040E"}}]
+  (let [post-url        (or post-url (str "/" game-type "/create"))
+        play-url-prefix (or play-url-prefix (str "/" game-type "/play/"))
+        play-name (r/atom "")
+        slots     (r/atom (let [n    (min max-players (max min-players 2))
+                                base [{:name (or current-player "") :bot? false}
+                                      {:name "" :bot? true}]]
+                            (vec (take n (concat base (repeat {:name "" :bot? false}))))))
+        error     (r/atom nil)]
+    (fn []
+      (let [ss          @slots
+            input-style {:background "#111" :color "#ccc"
+                         :border "1px solid #334" :border-radius "4px"
+                         :padding "8px 12px" :font-family "monospace"}
+            btn-style   {:background slot-bg :color accent
+                         :border (str "1px solid " accent) :border-radius "4px"
+                         :padding "6px 14px" :cursor "pointer"
+                         :font-family "monospace"}]
+        [:div {:style {:color "#AABBCC" :padding "48px"
+                       :font-family "monospace" :background background
+                       :min-height "100vh"}}
+         [:h2 {:style {:color accent :margin-bottom "24px"}} title]
+         ;; Game name
+         [:div {:style {:margin-bottom "20px"}}
+          [:label {:style {:color "#556677" :display "block" :margin-bottom "6px"}}
+           "Game name"]
+          [:input {:type "text" :value @play-name
+                   :on-change #(reset! play-name (-> % .-target .-value))
+                   :placeholder "my-game"
+                   :style (merge input-style {:width "260px"})}]]
+         ;; Player slots
+         [:div {:style {:margin-bottom "20px"}}
+          [:label {:style {:color "#556677" :display "block" :margin-bottom "10px"}}
+           (str "Players (" min-players "–" max-players ")")]
+          (for [i (range (count ss))]
+            (let [{:keys [name bot?]} (nth ss i)]
+              ^{:key i}
+              [:div {:style {:display "flex" :align-items "center"
+                             :gap "8px" :margin-bottom "8px"}}
+               [:span {:style {:color "#445566" :width "20px"}} (str (inc i) ".")]
+               (if bot?
+                 [:input {:type "text" :value name
+                          :on-change #(swap! slots assoc-in [i :name] (-> % .-target .-value))
+                          :placeholder "Bot name"
+                          :style (merge input-style {:width "180px"})}]
+                 [player-search-input
+                  {:slot-id     (str game-type "-" i)
+                   :value       name
+                   :color       slot-bg
+                   :search?     true
+                   :game-type   game-type
+                   :placeholder "Player name"
+                   :on-change   (fn [v] (swap! slots assoc-in [i :name] v))
+                   :on-select   (fn [s] (swap! slots update i merge
+                                               {:name (:name s)
+                                                :bot? (boolean (:bot? s))}))}])
+               [:button
+                {:on-click #(swap! slots update-in [i :bot?] not)
+                 :style (merge btn-style
+                               {:padding "6px 14px" :font-size "12px"
+                                :background (if bot? "#1A2810" slot-bg)
+                                :color (if bot? "#88CC66" accent)})}
+                (if bot? "BOT" "HUMAN")]
+               (when (> (count ss) min-players)
+                 [:button
+                  {:on-click #(swap! slots (fn [v] (vec (concat (subvec v 0 i)
+                                                                (subvec v (inc i))))))
+                   :style (merge btn-style {:padding "6px 10px" :font-size "12px"
+                                            :color "#886666" :border-color "#4A2A2A"})}
+                  "✕"])]))]
+         ;; Add player
+         (when (< (count ss) max-players)
+           [:button {:on-click #(swap! slots conj {:name "" :bot? true})
+                     :style (merge btn-style {:margin-bottom "20px"})}
+            "+ Add Player"])
+         ;; Error
+         (when @error
+           [:div {:style {:color "#CC4444" :margin-bottom "12px"}} @error])
+         ;; Create
+         [:button
+          {:on-click
+           (fn []
+             (let [pname   (string/trim @play-name)
+                   players (mapv #(string/trim (:name %)) ss)
+                   bots    (vec (keep-indexed #(when (:bot? %2) (string/trim (:name %2))) ss))]
+               (cond
+                 (string/blank? pname)
+                 (reset! error "Game name is required")
+                 (some string/blank? players)
+                 (reset! error "All player names are required")
+                 (not= (count players) (count (set players)))
+                 (reset! error "Player names must be unique")
+                 :else
+                 (do (reset! error nil)
+                     (ajax-core/POST post-url
+                       {:params          {:play-name pname :players players :bots bots}
+                        :format          :transit
+                        :response-format :transit
+                        :handler         (fn [resp]
+                                           (let [pk (or (:play-key resp) (get resp "play-key"))]
+                                             (set! (.-location js/window)
+                                                   (str play-url-prefix pk))))
+                        :error-handler   (fn [err]
+                                           (reset! error (str "Create failed: " (pr-str err))))})))))
+           :style (merge btn-style {:padding "12px 36px" :font-size "16px"
+                                    :background "#1A2810" :color "#88CC66"
+                                    :border-color "#4A4"})}
+          "Create Game"]]))))

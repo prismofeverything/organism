@@ -5,7 +5,7 @@
 # Per stage: make blanks | grafts | food | plate
 # Override:  make print BLENDER=/path/to/blender  (also read by meshlib/build.py)
 
-BLENDER ?= $(HOME)/Downloads/blender-5.1.1-linux-x64/blender
+BLENDER ?= $(HOME)/Downloads/blender-5.1.2-linux-x64/blender
 PY      ?= ../.venv/bin/python
 UV      ?= uv
 BFLAGS  := --background --threads 4 --python
