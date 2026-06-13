@@ -56,11 +56,11 @@
 
 (def known-choice-gaps
   "Frozen instant slots where bonus-needs-choice? disagrees with spec interactivity.
-   De-list ONLY when the underlying gap is fixed.
-   [17 1] — Gap-3 poster child: rule places a raider (no choice), but it is tagged
-            :pick-resource, the human path grants a resource, the auto path flips a
-            raider. Resolved by the Gap-3 fix pass."
-  #{[17 1]})
+   De-list ONLY when the underlying gap is fixed. Now EMPTY: [17 1] (the former
+   Gap-3 poster child — tagged :pick-resource but really a raider placement) was
+   fixed (arm places a raider; descriptor de-tagged). Every interactive instant
+   slot now agrees with its spec."
+  #{})
 
 (deftest choice-path-consistency-test
   (let [live (set (for [slot instant
@@ -126,13 +126,15 @@
 ;; ─── Backlog sanity + the [17 1] anchor ─────────────────────────────────────
 
 (deftest backlog-is-actionable-test
-  (let [bl (spec/backlog)
-        slots (set (map :slot bl))]
-    (testing "the scaffold surfaces a concrete, non-trivial backlog"
-      (is (<= 40 (count bl) 90) (str "backlog size = " (count bl))))
-    (testing "[17 1] is in the backlog as a missing :place-raider"
-      (is (some #(and (= [17 1] (:slot %)) (some #{:place-raider} (:missing-clauses %))) bl)))
-    (testing "oracle agrees [17 1]'s rule is a raider placement, not a resource pick"
+  (let [bl (spec/backlog)]
+    (testing "the scaffold surfaces a concrete backlog (the remaining numeric-proxy
+              approximations) and stays within sane bounds as gaps close"
+      (is (<= 1 (count bl) 90) (str "backlog size = " (count bl))))
+    (testing "every backlog entry names at least one non-done clause"
+      (is (every? #(or (seq (:missing-clauses %)) (seq (:partial-clauses %))
+                       (seq (:approximation-clauses %)))
+                  bl)))
+    (testing "oracle [17 1] expects a raider placement (now matches the fixed code)"
       (is (= 1 (:delta-raiders (get oracle/expectations [17 1])))))))
 
 ;; ─── Informational report (prints the Gap-1 worklist; never fails) ──────────

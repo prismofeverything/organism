@@ -282,9 +282,9 @@
    ;; ══ Board 17 — Cunning of Kubaba (17/1 = Gap-3 divergence) ═════════════
    [17 0] {:category :passive :trigger :action-space-7
            :clauses [{:kind :gain-resource-choice :interactive? true :state :done :note "deferred :pick-resource"}]}
-   [17 1] {:category :instant :hand-optimistic? true :dual-path? true
-           :clauses [{:kind :place-raider :target :eridu :side :point :state :stub
-                      :note "GAP-3: auto flips an existing raider (not place); human grants a resource; bonus-needs-choice? wrongly tags :pick-resource. Rule = place a raider point-side next to Eridu."}]}
+   [17 1] {:category :instant
+           :clauses [{:kind :place-raider :target :eridu :side :point :state :done
+                      :note "places a raider point-side on a free route touching Eridu (Gap-3 fixed: was flip/resource-pick; descriptor de-tagged from :pick-resource)"}]}
    [17 2] {:category :instant :hand-conservative? true
            :clauses [{:kind :place-temple :target :each-magistrate-city :side :face-down :state :done}]
            :note "face-down temple per magistrate city, supply-gated — faithful; hand-map says :partial"}
@@ -463,8 +463,8 @@
            :clauses [{:kind :decrease-role :target :leader :state :done}
                      {:kind :increase-role-free :target :merchant :state :done}
                      {:kind :increase-role-free :target :priest :state :done}
-                     {:kind :increase-role-free :target :raider :state :stub
-                      :note "CODE BUG (audit): 'all OTHER roles' includes raider; code increases only merchant+priest"}]}
+                     {:kind :increase-role-free :target :raider :state :done
+                      :note "fixed in unification: 'all OTHER roles' now includes raider"}]}
    [29 2] {:category :instant :clauses [{:kind :travel :interactive? true :state :done}
                                         {:kind :sell :optional? true :state :partial :approximation? true
                                          :note "auto = flat +3 amity; human travel + sell"}]}
@@ -521,8 +521,8 @@
            :clauses [{:kind :decrease-role :target :merchant :state :done}
                      {:kind :increase-role-free :target :raider :state :done}
                      {:kind :increase-role-free :target :priest :state :done}
-                     {:kind :increase-role-free :target :leader :state :stub
-                      :note "CODE BUG (audit): 'all OTHER roles' includes leader; code increases only raider+priest"}]}
+                     {:kind :increase-role-free :target :leader :state :done
+                      :note "fixed in unification: 'all OTHER roles' now includes leader"}]}
    [33 2] {:category :instant :dual-path? true
            :clauses [{:kind :place-temple :side :face-down :state :done :note "multi-temple model: conj a facedown temple into the (pre-travel) caravan city"}
                      {:kind :travel :interactive? true :state :done}]}

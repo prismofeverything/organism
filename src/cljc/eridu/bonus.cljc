@@ -106,7 +106,7 @@
    [16 3] :implemented  ;; Increase Leader twice
    [16 4] :implemented  ;; Place demands + sell
    [17 0] :persistent   ;; Space 7 → good of choice
-   [17 1] :partial       ;; Flip one raider to point (partial: no placement)
+   [17 1] :implemented  ;; Place a Raider next to Eridu on point side (fixed: was flip/no-placement)
    [17 2] :partial       ;; Temple in magistrate city (partial: no facedown)
    [17 3] :partial       ;; 4 Amity (partial: no Uruk surround check)
    [17 4] :partial       ;; Glory = merchant level (partial: no sell)
@@ -228,7 +228,9 @@
   [board-id slot-idx]
   (case [board-id slot-idx]
     ;; ── Pick resource ──────────────────────────────────────────────
-    ([3 3] [17 1] [22 3] [23 3] [25 4] [31 3] [31 4])
+    ;; [17 1] removed: card "Place a Raider next to Eridu on its point side" is a
+    ;; deterministic placement (no resource pick) — the arm auto-resolves it.
+    ([3 3] [22 3] [23 3] [25 4] [31 3] [31 4])
     {:type :pick-resource :prompt "Choose a resource to gain"}
     [27 4] {:type :pick-resource :prompt "Choose a resource to gain (1 of 3)" :count 3}
     [19 3] {:type :pick-resource :prompt "Choose a resource to discard (to move magistrate + sell)"}

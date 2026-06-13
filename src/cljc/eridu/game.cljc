@@ -1834,9 +1834,17 @@
       ;; gap in effect-spec-test); the faithful rule is a raider placement.
       ;; Per task scope we leave the choice-type bug alone; the auto arm's
       ;; flip-raider behavior is preserved unchanged.
-      [17 1] (if-let [raider-to-flip (first (filter #(= :raiding (val %)) (:raiders pdata)))]
-               (assoc-in state [:players player-key :raiders (key raider-to-flip)] :point) ;; Flip one raider to point
-               state)
+      ;; "Place a Raider next to Eridu on its point side." PLACE (not flip): put a
+      ;; raider on a free route touching Eridu, point-side up (mirrors [28 4]/Kish).
+      [17 1] (let [eridu-rks (for [r (active-routes pc)
+                                   :when (or (= :eridu (:from r)) (= :eridu (:to r)))]
+                               (segment-route-key r))
+                   avail (remove #(contains? (:raiders pdata) %) eridu-rks)]
+               (if-let [rk (first avail)]
+                 (-> state
+                     (place-raider-on player-key rk)
+                     (assoc-in [:players player-key :raiders rk] :point))
+                 state))
       [17 2] (reduce (fn [s city] ;; Facedown temple in EACH magistrate city
                        ;; "even if you already have temples there" → genuinely conj
                        ;; a facedown temple (supply-gated inside add-temple).

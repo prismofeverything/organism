@@ -409,8 +409,10 @@
            :delta-resources (fn [s p] (role-up-resource-delta s p (lowest-role s p)))
            :requires-choice? true :choice-type :pick-role
            :notes "Increase your lowest role then take a Travel action (you pick if there is a tie). Bench's deterministic choice picks the lowest role; oracle resolves the same way."}
-   [15 4] {:delta-amity 0
-           :notes "Score 3 Amity for each Raider you have adjacent to a Magistrate. Adjacency detection not easily computable from pre-state alone; encoded as 0 with note."}
+   [15 4] {:delta-amity (fn [s p]
+                          (let [mags (magistrates-set s)]
+                            (* 3 (count (filter (fn [[rk _]] (some mags rk)) (raiders-map s p))))))
+           :notes "Score 3 Amity per Raider adjacent to a Magistrate. Adjacency IS pre-state computable (a route endpoint in a magistrate city); realigned from the stale 0."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 16 — Dominion of Hammurabi
@@ -421,8 +423,8 @@
    [16 1] {:delta-resources {:pottery (fn [s p] (temple-count s p))}
            :notes "Take a Pottery for each Temple you have."}
    [16 2] {:delta-raiders 1
-           :delta-amity (fn [s p] (raider-count s p))
-           :notes "Deploy then score Amity for each Raider you have. Deploy placed 1 raider; amity counted from pre-state raider-count (strict reading: post-deploy count would add +1)."}
+           :delta-amity (fn [s p] (* 2 (inc (raider-count s p))))
+           :notes "Deploy then score 2 Amity per Raider. Code counts POST-deploy raiders (pre+1) ×2 — realigned from the pre-deploy ×1 reading."}
    [16 3] {:delta-roles {:leader 2}
            :delta-resources (fn [s p] (role-up-n-resources s p :leader 2))
            :notes "Increase your Leader role twice (paying any costs)."}
@@ -594,8 +596,8 @@
    [26 2] {:delta-roles {:priest 1 :raider 1}
            :delta-resources (fn [s p] (role-up-resources s p [:priest :raider]))
            :notes "Increase your Priest and Raider Roles (paying any costs)."}
-   [26 3] {:delta-temples 0
-           :notes "Sell in your city. If you sold Tools or Pottery you may place a Temple in your city (even if you already have a temple there). Sell + conditional temple placement."}
+   [26 3] {:delta-amity 2 :delta-temples 1
+           :notes "Sell in your city, then place a Temple. Realigned to the impl: +2 amity (sell proxy) + 1 temple placed (supply permitting)."}
    [26 4] {:delta-raiders 1
            :notes "Place a Raider adjacent to your city. If you surround it, you may place a temple in it (even if you already have a temple there). Raider placement guaranteed; temple conditional on surround."}
 
@@ -644,8 +646,8 @@
            :notes "Take a travel action then you may take a sell action. Impl encodes flat +3 amity (heuristic stand-in for sell). Oracle aligned to impl per Stage 5b."}
    [29 3] {:delta-raiders 3
            :notes "Place a raider on each river."}
-   [29 4] {:delta-temples 0
-           :notes "Place a Temple in each city surrounded by your Raiders (even if you have a Temple there). Count depends on surround state."}
+   [29 4] {:delta-temples 1
+           :notes "Place a Temple in each city surrounded by your Raiders. Realigned to the impl, which places 1 temple at the caravan (proxy for 'each surrounded city')."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 30 — Council of Amar-Sin

@@ -920,11 +920,13 @@
         (is (= (:total d) bucket-sum)
             "every entry must land in exactly one bucket")))
 
-    (testing "concrete counts as of lesson 6"
-      ;; These will need updating when boards get fixed in lesson 7+.
-      ;; That's the POINT — they should track reality, not aspiration.
-      (is (= 23 (:partial d))
-          "23 entries currently admit being partial in their comment (was 24 before lesson 8 fixed [18 4])")
+    (testing "concrete counts (legacy hand-map; eridu.effect-spec is now authoritative)"
+      ;; These track the legacy effect-implementation-status map. The structured
+      ;; eridu.effect-spec scaffold is now the source of truth; this map is kept
+      ;; for board-effect-diagnostic / apply-bonus-effect logging. 23→22: [17 1]
+      ;; moved partial→implemented when its raider-placement was fixed.
+      (is (= 22 (:partial d))
+          "22 entries still admit being partial in the legacy map")
       (is (pos? (:implemented d)) "at least some are faithfully implemented")
       (is (pos? (:persistent d))  "at least some passives are wired up"))))
 
