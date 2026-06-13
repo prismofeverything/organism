@@ -159,7 +159,13 @@
 ;; =============================================================================
 
 (defn run-tournament
-  "Run round-robin tournament. Returns updated organisms with Elo + stats."
+  "Run round-robin tournament. Returns updated organisms with Elo + stats.
+
+   Fitness (Elo) is earned from games played through the UNIFIED choice
+   interface: sim/run-game → pers/personality-step → eridu.decision/decide →
+   choice/find-state-raw. The GA hones decision-making quality — the same
+   genetics (weight vectors) now expressed through the context-modulated
+   decision algorithm — rather than rating a separate bot arm."
   [organisms {:keys [games-per-matchup player-counts]
               :or {games-per-matchup 3 player-counts [2 3 4]}}]
   (let [elo-map (atom (into {} (map (juxt :name :elo) organisms)))

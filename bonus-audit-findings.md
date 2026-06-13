@@ -141,3 +141,19 @@ The human path (apply-bonus-with-choice) is a separate hand-table with wrong gro
 - [8 0] "instead flip it to active": does flip negate the 4 glory (oracle) or keep raider AND glory (current code)?
 
 **E. Separate: [26 0] proxy trigger (spec corrected to :partial).**
+
+---
+
+## Bug-report correlation — 2026-06-13 (6 in-game reports)
+
+Source: `~/Documents/eridu-bug-reports.jsonl` (6 reports, play-keys trigger-test/handtest/splooooo).
+Full delta + per-report multi-perspective verdicts: `bonus-coverage-delta.md`.
+
+- **R1 [5 3]+[5 0]** "didn't get to select a raider to place the temple next to; passive didn't work" → existing choice-type/dual-path finding ([5 3]) + S6 passive stub ([5 0]). OPEN.
+- **R2 E1** "Kish surrounded but couldn't score E1" → ✅ FIXED `56b0835` (contest topology via stored `:routes`).
+- **R3 [35 0]** "no goods, no choice to select goods at turn start" → ✅ FIXED (defensive) `56b0835` BUG B. *Verify via snapshot replay.*
+- **R4 [18 2]** "travel one space through a prompt window" → existing Bucket-B finding (same teleport mechanism as R5).
+- **R5 SYSTEMIC** "bonus move to Babylon didn't pick up my point raider — systemic prompt-vs-action-resolution" → **root cause confirmed in code**: bonus-travel is `(assoc-in … :caravan choice)` teleport, never traverses path → drops point-raider pickup + river triggers. The pure dual-arm split; primary motivation for the step-D interpreter. **Highest-value single fix: make bonus-travel run the real travel action.**
+- **R6 [18 1]** "moved magistrate across a road when card says river" → **NEW class**: `[18 1]`→`perform-influence`→`road-clockwise-path` walks road edges with no route-`:type` gate. Propose **S8 — typed-movement constraints** (river-only/road-only). Confirm card text before fixing.
+
+Status of meta-fix (step D, clause-interpreter): authored in `effect_spec.cljc`, interpreter NOT built (deliberately deferred). R5/R1/R6 are all "clause dropped on one arm" — what one executable interpreter closes. Awaiting greenlight before the live-dispatch rewrite.
