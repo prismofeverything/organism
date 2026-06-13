@@ -9,7 +9,7 @@
          magistrate-in-city? magistrate-cities routes-from-city current-player player-data
          rounds-per-game advance-turn
          ;; Helpers used by apply-passive slot-0 dispatch (defined later in file)
-         bonus-sell-in bonus-influence perform-influence road-clockwise-next
+         sell-good-in-city bonus-sell-in bonus-influence perform-influence road-clockwise-next
          ;; Constants used by apply-passive and bonus board effects
          role-threshold-costs merchant-score raider-max-deployed priest-max-temples
          resource-types roles max-role-level active-routes route-key segment-route-key)
@@ -84,16 +84,7 @@
               resources (:resources pdata)
               sellable (first (filter #(pos? (get resources % 0)) demands))]
           (if sellable
-            (let [merchant-lv (get-in pdata [:roles :merchant] 1)
-                  amity-score (get merchant-score merchant-lv 2)
-                  idx (.indexOf (vec demands) sellable)
-                  new-demands (into (subvec (vec demands) 0 idx)
-                                    (subvec (vec demands) (inc idx)))]
-              (-> state
-                  (update-in [:players player-key :resources sellable] dec)
-                  (assoc-in [:city-demands city] new-demands)
-                  (update-in [:players player-key :demand-tokens] conj sellable)
-                  (update-in [:players player-key :amity] + amity-score)))
+            (sell-good-in-city state player-key city sellable)
             state))
 
         ;; ── Board 5: Influence magistrate in your city → travel with it ──
@@ -1447,25 +1438,56 @@
                   1)]
     (perform-influence s player-key mag-id dest steps)))))
 
+(defn- sell-good-in-city
+  "Sell one `good` matching a demand in `city`: dec the good, splice that demand
+   out of the city's demand vector (.indexOf + subvec, preserving order), conj the
+   demand token onto the player's :demand-tokens, and add merchant-level amity.
+   Assumes `good` is present and matches a live demand there (callers guarantee
+   this). Returns state. Callers handle glory/turn-stats/:sold/logging."
+  [state player-key city good]
+  (let [merchant-lv (get-in state [:players player-key :roles :merchant] 1)
+        amity-score (get merchant-score merchant-lv 2)]
+    (-> state
+        (update-in [:players player-key :resources good] dec)
+        (update-in [:city-demands city]
+                   (fn [ds] (let [idx (.indexOf (vec ds) good)]
+                              (into (subvec (vec ds) 0 idx)
+                                    (subvec (vec ds) (inc idx))))))
+        (update-in [:players player-key :demand-tokens] conj good)
+        (update-in [:players player-key :amity] + amity-score))))
+
 (defn- bonus-sell-in
   "Resolve a single Sell in `city`: spend one good matching a demand there,
    move the token to the player's demand-tokens, score merchant-level amity."
   [s player-key city]
   (let [demands (get-in s [:city-demands city] [])
         resources (get-in s [:players player-key :resources])
-        sellable (first (filter #(pos? (get resources % 0)) demands))
-        merchant-lv (get-in s [:players player-key :roles :merchant] 1)
-        amity-score (get merchant-score merchant-lv 2)]
+        sellable (first (filter #(pos? (get resources % 0)) demands))]
     (if sellable
-      (-> s
-          (update-in [:players player-key :resources sellable] dec)
-          (update-in [:city-demands city]
-                     (fn [ds] (let [idx (.indexOf (vec ds) sellable)]
-                                (into (subvec (vec ds) 0 idx)
-                                      (subvec (vec ds) (inc idx))))))
-          (update-in [:players player-key :demand-tokens] conj sellable)
-          (update-in [:players player-key :amity] + amity-score))
+      (sell-good-in-city s player-key city sellable)
       s)))
+
+(defn- touches?
+  "True if route `r` has `city` as either endpoint."
+  [city r]
+  (or (= city (:from r)) (= city (:to r))))
+
+(defn- free-routes
+  "Route-keys (in active-routes order, for `pc` players) of routes satisfying
+   `pred` (a route map) that the player does not already hold a raider on.
+   pred takes a route map. Order preserved via filter/map/remove over the vector."
+  [pdata pc pred]
+  (->> (active-routes pc)
+       (filter pred)
+       (map segment-route-key)
+       (remove #(contains? (:raiders pdata) %))))
+
+(defn- default-magistrate-target
+  "Prefer a magistrate city where the player has no temple, else any magistrate
+   city. nil only when there are no magistrate cities at all."
+  [state pdata]
+  (or (first (filter #(not (has-temple? pdata %)) (magistrate-cities state)))
+      (first (magistrate-cities state))))
 
 (defn- bonus-deploy-near
   "Place a raider on the first available route adjacent to `city`."
@@ -1522,11 +1544,7 @@
       [1 2] (-> state ;; Increase Raider and Leader
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :leader))
-      [1 3] (let [routes (active-routes pc) ;; Place two raiders near Lagash
-                  lagash-rks (for [r routes
-                                   :when (or (= :lagash (:from r)) (= :lagash (:to r)))]
-                               (segment-route-key r))
-                  avail (remove #(contains? (:raiders pdata) %) lagash-rks)
+      [1 3] (let [avail (free-routes pdata pc #(touches? :lagash %)) ;; Place two raiders near Lagash
                   picks (take 2 avail)]
               (reduce #(place-raider-on %1 player-key %2) state picks))
       [1 4] (let [demands (:demand-tokens pdata [])] ;; Glory per demand fulfilled
@@ -1541,12 +1559,7 @@
               state)
       ;; Temple in magistrate city (choice = which magistrate city; default =
       ;; first magistrate city without your temple, else any magistrate city).
-      [2 3] (let [mag-city (first (magistrate-cities state))
-                  target (or choice
-                             (first (filter #(and (contains? (magistrate-cities state) %)
-                                                  (not (has-temple? pdata %)))
-                                            (magistrate-cities state)))
-                             mag-city)]
+      [2 3] (let [target (or choice (default-magistrate-target state pdata))]
               (if target (place-temple-in state player-key target true) state))
       [2 4] (let [fd (count-face-down-temples pdata)] ;; Glory per facedown temple
               (update-in state [:players player-key :glory] + fd))
@@ -1557,11 +1570,7 @@
       ;; "Place a Raider adjacent to Eridu and gain a good of your choice."
       ;; FAITHFUL (Bucket A dual-path): place the raider near Eridu AND grant the
       ;; chosen good. Old human arm dropped the raider; old auto arm forced :tools.
-      [3 3] (let [routes (active-routes pc)
-                  eridu-rks (for [r routes
-                                  :when (or (= :eridu (:from r)) (= :eridu (:to r)))]
-                              (segment-route-key r))
-                  avail (remove #(contains? (:raiders pdata) %) eridu-rks)
+      [3 3] (let [avail (free-routes pdata pc #(touches? :eridu %))
                   good  (or choice :tools)]
               (if-let [rk (first avail)]
                 (-> state
@@ -1597,10 +1606,7 @@
       ;; "Take a Deploy action then a Temple action." No city pick — deploy on
       ;; any open route + temple in the caravan city (FAITHFUL; the old human arm
       ;; inserted a spurious travel and dropped the temple). choice ignored.
-      [5 3] (let [routes (active-routes pc)
-                  any-route (first (remove #(contains? (:raiders pdata) %)
-                                           (for [r routes]
-                                             (segment-route-key r))))
+      [5 3] (let [any-route (first (free-routes pdata pc (constantly true)))
                   caravan (:caravan pdata)]
               (cond-> state
                 any-route (place-raider-on player-key any-route)
@@ -1668,19 +1674,12 @@
       [9 2] (-> state ;; Increase Priest and Leader
                (increase-role-with-cost player-key :priest)
                (increase-role-with-cost player-key :leader))
-      [9 3] (let [routes (active-routes pc) ;; Raider on each river
-                  river-rks (for [r routes :when (= :river (:type r))]
-                              (segment-route-key r))
-                  avail (remove #(contains? (:raiders pdata) %) river-rks)]
+      [9 3] (let [avail (free-routes pdata pc #(= :river (:type %)))] ;; Raider on each river
               (reduce #(place-raider-on %1 player-key %2) state (take 3 avail)))
       ;; "Sell to any city with a Magistrate. If you are in that city, you may
       ;; take a Temple action." Unified: sell in (or choice <first magistrate
       ;; city without your temple>) + travel there + temple proxy.
-      [9 4] (let [mag-city (first (magistrate-cities state))
-                  target (or choice
-                             (first (filter #(not (has-temple? pdata %))
-                                            (magistrate-cities state)))
-                             mag-city)]
+      [9 4] (let [target (or choice (default-magistrate-target state pdata))]
               (cond-> state
                 target (-> (assoc-in [:players player-key :caravan] target)
                           (update-in [:players player-key :amity] + 2)
@@ -1691,14 +1690,11 @@
       [10 2] (increase-role-free state player-key :merchant)
       ;; "Place a Raider adjacent to a Magistrate. Score Amity based on your
       ;; Leader level." FAITHFUL (Bucket B): amity = LEADER LEVEL, not flat +2.
-      [10 3] (let [routes (active-routes pc)
-                   leader-lv (get-in pdata [:roles :leader] 1)
+      [10 3] (let [leader-lv (get-in pdata [:roles :leader] 1)
                    mag-cities (magistrate-cities state)
-                   mag-rks (for [r routes
-                                 :when (or (contains? mag-cities (:from r))
-                                           (contains? mag-cities (:to r)))]
-                             (segment-route-key r))
-                   avail (remove #(contains? (:raiders pdata) %) mag-rks)]
+                   avail (free-routes pdata pc
+                                      #(or (contains? mag-cities (:from %))
+                                           (contains? mag-cities (:to %))))]
                (if-let [rk (first avail)]
                  (-> state
                      (place-raider-on player-key rk)
@@ -1815,10 +1811,7 @@
       ;; ─── Board 16: Dominion of Hammurabi ────────────────────────
       [16 1] (let [tc (count-temples-placed pdata)] ;; Pottery per temple
                (add-player-resource state player-key :pottery tc))
-      [16 2] (let [routes (active-routes pc) ;; Deploy + amity per raider
-                   any-rk (first (remove #(contains? (:raiders pdata) %)
-                                         (for [r routes]
-                                           (segment-route-key r))))
+      [16 2] (let [any-rk (first (free-routes pdata pc (constantly true))) ;; Deploy + amity per raider
                    s' (if any-rk (place-raider-on state player-key any-rk) state)
                    rc (count-raiders-deployed (get-in s' [:players player-key]))]
                (update-in s' [:players player-key :amity] + (* 2 rc)))
@@ -1833,10 +1826,7 @@
       ;; "Place a Raider next to Eridu on its point side." PLACE (not flip): put a
       ;; raider on a free route touching Eridu, point-side up (mirrors [28 4]/Kish).
       ;; (De-tagged from :pick-resource in bonus.cljc — no player choice needed.)
-      [17 1] (let [eridu-rks (for [r (active-routes pc)
-                                   :when (or (= :eridu (:from r)) (= :eridu (:to r)))]
-                               (segment-route-key r))
-                   avail (remove #(contains? (:raiders pdata) %) eridu-rks)]
+      [17 1] (let [avail (free-routes pdata pc #(touches? :eridu %))]
                (if-let [rk (first avail)]
                  (-> state
                      (place-raider-on player-key rk)
@@ -1991,11 +1981,7 @@
       ;; temple there)." choice = magistrate city; default prefers a mag city w/o
       ;; your temple, else falls back to the first mag city (allow-duplicate? true
       ;; genuinely places a 2nd temple there in the multi-temple model).
-      [23 4] (let [target (or choice
-                              (first (filter #(and (contains? (magistrate-cities state) %)
-                                                   (not (has-temple? pdata %)))
-                                             (magistrate-cities state)))
-                              (first (magistrate-cities state)))]
+      [23 4] (let [target (or choice (default-magistrate-target state pdata))]
                (if target (place-temple-in state player-key target true) state))
 
       ;; ─── Board 24: Siege of Shulme ──────────────────────────────
@@ -2045,10 +2031,7 @@
       [26 3] (-> state ;; Sell + temple
                 (update-in [:players player-key :amity] + 2)
                 (place-temple-in player-key (:caravan pdata) true))
-      [26 4] (let [routes (active-routes pc) ;; Raider + surround
-                   any-rk (first (remove #(contains? (:raiders pdata) %)
-                                         (for [r routes]
-                                           (segment-route-key r))))]
+      [26 4] (let [any-rk (first (free-routes pdata pc (constantly true)))] ;; Raider + surround
                (cond-> state
                  any-rk (place-raider-on player-key any-rk)
                  true (update-in [:players player-key :amity] + 2)))
@@ -2093,11 +2076,7 @@
                (cond-> state
                  (pos? gold) (update-in [:players player-key :resources :gold] dec)
                  true (update-in [:players player-key :amity] + 4)))
-      [28 4] (let [routes (active-routes pc) ;; Raider point-side near Kish
-                   kish-rks (for [r routes
-                                  :when (or (= :kish (:from r)) (= :kish (:to r)))]
-                              (segment-route-key r))
-                   avail (remove #(contains? (:raiders pdata) %) kish-rks)]
+      [28 4] (let [avail (free-routes pdata pc #(touches? :kish %))] ;; Raider point-side near Kish
                (if-let [rk (first avail)]
                  (-> state
                      (place-raider-on player-key rk)
@@ -2117,10 +2096,7 @@
                  state))
       [29 2] (-> state ;; Travel + sell
                 (update-in [:players player-key :amity] + 3))
-      [29 3] (let [routes (active-routes pc) ;; Raider on each river
-                   river-rks (for [r routes :when (= :river (:type r))]
-                               (segment-route-key r))
-                   avail (remove #(contains? (:raiders pdata) %) river-rks)]
+      [29 3] (let [avail (free-routes pdata pc #(= :river (:type %)))] ;; Raider on each river
                (reduce #(place-raider-on %1 player-key %2) state (take 3 avail)))
       [29 4] (-> state ;; Temple in surrounded cities
                 (place-temple-in player-key (:caravan pdata) true))
@@ -2166,10 +2142,7 @@
       ;; "Gain a resource of your choice and take a Deploy action." FAITHFUL
       ;; (Bucket A): grant the chosen resource AND deploy. (Old human arm dropped
       ;; the deploy; old auto arm forced :tools.) choice = resource (default :tools).
-      [31 4] (let [routes (active-routes pc)
-                   any-rk (first (remove #(contains? (:raiders pdata) %)
-                                         (for [r routes]
-                                           (segment-route-key r))))]
+      [31 4] (let [any-rk (first (free-routes pdata pc (constantly true)))]
                (cond-> state
                  true (add-player-resource player-key (or choice :tools) 1)
                  any-rk (place-raider-on player-key any-rk)))
@@ -2183,13 +2156,10 @@
       [32 2] (let [dest (or choice (:caravan pdata))]
                (cond-> (add-player-resource state player-key :gems 1)
                  dest (assoc-in [:players player-key :caravan] dest)))
-      [32 3] (let [routes (active-routes pc) ;; Raider between temple cities
-                   t-cities (set (temple-cities pdata))
-                   temple-rks (for [r routes
-                                    :when (and (contains? t-cities (:from r))
-                                               (contains? t-cities (:to r)))]
-                                (segment-route-key r))
-                   avail (remove #(contains? (:raiders pdata) %) temple-rks)]
+      [32 3] (let [t-cities (set (temple-cities pdata)) ;; Raider between temple cities
+                   avail (free-routes pdata pc
+                                      #(and (contains? t-cities (:from %))
+                                            (contains? t-cities (:to %))))]
                (if-let [rk (first avail)]
                  (place-raider-on state player-key rk)
                  state))
@@ -2234,18 +2204,12 @@
       ;; FAITHFUL (Bucket B): place a raider on EVERY available route around Uruk
       ;; (Uruk has up to 4) for a fixed 2 tools — not capped at 2 raiders.
       [34 1] (let [tools (get-in pdata [:resources :tools] 0)
-                   routes (active-routes pc)
-                   uruk-rks (for [r routes
-                                  :when (or (= :uruk (:from r)) (= :uruk (:to r)))]
-                              (segment-route-key r))
-                   avail (remove #(contains? (:raiders pdata) %) uruk-rks)]
+                   avail (free-routes pdata pc #(touches? :uruk %))]
                (if (and (>= tools 2) (seq avail))
                  (-> (reduce #(place-raider-on %1 player-key %2) state avail)
                      (update-in [:players player-key :resources :tools] - 2))
                  state))
-      [34 2] (let [routes (active-routes pc) ;; Raider on each existing route (approx: 2)
-                   avail (remove #(contains? (:raiders pdata) %)
-                                 (for [r routes] (segment-route-key r)))]
+      [34 2] (let [avail (free-routes pdata pc (constantly true))] ;; Raider on each existing route (approx: 2)
                (reduce #(place-raider-on %1 player-key %2) state (take 2 avail)))
       ;; Board 34 #4 / #5 — "Take a Sell action in each city with a Magistrate +
       ;; your Temple (you don't have to be there)". choice = one such city (the WS
