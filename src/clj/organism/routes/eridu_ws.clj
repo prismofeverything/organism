@@ -145,33 +145,9 @@
   [state space-id]
   (<= (count (game/astronomers-on-space state space-id)) 1))
 
-(defn- space-action-types
-  "Return set of action types available on a space."
-  [space-id]
-  (set (map :type (:actions (get game/action-spaces space-id)))))
-
-(defn- space-gives-resources
-  "Return the resources a take action on this space would give."
-  [space-id]
-  (some :resources (:actions (get game/action-spaces space-id))))
-
-(defn- has-resource-excess?
-  "True if player has >2 of any resource in the given set."
-  [pdata resources]
-  (some #(> (get-in pdata [:resources %] 0) 2) resources))
-
-(defn- city-has-own-face-up-temple?
-  "True if player has a face-up temple in the given city."
-  [pdata city]
-  (= :face-up (get-in pdata [:temples city])))
-
-(defn- city-has-sellable-demand?
-  "True if the city has a demand the player can currently fulfill."
-  [state player city]
-  (let [pdata (game/player-data state player)
-        demands (get-in state [:city-demands city] [])
-        resources (:resources pdata)]
-    (some #(pos? (get resources % 0)) demands)))
+;; (Five state-query helpers that lived here previously now live in
+;;  eridu.game — see space-action-types, space-gives-resources,
+;;  has-resource-excess?, city-has-sellable-demand?, city-has-own-face-up-temple?.)
 
 (defn- cities-with-demands-for
   "Cities that have demands matching the player's resources."
@@ -207,9 +183,9 @@
   "Score a destination space for how well it serves a strategic goal.
    Considers both the immediate die and what remaining dice could chain into."
   [state player pdata dest-space remaining-dice lower-track]
-  (let [types (space-action-types dest-space)
+  (let [types (game/space-action-types dest-space)
         caravan-city (:caravan pdata)
-        can-sell-here (city-has-sellable-demand? state player caravan-city)
+        can-sell-here (game/city-has-sellable-demand? state player caravan-city)
 
         ;; Direct value of this space for current needs
         action-score
@@ -230,7 +206,7 @@
                 (for [other-die remaining-dice
                       other-pos other-astro-positions
                       :let [other-dest (game/move-astronomer-clockwise other-pos other-die)
-                            other-types (space-action-types other-dest)
+                            other-types (game/space-action-types other-dest)
                             ;; Complementary actions: if we sell here, travel there sets up next sell
                             ;; If we deploy here, influence there chains
                             combo-score
@@ -293,9 +269,9 @@
                                       :let [dest (game/move-astronomer-clockwise astro-pos die-val)
                                             on-space (count (game/astronomers-on-space state dest))
                                             will-be-alone (= on-space 0)
-                                            space-resources (space-gives-resources dest)
+                                            space-resources (game/space-gives-resources dest)
                                             resource-penalty (if (and space-resources
-                                                                      (has-resource-excess? pdata space-resources))
+                                                                      (game/has-resource-excess? pdata space-resources))
                                                                -3 0)
                                             ;; Chain score: how well does this die + remaining dice
                                             ;; serve our strategic goals?
@@ -327,7 +303,7 @@
                                 dest (game/move-astronomer-clockwise pos die-val)
                                 on-space (count (game/astronomers-on-space state dest))
                                 will-be-alone (= on-space 0)
-                                types (space-action-types dest)
+                                types (game/space-action-types dest)
                                 ;; Prefer spaces with actions matching our needs
                                 need-amity (= lower-track :amity)
                                 action-bonus (cond
@@ -336,9 +312,9 @@
                                                (and (not need-amity) (contains? types :influence)) 3
                                                (and (not need-amity) (contains? types :deploy)) 2
                                                :else 0)
-                                space-resources (space-gives-resources dest)
+                                space-resources (game/space-gives-resources dest)
                                 resource-penalty (if (and space-resources
-                                                          (has-resource-excess? pdata space-resources))
+                                                          (game/has-resource-excess? pdata space-resources))
                                                    -3 0)]]
                       [(+ resource-penalty action-bonus
                           (if (< progress 0.4)
@@ -390,8 +366,8 @@
                 :done
                 (let [space (get-in state [:player-turn :space])
                       caravan-city (:caravan pdata)
-                      can-sell-here (city-has-sellable-demand? state player caravan-city)
-                      has-face-up-temple (city-has-own-face-up-temple? pdata caravan-city)
+                      can-sell-here (game/city-has-sellable-demand? state player caravan-city)
+                      has-face-up-temple (game/city-has-own-face-up-temple? pdata caravan-city)
                       nearby-sellable (seq (cities-with-demands-for state player))
 
                       ;; Can we actually deploy? (have raiders in supply)
@@ -434,7 +410,7 @@
                                          ;; Bonus: de-prioritize take if resources >2
                                          resource-penalty
                                          (if (and (= atype :take)
-                                                  (has-resource-excess? pdata (:resources action)))
+                                                  (game/has-resource-excess? pdata (:resources action)))
                                            10 0)]]
                                [(+ base-pri resource-penalty) idx])]
                   (if (seq scored)
@@ -503,9 +479,9 @@
                   (let [scored
                         (for [dest (keys non-skip)
                               :let [;; Can we flip our own temple there?
-                                    has-temple (city-has-own-face-up-temple? pdata dest)
+                                    has-temple (game/city-has-own-face-up-temple? pdata dest)
                                     ;; Can we sell there now or soon?
-                                    can-sell (city-has-sellable-demand? state player dest)
+                                    can-sell (game/city-has-sellable-demand? state player dest)
                                     ;; Does it have demands we might fulfill later?
                                     has-demands (seq (get-in state [:city-demands dest] []))
                                     ;; Is there a magistrate (glory bonus)?
@@ -542,8 +518,8 @@
                                         next-city (:caravan next-pdata)
                                         neighbors (get-in next-s [:city-graph next-city])]
                                     (some (fn [dest]
-                                            (or (city-has-own-face-up-temple? pdata dest)
-                                                (city-has-sellable-demand? state player dest)))
+                                            (or (game/city-has-own-face-up-temple? pdata dest)
+                                                (game/city-has-sellable-demand? state player dest)))
                                           neighbors))))
                               (keys non-skip))]
                     (if worth-it? :done :done))
@@ -792,17 +768,20 @@
             effect-text (get (:effects board) chosen-slot "—")
             contest-name (:name contest "")
             raw-needs-choice (game/bonus-needs-choice? board-id chosen-slot)
-            ;; For multi-pick effects with dynamic eligibility, compute the
-            ;; eligible target set up front. If the set is empty, treat as a
-            ;; no-op rather than entering an unresolvable pending state.
             multi? (:multi raw-needs-choice)
-            eligible-cities (when (and multi?
-                                       (= :magistrate-and-my-temple
-                                          (:filter raw-needs-choice)))
-                              (game/magistrate-and-my-temple-cities state player-key))
+            ;; Filters whose legal target set is state-dependent are computed
+            ;; here so the UI gets a concrete city list and an empty set turns
+            ;; into a no-op rather than an unresolvable pending choice.
+            eligible-cities (case (:filter raw-needs-choice)
+                              :magistrate-and-my-temple
+                              (game/magistrate-and-my-temple-cities state player-key)
+                              :adjacent-to-raider
+                              (game/cities-adjacent-to-my-raiders state player-key)
+                              nil)
+            computed-targets? (some? eligible-cities)
             needs-choice (cond
                            (not raw-needs-choice) nil
-                           (and multi? (empty? eligible-cities)) nil
+                           (and computed-targets? (empty? eligible-cities)) nil
                            :else raw-needs-choice)
             ;; Base state: claim feat + uncover slot + wild points + log
             base-state (-> state
@@ -826,7 +805,7 @@
                                  :message (str "Bonus #" chosen-slot " uncovered: "
                                                effect-text " — choose below")})
 
-                        (and multi? (empty? eligible-cities))
+                        (and computed-targets? (empty? eligible-cities))
                         (update base-state :log conj
                                 {:type :bonus-effect :player player-key
                                  :round (:round state 1) :turn (:turn-in-round state 1)

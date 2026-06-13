@@ -289,23 +289,9 @@
     (/ (+ (* (dec round) tpr) (dec turn))
        (* game/rounds-per-game tpr))))
 
-(defn- space-action-types [space-id]
-  (set (map :type (:actions (get game/action-spaces space-id)))))
-
-(defn- space-gives-resources [space-id]
-  (some :resources (:actions (get game/action-spaces space-id))))
-
-(defn- has-resource-excess? [pdata resources]
-  (some #(> (get-in pdata [:resources %] 0) 2) resources))
-
-(defn- city-has-sellable-demand? [state player city]
-  (let [pdata (game/player-data state player)
-        demands (get-in state [:city-demands city] [])
-        resources (:resources pdata)]
-    (some #(pos? (get resources % 0)) demands)))
-
-(defn- city-has-own-face-up-temple? [pdata city]
-  (= :face-up (get-in pdata [:temples city])))
+;; (Five state-query helpers that lived here previously now live in
+;;  eridu.game — see space-action-types, space-gives-resources,
+;;  has-resource-excess?, city-has-sellable-demand?, city-has-own-face-up-temple?.)
 
 (defn- feat-needs-resource?
   "True if any planned-chain feat benefits from holding onto this resource."
@@ -370,8 +356,8 @@
    Incorporates role-action coupling: higher role levels boost corresponding actions."
   [weights state player pdata]
   (let [caravan-city (:caravan pdata)
-        can-sell (city-has-sellable-demand? state player caravan-city)
-        has-face-up (city-has-own-face-up-temple? pdata caravan-city)
+        can-sell (game/city-has-sellable-demand? state player caravan-city)
+        has-face-up (game/city-has-own-face-up-temple? pdata caravan-city)
         amity (:amity pdata 0)
         glory (:glory pdata 0)
         progress (game-progress state)
@@ -436,12 +422,12 @@
         ;; Only boost for 1-hop reachable sale (not 2-hop, which is almost always true)
         reachable-sale-1hop? (some (fn [c]
                                      (and (not= c caravan-city)
-                                          (city-has-sellable-demand? state player c)))
+                                          (game/city-has-sellable-demand? state player c)))
                                    neighbors-1)
         reachable-sale? (or reachable-sale-1hop?
                             (some (fn [c]
                                     (and (not= c caravan-city)
-                                         (city-has-sellable-demand? state player c)))
+                                         (game/city-has-sellable-demand? state player c)))
                                   neighbors-2))
         travel-reachable-sale-boost (cond reachable-sale-1hop? 3
                                           reachable-sale? 1
@@ -633,7 +619,7 @@
   [weights state player pdata dest remaining-dice die-val]
   (if (or (empty? remaining-dice) (< (:chain-weight weights 0.5) 0.1))
     0
-    (let [types (space-action-types dest)
+    (let [types (game/space-action-types dest)
           astro-positions (:astronomers pdata)
           ;; ── Same-space revisit bonus ─────────────────────────────
           ;; If any remaining die = 7 - die-val, we can revisit `dest`
@@ -657,7 +643,7 @@
           (for [d remaining-dice
                 pos astro-positions
                 :let [other-dest (game/move-astronomer-clockwise pos d)
-                      other-types (space-action-types other-dest)
+                      other-types (game/space-action-types other-dest)
                       combo
                       (cond-> 0
                         (and (contains? types :travel) (contains? other-types :sell)) (+ 4)
@@ -710,8 +696,8 @@
                                       :let [dest (game/move-astronomer-clockwise apos die-val)
                                             on-space (count (game/astronomers-on-space state dest))
                                             will-be-alone (= on-space 0)
-                                            space-res (space-gives-resources dest)
-                                            res-pen (if (and space-res (has-resource-excess? pdata space-res))
+                                            space-res (game/space-gives-resources dest)
+                                            res-pen (if (and space-res (game/has-resource-excess? pdata space-res))
                                                       (- (:excess-penalty weights 3.0))
                                                       0)
                                             ch-score (chain-score weights state player pdata dest remaining die-val)
@@ -749,11 +735,11 @@
                                 dest (game/move-astronomer-clockwise pos die-val)
                                 on-space (count (game/astronomers-on-space state dest))
                                 will-be-alone (= on-space 0)
-                                types (space-action-types dest)
+                                types (game/space-action-types dest)
                                 ;; Sum action priorities for actions on this space
                                 action-val (reduce + (map #(get action-pri % 0) types))
-                                space-res (space-gives-resources dest)
-                                res-pen (if (and space-res (has-resource-excess? pdata space-res))
+                                space-res (game/space-gives-resources dest)
+                                res-pen (if (and space-res (game/has-resource-excess? pdata space-res))
                                           (- (:excess-penalty weights 3.0)) 0)]]
                       [(+ res-pen action-val
                           (if (< progress 0.4)
@@ -883,7 +869,7 @@
                                   base-pri (get action-pri atype 1.0)
                                   res-pen (if (and (= atype :take)
                                                    (:resources action)
-                                                   (has-resource-excess? pdata (:resources action)))
+                                                   (game/has-resource-excess? pdata (:resources action)))
                                             (- (:excess-penalty weights 3.0))
                                             0)
                                   ;; Travel pacing adjustment
@@ -1079,8 +1065,8 @@
                                                        :when (= :point rs)] rk))
                         scored
                         (for [dest (keys non-skip)
-                              :let [has-temple (city-has-own-face-up-temple? pdata dest)
-                                    can-sell (city-has-sellable-demand? state player dest)
+                              :let [has-temple (game/city-has-own-face-up-temple? pdata dest)
+                                    can-sell (game/city-has-sellable-demand? state player dest)
                                     has-mag (game/magistrate-in-city? state dest)
                                     rk (game/route-key caravan-city dest)
                                     own-point (= :point (get-in pdata [:raiders rk]))
@@ -1136,14 +1122,14 @@
                     (apply max 0
                            (for [dest neighbors
                                  :let [rk (game/route-key current-city dest)]]
-                             (+ (if (city-has-own-face-up-temple? pdata dest) 8 0)
-                                (if (city-has-sellable-demand? state player dest) 6 0)
+                             (+ (if (game/city-has-own-face-up-temple? pdata dest) 8 0)
+                                (if (game/city-has-sellable-demand? state player dest) 6 0)
                                 ;; Point raider = instant 4 glory, always worth paying to reach
                                 (if (= :point (get-in pdata [:raiders rk])) 15 0)
                                 (if (game/magistrate-in-city? state dest) 3 0)
                                 ;; 2-hop lookahead: sellable city one more hop away
                                 (let [dest-neighbors (get-in state [:city-graph dest] #{})]
-                                  (if (some #(city-has-sellable-demand? state player %) dest-neighbors) 2 0))
+                                  (if (some #(game/city-has-sellable-demand? state player %) dest-neighbors) 2 0))
                                 ;; 2-hop lookahead: point raider one more hop away
                                 (let [dest-neighbors (get-in state [:city-graph dest] #{})]
                                   (if (some (fn [n] (= :point (get-in pdata [:raiders (game/route-key dest n)])))
@@ -1194,7 +1180,7 @@
                                                             (get-in pdata [:temples dest])))
                                     has-demands (and dest (seq (get-in state [:city-demands dest] [])))
                                     can-sell-there (and dest
-                                                       (city-has-sellable-demand? state player dest))
+                                                       (game/city-has-sellable-demand? state player dest))
                                     ;; Setup bonus: move magistrate toward own temples/demands
                                     setup-bonus (* mag-setup
                                                   (+ (if has-temple 5 0)

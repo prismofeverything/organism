@@ -11,6 +11,14 @@
 ;; Headless game runner
 ;; =============================================================================
 
+(def ^:dynamic *audit?*
+  "When true, run-game turns on the engine's coverage-trace recording so each
+   bonus board-effect application is logged per [board-id slot-idx] with its
+   deltas. The live board auditor (eridu.bench) binds this true and folds the
+   per-game traces into a per-position attempts/failures tally, then discards
+   the play-by-play. Off by default → zero overhead for normal sims."
+  false)
+
 (def ^:private sim-protected-phases
   "Phases the simulation stops at to let the AI make decisions."
   game/bot-protected-phases)
@@ -78,6 +86,8 @@
                                                           :prefer-onetime-bonus
                                                           :feat-sequence :feat-closure-urgency])))
                         initial personality-map)
+        ;; Live board auditor: record a coverage trace per bonus effect.
+        initial (cond-> initial *audit?* (assoc :coverage-trace? true))
         ;; Run the game to completion
         result
         (loop [state initial
@@ -114,6 +124,7 @@
                             player-keys)]
       (assoc result
              :snapshots (into (:snapshots result) final-snaps)
+             :coverage-traces (get-in result [:final-state :coverage-traces] [])
              :seed seed))))
 
 (defn game-result-summary

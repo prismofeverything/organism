@@ -270,7 +270,8 @@
    ;; ══════════════════════════════════════════════════════════════════════════
 
    [8 0] {:passive? true :trigger-event :score-raider
-          :notes "When you score a Raider, instead flip it to its active side. Replaces scoring; per-trigger nets 0 glory but +1 active raider."}
+          :delta-glory 4
+          :notes "When you score a Raider, instead flip it to its active side. RULED (2026-06-13): 'instead' negates only the REMOVAL — you still score the 4 glory AND keep the raider flipped to active. Current code is correct; net +4 glory + raider stays."}
    [8 1] {:delta-roles {:raider 1 :priest 1}
           :delta-resources (fn [s p] (role-up-resources s p [:raider :priest]))
           :notes "Increase your Raider and Priest Roles (paying any costs)."}
@@ -370,7 +371,8 @@
            :delta-resources (fn [s p] (roles-at-level-resources s p 3))
            :notes "Increase all of your Level Three Roles (paying any costs)."}
    [13 4] {:delta-temples 1
-           :notes "Place a Temple adjacent to one of your Raiders (even if you already have a temple there)."}
+           :requires-choice? true :choice-type :pick-city
+           :notes "Place a Temple adjacent to one of your Raiders (even if you already have a temple there). Player picks which raider-adjacent city; bonus-needs-choice? must surface a :pick-city / :adjacent-to-raider prompt."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 14 — Roads of Shulgi
@@ -808,9 +810,11 @@
         populated (count expectations)
         by-status (group-by val g/effect-implementation-status)
         implemented (count (get by-status :implemented []))
+        partial (count (get by-status :partial []))
         persistent (count (get by-status :persistent []))]
     {:total total
      :oracle-populated populated
      :oracle-missing (- total populated)
      :impl-implemented implemented
+     :impl-partial partial
      :impl-persistent persistent}))

@@ -1709,6 +1709,9 @@
                                           (keys (:temples my-pdata)))
                                   :magistrate (distinct (vals (:magistrates state)))
                                   :adjacent (get-in state [:city-graph (:caravan my-pdata)])
+                                  :adjacent-to-raider
+                                  (distinct (mapcat (fn [[a b]] [a b])
+                                                    (keys (:raiders my-pdata))))
                                   (keys (:city-graph state))))]
                  [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
                   (for [city cities]

@@ -319,10 +319,12 @@
 (def state-path "eridu-evolution-state.edn")
 
 (defn save-evolution-state! [state]
-  (let [serializable (-> state
-                         (update :population #(mapv (fn [o] (dissoc o :personality)) %))
-                         (update :archive #(mapv (fn [o] (dissoc o :personality)) %))
-                         (dissoc :running?))]
+  ;; Persist FULL organisms — including their evolved :personality weight
+  ;; vectors. Previously these were stripped, so every resume reattached a
+  ;; fresh random personality and silently threw away all accumulated learning.
+  ;; Personalities are plain EDN (numbers, keywords, vectors), so round-trip
+  ;; cleanly. This is what makes evolution actually carry the baseline forward.
+  (let [serializable (dissoc state :running?)]
     (spit state-path (pr-str serializable))))
 
 (defn load-evolution-state []
@@ -363,14 +365,17 @@
           initial-pop (if (and saved (seq (:population saved)))
                         (do (log/info "Resuming evolution from saved state, gen"
                                       (:generation saved))
-                            ;; Re-attach personality weights
-                            (let [all-personalities (concat pers/archetypes
-                                                            (repeatedly 100 pers/random-personality))
-                                  by-name (into {} (map (juxt :name identity) all-personalities))]
+                            ;; Carry the evolved weights forward. New states embed
+                            ;; :personality directly; only fall back to archetype
+                            ;; lookup / random for legacy states that lack it.
+                            (let [by-name (into {} (map (juxt :name identity)
+                                                        pers/archetypes))]
                               (mapv (fn [o]
-                                      (assoc o :personality
-                                             (or (get by-name (:name o))
-                                                 (pers/random-personality))))
+                                      (if (:personality o)
+                                        o
+                                        (assoc o :personality
+                                               (or (get by-name (:name o))
+                                                   (pers/random-personality)))))
                                     (:population saved))))
                         (initial-population pop-size))]
 
@@ -428,7 +433,7 @@
                                     (if (or (nil? (:best-ever s))
                                             (> (:elo best) (get-in s [:best-ever :elo] 0)))
                                       (select-keys best [:name :elo :avg-reputation
-                                                          :region :games])
+                                                          :region :games :personality])
                                       (:best-ever s))))))
 
                 ;; Persist state every generation

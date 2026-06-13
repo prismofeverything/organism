@@ -1,5 +1,7 @@
 (ns eridu.game
-  (:require [clojure.set]))
+  (:require [clojure.set]
+            [eridu.bonus :as bonus]
+            [eridu.cards :as cards]))
 
 ;; Forward declarations for functions used by feat evaluation and bonus board effects
 (declare count-temples-placed count-face-down-temples count-raiders-deployed
@@ -408,12 +410,15 @@
                true (assoc-in [:players player-key :roles role] next-lv)))
 
         ;; Board 32: yes → discard gem, add priest-level amity minus merchant amity
+        ;; QA lesson 7 fix: priest-amity is (merchant-score priest-lv), NOT the
+        ;; raw level number. Old code under-scored by 1 in 6 of 10 valid cases.
         32 (if (= choice-val :yes)
-             (let [priest-lv (get-in pdata [:roles :priest] 1)
+             (let [priest-lv          (get-in pdata [:roles :priest] 1)
+                   priest-amity       (get merchant-score priest-lv 2)
                    merchant-score-val (get-in pending [:context :amity-scored] 0)]
                (-> state
                    (update-in [:players player-key :resources :gems] dec)
-                   (update-in [:players player-key :amity] + (- priest-lv merchant-score-val))))
+                   (update-in [:players player-key :amity] + (- priest-amity merchant-score-val))))
              state)
 
         ;; Board 35: gain chosen resource
@@ -917,14 +922,17 @@
              (and (= player-key (:player ts))
                   (= :gold (get ts :sold-resource))
                   (>= (+ (get ts :sell-amity 0) (get ts :sell-glory 0)) 5)))
-      :K2 (let [ts (get state :turn-stats {})
-                sell-city (get ts :sold-in-city)
-                pc (count (:turn-order state))]
+      :K2 (boolean
+           ;; (boolean ...) wrap added in QA lesson 5: the docstring promises
+           ;; true/false strictly, but `when` leaks nil when preconditions fail.
+           (let [ts (get state :turn-stats {})
+                 sell-city (get ts :sold-in-city)
+                 pc (count (:turn-order state))]
              (when (and (= player-key (:player ts)) sell-city)
                (let [adj-routes (routes-from-city sell-city (active-routes pc))
                      adj-route-keys (set (map segment-route-key adj-routes))]
                  ;; Check if ALL adjacent routes have YOUR raider
-                 (every? #(contains? raiders %) adj-route-keys))))
+                 (every? #(contains? raiders %) adj-route-keys)))))
 
       ;; L: Resource hoarding
       :L1 (>= (get-in pdata [:resources :gems] 0) 5)
@@ -1204,7 +1212,13 @@
              (or allow-duplicate? (< placed max-t)))
       (-> state
           (assoc-in [:players player-key :temples city] :face-up)
-          (update-in [:players player-key :temples-supply] dec))
+          (update-in [:players player-key :temples-supply] dec)
+          ;; Passive trigger: temple placed (boards 13 "raider adjacent", 21).
+          ;; The normal :temple action in choice.cljc fires this inline; every
+          ;; *bonus-board* temple placement routes through here, so firing it
+          ;; closes the gap that left slot-0 passives silent (e.g. board 13's
+          ;; "place a Temple → place a Raider adjacent" never triggered).
+          (apply-passive player-key :temple-placed {:city city}))
       state)))
 
 (defn- place-raider-on [state player-key route-key]
@@ -1221,275 +1235,17 @@
           (update-in [:players player-key :raiders-supply] dec))
       state)))
 
-(def effect-implementation-status
-  "Classification of every board effect: what it needs to work.
-   :implemented = working, :persistent = slot-0 passive (tracked separately),
-   :needs-compound = requires multi-action sequence engine,
-   :needs-placement = requires conditional placement logic,
-   :needs-demand = requires demand token manipulation,
-   :conditional = requires specific board state check"
-  {[1 0] :persistent    ;; When you surround a city with Raiders, temple in it
-   [1 1] :implemented   ;; Travel to Kish
-   [1 2] :implemented   ;; Increase Raider and Leader
-   [1 3] :implemented   ;; Place two raiders near Lagash
-   [1 4] :implemented   ;; Glory per demand fulfilled
-   [2 0] :persistent    ;; When you score Raider, increase Priest
-   [2 1] :implemented   ;; Increase Merchant and Raider
-   [2 2] :implemented   ;; 5 Amity if at magistrate
-   [2 3] :implemented   ;; Temple in magistrate city
-   [2 4] :implemented   ;; Glory per facedown temple
-   [3 0] :persistent    ;; River travel → gem + gems worth amity
-   [3 1] :implemented   ;; Increase Leader free
-   [3 2] :implemented   ;; Temple in Lagash
-   [3 3] :implemented   ;; Raider near Eridu + good
-   [3 4] :implemented   ;; Travel then Sell
-   [4 0] :persistent    ;; When flip temple, may sell
-   [4 1] :implemented   ;; Temple in Eridu
-   [4 2] :implemented   ;; Gain Tools, Gems, Gold
-   [4 3] :implemented   ;; Amity = Leader x 2
-   [4 4] :implemented   ;; 2 Amity per raider
-   [5 0] :persistent    ;; Influence magistrate in your city, travel with it
-   [5 1] :implemented   ;; Increase Priest free
-   [5 2] :implemented   ;; Place demand tokens in Uruk + gain resources
-   [5 3] :implemented   ;; Deploy then Temple
-   [5 4] :implemented   ;; 2 Amity per raider
-   [6 0] :persistent    ;; Space 7 → free Travel
-   [6 1] :implemented   ;; Increase Merchant and Priest
-   [6 2] :implemented   ;; Temple in each magistrate city
-   [6 3] :implemented   ;; Sell to Babylon double
-   [6 4] :implemented   ;; Raider near Lagash + Tools x2 (partial)
-   [7 0] :persistent    ;; Place raiders, extra one next to magistrate
-   [7 1] :implemented   ;; Increase Merchant and Leader
-   [7 2] :implemented   ;; Temple in magistrate city
-   [7 3] :implemented   ;; Travel + 3 Glory if at Eridu
-   [7 4] :implemented   ;; Travel + 3 Amity if at Kish
-   [8 0] :persistent    ;; Score raider → flip to active instead
-   [8 1] :implemented   ;; Increase Raider and Priest
-   [8 2] :implemented   ;; Place demand + sell
-   [8 3] :implemented   ;; Gain Gold, Gems, Pottery (partial, no sell)
-   [8 4] :implemented   ;; Flip all raiders to point
-   [9 0] :persistent    ;; Flip temple → may increase role
-   [9 1] :implemented   ;; Gain Tools, Gold, Pottery + Amity = leader
-   [9 2] :implemented   ;; Increase Priest and Leader
-   [9 3] :implemented   ;; Raider on each river
-   [9 4] :implemented   ;; Sell to magistrate city + temple
-   [10 0] :persistent   ;; Sell gold to empty demand cities
-   [10 1] :implemented  ;; Increase Merchant free
-   [10 2] :implemented  ;; Increase Merchant free
-   [10 3] :implemented  ;; Raider near magistrate + amity
-   [10 4] :implemented  ;; Temple in Nippur
-   [11 0] :persistent   ;; Extra glory on contest claims
-   [11 1] :implemented  ;; Place demand tokens in Lagash
-   [11 2] :implemented  ;; Sell to Lagash double glory
-   [11 3] :implemented  ;; Increase Raider free
-   [11 4] :implemented  ;; Glory per facedown temple
-   [12 0] :persistent   ;; River crossing → place raider
-   [12 1] :implemented  ;; Increase all level-1 roles
-   [12 2] :implemented  ;; Gain Gold x3 + Gems
-   [12 3] :implemented  ;; Increase merchant + sell for glory
-   [12 4] :implemented  ;; Glory per facedown temple
-   [13 0] :persistent   ;; Temple placement → raider adjacent
-   [13 1] :implemented  ;; Gain Tools x3 + Glory = leader
-   [13 2] :implemented  ;; Gain Pottery x3 + Glory = leader
-   [13 3] :implemented  ;; Increase all level-3 roles
-   [13 4] :implemented  ;; Temple adjacent to raider
-   [14 0] :persistent   ;; Uruk travel bonus action
-   [14 1] :implemented ;; Glory per raider (partial: no placement)
-   [14 2] :implemented ;; Resources (partial: no magistrate move)
-   [14 3] :implemented ;; Travel to Eridu (partial: no demands)
-   [14 4] :implemented  ;; Temple in Babylon
-   [15 0] :persistent   ;; Free role increases
-   [15 1] :implemented  ;; Good per demand fulfilled
-   [15 2] :implemented  ;; Increase Priest + 4 Glory if Babylon temple
-   [15 3] :implemented ;; Increase lowest role (partial: no travel)
-   [15 4] :implemented ;; 2 Amity per raider (partial: no adjacency check)
-   [16 0] :persistent   ;; 2-astronomer space → third action
-   [16 1] :implemented  ;; Pottery per temple
-   [16 2] :implemented  ;; Deploy + amity per raider
-   [16 3] :implemented  ;; Increase Leader twice
-   [16 4] :implemented  ;; Place demands + sell
-   [17 0] :persistent   ;; Space 7 → good of choice
-   [17 1] :implemented ;; Flip one raider to point (partial: no placement)
-   [17 2] :implemented ;; Temple in magistrate city (partial: no facedown)
-   [17 3] :implemented ;; 4 Amity (partial: no Uruk surround check)
-   [17 4] :implemented ;; Glory = merchant level (partial: no sell)
-   [18 0] :persistent   ;; Keep tools when spent + tools worth glory
-   [18 1] :implemented ;; Resources (partial: no magistrate move/sell)
-   [18 2] :implemented  ;; 5 Glory if facedown Samarra (partial otherwise)
-   [18 3] :implemented ;; 3 Amity (partial: no surround check)
-   [18 4] :implemented ;; 4 Amity per point raider (partial: don't remove)
-   [19 0] :persistent   ;; Take pottery → extra pottery x2
-   [19 1] :implemented  ;; Increase Priest twice
-   [19 2] :implemented  ;; Sell to pottery cities
-   [19 3] :implemented  ;; Discard good + move magistrate + sell
-   [19 4] :implemented  ;; Flip all raiders to point
-   [20 0] :persistent   ;; Flip temple → discard pottery for 3 glory
-   [20 1] :implemented  ;; Raider on each opposing route
-   [20 2] :implemented  ;; Increase Merchant twice
-   [20 3] :implemented  ;; Amity = leader level (partial, no influence)
-   [20 4] :implemented  ;; Take goods from astronomer spaces
-   [21 0] :persistent   ;; Temple placement → extra facedown
-   [21 1] :implemented  ;; Travel to Eridu
-   [21 2] :implemented  ;; Increase Raider and Leader
-   [21 3] :implemented ;; Travel to Eridu (partial: no sell)
-   [21 4] :implemented  ;; Glory per demand fulfilled
-   [22 0] :persistent   ;; Space 7 same action twice
-   [22 1] :implemented  ;; Increase Raider and Merchant
-   [22 2] :implemented  ;; Demands on facedown temples
-   [22 3] :implemented  ;; Good + travel
-   [22 4] :implemented  ;; 2 Amity per raider (partial, no travel)
-   [23 0] :persistent   ;; Sell → glory instead of amity
-   [23 1] :implemented  ;; Increase Priest and Merchant
-   [23 2] :implemented  ;; Sell twice to Eridu
-   [23 3] :implemented  ;; Good + travel + increase merchant
-   [23 4] :implemented  ;; Temple in magistrate city
-   [24 0] :persistent   ;; Surround city → sell there
-   [24 1] :implemented  ;; Increase Raider and Leader
-   [24 2] :implemented  ;; Demands on magistrates
-   [24 3] :implemented  ;; Glory per demand fulfilled
-   [24 4] :implemented  ;; Goods per demand at magistrates
-   [25 0] :persistent   ;; Two raiders per path
-   [25 1] :implemented  ;; Influence + score raiders
-   [25 2] :implemented  ;; Increase Merchant and Leader
-   [25 3] :implemented  ;; Two facedown temples
-   [25 4] :implemented  ;; Good + travel
-   [26 0] :persistent   ;; Extra 2 amity on magistrate bonus
-   [26 1] :implemented  ;; Increase Priest and Leader
-   [26 2] :implemented  ;; Increase Priest and Raider
-   [26 3] :implemented  ;; Sell + temple
-   [26 4] :implemented  ;; Raider + surround check
-   [27 0] :persistent   ;; Role increase → another role for double cost
-   [27 1] :implemented  ;; Travel + sell
-   [27 2] :implemented  ;; Travel + deploy
-   [27 3] :implemented  ;; Travel + temple
-   [27 4] :implemented  ;; Three goods
-   [28 0] :persistent   ;; 4+ astronomers → role increase
-   [28 1] :implemented  ;; Travel + temple
-   [28 2] :implemented  ;; Travel + temple
-   [28 3] :implemented  ;; Sell gold to empty city
-   [28 4] :implemented  ;; Raider point-side near Kish
-   [29 0] :persistent   ;; Pay gold → 2 amity
-   [29 1] :implemented  ;; Decrease leader + increase others
-   [29 2] :implemented  ;; Travel + sell
-   [29 3] :implemented  ;; Raider on each river
-   [29 4] :implemented  ;; Temple in surrounded cities
-   [30 0] :persistent   ;; Take goods from other astronomer location
-   [30 1] :implemented ;; Glory = leader level (partial: no influence+travel)
-   [30 2] :implemented ;; Amity = leader level (partial: no influence+sell)
-   [30 3] :implemented ;; Glory = raider level (partial: no deploy+influence)
-   [30 4] :implemented ;; Amity = priest level (partial: no influence+temple)
-   [31 0] :persistent   ;; Other astronomer on space 7 → bonus travel
-   [31 1] :implemented  ;; Increase all level-1 roles
-   [31 2] :implemented  ;; Increase all level-3 roles
-   [31 3] :implemented  ;; Resource + facedown temple
-   [31 4] :implemented  ;; Resource + deploy
-   [32 0] :persistent   ;; Sell: discard gem for priest-level scoring
-   [32 1] :implemented  ;; Glory per demand (partial, no sell)
-   [32 2] :implemented  ;; Gem (partial, no travel)
-   [32 3] :implemented  ;; Raider between temple cities
-   [32 4] :implemented  ;; Influence + sell
-   [33 0] :persistent   ;; Deploy → influence adjacent magistrate
-   [33 1] :implemented  ;; Decrease merchant + increase others
-   [33 2] :implemented  ;; Facedown temple + travel
-   [33 3] :implemented  ;; Temple in Uruk
-   [33 4] :implemented  ;; Deploy + travel
-   [34 0] :persistent   ;; Score raiders → amity instead of glory
-   [34 1] :implemented  ;; Pay tools for raiders around Uruk
-   [34 2] :implemented  ;; Raider on each existing route
-   [34 3] :implemented  ;; Sell at magistrate+temple cities
-   [34 4] :implemented  ;; Same as 34-3
-   [35 0] :persistent   ;; No goods → gain good of choice
-   [35 1] :implemented  ;; Travel + sell
-   [35 2] :implemented  ;; Pay pottery for temples
-   [35 3] :implemented  ;; Increase role of choice
-   [35 4] :implemented  ;; Influence + score raiders
-   })
 
-(defn board-effect-diagnostic
-  "Generate a diagnostic report of which board effects work and which don't.
-   Returns {:implemented N :persistent N :needs-compound N :needs-placement N
-            :needs-demand N :conditional N}."
-  []
-  (let [by-status (group-by val effect-implementation-status)]
-    {:total (count effect-implementation-status)
-     :implemented (count (get by-status :implemented []))
-     :persistent (count (get by-status :persistent []))
-     :needs-compound (count (get by-status :needs-compound []))
-     :needs-placement (count (get by-status :needs-placement []))
-     :needs-demand (count (get by-status :needs-demand []))
-     :conditional (count (get by-status :conditional []))}))
+;; =============================================================================
+;; Bonus classification re-exports (moved to eridu.bonus in QA lesson 11)
+;; =============================================================================
+;; Kept here as defs so existing callers (game/effect-implementation-status,
+;; game/bonus-needs-choice?, game/board-effect-diagnostic) still resolve.
+;; New code should require eridu.bonus directly.
 
-(defn bonus-needs-choice?
-  "Returns a choice descriptor if [board-id slot-idx] needs player input,
-   nil if it auto-resolves. Choice types:
-   :pick-resource — player picks one of 4 resources
-   :pick-city — player picks a city (for temple/travel)
-   :pick-role — player picks a role to increase"
-  [board-id slot-idx]
-  (case [board-id slot-idx]
-    ;; ── Pick resource ──────────────────────────────────────────────
-    ([3 3] [17 1] [22 3] [23 3] [25 4] [31 3] [31 4])
-    {:type :pick-resource :prompt "Choose a resource to gain"}
-    [27 4] {:type :pick-resource :prompt "Choose a resource to gain (1 of 3)" :count 3}
-    [19 3] {:type :pick-resource :prompt "Choose a resource to discard (to move magistrate + sell)"}
-
-    ;; ── Pick role ───────────────────────────────────────────────
-    ([15 3] [35 4] [35 3])
-    {:type :pick-role :prompt "Choose a role to increase"}
-
-    ;; ── Travel to adjacent city + action ────────────────────────
-    ;; sell after travel
-    ([3 4] [27 1] [21 3] [29 2] [35 1])
-    {:type :pick-city :prompt "Travel to adjacent city and sell"
-     :filter :adjacent :action :sell}
-
-    ;; ── Board 34 #4/#5: sell in each city with Magistrate + your Temple
-    ;; (you don't have to be there) — multi-pick, repeats until all done
-    ([34 3] [34 4])
-    {:type :pick-city
-     :prompt "Take a Sell action in a city with a Magistrate + your Temple (no travel)"
-     :filter :magistrate-and-my-temple
-     :action :sell
-     :no-travel true
-     :multi true}
-    ;; deploy after travel
-    ([5 3] [27 2] [33 4])
-    {:type :pick-city :prompt "Travel to adjacent city and deploy"
-     :filter :adjacent :action :deploy}
-    ;; temple after travel
-    ([27 3] [28 1] [28 2])
-    {:type :pick-city :prompt "Travel to adjacent city and place a temple"
-     :filter :adjacent :action :temple}
-    ;; simple travel (score/action happens at destination automatically)
-    ([7 3] [7 4] [18 2] [22 4] [30 1] [32 2] [33 2])
-    {:type :pick-city :prompt "Choose a city to travel to"
-     :filter :adjacent}
-    ;; travel anywhere (from Eridu)
-    [21 1] {:type :pick-city :prompt "Travel anywhere (from Eridu)"
-            :filter :any}
-
-    ;; ── Pick magistrate city (temple/sell/influence) ────────────
-    ;; temple in magistrate city
-    ([2 3] [7 2] [23 4])
-    {:type :pick-city :prompt "Choose a magistrate city for your temple"
-     :filter :magistrate}
-    ;; sell in magistrate city
-    ([9 4] [12 3])
-    {:type :pick-city :prompt "Choose a magistrate city to sell in"
-     :filter :magistrate}
-    ;; influence magistrate + action
-    ([20 3] [25 1] [30 2] [30 4] [32 4])
-    {:type :pick-city :prompt "Choose magistrate destination"
-     :filter :magistrate}
-    ;; influence + deploy
-    [30 3] {:type :pick-city :prompt "Choose magistrate destination then deploy"
-            :filter :magistrate}
-    ;; move magistrate across river
-    [18 1] {:type :pick-city :prompt "Move magistrate across a river"
-            :filter :magistrate}
-
-    ;; Default: auto-resolve
-    nil))
+(def effect-implementation-status bonus/effect-implementation-status)
+(def board-effect-diagnostic      bonus/board-effect-diagnostic)
+(def bonus-needs-choice?          bonus/bonus-needs-choice?)
 
 (defn- bonus-trace-snapshot
   "Capture the player-state slice plus selected world-level fields that
@@ -1631,6 +1387,12 @@
 
             ;; ── Travel anywhere (from Eridu) ───────────────────────
             [21 1] (travel-to state choice-value)
+
+            ;; ── Temple adjacent to a chosen raider (Board 13 #4) ───
+            ;; place-temple-in fires the :temple-placed passive, so board 13's
+            ;; slot-0 "place a Raider adjacent" triggers off this placement too.
+            [13 4]
+            (place-temple-in state player-key choice-value true)
 
             ;; ── Temple in magistrate city ──────────────────────────
             ([2 3] [7 2] [23 4])
@@ -1871,13 +1633,14 @@
                        (if (= 3 (get-in s [:players player-key :roles role] 1))
                          (increase-role-with-cost s player-key role) s))
                      state roles)
-      [13 4] (let [raider-cities (set (mapcat (fn [[a b]] [a b]) (keys (:raiders pdata))))
-                   target (first (filter #(and (contains? raider-cities %)
-                                                (not (contains? (:temples pdata) %)))
-                                         raider-cities))]
-               (if target
-                 (place-temple-in state player-key target true)
-                 state))
+      ;; Auto-resolve for bot/no-UI callers. Printed text allows a city you
+      ;; already have a temple in ("even if you already have a temple there"),
+      ;; so don't filter those out. Human play routes through
+      ;; apply-bonus-with-choice ([13 4]) where the player picks the city.
+      [13 4] (if-let [target (first (distinct (mapcat (fn [[a b]] [a b])
+                                                      (keys (:raiders pdata)))))]
+               (place-temple-in state player-key target true)
+               state)
 
       ;; ─── Board 14: Roads of Shulgi ─────────────────────────────
       [14 1] (let [;; Place raider adjacent to Lagash first
@@ -1975,8 +1738,17 @@
                (if (and (seq adj-rks) (every? player-rks adj-rks))
                  (update-in state [:players player-key :amity] + 6)
                  state))
-      [18 4] (let [point-raiders (count (filter #(= :point (val %)) (:raiders pdata)))]
-               (update-in state [:players player-key :amity] + (* 4 point-raiders))) ;; 4 Amity per point raider (partial: don't remove)
+      [18 4] (let [point-pairs       (filter #(= :point (val %)) (:raiders pdata))
+                   point-route-keys  (map key point-pairs)
+                   n                 (count point-pairs)]
+               ;; QA lesson 8: faithful "score then remove" per card text.
+               ;;   "Score 4 A for each of your Raiders on their point side.
+               ;;    Then remove those raiders."
+               (-> state
+                   (update-in [:players player-key :amity] + (* 4 n))
+                   (update-in [:players player-key :raiders]
+                              #(apply dissoc % point-route-keys))
+                   (update-in [:players player-key :raiders-supply] (fnil + 0) n))) ;; 4 Amity per point raider, then remove
 
       ;; ─── Board 19: Kilns of Ninkasi ────────────────────────────
       [19 1] (-> state ;; Increase Priest twice
@@ -2607,383 +2379,18 @@
    state
    (:turn-order state)))
 
-;; =============================================================================
-;; Player state
-;; =============================================================================
-
-;; From MSE "Starting Cards.mse-set" — canonical data
-;; Symbol key: G=gems O=gold P=pottery L=tools
-(def starting-cards
-  [{:number 1 :city :babylon :role :leader   :resource :gems}     ;; A1
-   {:number 2 :city :nippur  :role :merchant :resource :tools}    ;; B1
-   {:number 3 :city :lagash  :role :merchant :resource :pottery}  ;; B2
-   {:number 4 :city :babylon :role :priest   :resource :tools}    ;; A2
-   {:number 5 :city :kish    :role :raider   :resource :gems}     ;; C1
-   {:number 6 :city :kish    :role :leader   :resource :pottery}  ;; C2
-   {:number 7 :city :uruk    :role :raider   :resource :pottery}  ;; D1
-   {:number 8 :city :uruk    :role :priest   :resource :pottery}  ;; D2
-   ])
 
 ;; =============================================================================
-;; Bonus Contests (feat/race cards) — from MSE "Bonus Contests.mse-set"
+;; Card data re-exports (moved to eridu.cards in QA lesson 10)
 ;; =============================================================================
-;; Symbol key from MSE: G=gems O=gold P=pottery L=tools A=amity Y=glory
-;; Contest IDs are the "Cost" field from MSE
+;; Kept here as defs so existing callers (game/bonus-boards-by-id etc.) still
+;; resolve. New code should require eridu.cards directly.
 
-(def bonus-contests
-  [;; --- A: Fulfill goods ---
-   {:id :A1 :name "Fulfill Gems/Gold"
-    :description "Fulfill 3 Gems and/or Gold"
-    :category :fulfill}
-   {:id :A2 :name "Fulfill Tools/Pottery"
-    :description "Fulfill 3 Tools and/or Pottery"
-    :category :fulfill}
-   ;; --- B: Fulfill patterns ---
-   {:id :B1 :name "Fulfill Same Type"
-    :description "Fulfill 3 goods of the same type"
-    :category :fulfill}
-   {:id :B2 :name "Fulfill All Types"
-    :description "Fulfill one or more good of all four types"
-    :category :fulfill}
-   ;; --- C: Temple count ---
-   {:id :C1 :name "Four Face-Up Temples"
-    :description "Four face-up temples"
-    :category :temple}
-   {:id :C2 :name "Four Face-Down Temples"
-    :description "Four face-down temples"
-    :category :temple}
-   ;; --- D: Temple placement ---
-   {:id :D1 :name "Temples in Eridu & Nineveh"
-    :description "A temple in each Eridu and Nineveh"
-    :category :temple}
-   {:id :D2 :name "Temples in River Cities"
-    :description "A temple in four river cities"
-    :category :temple}
-   ;; --- E: Raider placement ---
-   {:id :E1 :name "Surround Kish"
-    :description "Raiders surrounding Kish"
-    :category :raider}
-   {:id :E2 :name "Raiders at Eridu & Nineveh"
-    :description "Raiders next to Eridu and Nineveh"
-    :category :raider}
-   ;; --- F: Raider state ---
-   {:id :F1 :name "Three Point Raiders"
-    :description "Three Raiders on their point side"
-    :category :raider}
-   {:id :F2 :name "Raiders on Rivers"
-    :description "A raider on each river"
-    :category :raider}
-   ;; --- G: Magistrate movement ---
-   {:id :G1 :name "Move Magistrate Four"
-    :description "Move one Magistrate four cities in one turn"
-    :category :magistrate}
-   {:id :G2 :name "Magistrate Through Raiders"
-    :description "Move a Magistrate through three raiders (owned by any player)"
-    :category :magistrate}
-   ;; --- H: Role levels ---
-   {:id :H1 :name "Two Roles at Level 3+"
-    :description "Two roles at level 3 or higher"
-    :category :role}
-   {:id :H2 :name "Any Role at Level 5"
-    :description "Any Role at Level 5"
-    :category :role}
-   ;; --- I: Scoring thresholds ---
-   {:id :I1 :name "10 Points with Temple Flip"
-    :description "Earn 10 points on a turn where you flip at least 1 Temple (Amity and/or Glory)"
-    :category :scoring}
-   {:id :I2 :name "5 Glory in One Turn"
-    :description "Score 5 Glory in one turn"
-    :category :scoring}
-   ;; --- J: Scoring thresholds ---
-   {:id :J1 :name "5 Amity in One Turn"
-    :description "Score 5 Amity in one turn"
-    :category :scoring}
-   {:id :J2 :name "Only Tools"
-    :description "Have two Tools but no other goods"
-    :category :resource}
-   ;; --- K: Sell achievements ---
-   {:id :K1 :name "Big Gold Sale"
-    :description "Earn 5 total points by selling one Gold (Amity and/or Glory)"
-    :category :sell}
-   {:id :K2 :name "Sell in Surrounded City"
-    :description "Sell in a city surrounded by Raiders"
-    :category :sell}
-   ;; --- L: Resource hoarding ---
-   {:id :L1 :name "5 Gems"
-    :description "Have 5 Gems"
-    :category :resource}
-   {:id :L2 :name "5 Pottery"
-    :description "Have 5 Pottery"
-    :category :resource}
-   ;; --- M: Magistrate + temple combos ---
-   {:id :M1 :name "Magistrates at Temples"
-    :description "Both Magistrates in cities with your facedown temples"
-    :category :magistrate}
-   {:id :M2 :name "Temples Without Demand"
-    :description "Four temples in cities with no demand"
-    :category :temple}])
-
-;; =============================================================================
-;; Bonus Boards — from MSE "BonusBoards.mse-set"
-;; =============================================================================
-;; Each board has 5 effects: Effect1 is a persistent/passive ability,
-;; Effects 2-5 are one-time bonuses uncovered in order.
-;; Symbol key: G=gems O=gold P=pottery L=tools A=amity Y=glory
-
-(def bonus-boards
-  [{:id 1 :name "Shield of Gilgamesh"
-    :effects
-    ["When you surround a city with Raiders, put a temple in it (you don't have to be there)"
-     "Travel to Kish via the shortest route (you may choose between equal routes)"
-     "Increase your Raider and Leader Roles (paying any costs)"
-     "Place two Raiders adjacent to Lagash (you don't have to be there)"
-     "Score Glory for each demand you have fulfilled"]}
-   {:id 2 :name "Seal of Enmerkar"
-    :effects
-    ["When you score a Raider you may increase your Priest role (paying any costs)"
-     "Increase your Merchant and Raider Roles (paying any costs)"
-     "Score 5 Amity if you are in a city with a Magistrate"
-     "Place a Temple in a city with a Magistrate (even if you already have a temple there)"
-     "Score Glory for each of your facedown Temples"]}
-   {:id 3 :name "Voyage of Ziusudra"
-    :effects
-    ["When you Travel across a river take a Gem. Your Gems are worth Amity each at end of game"
-     "Increase your Leader Role for Free"
-     "Place a Temple in Lagash (even if you already have a temple there)"
-     "Place a Raider adjacent to Eridu and gain a good of your choice"
-     "Take a travel action then a Sell action"]}
-   {:id 4 :name "Blessing of Inanna"
-    :effects
-    ["When you flip a temple you may sell in that city"
-     "Place a Temple in Eridu (even if you already have a temple there)"
-     "Gain Tools, Gems, Gold"
-     "Score Amity based on your Leader level x 2"
-     "Score 2 Amity for each of your Raiders"]}
-   {:id 5 :name "Wisdom of Adapa"
-    :effects
-    ["When you Influence a Magistrate in your city you may travel with it"
-     "Increase your Priest Role for Free"
-     "Place two random Demand Tokens in Uruk. Gain the matching resources"
-     "Take a Deploy action then a Temple action"
-     "Score 2 Amity for each of your Raiders"]}
-   {:id 6 :name "Trade of Dumuzid"
-    :effects
-    ["When you use action space 7 you get a free Travel action"
-     "Increase your Merchant and Priest Roles (paying any costs)"
-     "Place a temple in each city with a Magistrate (if you don't have one there)"
-     "Sell to Babylon for double points (you don't need to be there)"
-     "Place a Raider adjacent to Lagash. Gain Tools, Tools"]}
-   {:id 7 :name "March of Lugalbanda"
-    :effects
-    ["When you place Raiders you may place an additional one next to a Magistrate"
-     "Increase your Merchant and Leader Roles (paying any costs)"
-     "Place a Temple in a city with a Magistrate (even if you already have a temple there)"
-     "Take a travel action. Score 3 Glory if you are in Eridu"
-     "Take a travel action. Score 3 Amity if you are in Kish"]}
-   {:id 8 :name "Fury of Enkidu"
-    :effects
-    ["When you score a Raider, instead flip it to its active side"
-     "Increase your Raider and Priest Roles (paying any costs)"
-     "Place one random Demand Token in Nippur and Babylon each. Then you may sell once in your city"
-     "Gain Gold, Gems, Pottery. Then you may sell once in your city"
-     "Flip all of your Raiders to their point side"]}
-   {:id 9 :name "Rites of Ninhursag"
-    :effects
-    ["When you flip a Temple, you may increase a role (paying any costs)"
-     "Gain Tools, Gold, Pottery. Score Amity based on your Leader level"
-     "Increase your Priest and Leader Roles (paying any costs)"
-     "Place a Raider on each River"
-     "Sell to any city with a Magistrate. If you are in that city, you may take a Temple action"]}
-   {:id 10 :name "Wealth of Meskalamdug"
-    :effects
-    ["You may sell Gold to cities with no demands. If you do, place a random Demand Token on that city"
-     "Increase your Merchant Role for Free"
-     "Increase your Merchant Role for Free"
-     "Place a Raider adjacent to a Magistrate. Score Amity based on your Leader level"
-     "Place a Temple in Nippur (even if you already have a temple there)"]}
-   {:id 11 :name "Ambition of Sargon"
-    :effects
-    ["When you meet this and other contests, score additional Glory based on your Leader level"
-     "Place two random Demand Tokens in Lagash. Gain matching resources"
-     "Sell to Lagash for Double Glory points (you don't have to be there)"
-     "Increase your Raider Role for Free"
-     "Score Glory for each of your facedown Temples"]}
-   {:id 12 :name "Currents of Enki"
-    :effects
-    ["When you cross a river, place a raider on that river"
-     "Increase all of your Level One Roles"
-     "Gain Gold, Gold, Gold, Gems"
-     "Increase your Merchant level (paying any costs). Then Sell to the city you are in for Glory instead"
-     "Score Glory for each of your facedown Temples"]}
-   {:id 13 :name "Pillars of Etana"
-    :effects
-    ["When you place a Temple you may place a Raider adjacent to it"
-     "Gain Tools, Tools, Tools. Score Glory based on your Leader Level"
-     "Gain Pottery, Pottery, Pottery. Score Glory based on your Leader Level"
-     "Increase all of your Level Three Roles (paying any costs)"
-     "Place a Temple adjacent to one of your Raiders (even if you already have a temple there)"]}
-   {:id 14 :name "Roads of Shulgi"
-    :effects
-    ["On your turn you may move between Uruk and an adjacent city by discarding one good as a bonus action"
-     "Place a Raider adjacent to Lagash. Then score Glory for each of your Raiders"
-     "Move a Magistrate to Uruk. Then gain resources matching Uruk's demands"
-     "Place two random Demand Tokens in Eridu. Travel to Eridu via the shortest route (you may choose between equal routes)"
-     "Place a Temple in Babylon (even if you already have a temple there)"]}
-   {:id 15 :name "Ascent of Ur-Nammu"
-    :effects
-    ["When you increase a role, you may increase it for free"
-     "For each demand you have fulfilled, take a matching good"
-     "Increase your Priest role. Then score 4 Glory if you have a facedown temple in Babylon"
-     "Increase your lowest role then take a Travel action (you pick if there is a tie)"
-     "Score 3 Amity for each Raider you have adjacent to a Magistrate"]}
-   {:id 16 :name "Dominion of Hammurabi"
-    :effects
-    ["When you take an action space with exactly two astronomers on it, take a third action"
-     "Take a Pottery for each Temple you have"
-     "Deploy then score Amity for each Raider you have"
-     "Increase your Leader role twice (paying any costs)"
-     "Put two random demand tokens on the city you are in. You may take Sell action"]}
-   {:id 17 :name "Cunning of Kubaba"
-    :effects
-    ["When you use action space 7 take a good of your choice"
-     "Place a Raider next to Eridu on its point side"
-     "Place one facedown Temple on each city with a Magistrate (even if you have temples there)"
-     "Score 8 Amity if you have Uruk surrounded by Raiders. Then you may flip one of those raiders"
-     "Sell to the city your caravan is in for Glory instead"]}
-   {:id 18 :name "Forge of Tubal-Cain"
-    :effects
-    ["When you spend Tools in any way, instead keep them. Your Tools are worth Glory each at end of game"
-     "Move a Magistrate across a river. You may sell in your caravan's city"
-     "Take a travel action then score 5 Glory if you have a facedown temple in Samarra"
-     "Score 6 Amity if you have Kish surrounded by Raiders. Then you may flip one of those raiders"
-     "Score 4 Amity for each of your Raiders on their point side. Then remove those raiders"]}
-   {:id 19 :name "Kilns of Ninkasi"
-    :effects
-    ["When you take Pottery, take an extra Pottery, Pottery"
-     "Increase your Priest role twice (paying any costs)"
-     "Sell to two cities that demand Pottery (you don't have to be there)"
-     "Discard a good to move a Magistrate to your City. Then take a sell action"
-     "Flip all of your placed Raiders to their point side"]}
-   {:id 20 :name "Vision of Rimush"
-    :effects
-    ["When you flip a Temple you may discard a Pottery. If you do, score 3 Glory"
-     "Place a Raider on each route with an opposing raider"
-     "Increase your Merchant role twice (paying any costs)"
-     "Influence a Magistrate. Then score Amity based on your leader level"
-     "Take up to four goods based on the action spaces your Astronomers occupy"]}
-   {:id 21 :name "Legacy of Eannatum"
-    :effects
-    ["When you place a temple in a city, you may place an additional temple facedown in that city"
-     "If you are in Eridu, travel anywhere via the shortest path (you choose between ties)"
-     "Increase your Raider and Leader roles (paying any costs)"
-     "Travel to an adjacent city then you may Sell to it"
-     "Score Glory for each demand you have fulfilled"]}
-   {:id 22 :name "Strategy of Naram-Sin"
-    :effects
-    ["When taking actions on action space 7 you may take the same action twice"
-     "Increase your Raider and Merchant Roles (paying any costs)"
-     "Put a random demand token on each of your facedown temples. Only you may fulfill those demands"
-     "Take a good of your choice. Then take a travel action"
-     "Score 2 Amity for each of your Raiders. Then take a travel action"]}
-   {:id 23 :name "Market of Puabi"
-    :effects
-    ["When you sell, score Glory instead of Amity"
-     "Increase your Priest and Merchant Roles (paying any costs)"
-     "Sell twice to Eridu (you don't need to be there)"
-     "Take a good of your choice. Then take a travel action. Increase your Merchant Role (paying any costs)"
-     "Place a Temple in a city with a Magistrate (even if you already have a temple there)"]}
-   {:id 24 :name "Siege of Shulme"
-    :effects
-    ["When you surround a City with Raiders you may Sell to that city (even if you aren't there)"
-     "Increase your Raider and Leader Roles (paying any costs)"
-     "Put a random demand token on each Magistrate. Only you may fulfill those demands"
-     "Score Glory for each demand you have fulfilled"
-     "Take a good for each demand in cities with Magistrates"]}
-   {:id 25 :name "Command of Mesannepada"
-    :effects
-    ["You may have two raiders on each path"
-     "Influence a Magistrate. Immediately score all of your raiders it moved through"
-     "Increase your Merchant and Leader Roles (paying any costs)"
-     "Place two facedown temples in your city (even if you already have a temple there)"
-     "Take a good of your choice. Then take a Travel action"]}
-   {:id 26 :name "Court of Enshakushanna"
-    :effects
-    ["When you score Magistrate bonus points, score an additional 2 Amity"
-     "Increase your Priest and Leader Roles (paying any costs)"
-     "Increase your Priest and Raider Roles (paying any costs)"
-     "Sell in your city. If you sold Tools or Pottery you may place a Temple in your city (even if you already have a temple there)"
-     "Place a Raider adjacent to your city. If you surround it, you may place a temple in it (even if you already have a temple there)"]}
-   {:id 27 :name "Path of Alulim"
-    :effects
-    ["When you increase a role, you may increase another role, paying double the normal cost"
-     "Travel to an adjacent city then you may Sell to it"
-     "Travel to an adjacent city then you may take a Deploy action"
-     "Travel to an adjacent city then you may place a Temple in it"
-     "Take three goods of your choice"]}
-   {:id 28 :name "Stars of Sin-Kashid"
-    :effects
-    ["You may increase a role at the end of your turn if you landed on a space with four or more Astronomers"
-     "Travel to an adjacent city then you may place a Temple in it (even if you already have a temple there)"
-     "Travel to an adjacent city then you may place a Temple in it (even if you already have a temple there)"
-     "Sell Gold or Gold to your city if it has no Demands. Then place a random demand on it"
-     "Put a raider point-side up adjacent to Kish"]}
-   {:id 29 :name "Treasury of Ibbi-Sin"
-    :effects
-    ["When you pay a Gold for any reason gain 2 Amity"
-     "Decrease your Leader role to increase all of your other roles (paying any costs)"
-     "Take a travel action then you may take a sell action"
-     "Place a raider on each river"
-     "Place a Temple in each city surrounded by your Raiders (even if you have a Temple there)"]}
-   {:id 30 :name "Council of Amar-Sin"
-    :effects
-    ["When taking goods you may instead take goods based on one of your other Astronomer's location on the action wheel"
-     "Influence a Magistrate then take a Travel action"
-     "Influence a Magistrate then take a Sell action"
-     "Take a Deploy action then Influence a Magistrate"
-     "Influence a Magistrate then take a Temple action"]}
-   {:id 31 :name "Horizon of Sharkalisharri"
-    :effects
-    ["When taking actions if one of your other Astronomers is on space 7, you may take a bonus Travel action"
-     "Increase all of your level one roles"
-     "Increase all of your level three roles (paying any costs)"
-     "Gain a resource of your choice and place a Facedown temple in your city (even if you already have a Temple there)"
-     "Gain a resource of your choice and take a Deploy action"]}
-   {:id 32 :name "Jewel of Ku-Bau"
-    :effects
-    ["When you sell you may discard a Gem to score Amity based on your Priest level instead of Merchant level"
-     "Sell in your city then Score Glory for each demand you have fulfilled"
-     "Take a Gem. Take two travel actions"
-     "Place a raider in each route that has one of your Temples in both cities"
-     "Influence a Magistrate then you may take sell action"]}
-   {:id 33 :name "Vanguard of Enmebaragesi"
-    :effects
-    ["When you deploy, you may Influence an adjacent Magistrate"
-     "Decrease your Merchant role to increase all of your other roles (paying any costs)"
-     "Place a facedown Temple in your city then take a travel action (even if you already have a Temple there)"
-     "Place a face up Temple in Uruk (even if you already have a Temple there)"
-     "Deploy a raider adjacent to your city then take a travel action"]}
-   {:id 34 :name "Honor of Agga"
-    :effects
-    ["When you score raiders, score Amity instead of Glory"
-     "Pay Tools, Tools to place a Raider on each space surrounding Uruk"
-     "Place a raider on each route you have a raider"
-     "Take a Sell action in each city that has both a Magistrate and one of your Temples (you don't have to be there)"
-     "Take a Sell action in each city that has both a Magistrate and one of your Temples (you don't have to be there)"]}
-   {:id 35 :name "Wanderer of Dumuzi"
-    :effects
-    ["At the start of your turn if you have no goods, gain a good of your choice"
-     "Travel then take a Sell action"
-     "You may pay any number of Pottery. For each Pottery you paid, place a Temple in a city which you have a Temple"
-     "Increase the role of your choice (paying any costs)"
-     "Influence a Magistrate. Score each of your Raiders it moved through"]}])
-
-(def bonus-boards-by-id
-  "Lookup bonus board by numeric ID."
-  (into {} (map (juxt :id identity) bonus-boards)))
-
-(def bonus-contests-by-id
-  "Lookup bonus contest by keyword ID."
-  (into {} (map (juxt :id identity) bonus-contests)))
+(def starting-cards       cards/starting-cards)
+(def bonus-contests       cards/bonus-contests)
+(def bonus-boards         cards/bonus-boards)
+(def bonus-boards-by-id   cards/bonus-boards-by-id)
+(def bonus-contests-by-id cards/bonus-contests-by-id)
 
 (defn player-color
   "Get the color for a player based on turn order index."
@@ -3111,6 +2518,47 @@
   (let [mag (magistrate-cities state)
         my-temples (set (keys (get-in state [:players player-key :temples] {})))]
     (vec (filter mag my-temples))))
+
+(defn cities-adjacent-to-my-raiders
+  "Cities at either endpoint of a route the player has a Raider on — the legal
+   targets for Board 13 #4 ('place a Temple adjacent to one of your Raiders')."
+  [state player-key]
+  (->> (keys (get-in state [:players player-key :raiders] {}))
+       (mapcat (fn [[a b]] [a b]))
+       distinct
+       vec))
+
+;; --- State-query helpers shared by personality.cljc and eridu_ws.clj ---
+;; These were duplicated until lesson 4 of the QA pass. Bodies are unchanged
+;; from the originals.
+
+(defn space-action-types
+  "Set of action types available on the action-board space."
+  [space-id]
+  (set (map :type (:actions (get action-spaces space-id)))))
+
+(defn space-gives-resources
+  "Resources granted by the take action on this space (or nil if none)."
+  [space-id]
+  (some :resources (:actions (get action-spaces space-id))))
+
+(defn has-resource-excess?
+  "True if the player has more than 2 of any resource in the given set."
+  [pdata resources]
+  (some #(> (get-in pdata [:resources %] 0) 2) resources))
+
+(defn city-has-sellable-demand?
+  "True if the city has a demand the player can currently fulfill."
+  [state player city]
+  (let [pdata (player-data state player)
+        demands (get-in state [:city-demands city] [])
+        resources (:resources pdata)]
+    (some #(pos? (get resources % 0)) demands)))
+
+(defn city-has-own-face-up-temple?
+  "True if the player has a face-up temple in the given city."
+  [pdata city]
+  (= :face-up (get-in pdata [:temples city])))
 
 ;; =============================================================================
 ;; Turn & round management
