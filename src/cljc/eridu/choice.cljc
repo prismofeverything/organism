@@ -7,31 +7,22 @@
 ;; Helpers
 ;; =============================================================================
 
-;; Forward declaration: travel-to-city is defined further down (Travel action),
-;; but board 14's bonus move in choose-action-choices needs it.
+;; Forward declaration: travel-to-city is re-exported further down from
+;; eridu.game (FIX 1), but board 14's bonus move in choose-action-choices
+;; (defined earlier) needs the var to resolve.
 (declare travel-to-city)
 
 (defn partial-map [f s]
   (into {} (map (juxt identity f) s)))
 
-(defn add-resource [state player resource n]
-  (update-in state [:players player :resources resource] + n))
-
-(defn spend-resource [state player resource]
-  (-> state
-      (update-in [:players player :resources resource] dec)
-      ;; Passive trigger: resource-spent (board 29: gold → +2 amity)
-      (game/apply-passive player :resource-spent {:resource resource})))
-
-(defn add-amity [state player n]
-  (-> state
-      (update-in [:players player :amity] + n)
-      (update-in [:turn-stats :amity] (fnil + 0) n)))
-
-(defn add-glory [state player n]
-  (-> state
-      (update-in [:players player :glory] + n)
-      (update-in [:turn-stats :glory] (fnil + 0) n)))
+;; FIX 1: these trivial state helpers were MOVED into eridu.game so the moved
+;; travel-resolution fns (and bonus board effects) can share them without a
+;; choice→game require cycle. Re-exported here so every existing caller in this
+;; namespace is byte-behavior-unchanged.
+(def add-resource  game/add-resource)
+(def spend-resource game/spend-resource)
+(def add-amity     game/add-amity)
+(def add-glory     game/add-glory)
 
 (defn city-surrounded-by-player?
   "True if every active route adjacent to `city` has one of `player`'s raiders."
@@ -55,14 +46,8 @@
 
 ;; ── Game log ─────────────────────────────────────────────────────────────────
 
-(defn add-log
-  "Append a log entry to the game state."
-  [state entry]
-  (update state :log (fnil conj [])
-          (merge {:round  (:round state 1)
-                  :turn   (:turn-in-round state 1)
-                  :player (game/current-player state)}
-                 entry)))
+;; FIX 1: add-log MOVED into eridu.game (re-exported for unchanged callers).
+(def add-log game/add-log)
 
 ;; =============================================================================
 ;; Phase 1: Choose a die
@@ -707,119 +692,14 @@
 ;; Action: Travel
 ;; =============================================================================
 
-(defn visit-temples-on-travel
-  "When caravan enters a city with a face-up temple, flip it and score amity."
-  [state player city]
-  (let [pdata (game/player-data state player)]
-    (if (game/city-has-own-face-up-temple? pdata city)
-      (let [;; Flip ONE face-up temple in this city to face-down
-            state (-> state
-                      (game/flip-one-temple player city)
-                      (update-in [:turn-stats :temples-flipped] (fnil inc 0)))
-            face-down-count (inc (game/count-face-down-temples pdata))
-            ;; Score amity = number of face-down temples
-            state (add-amity state player face-down-count)
-            ;; Magistrate bonus
-            leader-level (get-in state [:players player :roles :leader] 1)
-            has-magistrate? (game/magistrate-in-city? state city)
-            glory-bonus (if has-magistrate? (get game/leader-bonus leader-level 0) 0)]
-        (-> (cond-> state
-              (pos? glory-bonus) (add-glory player glory-bonus))
-            (add-log {:type :temple-visit
-                      :message (str "Visited temple in " (str/capitalize (name city))
-                                    " — flipped face-down → +" face-down-count " Amity"
-                                    " (" face-down-count " face-down temples)"
-                                    (when (pos? glory-bonus)
-                                      (str ", +" glory-bonus " Glory"
-                                           " (Leader lv" leader-level " magistrate bonus)")))
-                      :city city :amity face-down-count :glory glory-bonus})
-            ;; Passive triggers: boards 4 (sell), 9 (role+), 20 (pottery→glory)
-            (game/apply-passive player :temple-flipped {:city city})))
-      state)))
-
-(defn flip-enemy-raiders-on-route
-  "When caravan travels a route, flip any opposing raiders to :point side."
-  [state player route-key]
-  (reduce-kv
-   (fn [s pk pdata]
-     (if (and (not= pk player)
-              (= :raiding (get-in pdata [:raiders route-key])))
-       (-> s
-           (assoc-in [:players pk :raiders route-key] :point)
-           (add-log {:type :raider-flip
-                     :message (str "Flipped " pk "'s raider on "
-                                   (str/capitalize (name (first route-key))) "—"
-                                   (str/capitalize (name (second route-key)))
-                                   " to point side (caravan passed)")
-                     :owner pk :route route-key}))
-       s))
-   state
-   (:players state)))
-
-(defn score-own-raider-on-route
-  "When caravan travels a route with own :point raider, remove and score 4 glory."
-  [state player route-key]
-  (let [raider-state (get-in state [:players player :raiders route-key])]
-    (if (= raider-state :point)
-      (let [;; Fire passive first to set flags (e.g. board 8 :keep-scored-raider)
-            state (game/apply-passive state player :raider-scored {:route route-key})
-            keep? (get-in state [:players player :keep-scored-raider])
-            amity-instead? (get-in state [:players player :raider-score-amity])
-            state (if keep?
-                    ;; Board 8: flip back to :raiding instead of removing
-                    (-> state
-                        (assoc-in [:players player :raiders route-key] :raiding)
-                        (update-in [:players player] dissoc :keep-scored-raider))
-                    ;; Normal: remove raider, return to supply
-                    (-> state
-                        (update-in [:players player :raiders] dissoc route-key)
-                        (update-in [:players player :raiders-supply] inc)))
-            ;; Clear board 34 flag
-            state (if amity-instead?
-                    (update-in state [:players player] dissoc :raider-score-amity)
-                    state)]
-        (-> state
-            ;; Board 34: amity instead of glory
-            (as-> s (if amity-instead?
-                      (update-in s [:players player :amity] + 4)
-                      (add-glory s player 4)))
-            (add-log {:type :raider-score
-                      :message (str "Scored own raider on "
-                                    (str/capitalize (name (first route-key))) "—"
-                                    (str/capitalize (name (second route-key)))
-                                    (if amity-instead?
-                                      " → +4 Amity (board 34)"
-                                      " → +4 Glory")
-                                    (if keep?
-                                      " (raider flipped to active)"
-                                      " (raider returned to supply)"))
-                      :route route-key
-                      :glory (if amity-instead? 0 4)
-                      :amity (if amity-instead? 4 0)})))
-      state)))
-
-(defn travel-to-city
-  "Move caravan to adjacent city, handling raider flips and temple visits."
-  [state player destination]
-  (let [current-city (get-in state [:players player :caravan])
-        rk (game/route-key current-city destination)
-        ;; Check if this is a river route
-        is-river? (some #(and (= :river (:type %))
-                              (= rk (game/route-key (:from %) (:to %))))
-                        (:routes state))]
-    (-> state
-        (assoc-in [:players player :caravan] destination)
-        (update-in [:players player :travels-this-round] (fnil inc 0))
-        (update-in [:players player :total-travels] (fnil inc 0))
-        (add-log {:type :travel
-                  :message (str "Traveled from " (str/capitalize (name current-city))
-                                " to " (str/capitalize (name destination)))
-                  :from current-city :to destination})
-        (flip-enemy-raiders-on-route player rk)
-        (score-own-raider-on-route player rk)
-        (visit-temples-on-travel player destination)
-        ;; Passive trigger: river crossing (boards 3, 12)
-        (cond-> is-river? (game/apply-passive player :river-crossed {:route rk})))))
+;; FIX 1: travel-to-city and its 3 side-effect helpers were MOVED into
+;; eridu.game so bonus board effects can reuse REAL travel resolution. They are
+;; re-exported here byte-identically so resolve-travel-choices and every other
+;; caller (eridu_ws.clj, play.cljs, choose-action-choices) are unchanged.
+(def visit-temples-on-travel      game/visit-temples-on-travel)
+(def flip-enemy-raiders-on-route  game/flip-enemy-raiders-on-route)
+(def score-own-raider-on-route    game/score-own-raider-on-route)
+(def travel-to-city               game/travel-to-city)
 
 (defn resolve-travel-choices
   "Travel: move caravan one space. May discard a good to move again."

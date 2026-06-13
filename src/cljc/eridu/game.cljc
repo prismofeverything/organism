@@ -11,6 +11,12 @@
          rounds-per-game advance-turn
          ;; Helpers used by apply-passive slot-0 dispatch (defined later in file)
          sell-good-in-city bonus-sell-in bonus-influence perform-influence road-clockwise-next
+         ;; Travel resolution (FIX 1: moved here from choice.cljc; used by
+         ;; apply-passive board-5 and the apply-bonus-dispatch travel arms)
+         add-log add-amity add-glory add-resource spend-resource
+         travel-to-city shortest-city-path bonus-travel-to
+         visit-temples-on-travel flip-enemy-raiders-on-route score-own-raider-on-route
+         city-has-own-face-up-temple? leader-bonus
          ;; Constants used by apply-passive and bonus board effects
          role-threshold-costs merchant-score raider-max-deployed priest-max-temples
          resource-types roles max-role-level active-routes route-key segment-route-key)
@@ -97,7 +103,9 @@
               to (:to context)
               caravan (get-in state [:players player-key :caravan])]
           (if (and from to (= from caravan))
-            (assoc-in state [:players player-key :caravan] to)
+            ;; FIX 1: travel WITH the magistrate via real travel resolution
+            ;; (raider/temple/river effects fire), not a caravan teleport.
+            (bonus-travel-to state player-key to)
             state))
 
         ;; ── Board 6: Action space 7 → free Travel action ─────────────────
@@ -821,6 +829,202 @@
   [route city]
   (if (= (:from route) city) (:to route) (:from route)))
 
+;; =============================================================================
+;; FIX 1: Travel resolution primitives (moved here from eridu.choice).
+;; These live in game.cljc so BOTH the real travel action (choice.cljc, via thin
+;; re-exports) AND bonus board effects (apply-bonus-dispatch, board-5 passive)
+;; resolve travel the SAME way — every traversed hop fires the real side-effects
+;; (own point-raider pickup+score, enemy-raider flip, temple visits, :river-crossed
+;; passive). choice.cljc re-exports these so all existing callers are unchanged.
+;; =============================================================================
+
+;; ── Trivial state helpers ──────────────────────────────────────────────────
+
+(defn add-resource [state player resource n]
+  (update-in state [:players player :resources resource] + n))
+
+(defn spend-resource [state player resource]
+  (-> state
+      (update-in [:players player :resources resource] dec)
+      ;; Passive trigger: resource-spent (board 29: gold → +2 amity)
+      (apply-passive player :resource-spent {:resource resource})))
+
+(defn add-amity [state player n]
+  (-> state
+      (update-in [:players player :amity] + n)
+      (update-in [:turn-stats :amity] (fnil + 0) n)))
+
+(defn add-glory [state player n]
+  (-> state
+      (update-in [:players player :glory] + n)
+      (update-in [:turn-stats :glory] (fnil + 0) n)))
+
+(defn add-log
+  "Append a log entry to the game state."
+  [state entry]
+  (update state :log (fnil conj [])
+          (merge {:round  (:round state 1)
+                  :turn   (:turn-in-round state 1)
+                  :player (current-player state)}
+                 entry)))
+
+;; ── Travel side-effects ──────────────────────────────────────────────────────
+
+(defn visit-temples-on-travel
+  "When caravan enters a city with a face-up temple, flip it and score amity."
+  [state player city]
+  (let [pdata (player-data state player)]
+    (if (city-has-own-face-up-temple? pdata city)
+      (let [;; Flip ONE face-up temple in this city to face-down
+            state (-> state
+                      (flip-one-temple player city)
+                      (update-in [:turn-stats :temples-flipped] (fnil inc 0)))
+            face-down-count (inc (count-face-down-temples pdata))
+            ;; Score amity = number of face-down temples
+            state (add-amity state player face-down-count)
+            ;; Magistrate bonus
+            leader-level (get-in state [:players player :roles :leader] 1)
+            has-magistrate? (magistrate-in-city? state city)
+            glory-bonus (if has-magistrate? (get leader-bonus leader-level 0) 0)]
+        (-> (cond-> state
+              (pos? glory-bonus) (add-glory player glory-bonus))
+            (add-log {:type :temple-visit
+                      :message (str "Visited temple in " (clojure.string/capitalize (name city))
+                                    " — flipped face-down → +" face-down-count " Amity"
+                                    " (" face-down-count " face-down temples)"
+                                    (when (pos? glory-bonus)
+                                      (str ", +" glory-bonus " Glory"
+                                           " (Leader lv" leader-level " magistrate bonus)")))
+                      :city city :amity face-down-count :glory glory-bonus})
+            ;; Passive triggers: boards 4 (sell), 9 (role+), 20 (pottery→glory)
+            (apply-passive player :temple-flipped {:city city})))
+      state)))
+
+(defn flip-enemy-raiders-on-route
+  "When caravan travels a route, flip any opposing raiders to :point side."
+  [state player route-key]
+  (reduce-kv
+   (fn [s pk pdata]
+     (if (and (not= pk player)
+              (= :raiding (get-in pdata [:raiders route-key])))
+       (-> s
+           (assoc-in [:players pk :raiders route-key] :point)
+           (add-log {:type :raider-flip
+                     :message (str "Flipped " pk "'s raider on "
+                                   (clojure.string/capitalize (name (first route-key))) "—"
+                                   (clojure.string/capitalize (name (second route-key)))
+                                   " to point side (caravan passed)")
+                     :owner pk :route route-key}))
+       s))
+   state
+   (:players state)))
+
+(defn score-own-raider-on-route
+  "When caravan travels a route with own :point raider, remove and score 4 glory."
+  [state player route-key]
+  (let [raider-state (get-in state [:players player :raiders route-key])]
+    (if (= raider-state :point)
+      (let [;; Fire passive first to set flags (e.g. board 8 :keep-scored-raider)
+            state (apply-passive state player :raider-scored {:route route-key})
+            keep? (get-in state [:players player :keep-scored-raider])
+            amity-instead? (get-in state [:players player :raider-score-amity])
+            state (if keep?
+                    ;; Board 8: flip back to :raiding instead of removing
+                    (-> state
+                        (assoc-in [:players player :raiders route-key] :raiding)
+                        (update-in [:players player] dissoc :keep-scored-raider))
+                    ;; Normal: remove raider, return to supply
+                    (-> state
+                        (update-in [:players player :raiders] dissoc route-key)
+                        (update-in [:players player :raiders-supply] inc)))
+            ;; Clear board 34 flag
+            state (if amity-instead?
+                    (update-in state [:players player] dissoc :raider-score-amity)
+                    state)]
+        (-> state
+            ;; Board 34: amity instead of glory
+            (as-> s (if amity-instead?
+                      (update-in s [:players player :amity] + 4)
+                      (add-glory s player 4)))
+            (add-log {:type :raider-score
+                      :message (str "Scored own raider on "
+                                    (clojure.string/capitalize (name (first route-key))) "—"
+                                    (clojure.string/capitalize (name (second route-key)))
+                                    (if amity-instead?
+                                      " → +4 Amity (board 34)"
+                                      " → +4 Glory")
+                                    (if keep?
+                                      " (raider flipped to active)"
+                                      " (raider returned to supply)"))
+                      :route route-key
+                      :glory (if amity-instead? 0 4)
+                      :amity (if amity-instead? 4 0)})))
+      state)))
+
+(defn travel-to-city
+  "Move caravan to adjacent city, handling raider flips and temple visits."
+  [state player destination]
+  (let [current-city (get-in state [:players player :caravan])
+        rk (route-key current-city destination)
+        ;; Check if this is a river route
+        is-river? (some #(and (= :river (:type %))
+                              (= rk (route-key (:from %) (:to %))))
+                        (:routes state))]
+    (-> state
+        (assoc-in [:players player :caravan] destination)
+        (update-in [:players player :travels-this-round] (fnil inc 0))
+        (update-in [:players player :total-travels] (fnil inc 0))
+        (add-log {:type :travel
+                  :message (str "Traveled from " (clojure.string/capitalize (name current-city))
+                                " to " (clojure.string/capitalize (name destination)))
+                  :from current-city :to destination})
+        (flip-enemy-raiders-on-route player rk)
+        (score-own-raider-on-route player rk)
+        (visit-temples-on-travel player destination)
+        ;; Passive trigger: river crossing (boards 3, 12)
+        (cond-> is-river? (apply-passive player :river-crossed {:route rk})))))
+
+(defn shortest-city-path
+  "BFS over (:city-graph state) from src to dest. Returns the ordered hop list
+   EXCLUDING src (i.e. each intermediate city then dest), or nil if unreachable.
+   Deterministic: neighbours are enqueued in sorted order so equal-length paths
+   are tie-broken stably. (No general pathfinder existed before — road-clockwise-path
+   is magistrate-/road-only and ignores river edges.)"
+  [state src dest]
+  (let [graph (:city-graph state)]
+    (cond
+      (= src dest) []
+      (nil? (get graph src)) nil
+      :else
+      ;; Level-order BFS over `frontier` (a vector — portable across CLJ/CLJS,
+      ;; unlike clojure.lang.PersistentQueue which is JVM-only). Each level's
+      ;; neighbours are expanded in sorted order so equal-length paths tie-break
+      ;; stably. `seen` maps each city to its predecessor (src -> nil) for path
+      ;; reconstruction.
+      (loop [frontier [src]
+             seen {src nil}]
+        (if (empty? frontier)
+          nil
+          (if (some #(= dest %) frontier)
+            ;; Reconstruct path from dest back to src, then drop src
+            (loop [c dest acc ()]
+              (if (nil? c)
+                (vec (rest acc))
+                (recur (get seen c) (conj acc c))))
+            (let [[frontier' seen']
+                  (reduce
+                   (fn [[fr sn] city]
+                     (reduce
+                      (fn [[fr2 sn2] n]
+                        (if (contains? sn2 n)
+                          [fr2 sn2]
+                          [(conj fr2 n) (assoc sn2 n city)]))
+                      [fr sn]
+                      (sort-by name (get graph city))))
+                   [[] seen]
+                   frontier)]
+              (recur frontier' seen'))))))))
+
 ;; Clockwise road order for magistrate movement
 (def road-clockwise-order
   [:samarra :kish :nippur :lagash :eridu :uruk :babylon :nineveh])
@@ -878,6 +1082,73 @@
                     s (:players s))))
                state path)]
     state))
+
+;; =============================================================================
+;; FIX 2 (typed-movement class): magistrate movement that honors route :type.
+;; perform-influence above is ROAD-only (road-clockwise-path has no river edges),
+;; so a "move a Magistrate across a river" effect must flip the raider on the
+;; RIVER edge and fire :river-crossed — not flip a road raider. We model the
+;; river hop as the single river-typed edge [mag-city dest] using the same
+;; magistrate-flip semantics (:raiding → :point, both key orderings).
+;; =============================================================================
+
+(defn river-edge?
+  "True if [a b] is an active RIVER-typed route in this state's board."
+  [state a b]
+  (let [rk (route-key a b)]
+    (boolean
+     (some #(and (= :river (:type %))
+                 (= rk (route-key (:from %) (:to %))))
+           (board-routes state)))))
+
+(defn magistrate-river-destinations
+  "Cities reachable by a single RIVER edge from a city currently holding a
+   magistrate — the legal targets of Board 18 #1 ('Move a Magistrate across a
+   river'). Returns a distinct vector of destination cities."
+  [state]
+  (let [mag-cities (magistrate-cities state)]
+    (->> (board-routes state)
+         (filter #(= :river (:type %)))
+         (mapcat (fn [{:keys [from to]}]
+                   (cond-> []
+                     (contains? mag-cities from) (conj to)
+                     (contains? mag-cities to)   (conj from))))
+         distinct
+         vec)))
+
+(defn perform-river-influence
+  "Move a magistrate ACROSS A RIVER edge to `dest`. Picks a magistrate that sits
+   on a city sharing a river edge with `dest`, moves it there, flips the raider on
+   that single river edge (both key orderings) to :point, and fires the
+   :river-crossed passive for `player-key`. No-op (returns state unchanged) when
+   no magistrate is one river edge from `dest`. Mirrors perform-influence's flip
+   semantics but for the typed (river) edge instead of a road-clockwise path."
+  [state player-key dest]
+  (let [mag-entry (->> (:magistrates state)
+                       (filter (fn [[_ mag-city]]
+                                 (river-edge? state mag-city dest)))
+                       first)]
+    (if-not mag-entry
+      state
+      (let [[mag-id mag-city] mag-entry
+            rk (route-key mag-city dest)
+            ;; Move the magistrate across the river
+            state (assoc-in state [:magistrates mag-id] dest)
+            ;; Flip the raider on the river edge (both orderings, like perform-influence)
+            state (reduce-kv
+                   (fn [s pk pdata]
+                     (let [raiders (:raiders pdata)
+                           match (cond
+                                   (= :raiding (get raiders rk)) rk
+                                   (= :raiding (get raiders [mag-city dest])) [mag-city dest]
+                                   (= :raiding (get raiders [dest mag-city])) [dest mag-city]
+                                   :else nil)]
+                       (if match
+                         (assoc-in s [:players pk :raiders match] :point)
+                         s)))
+                   state (:players state))]
+        ;; Fire the river-crossing passive (boards 3, 12) — the typed edge was a river
+        (apply-passive state player-key :river-crossed {:route rk})))))
 
 (def city-demand-count
   {:samarra 2 :nineveh 1 :kish 1 :babylon 1
@@ -1513,10 +1784,25 @@
         rk (first avail)]
     (if rk (place-raider-on s player-key rk) s)))
 
-(defn- bonus-travel-to
-  "Move the player's caravan to `city`."
-  [s player-key city]
-  (assoc-in s [:players player-key :caravan] city))
+(defn bonus-travel-to
+  "FIX 1: Move the player's caravan to `dest` via REAL travel resolution.
+   No-op when dest is nil or already the caravan's city. Otherwise BFS the
+   shortest path (over :city-graph, road + river edges) and reduce travel-to-city
+   over every hop, so each traversed route fires the genuine side-effects:
+   own point-raider pickup+score, enemy-raider flips, temple visits, and the
+   :river-crossed passive. A single adjacent hop fires exactly one travel-to-city.
+   Replaces the old caravan teleport (assoc-in […:caravan] dest) used throughout
+   apply-bonus-dispatch and the board-5 :magistrate-moved passive."
+  [s player-key dest]
+  (let [caravan (get-in s [:players player-key :caravan])]
+    (if (or (nil? dest) (= dest caravan))
+      s
+      (if-let [hops (shortest-city-path s caravan dest)]
+        (reduce (fn [st hop] (travel-to-city st player-key hop)) s hops)
+        ;; Unreachable via the graph (e.g. a hand-built state with no :city-graph,
+        ;; or a non-adjacent target with no path): fall back to a direct single hop
+        ;; so the destination is still honored and its route effects still fire.
+        (travel-to-city s player-key dest)))))
 
 (defn apply-bonus-with-choice
   "Human/UI arm for a bonus effect that needs a player choice. A thin wrapper
@@ -1553,8 +1839,7 @@
   [state player-key pdata pc board-id slot-idx & [choice]]
   (case [board-id slot-idx]
       ;; ─── Board 1: Shield of Gilgamesh ───────────────────────────
-      [1 1] (let [city :kish] ;; Travel to Kish
-              (assoc-in state [:players player-key :caravan] city))
+      [1 1] (bonus-travel-to state player-key :kish) ;; Travel to Kish
       [1 2] (-> state ;; Increase Raider and Leader
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :leader))
@@ -1592,7 +1877,7 @@
                     (add-player-resource player-key good 1))
                 (add-player-resource state player-key good 1)))
       [3 4] (-> state ;; Travel then Sell → travel to Eridu + grant a demand-style bonus
-               (assoc-in [:players player-key :caravan] :eridu)
+               (bonus-travel-to player-key :eridu)
                (update-in [:players player-key :amity] + 2))
 
       ;; ─── Board 4: Blessing of Inanna ────────────────────────────
@@ -1658,11 +1943,11 @@
       ;; (Bucket A): travel to (or choice :eridu); score 3 glory only if you end
       ;; in Eridu. (Old human arm scored nothing.)
       [7 3] (let [dest (or choice :eridu)]
-              (cond-> (assoc-in state [:players player-key :caravan] dest)
+              (cond-> (bonus-travel-to state player-key dest)
                 (= dest :eridu) (update-in [:players player-key :glory] + 3)))
       ;; "Take a travel action. Score 3 Amity if you are in Kish." FAITHFUL.
       [7 4] (let [dest (or choice :kish)]
-              (cond-> (assoc-in state [:players player-key :caravan] dest)
+              (cond-> (bonus-travel-to state player-key dest)
                 (= dest :kish) (update-in [:players player-key :amity] + 3)))
 
       ;; ─── Board 8: Fury of Enkidu ───────────────────────────────
@@ -1695,7 +1980,7 @@
       ;; city without your temple>) + travel there + temple proxy.
       [9 4] (let [target (or choice (default-magistrate-target state pdata))]
               (cond-> state
-                target (-> (assoc-in [:players player-key :caravan] target)
+                target (-> (bonus-travel-to player-key target)
                           (update-in [:players player-key :amity] + 2)
                           (place-temple-in player-key target true))))
 
@@ -1718,7 +2003,7 @@
 
       ;; ─── Board 11: Ambition of Sargon ──────────────────────────
       [11 1] (-> state ;; Place demand tokens in Lagash → approximate with resources
-                (assoc-in [:players player-key :caravan] :lagash)
+                (bonus-travel-to player-key :lagash)
                 (add-player-resource player-key :gold 1)
                 (add-player-resource player-key :pottery 1))
       ;; "Sell to Lagash for Double Glory points (you don't have to be there)."
@@ -1788,7 +2073,7 @@
                   true  (assoc :demand-bag (or bag2 bag1 bag))
                   tok1  (update-in [:city-demands :eridu] (fnil conj []) tok1)
                   tok2  (update-in [:city-demands :eridu] (fnil conj []) tok2)
-                  true  (assoc-in [:players player-key :caravan] :eridu)))
+                  true  (bonus-travel-to player-key :eridu)))
       [14 4] (place-temple-in state player-key :babylon true)
 
       ;; ─── Board 15: Ascent of Ur-Nammu ──────────────────────────
@@ -1862,16 +2147,20 @@
 
       ;; ─── Board 18: Forge of Tubal-Cain ─────────────────────────
       ;; "Move a Magistrate across a river. You may sell in your caravan's city."
-      ;; choice = magistrate destination; move it (influence) then sell in caravan.
-      ;; (Old human arm dropped both; unification had collapsed it to a +2 tools stub.)
-      [18 1] (let [dest (or choice (first (magistrate-cities state)))
-                   s (cond-> state dest (bonus-influence player-key dest))]
+      ;; FIX 2 (typed-movement): the move is across a RIVER edge, so use
+      ;; perform-river-influence (flip the river-edge raider + fire :river-crossed),
+      ;; NOT bonus-influence (road-clockwise, which flips the wrong raider and
+      ;; never crosses a river). choice = a city one river edge from a magistrate
+      ;; (descriptor filter :magistrate-river); default = first such city. Then
+      ;; sell in the caravan's city. (Old arm: road influence + +2-tools stub.)
+      [18 1] (let [dest (or choice (first (magistrate-river-destinations state)))
+                   s (cond-> state dest (perform-river-influence player-key dest))]
                (bonus-sell-in s player-key (:caravan pdata)))
       ;; "Take a travel action then score 5 Glory IF you have a facedown temple
       ;; in Samarra." FAITHFUL (Bucket B): grant 0 glory when the condition is
       ;; unmet (was a spurious +2). choice = travel destination (no score effect).
       [18 2] (let [s (if choice
-                       (assoc-in state [:players player-key :caravan] choice)
+                       (bonus-travel-to state player-key choice)
                        state)]
                (if (some #{:face-down} (temples-at pdata :samarra))
                  (update-in s [:players player-key :glory] + 5)
@@ -1947,7 +2236,7 @@
 
       ;; ─── Board 21: Legacy of Eannatum ───────────────────────────
       ;; "If you are in Eridu, travel anywhere." choice = destination, default :eridu.
-      [21 1] (assoc-in state [:players player-key :caravan] (or choice :eridu))
+      [21 1] (bonus-travel-to state player-key (or choice :eridu))
       [21 2] (-> state ;; Increase Raider and Leader
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :leader))
@@ -1955,7 +2244,7 @@
       ;; destination (default :eridu); travel there + sell.
       [21 3] (let [dest (or choice :eridu)]
                (-> state
-                   (assoc-in [:players player-key :caravan] dest)
+                   (bonus-travel-to player-key dest)
                    (bonus-sell-in player-key dest)))
       [21 4] (let [demands (:demand-tokens pdata [])] ;; Glory per demand
                (update-in state [:players player-key :glory] + (count demands)))
@@ -1975,14 +2264,14 @@
       [22 4] (let [rc (count-raiders-deployed pdata)
                    dest (or choice (:caravan pdata))]
                (cond-> (update-in state [:players player-key :amity] + (* 2 rc))
-                 dest (assoc-in [:players player-key :caravan] dest)))
+                 dest (bonus-travel-to player-key dest)))
 
       ;; ─── Board 23: Market of Puabi ──────────────────────────────
       [23 1] (-> state ;; Increase Priest and Merchant
                (increase-role-with-cost player-key :priest)
                (increase-role-with-cost player-key :merchant))
       [23 2] (-> state ;; Sell twice to Eridu → travel + double amity
-                (assoc-in [:players player-key :caravan] :eridu)
+                (bonus-travel-to player-key :eridu)
                 (update-in [:players player-key :amity] + 4))
       ;; "Take a good of your choice. Then take a travel action. Increase your
       ;; Merchant Role (paying any costs)." FAITHFUL (Bucket A): grant the chosen
@@ -2055,17 +2344,17 @@
       ;; destination; travel + sell.
       [27 1] (let [dest (or choice (:caravan pdata))]
                (cond-> state
-                 dest (-> (assoc-in [:players player-key :caravan] dest)
+                 dest (-> (bonus-travel-to player-key dest)
                           (bonus-sell-in player-key dest))))
       ;; "Travel to an adjacent city then you may take a Deploy action."
       [27 2] (let [dest (or choice (:caravan pdata))]
                (cond-> state
-                 dest (-> (assoc-in [:players player-key :caravan] dest)
+                 dest (-> (bonus-travel-to player-key dest)
                           (bonus-deploy-near player-key dest))))
       ;; "Travel to an adjacent city then you may place a Temple in it."
       [27 3] (let [dest (or choice (:caravan pdata))]
                (cond-> state
-                 dest (-> (assoc-in [:players player-key :caravan] dest)
+                 dest (-> (bonus-travel-to player-key dest)
                           (place-temple-in player-key dest true))))
       ;; "Take three goods of your choice." choice = one resource per call
       ;; (the WS layer prompts 3×); auto default grants tools/gold/gems.
@@ -2080,11 +2369,11 @@
       ;; "Travel to an adjacent city then place a Temple in it." choice = dest.
       [28 1] (let [dest (or choice (:caravan pdata))]
                (cond-> state
-                 dest (-> (assoc-in [:players player-key :caravan] dest)
+                 dest (-> (bonus-travel-to player-key dest)
                           (place-temple-in player-key dest true))))
       [28 2] (let [dest (or choice (:caravan pdata))]
                (cond-> state
-                 dest (-> (assoc-in [:players player-key :caravan] dest)
+                 dest (-> (bonus-travel-to player-key dest)
                           (place-temple-in player-key dest true))))
       [28 3] (let [gold (get-in pdata [:resources :gold] 0)] ;; Sell gold to city + demand
                (cond-> state
@@ -2169,7 +2458,7 @@
       ;; travel; old human arm travelled but dropped the gem.) Second travel dropped.
       [32 2] (let [dest (or choice (:caravan pdata))]
                (cond-> (add-player-resource state player-key :gems 1)
-                 dest (assoc-in [:players player-key :caravan] dest)))
+                 dest (bonus-travel-to player-key dest)))
       [32 3] (let [t-cities (set (temple-cities pdata)) ;; Raider between temple cities
                    avail (free-routes pdata pc
                                       #(and (contains? t-cities (:from %))
@@ -2204,14 +2493,14 @@
                    s (cond-> state
                        temple-city (add-temple player-key temple-city :face-down))]
                (cond-> s
-                 dest (assoc-in [:players player-key :caravan] dest)))
+                 dest (bonus-travel-to player-key dest)))
       [33 3] (place-temple-in state player-key :uruk true) ;; Temple in Uruk
       ;; "Deploy a raider adjacent to your city then take a travel action."
       ;; choice = travel destination; deploy near caravan + travel.
       [33 4] (let [dest (or choice (:caravan pdata))
                    s (bonus-deploy-near state player-key (:caravan pdata))]
                (cond-> s
-                 dest (assoc-in [:players player-key :caravan] dest)))
+                 dest (bonus-travel-to player-key dest)))
 
       ;; ─── Board 34: Honor of Agga ────────────────────────────────
       ;; "Pay Tools, Tools to place a Raider on each space surrounding Uruk."
@@ -2243,7 +2532,7 @@
       ;; "Travel then take a Sell action." choice = destination; travel + sell.
       [35 1] (let [dest (or choice (:caravan pdata))]
                (cond-> state
-                 dest (-> (assoc-in [:players player-key :caravan] dest)
+                 dest (-> (bonus-travel-to player-key dest)
                           (bonus-sell-in player-key dest))))
       ;; "Pay any number of Pottery. For each Pottery you paid, place a Temple in a
       ;; city which you already have a Temple." Multi-temple model: genuinely add
@@ -2767,6 +3056,23 @@
        (mapcat (fn [[a b]] [a b]))
        distinct
        vec))
+
+(defn eligible-cities-for-filter
+  "FIX 3: legal target cities for a :pick-city bonus `filter`, computed
+   server-side so the WS layer surfaces a concrete list for EVERY state-dependent
+   filter (was only :magistrate-and-my-temple + :adjacent-to-raider — leaving
+   e.g. board-13 #4 / board-18 #1 with an empty/absent picker). Returns a vector
+   (possibly empty); nil for filters with no state-dependent target set."
+  [state player-key filter]
+  (case filter
+    :magistrate               (vec (magistrate-cities state))
+    :adjacent                 (vec (get-in state [:city-graph
+                                                  (get-in state [:players player-key :caravan])]))
+    :any                      (vec (keys (:city-graph state)))
+    :adjacent-to-raider       (cities-adjacent-to-my-raiders state player-key)
+    :magistrate-and-my-temple (magistrate-and-my-temple-cities state player-key)
+    :magistrate-river         (magistrate-river-destinations state)
+    nil))
 
 ;; --- State-query helpers shared by personality.cljc and eridu_ws.clj ---
 ;; These were duplicated until lesson 4 of the QA pass. Bodies are unchanged

@@ -362,3 +362,123 @@
           s' (game/apply-passive s :alice :landing {:space 7})]
       (is (nil? (get-in s' [:players :alice :pending-free-travel]))
           "covered slot 0 → passive does not fire"))))
+
+;; =============================================================================
+;; FIX 1 — bonus TRAVEL is REAL travel resolution (not a caravan teleport).
+;; Every traversed hop must fire the genuine travel side-effects: own point
+;; raider pickup+score, enemy-raider flips, temple visits, :river-crossed.
+;; =============================================================================
+
+(defn- board-state
+  "A real board state: city-graph + active routes for player-count, with :alice
+   on `board-id` and the given player overrides. Lets bonus-travel-to BFS the
+   graph and travel-to-city fire route effects (instead of the no-city-graph
+   fallback used by the minimal builders above)."
+  [player-count board-id player-overrides]
+  (-> (state-with board-id player-overrides
+                  {:city-graph (game/city-graph player-count)
+                   :routes (game/active-routes player-count)})))
+
+(deftest fix1-bonus-travel-scores-own-point-raider-on-route-test
+  ;; [21 1] "travel anywhere from Eridu" (choice = uruk). The caravan starts in
+  ;; babylon with a face-up (point) raider on the traversed road [:babylon :uruk].
+  ;; A teleport would silently skip it; real travel resolution scores it: +4
+  ;; glory and the raider returns to supply.
+  (testing "bonus travel over a route with own point raider → +4 glory, raider returned"
+    (let [s  (board-state 4 21 {:caravan :babylon
+                                :raiders {[:babylon :uruk] :point}
+                                :raiders-supply 5 :glory 0})
+          s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
+      (is (= :uruk (get-in s' [:players :alice :caravan])) "caravan reached the destination")
+      (is (= 4 (glory s')) "scored +4 glory for the own point raider on the traversed route")
+      (is (nil? (get-in s' [:players :alice :raiders [:babylon :uruk]]))
+          "the scored raider was removed (no longer on the route)")
+      (is (= 6 (get-in s' [:players :alice :raiders-supply]))
+          "the scored raider returned to supply (5 → 6)")))
+  (testing "enemy raider on the traversed route is flipped to point (real resolution)"
+    (let [s  (-> (board-state 4 21 {:caravan :babylon :raiders {}})
+                 (assoc-in [:players :bob] {:raiders {[:babylon :uruk] :raiding}}))
+          s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
+      (is (= :point (get-in s' [:players :bob :raiders [:babylon :uruk]]))
+          "the enemy's raider on the route the caravan crossed was flipped to point"))))
+
+;; =============================================================================
+;; FIX 2 — [18 1] "Move a Magistrate across a river" honors route :type.
+;; A river move must flip the raider on the RIVER edge and fire :river-crossed —
+;; NOT trace a road-clockwise path (which flips the wrong raider, never a river).
+;; =============================================================================
+
+(deftest fix2-river-influence-flips-river-edge-raider-and-fires-river-crossed-test
+  ;; Magistrate at uruk; dest = nippur (the RIVER edge [:nippur :uruk]). Place an
+  ;; enemy :raiding raider on BOTH the river edge AND a uruk ROAD edge
+  ;; ([:babylon :uruk]). The river move must flip the RIVER raider only.
+  (testing "river move flips the river-edge raider, leaves the road raider untouched"
+    (let [s  (-> (board-state 4 18 {:caravan :eridu})
+                 (assoc :magistrates {:m1 :uruk})
+                 (assoc-in [:players :bob]
+                           {:raiders {[:nippur :uruk] :raiding    ;; river edge
+                                      [:babylon :uruk] :raiding}}));; road edge
+          s' (game/perform-river-influence s :alice :nippur)]
+      (is (= :nippur (get-in s' [:magistrates :m1])) "magistrate moved across the river")
+      (is (= :point (get-in s' [:players :bob :raiders [:nippur :uruk]]))
+          "the RIVER-edge raider was flipped (the bug: it used to flip a road raider)")
+      (is (= :raiding (get-in s' [:players :bob :raiders [:babylon :uruk]]))
+          "the ROAD-edge raider is NOT touched by a river move")))
+  (testing ":river-crossed passive fires for the mover (board 3 → +1 gem)"
+    ;; Board 3 slot 0 :river-crossed grants a gem; a road influence would never
+    ;; fire it. Proves the typed (river) edge triggered the river-crossing passive.
+    (let [s  (-> (board-state 4 3 {:caravan :eridu :resources {:tools 0 :pottery 0 :gold 0 :gems 0}})
+                 uncover-passive
+                 (assoc :magistrates {:m1 :uruk}))
+          s' (game/perform-river-influence s :alice :nippur)]
+      (is (= 1 (res s' :gems))
+          "river-crossed passive fired (board 3: +1 gem) — a road move never would")))
+  (testing "[18 1] full arm: human picks a river destination → river raider flips"
+    (let [s  (-> (board-state 4 18 {:caravan :eridu})
+                 (assoc :magistrates {:m1 :uruk})
+                 (assoc-in [:players :bob] {:raiders {[:nippur :uruk] :raiding}}))
+          s' (game/apply-bonus-with-choice s :alice 18 1 :nippur)]
+      (is (= :nippur (get-in s' [:magistrates :m1])) "magistrate moved across the river")
+      (is (= :point (get-in s' [:players :bob :raiders [:nippur :uruk]]))
+          "[18 1] flipped the river-edge raider via real typed movement")))
+  (testing "no magistrate one river edge from dest → no-op"
+    (let [s  (-> (board-state 4 18 {:caravan :eridu})
+                 (assoc :magistrates {:m1 :kish}))  ;; kish has no river edge to nippur
+          s' (game/perform-river-influence s :alice :nippur)]
+      (is (= :kish (get-in s' [:magistrates :m1])) "magistrate not on a river edge to dest → unchanged"))))
+
+;; =============================================================================
+;; FIX 3 — eligible-cities-for-filter covers ALL state-dependent :pick-city
+;; filters so the WS surfaces a concrete picker for each (was only 2 of them).
+;; =============================================================================
+
+(deftest fix3-eligible-cities-for-filter-covers-all-filters-test
+  (testing ":adjacent-to-raider → cities at either end of the player's raider routes"
+    (let [s  (board-state 4 13 {:caravan :eridu
+                                :raiders {[:babylon :uruk] :raiding
+                                          [:nippur :uruk] :point}})
+          cs (set (game/eligible-cities-for-filter s :alice :adjacent-to-raider))]
+      (is (= #{:babylon :uruk :nippur} cs)
+          "the union of both endpoints of every route the player has a raider on")))
+  (testing ":adjacent → the caravan city's graph neighbours"
+    (let [s  (board-state 4 27 {:caravan :uruk})
+          cs (set (game/eligible-cities-for-filter s :alice :adjacent))]
+      (is (= #{:babylon :eridu :lagash :nippur} cs) "uruk's neighbours")))
+  (testing ":magistrate → cities hosting a magistrate"
+    (let [s  (-> (board-state 4 30 {:caravan :eridu}) (assoc :magistrates {:m1 :kish :m2 :uruk}))
+          cs (set (game/eligible-cities-for-filter s :alice :magistrate))]
+      (is (= #{:kish :uruk} cs) "the set of magistrate cities")))
+  (testing ":any → every city in the graph"
+    (let [s  (board-state 4 21 {:caravan :eridu})
+          cs (set (game/eligible-cities-for-filter s :alice :any))]
+      (is (= (set (keys (game/city-graph 4))) cs) "all cities")))
+  (testing ":magistrate-and-my-temple → cities with my temple AND a magistrate"
+    (let [s  (-> (board-state 4 34 {:caravan :eridu :temples {:kish [:face-up] :uruk [:face-up]}})
+                 (assoc :magistrates {:m1 :kish}))
+          cs (set (game/eligible-cities-for-filter s :alice :magistrate-and-my-temple))]
+      (is (= #{:kish} cs) "only kish has both my temple and a magistrate")))
+  (testing ":magistrate-river → cities one river edge from a magistrate"
+    (let [s  (-> (board-state 4 18 {:caravan :eridu}) (assoc :magistrates {:m1 :uruk}))
+          cs (set (game/eligible-cities-for-filter s :alice :magistrate-river))]
+      ;; uruk's river edges: uruk↔nippur, uruk↔lagash
+      (is (= #{:nippur :lagash} cs) "river-reachable destinations from the magistrate at uruk"))))

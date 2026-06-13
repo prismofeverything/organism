@@ -1703,19 +1703,12 @@
                             :touch-action "manipulation"}}
                    (str (get game/resource-icons r "") " " (name r))])]
                ;; City picker
+               ;; FIX 3: the server now computes the legal target set for EVERY
+               ;; :pick-city filter (game/eligible-cities-for-filter) and sends it
+               ;; as :eligible-cities, so the client just reads it instead of
+               ;; re-deriving (and previously mis-deriving) it per filter.
                :pick-city
-               (let [my-pdata (game/player-data state my-player)
-                     cities (or (:eligible-cities bonus)
-                                (case (:filter bonus)
-                                  :magistrate-and-my-temple
-                                  (filter (set (vals (:magistrates state)))
-                                          (game/temple-cities my-pdata))
-                                  :magistrate (distinct (vals (:magistrates state)))
-                                  :adjacent (get-in state [:city-graph (:caravan my-pdata)])
-                                  :adjacent-to-raider
-                                  (distinct (mapcat (fn [[a b]] [a b])
-                                                    (keys (:raiders my-pdata))))
-                                  (keys (:city-graph state))))]
+               (let [cities (:eligible-cities bonus)]
                  [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
                   (for [city cities]
                     ^{:key (str "bonus-city-" (name city))}

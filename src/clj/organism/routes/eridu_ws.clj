@@ -773,15 +773,13 @@
             contest-name (:name contest "")
             raw-needs-choice (game/bonus-needs-choice? board-id chosen-slot)
             multi? (:multi raw-needs-choice)
-            ;; Filters whose legal target set is state-dependent are computed
-            ;; here so the UI gets a concrete city list and an empty set turns
-            ;; into a no-op rather than an unresolvable pending choice.
-            eligible-cities (case (:filter raw-needs-choice)
-                              :magistrate-and-my-temple
-                              (game/magistrate-and-my-temple-cities state player-key)
-                              :adjacent-to-raider
-                              (game/cities-adjacent-to-my-raiders state player-key)
-                              nil)
+            ;; FIX 3: every :pick-city filter's legal target set is computed
+            ;; server-side (game/eligible-cities-for-filter) so the UI gets a
+            ;; concrete city list for ALL filters — and an empty set uniformly
+            ;; turns into a no-op rather than an unresolvable/absent picker.
+            eligible-cities (when (= :pick-city (:type raw-needs-choice))
+                              (game/eligible-cities-for-filter
+                               state player-key (:filter raw-needs-choice)))
             computed-targets? (some? eligible-cities)
             needs-choice (cond
                            (not raw-needs-choice) nil

@@ -299,9 +299,10 @@
     ;; influence + deploy
     [30 3] {:type :pick-city :prompt "Choose magistrate destination then deploy"
             :filter :magistrate}
-    ;; move magistrate across river
+    ;; move magistrate across river (FIX 2: targets are cities one RIVER edge
+    ;; from a magistrate, computed server-side as :magistrate-river)
     [18 1] {:type :pick-city :prompt "Move magistrate across a river"
-            :filter :magistrate}
+            :filter :magistrate-river}
 
     ;; Default: auto-resolve
     nil))
