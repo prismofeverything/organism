@@ -36,8 +36,7 @@
 (defn city-surrounded-by-player?
   "True if every active route adjacent to `city` has one of `player`'s raiders."
   [state player city]
-  (let [pc (count (:turn-order state))
-        adj-routes (game/routes-from-city city (game/active-routes pc))
+  (let [adj-routes (game/routes-from-city city (game/board-routes state))
         adj-rks (map game/segment-route-key adj-routes)
         player-rks (set (keys (get-in state [:players player :raiders])))]
     (and (seq adj-rks)
@@ -1005,7 +1004,14 @@
         (if (and (= 1 (count cs))
                  (not (contains? protected p)))
           (let [ns (first (vals cs))]
-            (if ns (recur ns (inc n)) s))
+            (cond
+              (nil? ns) s
+              ;; HALT if advancing into this state raised a passive choice (e.g.
+              ;; board 35 turn-start "no goods → gain one"): it must be surfaced
+              ;; to the player, not auto-skipped past. Bots auto-resolve it via
+              ;; promote-passive-choice!.
+              (some :passive-choice-needed (vals (:players ns))) ns
+              :else (recur ns (inc n))))
           s)))))
 
 (defn find-state

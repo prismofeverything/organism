@@ -5,6 +5,7 @@
 
 ;; Forward declarations for functions used by feat evaluation and bonus board effects
 (declare count-temples-placed count-face-down-temples count-raiders-deployed
+         board-routes
          temples-at has-temple? all-temple-states temple-cities add-temple flip-one-temple
          magistrate-in-city? magistrate-cities routes-from-city current-player player-data
          rounds-per-game advance-turn
@@ -115,7 +116,7 @@
           (if (and (pos? supply) (< deployed max-deployed))
             ;; Find a route adjacent to a magistrate that we don't have a raider on
             (let [routes (for [mc mag-cities
-                               r (routes-from-city mc (active-routes (count (:turn-order state))))
+                               r (routes-from-city mc (board-routes state))
                                :let [rk (segment-route-key r)]
                                :when (not (contains? (:raiders pdata) rk))]
                            rk)]
@@ -181,7 +182,7 @@
               max-deployed (get raider-max-deployed raider-lv 2)
               deployed (count-raiders-deployed pdata)
               supply (:raiders-supply pdata 0)
-              adj-routes (routes-from-city city (active-routes (count (:turn-order state))))
+              adj-routes (routes-from-city city (board-routes state))
               free-route (first (for [r adj-routes
                                       :let [rk (segment-route-key r)]
                                       :when (not (contains? (:raiders pdata) rk))]
@@ -796,6 +797,18 @@
                  all-cities)]
     (filterv (partial route-active? cities) city-routes)))
 
+(defn board-routes
+  "The game's ACTUAL active routes — the board the game was built on. Stored in
+   state at init as (active-routes player-count). Use this for contest evaluation
+   and surround checks instead of recomputing (active-routes (count turn-order)):
+   turn-order shrinks on resign and excludes non-human seats in solo-vs-AI, so a
+   recompute can build a DIFFERENT topology (e.g. Kish↔Nineveh in a ≤3p recompute
+   vs Kish↔Samarra on the real ≥4p board), breaking E1/E2/F2 and surround logic.
+   Falls back to a recompute only if :routes is absent (minimal hand-built states)."
+  [state]
+  (or (:routes state)
+      (active-routes (count (:turn-order state)))))
+
 (defn routes-from-city
   "All routes adjacent to a city."
   [city routes]
@@ -982,14 +995,14 @@
       :D2 (>= (count (filter #(contains? river-cities (key %)) temples)) 4)
 
       ;; E: Raider placement
-      :E1 (let [kish-routes (set (for [r (active-routes (count (:turn-order state)))
+      :E1 (let [kish-routes (set (for [r (board-routes state)
                                        :when (or (= :kish (:from r)) (= :kish (:to r)))]
                                    (segment-route-key r)))]
              (every? #(contains? raiders %) kish-routes))
-      :E2 (let [eridu-routes (set (for [r (active-routes (count (:turn-order state)))
+      :E2 (let [eridu-routes (set (for [r (board-routes state)
                                         :when (or (= :eridu (:from r)) (= :eridu (:to r)))]
                                     (segment-route-key r)))
-                ninev-routes (set (for [r (active-routes (count (:turn-order state)))
+                ninev-routes (set (for [r (board-routes state)
                                         :when (or (= :nineveh (:from r)) (= :nineveh (:to r)))]
                                     (segment-route-key r)))]
              (and (some #(contains? raiders %) eridu-routes)
@@ -997,7 +1010,7 @@
 
       ;; F: Raider state
       :F1 (>= (count (filter #(= :point (val %)) raiders)) 3)
-      :F2 (let [river-route-keys (set (for [r (active-routes (count (:turn-order state)))
+      :F2 (let [river-route-keys (set (for [r (board-routes state)
                                              :when (= :river (:type r))]
                                          (segment-route-key r)))]
              (every? #(contains? raiders %) river-route-keys))
@@ -1118,7 +1131,7 @@
                                    (if (has-temple? pdata :nineveh) "✓" "✗") " nineveh")])
       :D2 (let [n (count (filter #(contains? river-cities (key %)) temples))]
              [(/ (min n 4) 4.0) (str n "/4 river-city temples")])
-      :E1 (let [kish-routes (set (for [r (active-routes pc)
+      :E1 (let [kish-routes (set (for [r (board-routes state)
                                         :when (or (= :kish (:from r)) (= :kish (:to r)))]
                                     (segment-route-key r)))
                 have (count (filter #(contains? raiders %) kish-routes))
@@ -1133,7 +1146,7 @@
               (str (if has-e "✓" "✗") " eridu-raider " (if has-n "✓" "✗") " nineveh-raider")])
       :F1 (let [n (count (filter #(= :point (val %)) raiders))]
              [(/ (min n 3) 3.0) (str n "/3 point-side raiders")])
-      :F2 (let [river-rks (set (for [r (active-routes pc) :when (= :river (:type r))]
+      :F2 (let [river-rks (set (for [r (board-routes state) :when (= :river (:type r))]
                                   (segment-route-key r)))
                 have (count (filter #(contains? raiders %) river-rks))
                 need (count river-rks)]
