@@ -71,11 +71,13 @@
 ;;                         than the code earns (re-bless candidate, not a bug).
 ;;   :hand-optimistic?   — legacy map rates this HIGHER than the code earns
 ;;                         (the Gap-1 truncation hidden behind a label).
-;;   :dual-path?         — the auto (bot) path and the human (choice) path diverge;
-;;                         a clause may be :done on one path and wrong/missing on
-;;                         the other. The structural Gap-3 marker (see
-;;                         bonus-systemic-fixes.md). The clause :state reflects the
-;;                         human/UI path (what a player actually experiences).
+;;   :dual-path?         — HISTORICAL marker: this slot's auto (bot) and human
+;;                         (choice) paths USED to diverge (the Gap-3 class). The
+;;                         d1b10d8 unification collapsed both into one choice-aware
+;;                         apply-bonus-dispatch, so the divergence no longer exists;
+;;                         the flag is kept to mark which slots carried it. Any clause
+;;                         :note here still phrased as "auto vs human" describes that
+;;                         pre-unification history, not current behavior.
 ;; ─────────────────────────────────────────────────────────────────────────────
 
 (def effect-specs
@@ -553,10 +555,11 @@
                       :target :city-you-have-temple :state :done
                       :note "multi-temple model: pay N pottery, conj a (face-up) temple into a city you already hold, one per pottery (supply-capped, round-robin over owned cities)"}]}
    [35 3] {:category :instant :clauses [{:kind :increase-role-choice :interactive? true :state :done}]}
-   [35 4] {:category :instant :dual-path? true
-           :clauses [{:kind :influence-magistrate :interactive? true :state :partial
-                      :note "GAP-3 choice-type: bonus-needs-choice? tags :pick-role and the human path INCREASES a role; rule = influence + score raiders moved through. Auto proxies +glory."}
-                     {:kind :score-glory :basis :raiders-moved-through :state :partial}]}})
+   [35 4] {:category :instant
+           :clauses [{:kind :influence-magistrate :interactive? true :state :done
+                      :note "descriptor fixed to :pick-city :magistrate (was wrongly :pick-role); influences the chosen/auto magistrate"}
+                     {:kind :score-glory :basis :raiders-moved-through :state :partial :approximation? true
+                      :note "proxied as +glory = 2 + point-raider count; not literally the raiders the magistrate moved through"}]}})
 
 ;; ─────────────────────────────────────────────────────────────────────────────
 ;; Derived views — the build-time checks read these.

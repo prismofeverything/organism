@@ -1830,12 +1830,9 @@
                (update-in [:players player-key :amity] + 3))
 
       ;; ─── Board 17: Cunning of Kubaba ────────────────────────────
-      ;; NOTE: [17 1] choice-type is registered :pick-resource (a known frozen
-      ;; gap in effect-spec-test); the faithful rule is a raider placement.
-      ;; Per task scope we leave the choice-type bug alone; the auto arm's
-      ;; flip-raider behavior is preserved unchanged.
       ;; "Place a Raider next to Eridu on its point side." PLACE (not flip): put a
       ;; raider on a free route touching Eridu, point-side up (mirrors [28 4]/Kish).
+      ;; (De-tagged from :pick-resource in bonus.cljc — no player choice needed.)
       [17 1] (let [eridu-rks (for [r (active-routes pc)
                                    :when (or (= :eridu (:from r)) (= :eridu (:to r)))]
                                (segment-route-key r))
