@@ -238,7 +238,7 @@
           :delta-resources (fn [s p] (role-up-resources s p [:merchant :priest]))
           :notes "Increase your Merchant and Priest Roles (paying any costs)."}
    [6 2] {:delta-temples (fn [s p]
-                           (let [mags (set (keys (:magistrates s {})))
+                           (let [mags (magistrates-set s)
                                  own (set (keys (temples-map s p)))]
                              (count (remove own mags))))
           :notes "Place a temple in each city with a Magistrate (if you don't have one there)."}
@@ -439,7 +439,7 @@
    [17 1] {:delta-raiders 1
            :notes "Place a Raider next to Eridu on its point side. (Impl gap: current apply-bonus-effect flips a raider rather than placing — out of Stage 5b scope.)"}
    [17 2] {:delta-temples (fn [s p]
-                            (let [mags (set (keys (:magistrates s {})))]
+                            (let [mags (magistrates-set s)]
                               (count mags)))
            :notes "Place one facedown Temple on each city with a Magistrate (even if you have temples there). One temple per magistrate city."}
    [17 3] {:delta-amity 8
