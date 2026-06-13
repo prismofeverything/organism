@@ -839,6 +839,9 @@
                                         (flip-raiders-on-route st (game/route-key from to)))
                                       s
                                       path)
+                              ;; Passive trigger: magistrate-moved (board 5 — travel with it)
+                              (game/apply-passive player :magistrate-moved
+                                                  {:from mag-city :to dest})
                               return-to-choose-action))]))]
     (if (seq choices)
       (assoc choices :skip (return-to-choose-action state))

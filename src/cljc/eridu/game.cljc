@@ -8,6 +8,8 @@
          temples-at has-temple? all-temple-states temple-cities add-temple flip-one-temple
          magistrate-in-city? magistrate-cities routes-from-city current-player player-data
          rounds-per-game advance-turn
+         ;; Helpers used by apply-passive slot-0 dispatch (defined later in file)
+         bonus-sell-in bonus-influence perform-influence road-clockwise-next
          ;; Constants used by apply-passive and bonus board effects
          role-threshold-costs merchant-score raider-max-deployed priest-max-temples
          resource-types roles max-role-level active-routes route-key segment-route-key)
@@ -95,8 +97,16 @@
             state))
 
         ;; ── Board 5: Influence magistrate in your city → travel with it ──
-        ;; (complex — skip for now, would need movement tracking)
-        [5 :magistrate-moved] state
+        ;; Fired by resolve-influence-choices with {:from <mag-origin> :to <mag-dest>}.
+        ;; If the magistrate was pushed out of the city the caravan is standing in,
+        ;; the player MAY travel along with it — auto-applied (free, beneficial).
+        [5 :magistrate-moved]
+        (let [from (:from context)
+              to (:to context)
+              caravan (get-in state [:players player-key :caravan])]
+          (if (and from to (= from caravan))
+            (assoc-in state [:players player-key :caravan] to)
+            state))
 
         ;; ── Board 6: Action space 7 → free Travel action ─────────────────
         ;; (tracked via flag, actual travel handled by choice.cljc)
@@ -266,8 +276,13 @@
             state))
 
         ;; ── Board 24: Surround city → sell there ─────────────────────────
-        ;; (complex — would need sell logic outside normal sell phase)
-        [24 :deployed] state
+        ;; When a deploy surrounds a city, you MAY sell to it even if not present.
+        ;; Auto-applied (beneficial); bonus-sell-in no-ops if no good matches a
+        ;; demand there, which is fine. No travel.
+        [24 :deployed]
+        (if-let [surrounded-city (:surrounded-city context)]
+          (bonus-sell-in state player-key surrounded-city)
+          state)
 
         ;; ── Board 25: Two raiders per path ────────────────────────────────
         ;; Set flag so resolve-deploy-choices allows placing on occupied routes.
@@ -319,8 +334,18 @@
         [30 :goods-taken] state
 
         ;; ── Board 31: Other astronomer on space 7 → bonus travel ──────────
-        ;; (complex positioning check — skip for now)
-        [31 :landing] state
+        ;; On landing, if one of your OTHER astronomers is on space 7, you MAY
+        ;; take a bonus Travel action. Count astronomers on space 7; the one we
+        ;; just landed (when :space is 7) is the "current" action, not an "other".
+        ;; Auto-grant via :pending-free-travel (same flag board 6 uses; consumed
+        ;; in choice.cljc's resolve-landing-choices as an injected free travel).
+        [31 :landing]
+        (let [astros (get-in state [:players player-key :astronomers] [])
+              on-7 (count (filter #(= 7 %) astros))
+              others-on-7 (if (= 7 (:space context)) (dec on-7) on-7)]
+          (if (>= others-on-7 1)
+            (assoc-in state [:players player-key :pending-free-travel] true)
+            state))
 
         ;; ── Board 32: Sell → discard gem for priest-level scoring ─────────
         [32 :sold]
@@ -337,8 +362,26 @@
           state)
 
         ;; ── Board 33: Deploy → influence adjacent magistrate ──────────────
-        ;; (complex — would need to insert influence action)
-        [33 :deployed] state
+        ;; When you deploy, you MAY Influence a magistrate sitting in either
+        ;; endpoint city of the route you just deployed on.
+        ;; HEURISTIC: auto-influence exactly 1 step clockwise (the minimal free
+        ;; beneficial default for the "may" — it flips raiders on the single route
+        ;; the magistrate crosses). If multiple magistrates are on endpoints, the
+        ;; first found is influenced. If none, no-op.
+        [33 :deployed]
+        (let [rk (:route context)
+              [c1 c2] (when (and rk (vector? rk)) rk)
+              endpoints #{c1 c2}
+              active-cities (set (keys (:city-graph state)))
+              mag-entry (first (filter (fn [[_ city]] (contains? endpoints city))
+                                       (:magistrates state)))]
+          (if mag-entry
+            (let [[mag-id mag-city] mag-entry
+                  dest (road-clockwise-next mag-city active-cities)]
+              (if dest
+                (perform-influence state player-key mag-id dest 1)
+                state))
+            state))
 
         ;; ── Board 34: Score raiders → amity instead of glory ──────────────
         ;; Set flag so score-own-raider-on-route adds amity instead of glory.
@@ -2798,6 +2841,9 @@
         state (if is-bot?
                 (check-and-claim-feats state current-player)
                 state)
+        ;; Clear an unused free-travel grant (boards 6/31) so it can't leak into
+        ;; the next turn — the bonus travel is a same-turn opportunity only.
+        state (update-in state [:players current-player] dissoc :pending-free-travel)
         ;; Board 28: bonus-role-increase — free role increase at end of turn
         pdata (get-in state [:players current-player])
         state (if (:bonus-role-increase pdata)

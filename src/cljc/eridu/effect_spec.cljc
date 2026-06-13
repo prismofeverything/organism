@@ -123,8 +123,8 @@
 
    ;; ══ Board 5 — Wisdom of Adapa (slot 0 STUB) ════════════════════════════
    [5 0] {:category :passive :trigger :magistrate-influenced
-          :clauses [{:kind :influence-follow-travel :state :stub
-                     :note "NO-OP — 'complex, would need movement tracking'"}]}
+          :clauses [{:kind :influence-follow-travel :state :done
+                     :note "fires :magistrate-moved from resolve-influence-choices; caravan follows the magistrate out of its origin city"}]}
    [5 1] {:category :instant :clauses [{:kind :increase-role-free :target :priest :state :done}]}
    [5 2] {:category :instant :clauses [{:kind :place-demand :target :uruk :count 2 :state :done}
                                        {:kind :gain-resource :basis :matching-demands :state :done}]}
@@ -383,8 +383,8 @@
 
    ;; ══ Board 24 — Siege of Shulme (slot 0 STUB) ═══════════════════════════
    [24 0] {:category :passive :trigger :deployed
-           :clauses [{:kind :sell :condition :surrounded-city :state :stub
-                      :note "NO-OP — 'would need sell logic outside normal sell phase'"}]}
+           :clauses [{:kind :sell :condition :surrounded-city :state :done
+                      :note "auto-sells in the surrounded city via bonus-sell-in (no travel; no-ops if no matching good)"}]}
    [24 1] {:category :instant :clauses [{:kind :increase-role :target :raider :state :done}
                                         {:kind :increase-role :target :leader :state :done}]}
    [24 2] {:category :instant :hand-optimistic? true
@@ -489,7 +489,7 @@
 
    ;; ══ Board 31 — Horizon of Sharkalisharri (slot 0 STUB) ═════════════════
    [31 0] {:category :passive :trigger :landing
-           :clauses [{:kind :grant-free-action :action :travel :state :stub :note "NO-OP — 'complex positioning check'"}]}
+           :clauses [{:kind :grant-free-action :action :travel :state :done :note "if another of your astronomers is on space 7, grants :pending-free-travel (bonus travel)"}]}
    [31 1] {:category :instant :clauses [{:kind :increase-role :basis :all-level-1 :state :done}]}
    [31 2] {:category :instant :clauses [{:kind :increase-role :basis :all-level-3 :state :done}]}
    [31 3] {:category :instant :clauses [{:kind :gain-resource-choice :interactive? true :state :done}
@@ -513,7 +513,7 @@
 
    ;; ══ Board 33 — Vanguard of Enmebaragesi (slot 0 STUB) ═════════════════
    [33 0] {:category :passive :trigger :deployed
-           :clauses [{:kind :influence-magistrate :state :stub :note "NO-OP — 'would need to insert an influence action'"}]}
+           :clauses [{:kind :influence-magistrate :state :done :note "auto-influences a magistrate on a deploy-route endpoint 1 step clockwise via perform-influence (heuristic minimal beneficial default)"}]}
    [33 1] {:category :instant
            :clauses [{:kind :decrease-role :target :merchant :state :done}
                      {:kind :increase-role-free :target :raider :state :done}

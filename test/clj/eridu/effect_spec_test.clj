@@ -100,14 +100,20 @@
    these :persistent. De-list when actually implemented.
    [21 0] de-listed in the multi-temple refactor: its 'place an additional
    facedown temple in that city' passive is now genuinely implemented (conj into
-   the trigger city), so it surfaces as :persistent, not :passive-stub."
-  #{[5 0] [10 0] [14 0] [24 0] [30 0] [31 0] [33 0]})
+   the trigger city), so it surfaces as :persistent, not :passive-stub.
+   [5 0] [24 0] [31 0] [33 0] de-listed when their slot-0 passives were
+   implemented in apply-passive-dispatch (caravan-follows-magistrate,
+   sell-in-surrounded-city, other-astronomer-on-7-bonus-travel, and
+   influence-adjacent-magistrate respectively); they now surface as :persistent.
+   Remaining stubs need non-trigger machinery (sell-legality / a new action /
+   goods-source selection) rather than a post-event dispatch arm."
+  #{[10 0] [14 0] [30 0]})
 
 (deftest passive-stubs-surface-test
   (let [stubs (set (for [slot passive
                          :when (= :passive-stub (spec/slot-status (spec/effect-specs slot)))]
                      slot))]
-    (testing "all eight no-op passives are exposed as :passive-stub"
+    (testing "the remaining no-op passives are exposed as :passive-stub"
       (is (= known-passive-stubs stubs) (str "passive-stub set changed: " (sort stubs))))
     (testing "the legacy map indeed hid them as :persistent (the Gap-2 symptom)"
       (doseq [slot known-passive-stubs]
