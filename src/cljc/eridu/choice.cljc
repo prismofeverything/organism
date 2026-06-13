@@ -483,19 +483,20 @@
     (if (and (pos? supply) (< placed max-temples))
       (let [caravan-city (:caravan pdata)
             all-magistrate-cities (game/magistrate-cities state)
+            ;; NORMAL temple action = 1 per city: only cities where the player
+            ;; has no temple yet are valid. (Only bonus-board effects place a 2nd.)
             valid-cities (distinct
                           (for [city (cons caravan-city all-magistrate-cities)
                                 :when (and city
-                                           (not (contains? (:temples pdata) city)))]
+                                           (not (game/has-temple? pdata city)))]
                             city))]
         (if (seq valid-cities)
           (into {:skip (return-to-choose-action state)}
                 (for [city valid-cities]
                   [city (-> state
-                            (assoc-in [:players player :temples city] :face-up)
-                            (update-in [:players player :temples-supply] dec)
-                            ;; Passive trigger: temple placed (boards 13, 21)
-                            (game/apply-passive player :temple-placed {:city city})
+                            ;; add-temple conj's :face-up, decs supply, fires the
+                            ;; :temple-placed passive (boards 13, 21).
+                            (game/add-temple player city :face-up)
                             return-to-choose-action
                             (add-log {:type :temple
                                       :message (str "Placed face-up temple in "
@@ -591,12 +592,11 @@
 (defn visit-temples-on-travel
   "When caravan enters a city with a face-up temple, flip it and score amity."
   [state player city]
-  (let [pdata (game/player-data state player)
-        temple-state (get-in pdata [:temples city])]
-    (if (= temple-state :face-up)
-      (let [;; Flip to face-down
+  (let [pdata (game/player-data state player)]
+    (if (game/city-has-own-face-up-temple? pdata city)
+      (let [;; Flip ONE face-up temple in this city to face-down
             state (-> state
-                      (assoc-in [:players player :temples city] :face-down)
+                      (game/flip-one-temple player city)
                       (update-in [:turn-stats :temples-flipped] (fnil inc 0)))
             face-down-count (inc (game/count-face-down-temples pdata))
             ;; Score amity = number of face-down temples

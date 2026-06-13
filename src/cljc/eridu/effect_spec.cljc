@@ -339,10 +339,10 @@
            :clauses [{:kind :gain-resource :basis :astronomer-spaces :state :partial :approximation? true
                       :note "proxied as +1 tools +1 gold"}]}
 
-   ;; ══ Board 21 — Legacy of Eannatum (slot 0 STUB) ═══════════════════════
+   ;; ══ Board 21 — Legacy of Eannatum ═════════════════════════════════════
    [21 0] {:category :passive :trigger :temple-placed
-           :clauses [{:kind :place-temple :side :face-down :state :stub
-                      :note "NO-OP — temples keyed by city, data model can't hold two in one city"}]}
+           :clauses [{:kind :place-temple :side :face-down :state :done
+                      :note "multi-temple model: conj a 2nd facedown temple into the city that triggered the placement (no re-trigger)"}]}
    [21 1] {:category :instant :clauses [{:kind :travel-anywhere :interactive? true :condition :at-eridu :state :done}]}
    [21 2] {:category :instant :clauses [{:kind :increase-role :target :raider :state :done}
                                         {:kind :increase-role :target :leader :state :done}]}
@@ -405,9 +405,9 @@
                       :note "auto proxies glory = 2 + point-count; human path sells instead — wrong tail"}]}
    [25 2] {:category :instant :clauses [{:kind :increase-role :target :merchant :state :done}
                                         {:kind :increase-role :target :leader :state :done}]}
-   [25 3] {:category :instant :hand-optimistic? true
-           :clauses [{:kind :place-temple :side :face-down :count 2 :state :partial :approximation? true
-                      :note "card places two NEW facedown temples; code flips up to 2 existing face-up to face-down"}]}
+   [25 3] {:category :instant
+           :clauses [{:kind :place-temple :side :face-down :count 2 :state :done
+                      :note "multi-temple model: conj two facedown temples into the caravan city (supply-gated)"}]}
    [25 4] {:category :instant :hand-optimistic? true
            :clauses [{:kind :gain-resource-choice :interactive? true :state :done}
                      {:kind :travel :state :stub :note "'then travel' dropped"}]}
@@ -521,7 +521,7 @@
                      {:kind :increase-role-free :target :leader :state :stub
                       :note "CODE BUG (audit): 'all OTHER roles' includes leader; code increases only raider+priest"}]}
    [33 2] {:category :instant :dual-path? true
-           :clauses [{:kind :place-temple :side :face-down :state :done :note "auto flips a face-up to face-down"}
+           :clauses [{:kind :place-temple :side :face-down :state :done :note "multi-temple model: conj a facedown temple into the (pre-travel) caravan city"}
                      {:kind :travel :interactive? true :state :done}]}
    [33 3] {:category :instant :clauses [{:kind :place-temple :target :uruk :state :done}]}
    [33 4] {:category :instant :clauses [{:kind :deploy :interactive? true :state :done}
@@ -547,8 +547,8 @@
                                          :note "auto = flat +3 amity; human travel + sell"}]}
    [35 2] {:category :instant
            :clauses [{:kind :place-temple :cost :pottery :basis :per-pottery-paid
-                      :target :city-you-have-temple :state :partial :design-gated? true
-                      :note "CODE BUG (audit): card = additional temple in a city you ALREADY have one (data-model-gated, see [21 0]); code instead places in temple-LESS cities and caps at 2"}]}
+                      :target :city-you-have-temple :state :done
+                      :note "multi-temple model: pay N pottery, conj a (face-up) temple into a city you already hold, one per pottery (supply-capped, round-robin over owned cities)"}]}
    [35 3] {:category :instant :clauses [{:kind :increase-role-choice :interactive? true :state :done}]}
    [35 4] {:category :instant :dual-path? true
            :clauses [{:kind :influence-magistrate :interactive? true :state :partial

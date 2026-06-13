@@ -788,18 +788,18 @@
            [:text {:x (+ (- x 24) (* idx 22))
                    :y (+ y 24) :text-anchor "middle" :fill "#fff" :font-size 14}
             (get game/resource-icons token "?")]])
-        ;; Temples (per player, with player color, offset to avoid overlap)
-        (let [temple-players (vec (for [[pk pd] (:players state)
-                                        :when (get-in pd [:temples city])]
-                                    pk))]
-          (for [[ti pk] (map-indexed vector temple-players)
-                :let [pdata (game/player-data state pk)
-                      temple-state (get-in pdata [:temples city])
-                      p-color (game/player-color state pk)
-                      is-face-up (= temple-state :face-up)
+        ;; Temples (per player, with player color, offset to avoid overlap).
+        ;; Multi-temple model: a city may hold a VECTOR of temples per player, so
+        ;; render one glyph per temple state.
+        (let [temple-glyphs (vec (for [[pk pd] (:players state)
+                                       [si face] (map-indexed vector (game/temples-at pd city))]
+                                   [pk si face]))]
+          (for [[ti [pk si face]] (map-indexed vector temple-glyphs)
+                :let [p-color (game/player-color state pk)
+                      is-face-up (= face :face-up)
                       tx (+ x 24 (* ti 18))
                       ty (- y 6)]]
-            ^{:key (str "temple-" pk "-" (name city))}
+            ^{:key (str "temple-" pk "-" (name city) "-" si)}
             [:g (tip (str pk "'s temple (" (if is-face-up "face-up" "face-down") ")"))
              ;; Player color indicator dot
              [:circle {:cx tx :cy (- ty 10) :r 4
@@ -1706,7 +1706,7 @@
                                 (case (:filter bonus)
                                   :magistrate-and-my-temple
                                   (filter (set (vals (:magistrates state)))
-                                          (keys (:temples my-pdata)))
+                                          (game/temple-cities my-pdata))
                                   :magistrate (distinct (vals (:magistrates state)))
                                   :adjacent (get-in state [:city-graph (:caravan my-pdata)])
                                   :adjacent-to-raider

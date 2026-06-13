@@ -373,19 +373,25 @@
 
 (deftest count-face-down-temples-test
   (testing "counts only :face-down temples, ignoring :face-up"
-    (let [p (make-player {:temples {:eridu   :face-down
-                                    :nineveh :face-up
-                                    :uruk    :face-down}})]
+    (let [p (make-player {:temples {:eridu   [:face-down]
+                                    :nineveh [:face-up]
+                                    :uruk    [:face-down]}})]
       (is (= 2 (game/count-face-down-temples p)))))
   (testing "no temples → zero (not nil)"
     (is (= 0 (game/count-face-down-temples (make-player {:temples {}})))))
   (testing "all face-up → zero"
-    (let [p (make-player {:temples {:eridu :face-up :nineveh :face-up}})]
-      (is (= 0 (game/count-face-down-temples p))))))
+    (let [p (make-player {:temples {:eridu [:face-up] :nineveh [:face-up]}})]
+      (is (= 0 (game/count-face-down-temples p)))))
+  (testing "multiple temples in one city are all counted"
+    (let [p (make-player {:temples {:eridu [:face-down :face-down] :uruk [:face-up :face-down]}})]
+      (is (= 3 (game/count-face-down-temples p))))))
 
 (deftest count-temples-placed-test
   (testing "counts all temples regardless of face-up/face-down"
-    (let [p (make-player {:temples {:eridu :face-down :nineveh :face-up}})]
+    (let [p (make-player {:temples {:eridu [:face-down] :nineveh [:face-up]}})]
+      (is (= 2 (game/count-temples-placed p)))))
+  (testing "a city holding two temples counts both"
+    (let [p (make-player {:temples {:eridu [:face-up :face-down]}})]
       (is (= 2 (game/count-temples-placed p)))))
   (testing "empty → 0"
     (is (= 0 (game/count-temples-placed (make-player {}))))))
@@ -451,9 +457,9 @@
 
 (deftest magistrate-and-my-temple-cities-test
   (testing "returns intersection of magistrate cities and player's temples"
-    (let [alice (make-player {:temples {:eridu   :face-up
-                                        :babylon :face-down
-                                        :uruk    :face-up}})
+    (let [alice (make-player {:temples {:eridu   [:face-up]
+                                        :babylon [:face-down]
+                                        :uruk    [:face-up]}})
           s (make-state {:players {:alice alice}
                          :magistrates {0 :babylon, 1 :uruk, 2 :samarra}})]
       ;; mag cities = #{:babylon :uruk :samarra}
@@ -466,7 +472,7 @@
           "only cities with BOTH a magistrate AND my temple")))
 
   (testing "no overlap → empty vector"
-    (let [alice (make-player {:temples {:eridu :face-up}})
+    (let [alice (make-player {:temples {:eridu [:face-up]}})
           s (make-state {:players {:alice alice}
                          :magistrates {0 :babylon}})]
       (is (= [] (game/magistrate-and-my-temple-cities s :alice)))))
@@ -475,7 +481,7 @@
     ;; Board 34's multi-pick UI flow iterates this in order, so the vector
     ;; shape is load-bearing. Pin it explicitly — if anyone changes it back
     ;; to a set or seq, the UI consumer drift would be hard to notice.
-    (let [alice (make-player {:temples {:babylon :face-up}})
+    (let [alice (make-player {:temples {:babylon [:face-up]}})
           s (make-state {:players {:alice alice}
                          :magistrates {0 :babylon}})]
       (is (vector? (game/magistrate-and-my-temple-cities s :alice))
@@ -533,11 +539,14 @@
 
 (deftest city-has-own-face-up-temple?-test
   (testing "true for a face-up temple"
-    (let [p (make-player {:temples {:eridu :face-up}})]
+    (let [p (make-player {:temples {:eridu [:face-up]}})]
       (is (game/city-has-own-face-up-temple? p :eridu))))
   (testing "falsy for a face-down temple"
-    (let [p (make-player {:temples {:eridu :face-down}})]
+    (let [p (make-player {:temples {:eridu [:face-down]}})]
       (is (not (game/city-has-own-face-up-temple? p :eridu)))))
+  (testing "true if ANY temple in the city is face-up"
+    (let [p (make-player {:temples {:eridu [:face-down :face-up]}})]
+      (is (game/city-has-own-face-up-temple? p :eridu))))
   (testing "falsy when no temple in that city"
     (is (not (game/city-has-own-face-up-temple? (make-player {}) :eridu)))))
 
@@ -576,30 +585,34 @@
 (deftest evaluate-contest-C1-test
   (testing "C1: 4 face-up temples → true"
     (is (= true (check (contest-state
-                        {:player {:temples {:eridu :face-up :uruk :face-up
-                                            :babylon :face-up :nineveh :face-up}}})
+                        {:player {:temples {:eridu [:face-up] :uruk [:face-up]
+                                            :babylon [:face-up] :nineveh [:face-up]}}})
                        :C1))))
   (testing "C1: 3 face-up temples is not enough"
     (is (= false (check (contest-state
-                         {:player {:temples {:eridu :face-up :uruk :face-up
-                                             :babylon :face-up}}})
+                         {:player {:temples {:eridu [:face-up] :uruk [:face-up]
+                                             :babylon [:face-up]}}})
                         :C1))))
+  (testing "C1: two face-up temples in one city count separately"
+    (is (= true (check (contest-state
+                        {:player {:temples {:eridu [:face-up :face-up] :uruk [:face-up :face-up]}}})
+                       :C1))))
   (testing "C1: face-down temples don't count"
     (is (= false (check (contest-state
-                         {:player {:temples {:eridu :face-up :uruk :face-down
-                                             :babylon :face-down :nineveh :face-down}}})
+                         {:player {:temples {:eridu [:face-up] :uruk [:face-down]
+                                             :babylon [:face-down] :nineveh [:face-down]}}})
                         :C1)))))
 
 (deftest evaluate-contest-D1-test
   (testing "D1: temples in BOTH eridu and nineveh"
     (is (= true (check (contest-state
-                        {:player {:temples {:eridu :face-up :nineveh :face-down}}})
+                        {:player {:temples {:eridu [:face-up] :nineveh [:face-down]}}})
                        :D1)))
-    (is (= false (check (contest-state {:player {:temples {:eridu :face-up}}}) :D1))
+    (is (= false (check (contest-state {:player {:temples {:eridu [:face-up]}}}) :D1))
         "missing nineveh"))
   (testing "D1: face-down counts (D1 just checks presence)"
     (is (= true (check (contest-state
-                        {:player {:temples {:eridu :face-down :nineveh :face-down}}})
+                        {:player {:temples {:eridu [:face-down] :nineveh [:face-down]}}})
                        :D1)))))
 
 (deftest evaluate-contest-H1-test
@@ -865,8 +878,8 @@
     (testing "applying the choice places the temple in the chosen city"
       (let [s  (make-state {:raiders {[:eridu :uruk] :raiding}})
             s' (game/apply-bonus-with-choice s :alice 13 4 :uruk)]
-        (is (= :face-up (get-in s' [:players :alice :temples :uruk]))
-            "temple placed where the player chose")
+        (is (= [:face-up] (get-in s' [:players :alice :temples :uruk]))
+            "temple placed where the player chose (multi-temple vector)")
         (is (= 4 (get-in s' [:players :alice :temples-supply]))
             "temple supply 5 → 4")))
 
@@ -884,7 +897,7 @@
     (testing "no passive (slot 0 covered) → temple placed but NO extra raider"
       (let [s  (make-state {:raiders {[:eridu :uruk] :raiding} :passive? false})
             s' (game/apply-bonus-with-choice s :alice 13 4 :uruk)]
-        (is (= :face-up (get-in s' [:players :alice :temples :uruk])))
+        (is (= [:face-up] (get-in s' [:players :alice :temples :uruk])))
         (is (= 1 (count (get-in s' [:players :alice :raiders])))
             "passive gated off → raider count unchanged")
         (is (= 4 (get-in s' [:players :alice :raiders-supply]))
@@ -938,7 +951,7 @@
   (testing "smaller, hand-built states also round-trip"
     ;; A safety against the case where initial-state happens to avoid an
     ;; unsafe value but other states might use it.
-    (let [s {:players {:alice (make-player {:temples {:eridu :face-down}})}
+    (let [s {:players {:alice (make-player {:temples {:eridu [:face-down]}})}
              :magistrates {0 :eridu}
              :turn-order [:alice]}]
       (is (= s (read-string (pr-str s)))))))

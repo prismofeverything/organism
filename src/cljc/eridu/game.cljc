@@ -5,6 +5,7 @@
 
 ;; Forward declarations for functions used by feat evaluation and bonus board effects
 (declare count-temples-placed count-face-down-temples count-raiders-deployed
+         temples-at has-temple? all-temple-states temple-cities add-temple flip-one-temple
          magistrate-in-city? magistrate-cities routes-from-city current-player player-data
          rounds-per-game advance-turn
          ;; Constants used by apply-passive and bonus board effects
@@ -51,11 +52,9 @@
         [1 :deployed]
         (if-let [surrounded-city (:surrounded-city context)]
           (let [pdata (get-in state [:players player-key])]
-            (if (and (not (contains? (:temples pdata) surrounded-city))
+            (if (and (not (has-temple? pdata surrounded-city))
                      (pos? (:temples-supply pdata 0)))
-              (-> state
-                  (assoc-in [:players player-key :temples surrounded-city] :face-up)
-                  (update-in [:players player-key :temples-supply] dec))
+              (add-temple state player-key surrounded-city :face-up)
               state))
           state)
 
@@ -238,10 +237,17 @@
           state)
 
         ;; ── Board 21: Place temple → extra facedown in same city ──────────
+        ;; Multi-temple model: genuinely add a 2nd (facedown) temple in the city
+        ;; that triggered this placement. NOTE: add-temple itself fires
+        ;; :temple-placed; with this board active that would recurse forever, so
+        ;; we conj/dec directly here (no re-trigger).
         [21 :temple-placed]
-        ;; Temples are keyed by city, so we can't have two in same city in current model
-        ;; This would need a data model change. For now, skip.
-        state
+        (let [city (:city context)]
+          (if (and city (pos? (:temples-supply pdata 0)))
+            (-> state
+                (update-in [:players player-key :temples city] (fnil conj []) :face-down)
+                (update-in [:players player-key :temples-supply] dec))
+            state))
 
         ;; ── Board 22: Space 7 → same action twice ────────────────────────
         ;; (tracked as flag, handled in action selection)
@@ -426,6 +432,60 @@
 
         ;; Unknown board — just clear the flag
         state))))
+
+;; =============================================================================
+;; Temple accessors — MULTI-temple data model
+;; =============================================================================
+;; (:temples pdata) is {city -> [face-state ...]}: a VECTOR of temple states per
+;; city. A city key is present IFF it holds >= 1 temple; an empty vector is never
+;; stored (the last temple removed dissocs the city). Most cities hold one temple.
+;; ALL temple reads/writes must route through these helpers — never touch the
+;; {city -> face-state} shape directly.
+
+(defn temples-at
+  "Vector of face-states for the player's temples in `city` (empty if none)."
+  [pdata city]
+  (get-in pdata [:temples city] []))
+
+(defn has-temple?
+  "True iff the player holds >= 1 temple in `city`."
+  [pdata city]
+  (boolean (seq (temples-at pdata city))))
+
+(defn all-temple-states
+  "Seq of every temple face-state across all of the player's cities."
+  [pdata]
+  (mapcat val (:temples pdata)))
+
+(defn temple-cities
+  "Seq of cities in which the player holds >= 1 temple."
+  [pdata]
+  (keys (:temples pdata)))
+
+(defn add-temple
+  "Place a temple of `face` (:face-up | :face-down) into `city`: conj onto the
+   city's vector, decrement :temples-supply, and fire the :temple-placed passive.
+   conj NEVER overwrites, so the old re-assoc/double-charge bug cannot recur.
+   No-op (returns state) when the player has no temple in supply."
+  [state player-key city face]
+  (let [pdata (get-in state [:players player-key])]
+    (if (pos? (:temples-supply pdata 0))
+      (-> state
+          (update-in [:players player-key :temples city] (fnil conj []) face)
+          (update-in [:players player-key :temples-supply] dec)
+          (apply-passive player-key :temple-placed {:city city}))
+      state)))
+
+(defn flip-one-temple
+  "Replace ONE :face-up with :face-down in `city`'s temple vector (the temple
+   FLIP action — a face-up temple scores when its caravan visits). No-op if the
+   city holds no face-up temple."
+  [state player-key city]
+  (let [v   (vec (temples-at (get-in state [:players player-key]) city))
+        idx (.indexOf v :face-up)]
+    (if (neg? idx)
+      state
+      (assoc-in state [:players player-key :temples city] (assoc v idx :face-down)))))
 
 ;; =============================================================================
 ;; Constants
@@ -862,12 +922,14 @@
       :B1 (some #(>= (val %) 3) (frequencies demands))
       :B2 (every? #(some #{%} demands) [:tools :pottery :gold :gems])
 
-      ;; C: Temple count
-      :C1 (>= (count (filter #(= :face-up (val %)) temples)) 4)
-      :C2 (>= (count (filter #(= :face-down (val %)) temples)) 4)
+      ;; C: Temple count (across all cities; a city may hold more than one)
+      :C1 (>= (count (filter #{:face-up}   (all-temple-states pdata))) 4)
+      :C2 (>= (count (filter #{:face-down} (all-temple-states pdata))) 4)
 
       ;; D: Temple placement
-      :D1 (and (contains? temples :eridu) (contains? temples :nineveh))
+      :D1 (and (has-temple? pdata :eridu) (has-temple? pdata :nineveh))
+      ;; "A temple in four river CITIES" — count distinct river cities (keys),
+      ;; NOT total temples (a city may now hold more than one).
       :D2 (>= (count (filter #(contains? river-cities (key %)) temples)) 4)
 
       ;; E: Raider placement
@@ -939,13 +1001,13 @@
       :L2 (>= (get-in pdata [:resources :pottery] 0) 5)
 
       ;; M: Magistrate + temple combos
-      :M1 (let [facedown-cities (set (map key (filter #(= :face-down (val %)) temples)))]
+      :M1 (let [facedown-cities (set (map key (filter #(some #{:face-down} (val %)) temples)))]
              ;; Every magistrate must be in a city with a facedown temple
              (every? #(contains? facedown-cities (val %))
                      (:magistrates state)))
       :M2 (let [demand-cities (set (for [[c ds] (:city-demands state)
                                           :when (seq ds)] c))]
-             (>= (count (filter #(not (contains? demand-cities (key %))) temples)) 4))
+             (>= (count (mapcat val (filter #(not (contains? demand-cities (key %))) temples))) 4))
 
       ;; Default: unknown contest
       false)))
@@ -997,14 +1059,14 @@
              [(/ (min mx 3) 3.0) (str mx "/3 same-type fulfilled")])
       :B2 (let [have (count (distinct (filter #{:tools :pottery :gold :gems} demands)))]
              [(/ (min have 4) 4.0) (str have "/4 types fulfilled")])
-      :C1 (let [n (count (filter #(= :face-up (val %)) temples))]
+      :C1 (let [n (count (filter #{:face-up} (all-temple-states pdata)))]
              [(/ (min n 4) 4.0) (str n "/4 face-up temples")])
       :C2 (let [n (count-face-down-temples pdata)]
              [(/ (min n 4) 4.0) (str n "/4 face-down temples")])
-      :D1 (let [has-e (if (contains? temples :eridu) 0.5 0)
-                has-n (if (contains? temples :nineveh) 0.5 0)]
-             [(+ has-e has-n) (str (if (contains? temples :eridu) "✓" "✗") " eridu "
-                                   (if (contains? temples :nineveh) "✓" "✗") " nineveh")])
+      :D1 (let [has-e (if (has-temple? pdata :eridu) 0.5 0)
+                has-n (if (has-temple? pdata :nineveh) 0.5 0)]
+             [(+ has-e has-n) (str (if (has-temple? pdata :eridu) "✓" "✗") " eridu "
+                                   (if (has-temple? pdata :nineveh) "✓" "✗") " nineveh")])
       :D2 (let [n (count (filter #(contains? river-cities (key %)) temples))]
              [(/ (min n 4) 4.0) (str n "/4 river-city temples")])
       :E1 (let [kish-routes (set (for [r (active-routes pc)
@@ -1073,11 +1135,11 @@
       :L2 (let [n (get-in pdata [:resources :pottery] 0)]
              [(/ (min n 5) 5.0) (str n "/5 pottery")])
       :M1 (let [mag-cities (magistrate-cities state)
-                n (count (filter #(and (= :face-down (val %))
+                n (count (filter #(and (some #{:face-down} (val %))
                                         (contains? mag-cities (key %))) temples))]
              [(/ (min n 2) 2.0) (str n "/2 magistrates at facedown temples")])
       :M2 (let [demand-cities (set (for [[c ds] (:city-demands state) :when (seq ds)] c))
-                n (count (filter #(not (contains? demand-cities (key %))) temples))]
+                n (count (mapcat val (filter #(not (contains? demand-cities (key %))) temples)))]
              [(/ (min n 4) 4.0) (str n "/4 temples in empty cities")])
       ;; Unknown
       [0.0 "unknown feat"])))
@@ -1202,28 +1264,21 @@
 
 (defn- place-temple-in [state player-key city allow-duplicate?]
   (let [pdata (get-in state [:players player-key])
-        has-temple? (contains? (:temples pdata) city)
         priest-level (get-in pdata [:roles :priest] 1)
         max-t (get priest-max-temples priest-level 3)
         placed (count-temples-placed pdata)
         supply (:temples-supply pdata 0)]
     (if (and (pos? supply)
-             ;; Single-temple model: NEVER overwrite an existing temple. The old
-             ;; `(or (not has-temple?) allow-duplicate?)` let allow-duplicate? slots
-             ;; re-assoc a face-down temple to :face-up AND double-charge supply
-             ;; (corrupting facedown scoring). allow-duplicate? now only bypasses
-             ;; the soft max-t cap. TODO(temple-refactor): allow a 2nd facedown/city.
-             (not has-temple?)
+             ;; Multi-temple model: a city's temples are a VECTOR, so conj never
+             ;; overwrites and the old re-assoc/double-charge bug cannot recur.
+             ;; allow-duplicate? = true (bonus-board placements) permits a SECOND
+             ;; temple in a city you already hold; the normal action passes false
+             ;; and stays 1/city. allow-duplicate? also bypasses the soft max-t cap.
+             (or (not (has-temple? pdata city)) allow-duplicate?)
              (or allow-duplicate? (< placed max-t)))
-      (-> state
-          (assoc-in [:players player-key :temples city] :face-up)
-          (update-in [:players player-key :temples-supply] dec)
-          ;; Passive trigger: temple placed (boards 13 "raider adjacent", 21).
-          ;; The normal :temple action in choice.cljc fires this inline; every
-          ;; *bonus-board* temple placement routes through here, so firing it
-          ;; closes the gap that left slot-0 passives silent (e.g. board 13's
-          ;; "place a Temple → place a Raider adjacent" never triggered).
-          (apply-passive player-key :temple-placed {:city city}))
+      ;; add-temple conj's :face-up, decs supply, and fires the :temple-placed
+      ;; passive (boards 13 "raider adjacent", 21 "extra facedown").
+      (add-temple state player-key city :face-up)
       state)))
 
 (defn- place-raider-on [state player-key route-key]
@@ -1299,7 +1354,7 @@
                 :delta-glory     (- (:glory post-snapshot 0) (:glory pre-snapshot 0))
                 :delta-roles     delta-roles
                 :delta-resources delta-resources
-                :delta-temples   (- (count (:temples post-snapshot)) (count (:temples pre-snapshot)))
+                :delta-temples   (- (count (all-temple-states post-snapshot)) (count (all-temple-states pre-snapshot)))
                 :delta-raiders   (- (count (:raiders post-snapshot)) (count (:raiders pre-snapshot)))
                 :impl-status     (get effect-implementation-status [board-id slot-idx] :unknown)}]
     (update state :coverage-traces (fnil conj []) record)))
@@ -1431,7 +1486,7 @@
       [2 3] (let [mag-city (first (magistrate-cities state))
                   target (or choice
                              (first (filter #(and (contains? (magistrate-cities state) %)
-                                                  (not (contains? (:temples pdata) %)))
+                                                  (not (has-temple? pdata %)))
                                             (magistrate-cities state)))
                              mag-city)]
               (if target (place-temple-in state player-key target true) state))
@@ -1500,7 +1555,7 @@
                (increase-role-with-cost player-key :merchant)
                (increase-role-with-cost player-key :priest))
       [6 2] (reduce (fn [s city] ;; Temple in each magistrate city
-                      (if (not (contains? (:temples (get-in s [:players player-key])) city))
+                      (if (not (has-temple? (get-in s [:players player-key]) city))
                         (place-temple-in s player-key city true)
                         s))
                     state (magistrate-cities state))
@@ -1517,9 +1572,8 @@
                (increase-role-with-cost player-key :leader))
       ;; "Place a Temple in a city with a Magistrate (even if you already have a
       ;; temple there)." Unified: place in (or choice <first magistrate city>).
-      ;; TODO(temple-refactor): the "even if you already have one" allowance needs
-      ;; a temple data-model change (temples are keyed by city, can't hold two) —
-      ;; OUT OF SCOPE here; keep single-temple-per-city behavior.
+      ;; allow-duplicate? true → genuinely places a 2nd temple in the multi-temple
+      ;; model when you already hold one there.
       [7 2] (let [target (or choice (first (magistrate-cities state)))]
               (if target (place-temple-in state player-key target true) state))
       ;; "Take a travel action. Score 3 Glory if you are in Eridu." FAITHFUL
@@ -1566,7 +1620,7 @@
       ;; city without your temple>) + travel there + temple proxy.
       [9 4] (let [mag-city (first (magistrate-cities state))
                   target (or choice
-                             (first (filter #(not (contains? (:temples pdata) %))
+                             (first (filter #(not (has-temple? pdata %))
                                             (magistrate-cities state)))
                              mag-city)]
               (cond-> state
@@ -1674,7 +1728,7 @@
                (reduce (fn [s d] (add-player-resource s player-key d 1)) state demands))
       [15 2] (-> state ;; Increase Priest + 4 Glory if facedown temple in Babylon
                (increase-role-with-cost player-key :priest)
-               (cond-> (= :face-down (get-in pdata [:temples :babylon]))
+               (cond-> (some #{:face-down} (temples-at pdata :babylon))
                  (update-in [:players player-key :glory] + 4)))
       ;; "Increase your LOWEST role then take a Travel action (you pick if there
       ;; is a TIE)." FAITHFUL (Bucket A): increase the lowest role WITH cost.
@@ -1726,12 +1780,9 @@
                (assoc-in state [:players player-key :raiders (key raider-to-flip)] :point) ;; Flip one raider to point
                state)
       [17 2] (reduce (fn [s city] ;; Facedown temple in EACH magistrate city
-                       (let [pd (get-in s [:players player-key])]
-                         (if (pos? (:temples-supply pd 0))
-                           (-> s
-                               (assoc-in [:players player-key :temples city] :face-down)
-                               (update-in [:players player-key :temples-supply] dec))
-                           s)))
+                       ;; "even if you already have temples there" → genuinely conj
+                       ;; a facedown temple (supply-gated inside add-temple).
+                       (add-temple s player-key city :face-down))
                      state (magistrate-cities state))
       [17 3] (let [adj-rks (set (map segment-route-key
                                       (routes-from-city :uruk (active-routes pc))))
@@ -1755,7 +1806,7 @@
       [18 2] (let [s (if choice
                        (assoc-in state [:players player-key :caravan] choice)
                        state)]
-               (if (= :face-down (get-in pdata [:temples :samarra]))
+               (if (some #{:face-down} (temples-at pdata :samarra))
                  (update-in s [:players player-key :glory] + 5)
                  s))
       [18 3] (let [adj-rks (set (map segment-route-key
@@ -1874,12 +1925,14 @@
                 (add-player-resource player-key (or choice :tools) 1)
                 (increase-role-with-cost player-key :merchant))
       ;; "Place a Temple in a city with a Magistrate (even if you already have a
-      ;; temple there)." choice = magistrate city (default = first mag city w/o
-      ;; your temple). TODO(temple-refactor): single-temple-per-city only.
+      ;; temple there)." choice = magistrate city; default prefers a mag city w/o
+      ;; your temple, else falls back to the first mag city (allow-duplicate? true
+      ;; genuinely places a 2nd temple there in the multi-temple model).
       [23 4] (let [target (or choice
                               (first (filter #(and (contains? (magistrate-cities state) %)
-                                                   (not (contains? (:temples pdata) %)))
-                                             (magistrate-cities state))))]
+                                                   (not (has-temple? pdata %)))
+                                             (magistrate-cities state)))
+                              (first (magistrate-cities state)))]
                (if target (place-temple-in state player-key target true) state))
 
       ;; ─── Board 24: Siege of Shulme ──────────────────────────────
@@ -1906,16 +1959,15 @@
       [25 2] (-> state ;; Increase Merchant and Leader
                (increase-role-with-cost player-key :merchant)
                (increase-role-with-cost player-key :leader))
-      [25 3] (let [faceup (filter #(= :face-up (val %)) (:temples pdata)) ;; Two facedown temples
-                   n (min 2 (count faceup))]
-               ;; TODO(temple-refactor): card says "place two facedown temples even
-               ;; if you already have one" — model can't hold two per city, so this
-               ;; flips up to 2 existing face-up temples instead. OUT OF SCOPE.
-               (reduce (fn [s [city _]]
-                         (-> s
-                             (assoc-in [:players player-key :temples city] :face-down)
-                             (update-in [:players player-key :amity] inc)))
-                       state (take n faceup)))
+      ;; "Place two facedown temples in your city (even if you already have a
+      ;; temple there)." Multi-temple model: genuinely conj two facedown temples
+      ;; into the caravan city (supply-gated inside add-temple).
+      [25 3] (let [city (:caravan pdata)]
+               (if city
+                 (-> state
+                     (add-temple player-key city :face-down)
+                     (add-temple player-key city :face-down))
+                 state))
       ;; "Take a good of your choice. Then take a Travel action." Grant the CHOSEN
       ;; good (was hardcoded :gems, ignoring the player's pick — a dual-path bug).
       [25 4] (add-player-resource state player-key (or choice :gems) 1)
@@ -2043,16 +2095,11 @@
                      state roles)
       ;; "Gain a resource of your CHOICE and place a Facedown temple in your city
       ;; (even if you already have one)." FAITHFUL (Bucket A): grant the chosen
-      ;; resource AND place/flip the facedown temple. (Old human arm dropped the
-      ;; temple; old auto arm forced :gems.) choice = resource (default :gems).
-      ;; TODO(temple-refactor): "even if you already have one" needs a multi-temple
-      ;; data model — OUT OF SCOPE; flip an existing face-up temple instead.
-      [31 3] (let [faceup (first (filter #(= :face-up (val %)) (:temples pdata)))]
-               (-> state
-                   (add-player-resource player-key (or choice :gems) 1)
-                   (cond-> faceup
-                     (-> (assoc-in [:players player-key :temples (key faceup)] :face-down)
-                         (update-in [:players player-key :amity] + 2)))))
+      ;; resource AND genuinely conj a facedown temple into the caravan city.
+      ;; choice = resource (default :gems).
+      [31 3] (let [city (:caravan pdata)]
+               (cond-> (add-player-resource state player-key (or choice :gems) 1)
+                 city (add-temple player-key city :face-down)))
       ;; "Gain a resource of your choice and take a Deploy action." FAITHFUL
       ;; (Bucket A): grant the chosen resource AND deploy. (Old human arm dropped
       ;; the deploy; old auto arm forced :tools.) choice = resource (default :tools).
@@ -2074,10 +2121,10 @@
                (cond-> (add-player-resource state player-key :gems 1)
                  dest (assoc-in [:players player-key :caravan] dest)))
       [32 3] (let [routes (active-routes pc) ;; Raider between temple cities
-                   temple-cities (set (keys (:temples pdata)))
+                   t-cities (set (temple-cities pdata))
                    temple-rks (for [r routes
-                                    :when (and (contains? temple-cities (:from r))
-                                               (contains? temple-cities (:to r)))]
+                                    :when (and (contains? t-cities (:from r))
+                                               (contains? t-cities (:to r)))]
                                 (segment-route-key r))
                    avail (remove #(contains? (:raiders pdata) %) temple-rks)]
                (if-let [rk (first avail)]
@@ -2101,16 +2148,14 @@
                      (increase-role-free player-key :priest)
                      (increase-role-free player-key :leader))
                  state))
-      ;; "Place a facedown Temple in your city then take a travel action."
-      ;; Unified: flip-temple proxy (TODO(temple-refactor): single-temple model)
-      ;; + travel to (or choice caravan). (Old human arm dropped the temple.)
-      [33 2] (let [faceup (first (filter #(= :face-up (val %)) (:temples pdata)))
+      ;; "Place a facedown Temple in your city then take a travel action (even if
+      ;; you already have a Temple there)." Multi-temple model: genuinely conj a
+      ;; facedown temple into the (pre-travel) caravan city, THEN travel to
+      ;; (or choice caravan).
+      [33 2] (let [temple-city (:caravan pdata)
                    dest (or choice (:caravan pdata))
-                   s (if faceup
-                       (-> state
-                           (assoc-in [:players player-key :temples (key faceup)] :face-down)
-                           (update-in [:players player-key :amity] + 3))
-                       (update-in state [:players player-key :amity] + 1))]
+                   s (cond-> state
+                       temple-city (add-temple player-key temple-city :face-down))]
                (cond-> s
                  dest (assoc-in [:players player-key :caravan] dest)))
       [33 3] (place-temple-in state player-key :uruk true) ;; Temple in Uruk
@@ -2145,16 +2190,12 @@
       [34 3] (if choice
                (bonus-sell-in state player-key choice)
                (let [mag-cities (magistrate-cities state)
-                     qualifying (filter #(and (contains? mag-cities %)
-                                              (contains? (:temples pdata) %))
-                                        (keys (:temples pdata)))]
+                     qualifying (filter #(contains? mag-cities %) (temple-cities pdata))]
                  (reduce #(bonus-sell-in %1 player-key %2) state qualifying)))
       [34 4] (if choice
                (bonus-sell-in state player-key choice)
                (let [mag-cities (magistrate-cities state)
-                     qualifying (filter #(and (contains? mag-cities %)
-                                              (contains? (:temples pdata) %))
-                                        (keys (:temples pdata)))]
+                     qualifying (filter #(contains? mag-cities %) (temple-cities pdata))]
                  (reduce #(bonus-sell-in %1 player-key %2) state qualifying)))
 
       ;; ─── Board 35: Wanderer of Dumuzi ──────────────────────────
@@ -2163,13 +2204,19 @@
                (cond-> state
                  dest (-> (assoc-in [:players player-key :caravan] dest)
                           (bonus-sell-in player-key dest))))
-      [35 2] (let [pottery (get-in pdata [:resources :pottery] 0) ;; Pay pottery for temples
-                   n (min pottery 2)]
-               (if (pos? n)
+      ;; "Pay any number of Pottery. For each Pottery you paid, place a Temple in a
+      ;; city which you already have a Temple." Multi-temple model: genuinely add
+      ;; a 2nd (face-up) temple into a city you already hold, one per pottery paid
+      ;; (capped by temple supply). Was: placed in temple-LESS cities (wrong).
+      [35 2] (let [pottery (get-in pdata [:resources :pottery] 0)
+                   owned   (vec (temple-cities pdata))
+                   supply  (:temples-supply pdata 0)
+                   n       (min pottery supply)]
+               (if (and (pos? n) (seq owned))
                  (let [s' (update-in state [:players player-key :resources :pottery] - n)
-                       ;; Place n temples in distinct available cities
-                       cities (remove #(contains? (:temples pdata) %) (keys (:city-graph state)))]
-                   (reduce #(place-temple-in %1 player-key %2 true) s' (take n cities)))
+                       ;; Round-robin over owned cities (a city may end with several).
+                       targets (take n (cycle owned))]
+                   (reduce #(place-temple-in %1 player-key %2 true) s' targets))
                  state))
       ;; "Increase the role of your choice (paying any costs)." choice = role
       ;; (default = lowest role).
@@ -2201,7 +2248,7 @@
         pre-glory (:glory pdata 0)
         pre-roles (:roles pdata)
         pre-resources (:resources pdata)
-        pre-temples (count (:temples pdata))
+        pre-temples (count (all-temple-states pdata))
         pre-raiders (count (:raiders pdata))
         pre-trace-snapshot (bonus-trace-snapshot state player-key)
         result-state (apply-bonus-dispatch state player-key pdata pc board-id slot-idx)]
@@ -2229,7 +2276,7 @@
                                          "unknown"))
                         :delta-amity (- (:amity post-pdata 0) pre-amity)
                         :delta-glory (- (:glory post-pdata 0) pre-glory)
-                        :delta-temples (- (count (:temples post-pdata)) pre-temples)
+                        :delta-temples (- (count (all-temple-states post-pdata)) pre-temples)
                         :delta-raiders (- (count (:raiders post-pdata)) pre-raiders)}]
       (let [logged-state (update-in result-state [:players player-key :board-effects-log]
                                     (fnil conj []) effect-entry)]
@@ -2255,7 +2302,7 @@
                        (reduce + (vals (:roles pdata-before))))
         delta-resources (- (reduce + (vals (:resources pdata-after)))
                            (reduce + (vals (:resources pdata-before))))
-        delta-temples (- (count (:temples pdata-after)) (count (:temples pdata-before)))
+        delta-temples (- (count (all-temple-states pdata-after)) (count (all-temple-states pdata-before)))
         delta-raiders (- (count (:raiders pdata-after)) (count (:raiders pdata-before)))]
     ;; Weight: direct points are most valuable, roles/resources less so
     (+ (* 2.0 (+ delta-amity delta-glory))
@@ -2610,8 +2657,8 @@
         dice (roll-dice)]
     (-> player
         (assoc :astronomers astronomer-positions)
-        ;; Place one face-up temple at starting city
-        (assoc-in [:temples (:caravan player)] :face-up)
+        ;; Place one face-up temple at starting city (vector — multi-temple model)
+        (assoc-in [:temples (:caravan player)] [:face-up])
         ;; Roll 4 dice for the first round
         (assoc :dice-available dice)
         (track-dice-roll dice))))
@@ -2630,14 +2677,14 @@
   (get-in state [:players player]))
 
 (defn count-face-down-temples
-  "Count how many face-down temples a player has."
+  "Count how many face-down temples a player has (across all cities)."
   [player-data]
-  (count (filter #(= :face-down (val %)) (:temples player-data))))
+  (count (filter #{:face-down} (all-temple-states player-data))))
 
 (defn count-temples-placed
-  "Total temples on the board for a player."
+  "Total temples on the board for a player (a city may hold more than one)."
   [player-data]
-  (count (:temples player-data)))
+  (count (all-temple-states player-data)))
 
 (defn count-raiders-deployed
   "Total raiders deployed on routes for a player."
@@ -2668,7 +2715,7 @@
    Used by Board 34 #4/#5: take a sell action in each such city."
   [state player-key]
   (let [mag (magistrate-cities state)
-        my-temples (set (keys (get-in state [:players player-key :temples] {})))]
+        my-temples (set (temple-cities (get-in state [:players player-key])))]
     (vec (filter mag my-temples))))
 
 (defn cities-adjacent-to-my-raiders
@@ -2708,9 +2755,9 @@
     (some #(pos? (get resources % 0)) demands)))
 
 (defn city-has-own-face-up-temple?
-  "True if the player has a face-up temple in the given city."
+  "True if the player has at least one face-up temple in the given city."
   [pdata city]
-  (= :face-up (get-in pdata [:temples city])))
+  (boolean (some #{:face-up} (temples-at pdata city))))
 
 ;; =============================================================================
 ;; Turn & round management

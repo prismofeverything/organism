@@ -97,8 +97,11 @@
 
 (def known-passive-stubs
   "Passives whose dispatch arm is a literal no-op. The legacy map calls all of
-   these :persistent. De-list when actually implemented."
-  #{[5 0] [10 0] [14 0] [21 0] [24 0] [30 0] [31 0] [33 0]})
+   these :persistent. De-list when actually implemented.
+   [21 0] de-listed in the multi-temple refactor: its 'place an additional
+   facedown temple in that city' passive is now genuinely implemented (conj into
+   the trigger city), so it surfaces as :persistent, not :passive-stub."
+  #{[5 0] [10 0] [14 0] [24 0] [30 0] [31 0] [33 0]})
 
 (deftest passive-stubs-surface-test
   (let [stubs (set (for [slot passive

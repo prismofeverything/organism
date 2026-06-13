@@ -439,7 +439,7 @@
               neighbors-1)
         travel-point-raider-boost (if adjacent-point-raider? 6 0)
         ;; Unflipped temples: face-up temples that need travel to flip
-        face-up-temple-count (count (filter #(= :face-up (val %)) (:temples pdata)))
+        face-up-temple-count (count (filter #{:face-up} (game/all-temple-states pdata)))
         travel-unflipped-boost (if (>= face-up-temple-count 2) 4 0)
         ;; ── Task 4: Amity-glory gap closing ─────────────────────
         gap (Math/abs (- amity glory))
@@ -602,7 +602,7 @@
   [state player city]
   (count (for [[pk pd] (:players state)
                :when (and (not= pk player)
-                          (contains? (:temples pd) city))]
+                          (game/has-temple? pd city))]
            pk)))
 
 (defn- opponent-has-unflipped-temple?
@@ -610,7 +610,7 @@
   [state player city]
   (some (fn [[pk pd]]
           (and (not= pk player)
-               (= :face-up (get-in pd [:temples city]))))
+               (game/city-has-own-face-up-temple? pd city)))
         (:players state)))
 
 (defn- chain-score
@@ -1049,8 +1049,8 @@
               :resolve-travel
               (let [non-skip (dissoc choices :skip)
                     caravan-city (:caravan pdata)
-                    face-up-count (count (filter #(= :face-up (val %))
-                                                 (:temples pdata)))
+                    face-up-count (count (filter #{:face-up}
+                                                 (game/all-temple-states pdata)))
                     flip-threshold (:temple-flip-threshold weights 2)
                     unflipped-urgency (if (>= face-up-count flip-threshold)
                                         (* (:travel-for-temple weights 2.0) 3.0)
@@ -1112,8 +1112,8 @@
               :travel-continue
               (let [resources (:resources pdata)
                     total-resources (reduce + (vals resources))
-                    face-up-count (count (filter #(= :face-up (val %))
-                                                 (:temples pdata)))
+                    face-up-count (count (filter #{:face-up}
+                                                 (game/all-temple-states pdata)))
                     willingness (:resource-to-move weights 0.3)
                     ;; Check if nearby cities have good destinations
                     current-city (:caravan pdata)
@@ -1176,8 +1176,7 @@
                                       (count (filter (fn [[rk rs]]
                                                        (= rs :raiding))
                                                      (:raiders pdata))))
-                                    has-temple (and dest (= :face-up
-                                                            (get-in pdata [:temples dest])))
+                                    has-temple (and dest (game/city-has-own-face-up-temple? pdata dest))
                                     has-demands (and dest (seq (get-in state [:city-demands dest] [])))
                                     can-sell-there (and dest
                                                        (game/city-has-sellable-demand? state player dest))

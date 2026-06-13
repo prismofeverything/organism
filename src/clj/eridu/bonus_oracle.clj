@@ -48,8 +48,11 @@
 (defn- temples-map    [s p] (pkv s p :temples :default {}))
 (defn- raiders-map    [s p] (pkv s p :raiders :default {}))
 
-(defn- fd-count       [s p] (count (filter #(= :face-down (val %)) (temples-map s p))))
-(defn- temple-count   [s p] (count (temples-map s p)))
+;; Multi-temple model: (:temples pdata) is {city -> [face-state ...]}, so count
+;; over the flattened states, not the city keys.
+(defn- all-temple-states [s p] (mapcat val (temples-map s p)))
+(defn- fd-count       [s p] (count (filter #{:face-down} (all-temple-states s p))))
+(defn- temple-count   [s p] (count (all-temple-states s p)))
 (defn- raider-count   [s p] (count (raiders-map s p)))
 (defn- point-raiders  [s p] (count (filter #(= :point (val %)) (raiders-map s p))))
 (defn- demand-count   [s p] (count (pkv s p :demand-tokens :default [])))
@@ -66,7 +69,7 @@
   (contains? (magistrates-set s) (caravan-of s p)))
 
 (defn- facedown-at?   [s p city]
-  (= :face-down (get (temples-map s p) city)))
+  (boolean (some #{:face-down} (get (temples-map s p) city))))
 
 (defn- level-1-roles-count [s p]
   (count (filter #(= 1 (role-lvl s p %)) g/roles)))
@@ -736,9 +739,18 @@
    ;; Stage 5 removed [35 1] from bonus-needs-choice? (rule text is travel+sell,
    ;; not a resource pick). Stage 5b realigns the oracle to the rule.
    [35 1] {:notes "Travel then take a Sell action. Compound: caravan move + sell. No deterministic static delta; impl currently has no flat-bonus stand-in."}
-   [35 2] {:delta-temples 0
-           :delta-resources {:pottery 0}
-           :notes "You may pay any number of Pottery. For each Pottery you paid, place a Temple in a city which you have a Temple. Variable; bounded by pottery count and existing temple cities."}
+   [35 2] {:delta-temples (fn [s p]
+                            (if (seq (temples-map s p))
+                              (min (get (pkv s p :resources :default {}) :pottery 0)
+                                   (pkv s p :temples-supply :default 0))
+                              0))
+           :delta-resources (fn [s p]
+                              (let [n (if (seq (temples-map s p))
+                                        (min (get (pkv s p :resources :default {}) :pottery 0)
+                                             (pkv s p :temples-supply :default 0))
+                                        0)]
+                                (if (pos? n) {:pottery (- n)} {})))
+           :notes "For each Pottery paid, place a Temple in a city you ALREADY hold (multi-temple refactor: now genuinely placed). n = min(pottery held, temples-supply) when you hold >=1 temple."}
    [35 3] {:delta-roles {}
            :requires-choice? true :choice-type :pick-role
            :notes "Increase the role of your choice (paying any costs)."}
