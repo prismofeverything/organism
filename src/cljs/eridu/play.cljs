@@ -80,8 +80,11 @@
                                             ")")))
                                 (str "action " k)))
                             (str k)))
-    (vector? k)         (str (name (first k)) " → " (name (second k))
-                              (when (= 3 (count k)) (str " (" (nth k 2) ")")))
+    (vector? k)         (let [b (second k)]
+                          ;; second element may be a keyword (e.g. [:uruk-move :kish])
+                          ;; OR an integer space (e.g. [:alt-take 3]); name throws on ints.
+                          (str (name (first k)) " → " (if (keyword? b) (name b) (str b))
+                               (when (= 3 (count k)) (str " (" (nth k 2) ")"))))
     :else               (pr-str k)))
 
 ;; ── Offline / solo-vs-AI mode ─────────────────────────────────────────────────

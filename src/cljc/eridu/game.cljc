@@ -157,8 +157,10 @@
             state))
 
         ;; ── Board 10: Sell gold to empty demand cities ────────────────────
-        ;; (passive rule change — tracked as flag for sell resolution)
-        [10 :sold] state ;; TODO: requires sell phase modification
+        ;; Action-choice rule change: the extra "sell gold to a demand-free
+        ;; city" option lives in choice/resolve-sell-choices (:sell-gold-empty),
+        ;; not in this post-event dispatch. No-op here.
+        [10 :sold] state
 
         ;; ── Board 11: Contests → extra glory based on leader level ────────
         [11 :feat-claimed]
@@ -200,7 +202,9 @@
             state))
 
         ;; ── Board 14: Uruk bonus travel action ───────────────────────────
-        ;; (complex bonus action — skip for now)
+        ;; Action-choice rule change: the [:uruk-move dest] bonus moves are
+        ;; offered in choice/choose-action-choices (gated on :used-uruk-travel,
+        ;; cleared at turn start), not via this trigger. No-op here.
         [14 :turn-start] state
 
         ;; ── Board 15: Role increase → ignore threshold costs ───────────────
@@ -330,7 +334,9 @@
           state)
 
         ;; ── Board 30: Take goods from other astronomer location ───────────
-        ;; (complex — skip for now)
+        ;; Action-choice rule change: the [:alt-take space] options are offered
+        ;; in choice/resolve-take-choices, not via this post-event trigger.
+        ;; No-op here.
         [30 :goods-taken] state
 
         ;; ── Board 31: Other astronomer on space 7 → bonus travel ──────────
@@ -595,6 +601,15 @@
                 {:type :sell}
                 {:type :influence}
                 {:type :temple}]}})
+
+(defn space-take-resources
+  "Resources granted by the :take action on `space` (nil if the space has no
+   :take action, e.g. space 7). Used by board 30 (Council of Amar-Sin) to take
+   goods based on another of the player's astronomers' wheel positions."
+  [space]
+  (some (fn [action]
+          (when (= :take (:type action)) (:resources action)))
+        (:actions (get action-spaces space))))
 
 ;; Clockwise order: 1->2->3->4->5->6->7->1
 (def action-space-order [1 2 3 4 5 6 7])

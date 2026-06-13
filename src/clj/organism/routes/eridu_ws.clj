@@ -404,6 +404,10 @@
 
                       action-choices (dissoc choices :done)
                       scored (for [[idx _] action-choices
+                                   ;; skip non-numeric choice keys (e.g. board-14
+                                   ;; [:uruk-move dest], board-6 :free-travel) — they
+                                   ;; aren't action-space indices. Matches personality.cljc.
+                                   :when (number? idx)
                                    :let [action (nth (:actions (get game/action-spaces space)) idx)
                                          atype (:type action)
                                          base-pri (get action-priority atype 99)

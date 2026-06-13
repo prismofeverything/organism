@@ -7,6 +7,10 @@
 ;; Helpers
 ;; =============================================================================
 
+;; Forward declaration: travel-to-city is defined further down (Travel action),
+;; but board 14's bonus move in choose-action-choices needs it.
+(declare travel-to-city)
+
 (defn partial-map [f s]
   (into {} (map (juxt identity f) s)))
 
@@ -295,7 +299,49 @@
         free-travel? (:pending-free-travel pdata)
         has-travel-in-available? (some (fn [idx]
                                          (= :travel (:type (nth (:actions (get game/action-spaces space)) idx))))
-                                       available)]
+                                       available)
+        ;; ── Board 14 (Roads of Shulgi): bonus move between Uruk and an
+        ;;    adjacent city by discarding one good. Does NOT consume an action
+        ;;    or an icon (free), and stays in :choose-action. Capped to once per
+        ;;    turn via :used-uruk-travel (cleared at turn start). ─────────────
+        board-14? (and (game/has-passive? state player)
+                       (= 14 (game/player-board-id state player)))
+        caravan-city (:caravan pdata)
+        held-good (first (filter #(pos? (get-in pdata [:resources %] 0))
+                                 game/resource-types))
+        uruk-neighbors (get-in state [:city-graph :uruk] #{})
+        ;; Valid bonus-move destinations: from Uruk → each neighbor; from a
+        ;; neighbor → Uruk. Only when the player still holds a good and hasn't
+        ;; already used this bonus move this turn.
+        uruk-dests (cond
+                     (not (and board-14? held-good
+                               (not (:used-uruk-travel pdata)))) []
+                     (= caravan-city :uruk) (vec uruk-neighbors)
+                     (contains? uruk-neighbors caravan-city) [:uruk]
+                     :else [])
+        uruk-move-choice-state
+        (fn [dest]
+          (-> state
+              (spend-resource player held-good)
+              (travel-to-city player dest)
+              (assoc-in [:players player :used-uruk-travel] true)
+              ;; Stay in choose-action; preserve the action budget exactly
+              ;; (free bonus action — no icon consumed, no action spent).
+              (assoc :player-turn
+                     (cond-> {:phase :choose-action
+                              :space space
+                              :actions-remaining (or actions-remaining 0)
+                              :used-icons used-icons}
+                       solo-landing? (assoc :solo-landing true)))
+              (add-log {:type :uruk-move
+                        :message (str "Bonus move (board 14): discarded "
+                                      (get game/resource-icons held-good "")
+                                      " " (name held-good) " to move caravan to "
+                                      (str/capitalize (name dest)))
+                        :to dest :discarded held-good})))
+        uruk-move-choices
+        (into {} (for [dest uruk-dests]
+                   [[:uruk-move dest] (uruk-move-choice-state dest)]))]
     (let [after-actions
           (fn [s]
             (let [sl? (get-in s [:player-turn :solo-landing] solo-landing?)
@@ -308,25 +354,27 @@
                               :message "Action complete — now choose role increase (alone on space)"}))
                 (game/advance-turn s))))]
       (if (or (not (pos? (or actions-remaining 0))) (empty? available))
-        ;; Done with actions — check for pending free travel, then solo-landing role increase
+        ;; Done with actions — check for pending free travel, then solo-landing role increase.
+        ;; Board 14 bonus moves are still offered here (they don't need an action).
         (if free-travel?
           (let [state (update-in state [:players player] dissoc :pending-free-travel)]
-            {:free-travel (-> state
-                              (assoc :player-turn
-                                     {:phase :resolve-travel
-                                      :space space
-                                      :action {:type :travel}
-                                      :action-index -1
-                                      :actions-remaining 0
-                                      :used-icons used-icons
-                                      :solo-landing solo-landing?})
-                              (add-log {:type :action-select
-                                        :message "Free travel action (bonus board)"
-                                        :action-type :travel}))
-             :done (-> (update-in state [:players player] dissoc :pending-free-travel)
-                       after-actions)})
+            (merge uruk-move-choices
+                   {:free-travel (-> state
+                                     (assoc :player-turn
+                                            {:phase :resolve-travel
+                                             :space space
+                                             :action {:type :travel}
+                                             :action-index -1
+                                             :actions-remaining 0
+                                             :used-icons used-icons
+                                             :solo-landing solo-landing?})
+                                     (add-log {:type :action-select
+                                               :message "Free travel action (bonus board)"
+                                               :action-type :travel}))
+                    :done (-> (update-in state [:players player] dissoc :pending-free-travel)
+                              after-actions)}))
           ;; No free travel, no actions left — set transitional phase
-          {:done (after-actions state)})
+          (merge uruk-move-choices {:done (after-actions state)}))
         ;; ELSE: has remaining actions — offer action indices + done
         (let [base-choices
             (into {}
@@ -368,8 +416,9 @@
                                (add-log {:type :action-select
                                          :message "Free travel action (bonus board)"
                                          :action-type :travel}))})]
-        ;; Offer :done to end turn early (but not needed most of the time)
-        (cond-> (merge base-choices free-travel-choice)
+        ;; Offer :done to end turn early (but not needed most of the time).
+        ;; Board 14 bonus moves are merged alongside the normal action choices.
+        (cond-> (merge base-choices free-travel-choice uruk-move-choices)
           ;; Only add :done when there are no must-take actions
           ;; (player can always use the action, so :done is optional escape)
           true (assoc :done (after-actions state))))))))
@@ -380,23 +429,43 @@
 
 (defn resolve-take-choices [state]
   (let [player (game/current-player state)
-        resources (get-in state [:player-turn :action :resources])
-        next-state (reduce #(add-resource %1 player %2 1) state resources)
         turn (:player-turn state)
-        ;; Trigger goods-taken passive (board 19: extra pottery)
-        next-state (game/apply-passive next-state player :goods-taken
-                                       {:resources resources})]
-    {:done (-> next-state
-               (assoc :player-turn
-                      (cond-> {:phase :choose-action
-                               :space (:space turn)
-                               :actions-remaining (:actions-remaining turn)
-                               :used-icons (:used-icons turn)}
-                        (:solo-landing turn) (assoc :solo-landing true)))
-               (add-log {:type :take
-                         :message (str "Took goods: "
-                                       (str/join ", " (map #(str (get game/resource-icons % "") " " (name %))
-                                                           resources)))}))}))
+        resources (get-in state [:player-turn :action :resources])
+        ;; Build a take-result state for an arbitrary resource list + log suffix.
+        take-result
+        (fn [take-resources log-suffix]
+          (-> (reduce #(add-resource %1 player %2 1) state take-resources)
+              ;; Trigger goods-taken passive (board 19: extra pottery)
+              (game/apply-passive player :goods-taken {:resources take-resources})
+              (assoc :player-turn
+                     (cond-> {:phase :choose-action
+                              :space (:space turn)
+                              :actions-remaining (:actions-remaining turn)
+                              :used-icons (:used-icons turn)}
+                       (:solo-landing turn) (assoc :solo-landing true)))
+              (add-log {:type :take
+                        :message (str "Took goods: "
+                                      (str/join ", " (map #(str (get game/resource-icons % "") " " (name %))
+                                                          take-resources))
+                                      log-suffix)})))
+        ;; ── Board 30 (Council of Amar-Sin): may take goods based on ONE of
+        ;;    the player's OTHER astronomers' wheel positions INSTEAD. ───────
+        board-30? (and (game/has-passive? state player)
+                       (= 30 (game/player-board-id state player)))
+        current-space (:space turn)
+        alt-choices
+        (when board-30?
+          (into {}
+                (for [alt-space (distinct (get-in state [:players player :astronomers]))
+                      :when (not= alt-space current-space)
+                      :let [alt-res (game/space-take-resources alt-space)]
+                      :when (seq alt-res)]
+                  [[:alt-take alt-space]
+                   (take-result alt-res
+                                (str " (board 30: from astronomer on space "
+                                     alt-space " instead)"))])))]
+    (merge {:done (take-result resources "")}
+           alt-choices)))
 
 ;; =============================================================================
 ;; Action: Sell
@@ -419,9 +488,58 @@
         sellable (distinct
                   (for [demand demands
                         :when (pos? (get resources demand 0))]
-                    demand))]
+                    demand))
+        ;; ── Board 10: sell Gold to a city with NO demands ──────────────────
+        ;; "You may sell Gold to cities with no demands. If you do, place a
+        ;;  random Demand Token on that city." Default ruling: payout = normal
+        ;; merchant-level amity (the placed demand is a side-effect, not
+        ;; fulfilled). Only offered when the city has zero demands AND the
+        ;; player holds gold AND board-10 slot-0 passive is uncovered.
+        board-10? (and (game/has-passive? state player)
+                       (= 10 (game/player-board-id state player))
+                       (empty? demands)
+                       (pos? (get resources :gold 0)))
+        sell-gold-empty-choice
+        (when board-10?
+          {:sell-gold-empty
+           (let [bag (:demand-bag state (game/full-demand-bag))
+                 [bag' token] (game/draw-demand-token bag)
+                 s (-> state
+                       (spend-resource player :gold)
+                       (cond-> bag' (assoc :demand-bag bag'))
+                       (cond-> token (update-in [:city-demands city]
+                                                (fnil conj []) token))
+                       (add-amity player amity-score)
+                       (assoc-in [:turn-stats :sold-resource] :gold)
+                       (assoc-in [:turn-stats :sold-in-city] city)
+                       (assoc-in [:turn-stats :sell-amity] amity-score)
+                       (assoc-in [:turn-stats :sell-glory] glory-bonus))
+                 s (cond-> s (pos? glory-bonus) (add-glory player glory-bonus))]
+             (-> s
+                 (update-in [:players player :sells-this-round] (fnil inc 0))
+                 ;; Fire the :sold passive (same shape as a normal sell)
+                 (game/apply-passive player :sold
+                                     {:amity-scored amity-score
+                                      :glory-scored glory-bonus
+                                      :resource :gold
+                                      :city city})
+                 return-to-choose-action
+                 (add-log {:type :sell
+                           :message (str "Sold " (get game/resource-icons :gold "")
+                                         " gold to " (str/capitalize (name city))
+                                         " (no demands) → +" amity-score " Amity"
+                                         " (Merchant lv" merchant-level ")"
+                                         (when token
+                                           (str "; placed " (name token)
+                                                " demand (board 10)"))
+                                         (when (pos? glory-bonus)
+                                           (str ", +" glory-bonus " Glory")))
+                            :city city :demand :gold
+                            :placed-demand token
+                            :amity amity-score :glory glory-bonus
+                            :board-10 true})))})]
     (if (seq sellable)
-      (into {:skip (return-to-choose-action state)}
+      (into (merge {:skip (return-to-choose-action state)} sell-gold-empty-choice)
             (for [demand sellable]
               [demand (let [;; Remove demand from city
                             new-demands (let [idx (.indexOf demands demand)]
@@ -461,11 +579,12 @@
                                                            " magistrate bonus)")))
                                       :city city :demand demand
                                       :amity amity-score :glory glory-bonus})))]))
-      ;; Nothing to sell
-      {:skip (-> state
-                 return-to-choose-action
-                 (add-log {:type :sell :message (str "No sellable demands in "
-                                                     (str/capitalize (name city)))}))})))
+      ;; Nothing to sell via demand-matching
+      (merge {:skip (-> state
+                        return-to-choose-action
+                        (add-log {:type :sell :message (str "No sellable demands in "
+                                                            (str/capitalize (name city)))}))}
+             sell-gold-empty-choice))))
 
 ;; =============================================================================
 ;; Action: Temple

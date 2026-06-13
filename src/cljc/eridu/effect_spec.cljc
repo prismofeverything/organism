@@ -192,7 +192,8 @@
 
    ;; ══ Board 10 — Wealth of Meskalamdug (slot 0 STUB) ═════════════════════
    [10 0] {:category :passive :trigger :sold
-           :clauses [{:kind :sell :state :stub :note "NO-OP / TODO — 'requires sell phase modification'"}]}
+           :clauses [{:kind :sell :state :done
+                      :note "action-choice rule: :sell-gold-empty option in resolve-sell-choices (sell gold to demand-free city, place a random demand token)"}]}
    [10 1] {:category :instant :clauses [{:kind :increase-role-free :target :merchant :state :done}]}
    [10 2] {:category :instant :clauses [{:kind :increase-role-free :target :merchant :state :done}]}
    [10 3] {:category :instant
@@ -237,7 +238,8 @@
 
    ;; ══ Board 14 — Roads of Shulgi (slot 0 STUB; 14/1,14/3 conservative) ═══
    [14 0] {:category :passive :trigger :turn-start
-           :clauses [{:kind :bonus-move-action :state :stub :note "NO-OP — 'complex bonus action'"}]}
+           :clauses [{:kind :bonus-move-action :state :done
+                      :note "action-choice rule: [:uruk-move dest] bonus moves in choose-action-choices (discard a good to move between Uruk and an adjacent city; once/turn via :used-uruk-travel)"}]}
    [14 1] {:category :instant :hand-conservative? true
            :clauses [{:kind :place-raider :target :lagash :state :done}
                      {:kind :score-glory :basis :raiders :state :done}]
@@ -473,7 +475,8 @@
 
    ;; ══ Board 30 — Council of Amar-Sin (slot 0 STUB; whole row Gap-1) ══════
    [30 0] {:category :passive :trigger :goods-taken
-           :clauses [{:kind :gain-resource :basis :other-astronomer-location :state :stub :note "NO-OP — 'complex'"}]}
+           :clauses [{:kind :gain-resource :basis :other-astronomer-location :state :done
+                      :note "action-choice rule: [:alt-take space] options in resolve-take-choices (take goods from another of your astronomers' wheel positions instead)"}]}
    [30 1] {:category :instant :dual-path? true
            :clauses [{:kind :influence-magistrate :state :stub :note "influence dropped both paths"}
                      {:kind :travel :interactive? true :state :partial :note "auto proxies +glory=leader; human travels"}]}

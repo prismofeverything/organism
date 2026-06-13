@@ -105,17 +105,21 @@
    implemented in apply-passive-dispatch (caravan-follows-magistrate,
    sell-in-surrounded-city, other-astronomer-on-7-bonus-travel, and
    influence-adjacent-magistrate respectively); they now surface as :persistent.
-   Remaining stubs need non-trigger machinery (sell-legality / a new action /
-   goods-source selection) rather than a post-event dispatch arm."
-  #{[10 0] [14 0] [30 0]})
+   [10 0] [14 0] [30 0] de-listed when their slot-0 passives were implemented as
+   action-choice rules in eridu.choice (sell-gold-to-demand-free-city,
+   uruk-bonus-move, and take-from-other-astronomer-location respectively) rather
+   than via a post-event dispatch arm; they now surface as :persistent.
+   The set is now empty: every authored passive is implemented (none remain a
+   literal no-op)."
+  #{})
 
 (deftest passive-stubs-surface-test
   (let [stubs (set (for [slot passive
                          :when (= :passive-stub (spec/slot-status (spec/effect-specs slot)))]
                      slot))]
-    (testing "the remaining no-op passives are exposed as :passive-stub"
+    (testing "no authored passive remains a no-op :passive-stub"
       (is (= known-passive-stubs stubs) (str "passive-stub set changed: " (sort stubs))))
-    (testing "the legacy map indeed hid them as :persistent (the Gap-2 symptom)"
+    (testing "the legacy map hid any historical stubs as :persistent (the Gap-2 symptom)"
       (doseq [slot known-passive-stubs]
         (is (= :persistent (hand-status slot)) (str slot))))))
 
