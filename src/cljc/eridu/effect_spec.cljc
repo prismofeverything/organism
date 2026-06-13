@@ -128,7 +128,7 @@
    [5 1] {:category :instant :clauses [{:kind :increase-role-free :target :priest :state :done}]}
    [5 2] {:category :instant :clauses [{:kind :place-demand :target :uruk :count 2 :state :done}
                                        {:kind :gain-resource :basis :matching-demands :state :done}]}
-   [5 3] {:category :instant :clauses [{:kind :deploy :interactive? true :state :done}
+   [5 3] {:category :instant :clauses [{:kind :deploy :state :done}
                                        {:kind :place-temple :state :done}]}
    [5 4] {:category :instant :clauses [{:kind :score-amity :basis :raiders :state :done}]}
 
@@ -221,8 +221,8 @@
                                         {:kind :gain-resource :resource :gems :state :done}]}
    [12 3] {:category :instant :hand-optimistic? true
            :clauses [{:kind :increase-role :target :merchant :state :done}
-                     {:kind :sell :yields :glory :interactive? true :state :partial :approximation? true
-                      :note "sell-for-glory proxied as flat +3 glory"}]}
+                     {:kind :sell :yields :glory :state :partial :approximation? true
+                      :note "sell-for-glory proxied as flat +3 glory; sells CURRENT city, no city pick"}]}
    [12 4] {:category :instant :clauses [{:kind :score-glory :basis :facedown-temples :state :done}]}
 
    ;; ══ Board 13 — Pillars of Etana (clean) ════════════════════════════════

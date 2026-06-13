@@ -234,7 +234,7 @@
     [19 3] {:type :pick-resource :prompt "Choose a resource to discard (to move magistrate + sell)"}
 
     ;; ── Pick role ───────────────────────────────────────────────
-    ([15 3] [35 4] [35 3])
+    ([15 3] [35 3])
     {:type :pick-role :prompt "Choose a role to increase"}
 
     ;; ── Travel to adjacent city + action ────────────────────────
@@ -253,7 +253,9 @@
      :no-travel true
      :multi true}
     ;; deploy after travel
-    ([5 3] [27 2] [33 4])
+    ;; [5 3] removed: "Deploy then Temple" needs no city pick (arm auto-resolves
+    ;; deploy on an open route + temple in caravan) — was a dead prompt.
+    ([27 2] [33 4])
     {:type :pick-city :prompt "Travel to adjacent city and deploy"
      :filter :adjacent :action :deploy}
     ;; temple after travel
@@ -281,11 +283,15 @@
     {:type :pick-city :prompt "Choose a magistrate city for your temple"
      :filter :magistrate}
     ;; sell in magistrate city
-    ([9 4] [12 3])
+    ;; [12 3] removed: card sells in the CURRENT city for glory (no city pick);
+    ;; arm auto-resolves (increase merchant + glory) — was a dead prompt.
+    [9 4]
     {:type :pick-city :prompt "Choose a magistrate city to sell in"
      :filter :magistrate}
     ;; influence magistrate + action
-    ([20 3] [25 1] [30 2] [30 4] [32 4])
+    ;; [35 4] moved here from :pick-role (S4 fix): card is "Influence a Magistrate,
+    ;; score raiders it moved through" — the choice is the magistrate destination.
+    ([20 3] [25 1] [30 2] [30 4] [32 4] [35 4])
     {:type :pick-city :prompt "Choose magistrate destination"
      :filter :magistrate}
     ;; influence + deploy

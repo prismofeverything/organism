@@ -1208,7 +1208,12 @@
         placed (count-temples-placed pdata)
         supply (:temples-supply pdata 0)]
     (if (and (pos? supply)
-             (or (not has-temple?) allow-duplicate?)
+             ;; Single-temple model: NEVER overwrite an existing temple. The old
+             ;; `(or (not has-temple?) allow-duplicate?)` let allow-duplicate? slots
+             ;; re-assoc a face-down temple to :face-up AND double-charge supply
+             ;; (corrupting facedown scoring). allow-duplicate? now only bypasses
+             ;; the soft max-t cap. TODO(temple-refactor): allow a 2nd facedown/city.
+             (not has-temple?)
              (or allow-duplicate? (< placed max-t)))
       (-> state
           (assoc-in [:players player-key :temples city] :face-up)
@@ -1313,12 +1318,12 @@
    first magistrate to `dest`, flip raiders passed through, respecting leader
    movement. Returns updated state."
   [s player-key dest]
-  (let [active-cities (set (keys (:city-graph s)))]
-   (if-not (contains? active-cities dest)
-    s  ;; guard: never move a magistrate to a non-city (e.g. a wrong-typed choice)
+  (let [active-cities (set (keys (:city-graph s)))
+        mag-id (ffirst (:magistrates s))]
+   (if-not (and mag-id (contains? active-cities dest))
+    s  ;; guard: no magistrate present, or non-city dest (e.g. a wrong-typed choice)
     (let [leader-lv (get-in s [:players player-key :roles :leader] 1)
         max-move (get leader-movement leader-lv 1)
-        mag-id (ffirst (:magistrates s))
         mag-city (get-in s [:magistrates mag-id])
         ;; Find the steps needed to reach dest (up to max-move)
         steps (or (some (fn [n]
@@ -1738,7 +1743,12 @@
                (update-in state [:players player-key :glory] + ml))
 
       ;; ─── Board 18: Forge of Tubal-Cain ─────────────────────────
-      [18 1] (add-player-resource state player-key :tools 2) ;; Resources (partial: no magistrate move/sell)
+      ;; "Move a Magistrate across a river. You may sell in your caravan's city."
+      ;; choice = magistrate destination; move it (influence) then sell in caravan.
+      ;; (Old human arm dropped both; unification had collapsed it to a +2 tools stub.)
+      [18 1] (let [dest (or choice (first (magistrate-cities state)))
+                   s (cond-> state dest (bonus-influence player-key dest))]
+               (bonus-sell-in s player-key (:caravan pdata)))
       ;; "Take a travel action then score 5 Glory IF you have a facedown temple
       ;; in Samarra." FAITHFUL (Bucket B): grant 0 glory when the condition is
       ;; unmet (was a spurious +2). choice = travel destination (no score effect).
@@ -1906,8 +1916,9 @@
                              (assoc-in [:players player-key :temples city] :face-down)
                              (update-in [:players player-key :amity] inc)))
                        state (take n faceup)))
-      [25 4] (-> state ;; Good + travel
-                (add-player-resource player-key :gems 1))
+      ;; "Take a good of your choice. Then take a Travel action." Grant the CHOSEN
+      ;; good (was hardcoded :gems, ignoring the player's pick — a dual-path bug).
+      [25 4] (add-player-resource state player-key (or choice :gems) 1)
 
       ;; ─── Board 26: Court of Enshakushanna ───────────────────────
       [26 1] (-> state ;; Increase Priest and Leader
@@ -2167,10 +2178,9 @@
                    (first (sort-by #(get-in state [:players player-key :roles %] 1) roles))))
       ;; "Influence a Magistrate. Score each of your Raiders it moved through."
       ;; choice = magistrate destination; influence + glory (2 + point-count).
-      ;; NOTE: bonus-needs-choice? wrongly tags [35 4] :pick-role (S4 choice-type
-      ;; bug, deferred), so `choice` here is a ROLE keyword, not a city — do NOT
-      ;; feed it to influence. Auto-pick the magistrate destination.
-      [35 4] (let [dest (first (magistrate-cities state))
+      ;; "Influence a Magistrate. Score each Raider it moved through." choice =
+      ;; magistrate destination (descriptor fixed to :pick-city :magistrate).
+      [35 4] (let [dest (or choice (first (magistrate-cities state)))
                    point-count (count (filter #(= :point (val %)) (:raiders pdata)))]
                (-> (cond-> state dest (bonus-influence player-key dest))
                    (update-in [:players player-key :glory] + (+ 2 point-count))))
