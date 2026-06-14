@@ -256,12 +256,15 @@
    co-collapsing onto one strategy."
   [organisms {:keys [panel-games-per-org player-counts]
               :or {panel-games-per-org 4 player-counts [2 3 4]}}]
-  (mapv
+  ;; The panel is a CONTENTION gradient — solo (1p) games have no opponents and
+  ;; would score a trivial win every time, so restrict to multiplayer counts.
+  (let [pcs (or (seq (filter #(>= % 2) player-counts)) [2])]
+   (mapv
    (fn [org]
      (let [seat-key (str "self::" (:name org))
            games
            (for [g (range panel-games-per-org)
-                 :let [pc (nth player-counts (mod g (count player-counts)))
+                 :let [pc (nth pcs (mod g (count pcs)))
                        opps (take (dec pc)
                                   (drop (mod (* g 3) (count reference-panel))
                                         (cycle reference-panel)))
@@ -281,7 +284,7 @@
               :panel-winrate (if (seq games)
                                (/ (reduce + (map :won games)) (double (count games)))
                                0.0))))
-   organisms))
+   organisms)))
 
 (defn blended-rep
   "Selection score combining the in-population reputation with the external
