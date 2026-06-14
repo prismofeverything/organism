@@ -215,6 +215,104 @@
        :total-games @game-count})))
 
 ;; =============================================================================
+;; Frozen adversarial reference panel
+;; =============================================================================
+;;
+;; Self-play alone collapses: every weight vector shares the same blind spots,
+;; so intra-population Elo can inflate inside a monoculture without any real
+;; skill gain (the adjudicator's diagnosis). The cure is an EXTERNAL gradient —
+;; a fixed set of non-evolving opponents the population is scored against. These
+;; two adversaries are built entirely from EXISTING genome dimensions (no magic):
+;; they punish the documented opponent-blindness so a bot that ignores the feat
+;; race / shared-resource contest is measurably out-competed.
+
+(def adversary-feat-racer
+  "Frozen reference opponent: rushes to claim contests first (the [3 2 1 1]
+   wild-point race premium the evolved population is blind to)."
+  (merge pers/default-weights
+         {:name "Ref-FeatRacer"
+          :feat-rush 1.0 :feat-awareness 1.0 :feat-closure-urgency 1.0
+          :feat-sequence 0.7 :tempo 0.0 :contest-focus 0.9 :early-role-bias 0.9}))
+
+(def adversary-denial
+  "Frozen reference opponent: contests shared routes / magistrates / sell
+   demands rather than playing solitaire."
+  (merge pers/default-weights
+         {:name "Ref-Denial"
+          :magistrate-denial 1.0 :competitive-roles 1.0 :sell-urgency 1.0
+          :deploy-near-opponents 2.5 :raider-aggression 1.0
+          :avoid-enemy-flip 0.9 :temple-competition 0.8}))
+
+(def reference-panel
+  "The 6 hand archetypes plus the two adversaries — frozen, never evolved."
+  (into (vec pers/archetypes) [adversary-feat-racer adversary-denial]))
+
+(defn attach-panel-scores
+  "Play each organism against frozen reference-panel seats and attach absolute
+   performance: :panel-rep (avg reputation) and :panel-winrate (fraction of
+   games where the organism had the highest reputation). This is the external
+   gradient — unlike intra-pop Elo it cannot be gamed by the population
+   co-collapsing onto one strategy."
+  [organisms {:keys [panel-games-per-org player-counts]
+              :or {panel-games-per-org 4 player-counts [2 3 4]}}]
+  (mapv
+   (fn [org]
+     (let [seat-key (str "self::" (:name org))
+           games
+           (for [g (range panel-games-per-org)
+                 :let [pc (nth player-counts (mod g (count player-counts)))
+                       opps (take (dec pc)
+                                  (drop (mod (* g 3) (count reference-panel))
+                                        (cycle reference-panel)))
+                       configs (into [{:key seat-key :personality (:personality org)}]
+                                     (map-indexed
+                                      (fn [i p] {:key (str "panel::" i) :personality p})
+                                      opps))
+                       summary (sim/game-result-summary (sim/run-game configs) configs)
+                       my-rep (->> summary (filter #(= (:player %) seat-key))
+                                   first :reputation)
+                       max-rep (apply max (map :reputation summary))]]
+             {:rep (or my-rep 0) :won (if (and my-rep (>= my-rep max-rep)) 1 0)})]
+       (assoc org
+              :panel-rep (if (seq games)
+                           (/ (reduce + (map :rep games)) (double (count games)))
+                           0.0)
+              :panel-winrate (if (seq games)
+                               (/ (reduce + (map :won games)) (double (count games)))
+                               0.0))))
+   organisms))
+
+(defn blended-rep
+  "Selection score combining the in-population reputation with the external
+   panel reputation when present. Falls back to avg-reputation alone when the
+   panel is disabled, so behavior is unchanged unless panel scores are attached."
+  [org]
+  (let [in-pop (:avg-reputation org 0.0)]
+    (if-let [panel (:panel-rep org)]
+      (/ (+ in-pop panel) 2.0)
+      in-pop)))
+
+(defn cap-by-region
+  "Diversity guard: greedily keep the best organisms by `score-fn` but never let
+   any single region exceed `max-frac` of the kept set, so selection cannot
+   collapse to a monoculture. Overflow from a saturated region is deferred and
+   only re-admitted if slots remain after every region has had its share."
+  [organisms n-keep score-fn max-frac]
+  (let [cap (max 1 (int (* n-keep max-frac)))
+        ranked (sort-by #(- (score-fn %)) organisms)
+        [kept deferred]
+        (reduce (fn [[kept deferred counts] o]
+                  (let [r (:region o)]
+                    (if (and (< (count kept) n-keep)
+                             (< (get counts r 0) cap))
+                      [(conj kept o) deferred (update counts r (fnil inc 0))]
+                      [kept (conj deferred o) counts])))
+                [[] [] {}]
+                ranked)]
+    ;; Fill any remaining slots from the deferred overflow (best first).
+    (vec (take n-keep (concat kept deferred)))))
+
+;; =============================================================================
 ;; Adaptive evolution (ported from Aquarium._evolve)
 ;; =============================================================================
 
@@ -227,8 +325,9 @@
   [organisms {:keys [pop-size mutation-rate elite-count]
               :or {pop-size 30 mutation-rate 0.3 elite-count 4}}]
   (let [n (count organisms)
-        ;; Sort by avg reputation (the actual score, not Elo)
-        sorted-orgs (sort-by #(- (:avg-reputation % 0)) organisms)
+        ;; Sort by blended reputation: in-population score plus the external
+        ;; reference-panel score when attached (the gradient self-play lacks).
+        sorted-orgs (sort-by #(- (blended-rep %)) organisms)
 
         ;; Phase 1: Remove feat-less organisms — but preserve population diversity
         ;; Only replace feat-failures if enough feat-achievers to fill 60% of population
@@ -253,14 +352,15 @@
             (into (vec feat-achievers) replacements))
           ;; Not enough achievers: keep everyone, just sort feat-failures to bottom
           (vec (concat feat-achievers
-                       (sort-by #(- (:avg-reputation % 0)) feat-failures))))
+                       (sort-by #(- (blended-rep %)) feat-failures))))
 
-        ;; Phase 2: Cut bottom 10% by avg reputation, replace with top 10%
-        phase2-sorted (sort-by #(- (:avg-reputation % 0)) phase1-orgs)
+        ;; Phase 2: Cut bottom 10%, then pick survivors with a per-region cap so
+        ;; no single region (e.g. merchant-balanced) can occupy the population.
+        phase2-sorted (sort-by #(- (blended-rep %)) phase1-orgs)
         n2 (count phase2-sorted)
         n-cut (max 1 (int (* n2 0.1)))
         n-keep (- n2 n-cut)
-        survivors (vec (take n-keep phase2-sorted))
+        survivors (cap-by-region phase2-sorted n-keep blended-rep 0.4)
         top-parents (take (max 1 (int (* n2 0.1))) phase2-sorted)
 
         ;; Phase 3: Generate children — mix of evolved + fresh diversity

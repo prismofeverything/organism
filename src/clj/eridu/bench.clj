@@ -34,6 +34,10 @@
    ;; Inter-run shifts — keep most of the population, inject few fresh
    :inter-mutation-rate 0.2
    :inter-fresh-fraction 0.15
+   ;; Frozen adversarial reference panel — external fitness gradient that
+   ;; breaks self-play monoculture collapse (see evolve/attach-panel-scores).
+   :reference-panel?     true
+   :panel-games-per-org  4
    ;; Weight snapshot interval
    :weight-snapshot-every 50})
 
@@ -491,12 +495,23 @@
                                 (swap! run-games inc)
                                 (swap! cumulative-games inc))
 
-                              {:keys [organisms total-games]}
+                              {organisms-raw :organisms total-games :total-games}
                               (run-tournament-with-capture
                                pop
                                {:games-per-matchup games-per-matchup
                                 :player-counts player-counts
                                 :on-game on-game})
+
+                              ;; Attach the external reference-panel gradient so
+                              ;; evolve-generation selects on real skill, not on
+                              ;; intra-monoculture Elo.
+                              organisms
+                              (if (:reference-panel? config)
+                                (evolve/attach-panel-scores
+                                 organisms-raw
+                                 {:panel-games-per-org (:panel-games-per-org config)
+                                  :player-counts player-counts})
+                                organisms-raw)
 
                               best (first (sort-by #(- (:elo %)) organisms))
                               avg-elo (/ (reduce + (map :elo organisms))
@@ -527,10 +542,31 @@
 
                           ;; Progress
                           (when (zero? (mod gen 20))
-                            (println (format "    Gen %d/%d: best=%s elo=%.0f avg=%.0f spread=%.0f regions=%d games=%d"
+                            (println (format "    Gen %d/%d: best=%s elo=%.0f avg=%.0f spread=%.0f regions=%d panelWR=%.2f games=%d"
                                              gen gens-per-run (:name best) (:elo best)
                                              avg-elo (:elo-spread gen-row)
-                                             (:unique-regions gen-row) @cumulative-games)))
+                                             (:unique-regions gen-row)
+                                             (double (/ (reduce + (map #(:panel-winrate % 0.0) organisms))
+                                                        (max 1 (count organisms))))
+                                             @cumulative-games)))
+
+                          ;; Monoculture / runaway guard — the bench used to be
+                          ;; unable to detect the collapse it logged symptoms of.
+                          (when (zero? (mod gen 20))
+                            (let [regions (:unique-regions gen-row)
+                                  oob (->> organisms
+                                           (mapcat (fn [o]
+                                                     (for [[k v] (:personality o)
+                                                           :let [[_ hi] (get pers/weight-bounds k)]
+                                                           :when (and hi (number? v) (> v (+ hi 0.01)))]
+                                                       k)))
+                                           distinct vec)]
+                              (when (<= regions 2)
+                                (println (format "    !! DIVERSITY WARNING gen %d: only %d unique region(s) — monoculture risk"
+                                                 gen regions)))
+                              (when (seq oob)
+                                (println (format "    !! RUNAWAY WARNING gen %d: weights past upper bound: %s"
+                                                 gen oob)))))
 
                           ;; Evolve
                           (let [next-pop (evolve/evolve-generation
