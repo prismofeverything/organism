@@ -62,6 +62,13 @@
   (let [awareness (:feat-awareness weights 0.3)
         feat-seq (:feat-sequence weights 0.4)
         closure-urgency (:feat-closure-urgency weights 0.5)
+        ;; Opponent-feat-race urgency: contests are claimed automatically and
+        ;; the first claimer gets 3 wild points vs 2/1/1 for the rest, but the
+        ;; bot is otherwise blind to the race. When an opponent is close to
+        ;; claiming a contest we also pursue, scale up the boost so we move to
+        ;; claim first. NEUTRAL and cheap at default — at 0.0 the opponent
+        ;; feat-progress scan is skipped and the multiplier is exactly 1.0.
+        race-urgency (:feat-race-urgency weights 0.0)
         claims (:contest-claims state {})
         already-claimed? (fn [cid] (some #{player} (get claims cid [])))
         ;; Use feat-chain if present, else fall back to target-feats
@@ -86,7 +93,17 @@
                                          1 (+ 0.3 (* feat-seq 0.5))   ;; next: 0.3-0.8
                                          2 (* feat-seq 0.3)            ;; far: 0-0.3
                                          (* feat-seq 0.1))
-                        scale (* (+ base-scale closure-bonus) pos-multiplier)]
+                        ;; Race multiplier: how close is the nearest opponent to
+                        ;; claiming THIS contest? At race-urgency 0 the scan is
+                        ;; skipped and the multiplier is exactly 1.0 (neutral).
+                        opp-progress (if (pos? race-urgency)
+                                       (apply max 0.0
+                                              (for [[pk _] (:players state)
+                                                    :when (not= pk player)]
+                                                (first (game/feat-progress state pk contest))))
+                                       0.0)
+                        race-mult (+ 1.0 (* race-urgency opp-progress))
+                        scale (* (+ base-scale closure-bonus) pos-multiplier race-mult)]
                     (reduce (fn [m2 a] (update m2 a (fnil + 0) scale))
                             m actions)))
                 {}

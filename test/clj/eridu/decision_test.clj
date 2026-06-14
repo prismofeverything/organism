@@ -192,6 +192,9 @@
 ;; =============================================================================
 
 (def ^:private wap #'decision/weighted-action-priority)
+(def ^:private fab #'decision/feat-action-boost)
+(def ^:private new-trait-keys
+  [:standing-awareness :supply-conservation :feat-race-urgency])
 
 (defn- choose-action-states
   "Collect the (state, weights) at every :choose-action decision point across a
@@ -213,7 +216,7 @@
       (doseq [{:keys [state weights]} states]
         (let [player (game/current-player state)
               pdata (game/player-data state player)
-              stripped (dissoc weights :standing-awareness :supply-conservation)]
+              stripped (apply dissoc weights new-trait-keys)]
           (is (= (wap weights state player pdata)
                  (wap stripped state player pdata))
               "present-at-0.0 == absent"))))))
@@ -238,3 +241,33 @@
         (is (not= (wap weights hi-state player pdata)
                   (wap (assoc weights :standing-awareness 1.0)
                        hi-state player pdata)))))))
+
+(deftest feat-race-urgency-live-test
+  ;; Find a real state where the player pursues a contest with positive
+  ;; progress, mirror the player's board onto an opponent seat (so the opponent
+  ;; now contests the SAME feat with the same progress), and confirm that
+  ;; raising feat-race-urgency lifts the feat-action boost. This proves the
+  ;; opponent-feat-race wiring is live without depending on a lucky random race.
+  (testing "feat-race-urgency boosts feat actions when an opponent contests the same feat"
+    (let [hit
+          (some
+           (fn [{:keys [state weights]}]
+             (let [player (game/current-player state)
+                   pdata (game/player-data state player)
+                   chain (or (seq (:feat-chain pdata)) (:target-feats pdata []))
+                   opp (first (filter #(not= % player) (keys (:players state))))
+                   ;; the chain contest the player is furthest along on
+                   contest (when (seq chain)
+                             (apply max-key
+                                    #(first (game/feat-progress state player %))
+                                    chain))]
+               (when (and opp contest
+                          (pos? (first (game/feat-progress state player contest))))
+                 (let [mstate (assoc-in state [:players opp]
+                                        (get-in state [:players player]))
+                       mpdata (game/player-data mstate player)
+                       b0 (fab (assoc weights :feat-race-urgency 0.0) mstate player mpdata)
+                       b1 (fab (assoc weights :feat-race-urgency 1.0) mstate player mpdata)]
+                   (when (not= b0 b1) true)))))
+           (choose-action-states 6 4))]
+      (is hit "raising feat-race-urgency changes the feat boost under contention"))))

@@ -129,6 +129,10 @@
    ;; Supply conservation: 0=spend raiders/temples freely,
    ;; >0=husband the last unit of finite raider/temple stock for reserve.
    :supply-conservation    0.0
+   ;; Feat-race urgency: 0=ignore opponents' contest progress,
+   ;; >0=rush to claim a contest first (3 wild pts) when an opponent is also
+   ;; close to it. Fills the highest-leverage opponent-blindness gap.
+   :feat-race-urgency      0.0
    })
 
 ;; =============================================================================
@@ -384,6 +388,7 @@
              ;; Game-relative dimensions (explore the full 0-1 range)
              :standing-awareness     (rand)
              :supply-conservation    (rand)
+             :feat-race-urgency      (rand)
              }))))
 
 (def weight-bounds
@@ -420,7 +425,8 @@
    :feat-rush [0.0 1.0] :feat-sequence [0.0 1.0]
    :feat-closure-urgency [0.0 1.0]
    :min-sells-per-round [0 3 :int] :min-deploys-per-round [0 2 :int]
-   :standing-awareness [0.0 1.0] :supply-conservation [0.0 1.0]})
+   :standing-awareness [0.0 1.0] :supply-conservation [0.0 1.0]
+   :feat-race-urgency [0.0 1.0]})
 
 (defn clamp-weight
   "Clamp a mutated weight value to its design [lo hi] range (the fix for the
@@ -454,7 +460,8 @@
         numeric-keys (concat numeric-keys [:glory-path :board-exploitation :feat-rush
                                            :feat-sequence :feat-closure-urgency
                                            :min-sells-per-round :min-deploys-per-round
-                                           :standing-awareness :supply-conservation])
+                                           :standing-awareness :supply-conservation
+                                           :feat-race-urgency])
         mutated (reduce (fn [p k]
                           (if (< (rand) mutation-rate)
                             (let [v (get p k 1.0)
@@ -487,7 +494,8 @@
                        :glory-path :board-exploitation :feat-rush
                        :feat-sequence :feat-closure-urgency
                        :min-sells-per-round :min-deploys-per-round
-                       :standing-awareness :supply-conservation]
+                       :standing-awareness :supply-conservation
+                       :feat-race-urgency]
         child (reduce (fn [c k]
                         (assoc c k (if (< (rand) 0.5)
                                      (get parent-a k 1.0)

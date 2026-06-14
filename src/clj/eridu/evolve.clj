@@ -232,6 +232,7 @@
   (merge pers/default-weights
          {:name "Ref-FeatRacer"
           :feat-rush 1.0 :feat-awareness 1.0 :feat-closure-urgency 1.0
+          :feat-race-urgency 1.0
           :feat-sequence 0.7 :tempo 0.0 :contest-focus 0.9 :early-role-bias 0.9}))
 
 (def adversary-denial
