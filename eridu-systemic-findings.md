@@ -64,30 +64,84 @@ Regression test `g1-g2-magistrate-contests-claimable-test` (point-only raiders �
 > *are* written — plausibly just **hard**, not impossible. Their zero-claim rates
 > came from stale data; re-measure on the fixed run before concluding anything.
 
-## 3. The dominant strategy — DESIGN, your call (not changed)
+## 3. The +10 role-5 bonus — re-examined on fixed-run data (NOT dominant)
 
 Source-confirmed (`game.cljc:1223-1227`): the role end-game bonus is a **flat
 +10 points to the opposite track** for reaching level 5, identical for all four
-roles. Combined with `reputation = min(amity, glory)`, +10 to your weak track is
-decisive, and merchant/leader are the cheapest, highest-frequency roles to max.
-The structural diagnosis (a double role-5 rush dominates) is sound and
-engine-independent; the *magnitudes* are stale.
+roles. The earlier "this is the dominant lever / a double role-5 rush dominates"
+framing came from the **stale crashed-run corpus and does not survive the fixed
+run.** Measured over 400,000 player-rows of the 170k-game fixed run:
 
-The exploit-finder's reassurance matters here: **no single-mechanic hand-crafted
-exploit beat fair share** — the rest of the economy looks well-balanced. So this
-is one concentrated lever, not a broken game.
+- **Roles maxed to 5 per player:** zero 73.4%, one 25.6%, two 1.0%, three
+  0.001% (2 rows), **four 0 of 400,000.** Maxing all four is impossible: each
+  role 1→5 needs four "alone-on-a-space" actions plus 2 pottery + 2 gold (L5
+  costs *both* via `can-pay-cost?`), in a 12-turn game — you cannot afford the
+  actions/resources for four roles and still score.
+- **Reaching L5 is win-correlated but not the main path:** among winners the
+  roles-at-L5 split is 0→66%, 1→32%, 2→1.8% — i.e. one role-5 is enriched in
+  winners (32% vs 26% of the field) so it *helps*, but **66% of winners maxed
+  zero roles.** It is a strong-when-achieved reward that is appropriately hard to
+  reach, not a strategy that crowds out the board.
+- A turtle/avoid-everyone "grab resources and max roles" line is not viable —
+  see the action/resource budget above, and you still must sell/build/raid for
+  in-game reputation.
 
-Options (do **not** want me to pick — this is a feel decision):
+So the recommendation shifts toward **leave +10 as-is** — it rewards a hard,
+committed line and the bots find many non-role-5 ways to win. The exploit-finder
+also found no single-mechanic build beats fair share. If you ever do touch it,
+don't nerf reflexively or tune-to-the-bots.
 
-- **Leave it.** It is a clear, legible win condition; specialists losing to
-  generalists is a defensible design.
-- **Scale it down** (e.g. +6/+8) so action-diversity strategies stay competitive.
-- **Diminishing returns** on a *second* maxed role, so double-role-rush is taxed
-  but a single specialty still pays.
+**The real asymmetry is BETWEEN the roles, not in +10's size.** L5 reach rates:
+leader 17.2%, merchant 7.7%, raider 2.2%, **priest 0.6%**. See §3a.
 
-Strong recommendation from every tier: **don't nerf reflexively, and never tune
-it just to make the current bots win** — that would be balancing-to-the-bots,
-itself an overfit. Re-measure with the fixed reference-panel run first.
+### 3a. Why priest is the weakest role (and leader the most-maxed)
+
+- **Leader is rubber-banded by design** (Mohammad): it earns no points on its
+  own — it *multiplies* the other three (sell/temple bonuses, magistrate-flips
+  raiders to point). So leveling it is cheap utility, and its L5 +10 amity is the
+  main *direct* payoff for an otherwise point-less role — which is exactly why
+  it tops the max-rate without being "OP."
+- **Priest is a multi-round spatial plan the greedy bot doesn't execute**
+  (Mohammad): temples are placed face-up and only score amity once you *travel*
+  to flip them, so the human line is "place fast + spread, small travels, then
+  prioritize double-move travels to flip." A myopic per-turn scorer places
+  temples but under-invests in the later travel-to-flip sequence. Evidence in
+  §3b — this looks like an **AI-modeling gap, not necessarily a game imbalance**
+  (priest may be fine, even strong, for a planning human).
+
+### 3b. Priest is a *compounding* engine the bot can't see
+
+The temple payoff compounds: `visit-temples-on-travel` flips one face-up temple
+and scores **amity = your total face-down count** — so the 1st flip is worth 1,
+the 5th is worth 5. The strong line is build a large spread of temples over
+rounds 1–2, then travel-to-flip them late (1+2+3+4+5 = 15 amity from five flips).
+Placement ceiling scales with priest level (`priest-max-temples {3 5, 4 8, 5 8}`),
+so the engine needs sustained multi-round investment: level priest → place many →
+flip late.
+
+Fixed-run data (400k player-rows) shows the bot doesn't run that engine:
+
+| segment | avg placed | flipped | flip-rate | avg reputation |
+|---------|-----|-----|-----|-----|
+| all players | 2.42 | 2.02 | 83% | 10.72 |
+| priest-is-top-role | 2.86 | 2.39 | 84% | **8.89** |
+
+- The gap is **not** "place but never flip" — flip-rate is a healthy 84%.
+- It's **volume**: priest-top bots reach priest level 3.38 on average (ceiling
+  5–8 temples) but place only **2.86**, so the compounding never gets going
+  (two flips = 1+2 = 3 amity, trivially beaten by two sells).
+- Root cause in `decision.cljc`: temple placement and travel-to-flip use **flat**
+  weights (`resolve-travel` scores a flip as `travel-for-temple * 5` regardless
+  of face-down count). The scorer can't see that the marginal flip is worth the
+  face-down count, so it has no reason to build the base — and the GA can't
+  evolve into it because no gene represents the compounding value.
+
+**Conclusion:** priest weakness is a faithful-model bug in the bot (it misprices
+the temple engine), not evidence the role is underpowered for a human. The
+principled fix mirrors the feat-race work: make the flip-value scoring
+compounding-aware (value a flip by face-down-count, placement by deferred flip
+potential) gated by a neutral gene, add a temple-engine reference adversary to
+the panel, and re-run — rather than hand-pumping temple weights.
 
 ## 4. Opponent-blindness — FIXED as new genome dimensions (neutral defaults)
 
