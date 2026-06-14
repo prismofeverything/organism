@@ -3,6 +3,7 @@
    the per-region diversity cap and the frozen reference panel that supplies an
    external fitness gradient."
   (:require
+   [clojure.set]
    [clojure.test :refer [deftest is testing]]
    [eridu.evolve :as evolve]
    [eridu.personality :as pers]))
@@ -54,11 +55,12 @@
     (is (= 6.0 (evolve/blended-rep {:avg-reputation 8.0 :panel-rep 4.0})))))
 
 (deftest reference-panel-is-frozen-and-well-formed-test
-  (testing "panel is the archetypes plus the two adversaries, all valid genomes"
-    (is (= (+ (count pers/archetypes) 2) (count evolve/reference-panel)))
+  (testing "panel is the archetypes plus the three adversaries, all valid genomes"
+    (is (= (+ (count pers/archetypes) 3) (count evolve/reference-panel)))
     (is (every? :name evolve/reference-panel))
-    (is (contains? (set (map :name evolve/reference-panel)) "Ref-FeatRacer"))
-    (is (contains? (set (map :name evolve/reference-panel)) "Ref-Denial"))
+    (is (= #{"Ref-FeatRacer" "Ref-Denial" "Ref-TempleEngine"}
+           (clojure.set/difference (set (map :name evolve/reference-panel))
+                                   (set (map :name pers/archetypes)))))
     ;; adversaries are built from existing genome dimensions (no novel keys)
-    (is (every? #(contains? evolve/adversary-feat-racer %)
+    (is (every? #(contains? evolve/adversary-temple-engine %)
                 (keys pers/default-weights)))))

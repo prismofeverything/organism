@@ -244,9 +244,21 @@
           :deploy-near-opponents 2.5 :raider-aggression 1.0
           :avoid-enemy-flip 0.9 :temple-competition 0.8}))
 
+(def adversary-temple-engine
+  "Frozen reference opponent: runs the compounding temple engine — levels priest,
+   spreads many temples, travels to flip them late (a flip scores amity = your
+   face-down count). The gradient that lets the GA discover priest play."
+  (merge pers/default-weights
+         {:name "Ref-TempleEngine"
+          :role-priority [:priest :leader :merchant :raider]
+          :temple-weight 2.0 :travel-for-temple 3.5 :travel-weight 1.2
+          :temple-engine 1.0 :temple-flip-threshold 2 :early-role-bias 1.0
+          :min-travels-per-round 2 :score-balance-target 0.6}))
+
 (def reference-panel
-  "The 6 hand archetypes plus the two adversaries — frozen, never evolved."
-  (into (vec pers/archetypes) [adversary-feat-racer adversary-denial]))
+  "The 6 hand archetypes plus the frozen adversaries — never evolved."
+  (into (vec pers/archetypes)
+        [adversary-feat-racer adversary-denial adversary-temple-engine]))
 
 (defn attach-panel-scores
   "Play each organism against frozen reference-panel seats and attach absolute

@@ -133,6 +133,11 @@
    ;; >0=rush to claim a contest first (3 wild pts) when an opponent is also
    ;; close to it. Fills the highest-leverage opponent-blindness gap.
    :feat-race-urgency      0.0
+   ;; Temple engine: 0=price temple placement/flips flat (the myopic default,
+   ;; which under-builds the base), >0=value building a wide temple base and
+   ;; flipping it late, reflecting the COMPOUNDING payoff (a flip scores
+   ;; amity = your face-down count). The fix for the priest-path bot blind spot.
+   :temple-engine          0.0
    })
 
 ;; =============================================================================
@@ -389,6 +394,7 @@
              :standing-awareness     (rand)
              :supply-conservation    (rand)
              :feat-race-urgency      (rand)
+             :temple-engine          (rand)
              }))))
 
 (def weight-bounds
@@ -426,7 +432,7 @@
    :feat-closure-urgency [0.0 1.0]
    :min-sells-per-round [0 3 :int] :min-deploys-per-round [0 2 :int]
    :standing-awareness [0.0 1.0] :supply-conservation [0.0 1.0]
-   :feat-race-urgency [0.0 1.0]})
+   :feat-race-urgency [0.0 1.0] :temple-engine [0.0 1.0]})
 
 (defn clamp-weight
   "Clamp a mutated weight value to its design [lo hi] range (the fix for the
@@ -461,7 +467,7 @@
                                            :feat-sequence :feat-closure-urgency
                                            :min-sells-per-round :min-deploys-per-round
                                            :standing-awareness :supply-conservation
-                                           :feat-race-urgency])
+                                           :feat-race-urgency :temple-engine])
         mutated (reduce (fn [p k]
                           (if (< (rand) mutation-rate)
                             (let [v (get p k 1.0)
@@ -495,7 +501,7 @@
                        :feat-sequence :feat-closure-urgency
                        :min-sells-per-round :min-deploys-per-round
                        :standing-awareness :supply-conservation
-                       :feat-race-urgency]
+                       :feat-race-urgency :temple-engine]
         child (reduce (fn [c k]
                         (assoc c k (if (< (rand) 0.5)
                                      (get parent-a k 1.0)

@@ -194,7 +194,7 @@
 (def ^:private wap #'decision/weighted-action-priority)
 (def ^:private fab #'decision/feat-action-boost)
 (def ^:private new-trait-keys
-  [:standing-awareness :supply-conservation :feat-race-urgency])
+  [:standing-awareness :supply-conservation :feat-race-urgency :temple-engine])
 
 (defn- choose-action-states
   "Collect the (state, weights) at every :choose-action decision point across a
@@ -240,7 +240,11 @@
             pdata (game/player-data hi-state player)]
         (is (not= (wap weights hi-state player pdata)
                   (wap (assoc weights :standing-awareness 1.0)
-                       hi-state player pdata)))))))
+                       hi-state player pdata)))))
+    (testing "temple-engine raises temple priority (values building the base)"
+      (let [pdata (game/player-data state player)]
+        (is (> (:temple (wap (assoc weights :temple-engine 1.0) state player pdata))
+               (:temple (wap (assoc weights :temple-engine 0.0) state player pdata))))))))
 
 (deftest feat-race-urgency-live-test
   ;; Find a real state where the player pursues a contest with positive

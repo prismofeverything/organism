@@ -249,7 +249,14 @@
         raiders-left (:raiders-supply pdata 0)
         temples-left (:temples-supply pdata 0)
         deploy-supply-pen (if (<= raiders-left 1) (* supply-cons -2.0) 0)
-        temple-supply-pen (if (<= temples-left 1) (* supply-cons -1.5) 0)]
+        temple-supply-pen (if (<= temples-left 1) (* supply-cons -1.5) 0)
+        ;; ── Temple engine: build a wide base for compounding flips ──
+        ;; A flip scores amity = face-down count, so each placed temple grows
+        ;; the value of every later flip. Reward growing the base (the more
+        ;; you hold, the more the next placement is worth). NEUTRAL at 0.0.
+        temple-engine (:temple-engine weights 0.0)
+        own-temple-count (count (game/all-temple-states pdata))
+        temple-engine-place (* temple-engine (inc own-temple-count) 1.0)]
     {:take     (+ (* (:take-weight weights 1.0) 1.0) (fb :take))
      :sell     (+ (* (+ (:sell-weight weights 1.0) sell-role-bonus)
                     (+ amity-need amity-target-adj)
@@ -268,6 +275,7 @@
                   gap-temple-boost
                   standing-amity
                   temple-supply-pen
+                  temple-engine-place
                   (fb :temple)
                   (* feat-rush-bonus (fb :temple)))
      :deploy   (+ (* (+ (:deploy-weight weights 1.0) deploy-role-bonus)
@@ -863,8 +871,13 @@
               :resolve-travel
               (let [non-skip (dissoc choices :skip)
                     caravan-city (:caravan pdata)
-                    face-up-count (count (filter #{:face-up}
-                                                 (game/all-temple-states pdata)))
+                    temple-states (game/all-temple-states pdata)
+                    face-up-count (count (filter #{:face-up} temple-states))
+                    ;; A flip scores amity = face-down count, so the marginal
+                    ;; flip is worth (face-down + 1). temple-engine prices that
+                    ;; compounding so the base is worth flipping out. Neutral at 0.
+                    temple-engine (:temple-engine weights 0.0)
+                    face-down-count (count (filter #{:face-down} temple-states))
                     flip-threshold (:temple-flip-threshold weights 2)
                     unflipped-urgency (if (>= face-up-count flip-threshold)
                                         (* (:travel-for-temple weights 2.0) 3.0)
@@ -902,7 +915,8 @@
                                     temple-mag-bonus (if (and has-temple has-mag) 8 0)
                                     sell-mag-bonus (if (and can-sell has-mag) 6 0)]]
                           [(+ (if has-temple (+ (* (:travel-for-temple weights 2.0) 5)
-                                               unflipped-urgency) 0)
+                                               unflipped-urgency
+                                               (* temple-engine (inc face-down-count) 1.0)) 0)
                               (if can-sell (* (:travel-for-sell weights 1.8) 4) 0)
                               ;; OWN POINT RAIDER = instant 4 glory, very high priority
                               (if own-point 15 0)
