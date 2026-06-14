@@ -136,12 +136,33 @@ Fixed-run data (400k player-rows) shows the bot doesn't run that engine:
   face-down count, so it has no reason to build the base — and the GA can't
   evolve into it because no gene represents the compounding value.
 
-**Conclusion:** priest weakness is a faithful-model bug in the bot (it misprices
-the temple engine), not evidence the role is underpowered for a human. The
-principled fix mirrors the feat-race work: make the flip-value scoring
-compounding-aware (value a flip by face-down-count, placement by deferred flip
-potential) gated by a neutral gene, add a temple-engine reference adversary to
-the panel, and re-run — rather than hand-pumping temple weights.
+**Fix applied + result (honest).** Added a neutral `:temple-engine` gene that
+prices the compounding (placement scales with base size; a flip is worth
+face-down+1) plus a `Ref-TempleEngine` panel adversary, and re-ran (170k games).
+The fix is correct as *faithfulness* — the bot now models temple scoring — but it
+did **not** make priest competitive:
+
+| segment | placed | flipped | reputation |
+|---|---|---|---|
+| priest-top, before fix | 2.86 | 2.39 | 8.89 |
+| priest-top, after fix | 2.98 | 2.55 | **8.79** |
+| field (after) | 2.39 | 2.05 | 10.76 |
+
+`temple-engine` was only weakly selected (mean 0.16, max 0.78 — a surviving
+niche, not a winning line). So the priest gap is **not** purely a bot-modeling
+bug after all: even priced correctly, the temple engine is **action-inefficient
+and back-loaded** — ~12 actions (place + level priest + travel-to-flip) for ~15
+amity, all deferred to late game, versus amity that selling/role-bonuses produce
+immediately per action. The GA won't commit to a deferred engine that loses the
+per-action race.
+
+**Conclusion (revised):** keep the bot fix (it's faithful and adds a viable
+temple niche), but priest's weakness is ultimately an **economy/design
+characteristic**, not a bot bug — a third item for your balance judgment
+alongside §3 (the +10 lever). Possible levers if you want priest stronger:
+cheaper/faster temple placement, a larger flip payoff, or a lower priest level
+ceiling so the base is reachable sooner. **Not tuned here** — making the bot
+force priest to win would be balancing-to-the-bots.
 
 ## 4. Opponent-blindness — FIXED as new genome dimensions (neutral defaults)
 
