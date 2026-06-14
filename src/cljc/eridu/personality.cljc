@@ -386,6 +386,53 @@
              :supply-conservation    (rand)
              }))))
 
+(def weight-bounds
+  "Per-key [lo hi] (optionally :int) clamps for mutation, matching the ranges
+   random-personality draws from. Without an UPPER clamp, mutate-personality's
+   ±30% multiplicative deltas let weights run away (observed: take-weight 11.4,
+   role-action-coupling 1.63) far outside their design ranges — noise the
+   (collapsed) fitness signal failed to punish. Clamping keeps the genome in a
+   meaningful, comparable space."
+  {:sell-weight [0.05 2.5]   :temple-weight [0.05 2.5]
+   :deploy-weight [0.05 2.5] :influence-weight [0.05 2.5]
+   :travel-weight [0.05 2.0] :take-weight [0.3 2.0]
+   :track-balance [0.0 1.0]  :early-role-bias [0.1 1.2]
+   :chain-weight [0.0 1.5]   :contest-focus [0.0 1.0]
+   :resource-hoard [0.0 1.0] :excess-penalty [0.5 6.5]
+   :temple-in-demand-city [0.3 3.5] :deploy-near-opponents [0.3 3.5]
+   :travel-for-temple [0.3 4.5] :travel-for-sell [0.3 4.0]
+   :influence-flip-raider [0.3 4.5]
+   :role-action-coupling [0.0 1.0]  :resource-planning [0.0 1.0]
+   :score-balance-target [0.15 0.85] :feat-awareness [0.0 1.0]
+   :tempo [0.0 1.0] :endgame-role-push [0.0 1.0]
+   :min-travels-per-round [0 3 :int] :max-travels-per-round [1 5 :int]
+   :resource-to-move [0.0 1.0] :avoid-enemy-flip [0.0 1.0]
+   :raider-pickup-priority [0.0 1.0]
+   :sell-threshold [1 5 :int] :temple-flip-threshold [1 4 :int]
+   :raider-magistrate-pref [0.0 1.0] :magistrate-setup [0.0 1.0]
+   :prefer-onetime-bonus [0.0 1.0] :temple-river-pref [0.0 1.0]
+   :eridu-focus [0.0 1.0] :first-turn-aggression [0.0 1.0]
+   :round-end-scoring [0.1 1.2]
+   :competitive-roles [0.0 1.0] :raider-aggression [0.0 1.0]
+   :magistrate-denial [0.0 1.0] :temple-competition [0.0 1.0]
+   :sell-urgency [0.0 1.0] :feat-persistence [0.0 1.0]
+   :glory-path [0.0 1.0] :board-exploitation [0.0 1.0]
+   :feat-rush [0.0 1.0] :feat-sequence [0.0 1.0]
+   :feat-closure-urgency [0.0 1.0]
+   :min-sells-per-round [0 3 :int] :min-deploys-per-round [0 2 :int]
+   :standing-awareness [0.0 1.0] :supply-conservation [0.0 1.0]})
+
+(defn clamp-weight
+  "Clamp a mutated weight value to its design [lo hi] range (the fix for the
+   runaway-upper-bound leak). Keys without bounds fall back to the legacy 0.05
+   floor. Integer-typed keys keep a float value here — the consuming code uses
+   them only in numeric comparisons, so a drifted 2.3 behaves like its floor;
+   what matters is that the upper bound is now enforced."
+  [k v]
+  (if-let [[lo hi] (get weight-bounds k)]
+    (max lo (min hi v))
+    (max 0.05 v)))
+
 (defn mutate-personality
   "Mutate a personality by tweaking random weights."
   [personality mutation-rate]
@@ -412,7 +459,7 @@
                           (if (< (rand) mutation-rate)
                             (let [v (get p k 1.0)
                                   delta (* v (- (rand 0.6) 0.3))] ;; ±30%
-                              (assoc p k (max 0.05 (+ v delta))))
+                              (assoc p k (clamp-weight k (+ v delta))))
                             p))
                         personality
                         numeric-keys)

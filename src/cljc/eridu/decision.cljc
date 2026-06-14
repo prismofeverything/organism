@@ -112,8 +112,11 @@
                      (+ 1.0 (* balance 0.5))
                      (- 1.0 (* balance 0.3)))
         ;; ── Role-action coupling ──────────────────────────────────
-        ;; Higher role levels boost the corresponding action
-        coupling (:role-action-coupling weights 0.5)
+        ;; Higher role levels boost the corresponding action.
+        ;; Capped at its documented 1.0 ceiling so a mutation-drifted weight
+        ;; (the clamp leak let it reach 1.63) can't blow the sell/temple/
+        ;; deploy/influence bonuses past their designed +1.0-at-level-5 range.
+        coupling (min 1.0 (:role-action-coupling weights 0.5))
         merchant-lv (get-in pdata [:roles :merchant] 1)
         priest-lv   (get-in pdata [:roles :priest] 1)
         raider-lv   (get-in pdata [:roles :raider] 1)
