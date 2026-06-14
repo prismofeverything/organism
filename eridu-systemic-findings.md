@@ -126,11 +126,30 @@ The adjudicator and overseer flagged these as traps; all were respected:
 - Did **not** commit the stale evolved population as a "new baseline" — it would
   launder pre-fix data.
 
-## 6. Next steps
+## 6. Fixed-harness run — results (2026-06-14)
 
-1. **(running)** Fresh GA on the fixed harness → real baseline. Watch that
-   `unique-regions` stays > 2, `panelWR` trends up, no runaway warnings.
-2. Commit the evolved baseline (from the fixed run only) + this doc.
-3. **You:** confirm G1/G2 trigger semantics → I wire the counters.
-4. **You:** decide the +10 role-5 question (or leave it) once the fixed-run
-   numbers are in.
+Full `config-all` run on the corrected engine: 10 runs × 100 gens, pop 20,
+counts [1 2 3 4], **170,000 games**, no `:fresh?` reseed from stale data.
+
+- **No collapse.** Zero diversity/runaway warnings; `unique-regions` held at
+  **5–9** the whole run (the old harness sank to 1–2). Final population spans
+  **7 regions** — merchant-led but with priest/leader strategies surviving.
+- **Real skill gain.** `panelWR` (win-rate vs the frozen panel) climbed from
+  0.45 to ~0.55–0.64 — the population genuinely beats the external adversaries
+  more over time, which intra-monoculture Elo could never have shown.
+- **New genes explored *and* selected** (no dead genes): `supply-conservation`
+  converged high (mean **0.79**), `feat-race-urgency` settled moderate-high
+  (mean **0.45**, up to 0.88 — the Ref-FeatRacer gradient worked),
+  `standing-awareness` modest (**0.24**).
+- **All weights in-bounds** (0 out-of-bounds) — the clamp held.
+
+Committed baseline: `resources/eridu/evolved-baseline.edn` (20 organisms, full
+provenance header). Mirrors `output/bench/evolved-population.edn`.
+
+## 7. Still open — your calls
+
+- **+10 role-5 lever** (Section 3). The fixed-run data is now in: the population
+  is still merchant/leader-led even with diversity preserved, consistent with
+  this being the dominant lever. Decide leave / scale / diminishing — or leave it
+  as a legible win condition. Not changed.
+- Nothing else outstanding; G1/G2 are fixed (Section 2).
