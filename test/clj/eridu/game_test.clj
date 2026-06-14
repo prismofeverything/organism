@@ -455,6 +455,41 @@
       (is (every? game/all-cities (vals (:magistrates s)))
           "magistrate values MUST be city keywords"))))
 
+(deftest g1-g2-magistrate-contests-claimable-test
+  ;; Regression: G1 ("move a magistrate 4 cities in one turn") and G2 ("move a
+  ;; magistrate through 3 raiders, any owner") are instrumented in the influence
+  ;; choice path. G2 previously counted only :raiding-side raiders, undercounting
+  ;; the point-side ones the magistrate also crosses. Pin both contests live.
+  (let [base   (game/initial-state [:p1 :p2 :p3 :p4])
+        player (game/current-player base)
+        opp    (first (filter #(not= % player) (keys (:players base))))
+        routes (game/board-routes base)
+        ;; opponent holds a POINT-side raider on EVERY route, so whatever
+        ;; clockwise path the magistrate sweeps, it crosses point raiders.
+        all-point (into {} (map (fn [r] [(game/route-key (:from r) (:to r)) :point])
+                                routes))
+        s (-> base
+              (assoc-in [:players player :roles :leader] 5)   ;; leader-movement 5
+              (assoc-in [:players opp :raiders] all-point)
+              (assoc :magistrates {0 (first (keys (:city-graph base)))})
+              (assoc-in [:turn-stats :player] player))
+        choices (choice/resolve-influence-choices s)
+        next-states (vals choices)]
+    (testing "G2 counts point-side raiders the magistrate crosses (was 0 before fix)"
+      (let [best (apply max 0 (keep #(get-in % [:turn-stats :magistrate-raiders-flipped])
+                                    next-states))]
+        (is (>= best 3)
+            "a multi-step sweep crosses >=3 point-side raiders")))
+    (testing "a qualifying influence move makes G1 and G2 evaluate true"
+      (let [g2-ns (some (fn [ns] (when (>= (get-in ns [:turn-stats :magistrate-raiders-flipped] 0) 3) ns))
+                        next-states)
+            g1-ns (some (fn [ns] (when (>= (get-in ns [:turn-stats :magistrate-max-move] 0) 4) ns))
+                        next-states)]
+        (is (and g1-ns (game/evaluate-contest g1-ns player {:id :G1}))
+            "G1 claimable after a >=4-city magistrate move")
+        (is (and g2-ns (game/evaluate-contest g2-ns player {:id :G2}))
+            "G2 claimable after crossing >=3 raiders")))))
+
 (deftest magistrate-and-my-temple-cities-test
   (testing "returns intersection of magistrate cities and player's temples"
     (let [alice (make-player {:temples {:eridu   [:face-up]

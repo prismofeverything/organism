@@ -801,13 +801,21 @@
                           dest (if (seq path) (second (last path)) nil)
                           rk-key [mag-city dest steps]]
                     :when dest]
-                [rk-key (let [;; Count raiders that will be flipped
+                [rk-key (let [;; G2 "Move a Magistrate through three raiders (owned
+                              ;; by any player)" counts a raider on a crossed route
+                              ;; regardless of side or owner — even point-side ones,
+                              ;; which aren't flipped below but are still crossed.
+                              ;; Check all key orderings since raider keys may be
+                              ;; stored non-canonically.
                               raiders-on-path
                               (count (for [[from to] path
                                            :let [rk (game/route-key from to)]
-                                           [pk pdata] (:players state)
-                                           :when (= :raiding (get-in pdata [:raiders rk]))]
-                                       rk))
+                                           [_pk pdata] (:players state)
+                                           :let [rs (:raiders pdata)]
+                                           :when (or (contains? rs rk)
+                                                     (contains? rs [from to])
+                                                     (contains? rs [to from]))]
+                                       [from to]))
                               ;; Update magistrate position (by ID, not city)
                               s (-> state
                                     (assoc-in [:magistrates mag-id] dest)

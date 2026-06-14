@@ -37,35 +37,32 @@ do not depend on the GA data at all.
 These are unambiguous engineering defects, fixed and regression-tested
 (`evolve_test.clj`, `decision_test.clj`).
 
-## 2. Confirmed dead feats — BUG, needs your intent to fix
+## 2. G1/G2 magistrate contests — FIXED (correction to an earlier misread)
 
-**G1 and G2 are unclaimable.** They test:
+**Earlier I reported G1/G2 as "unclaimable, turn-stats keys written in 0 places."
+That was wrong** — I grepped only `game.cljc`. The instrumentation lives in the
+influence path in `choice.cljc` (resolve-influence-choices, ~line 814), where
+`:magistrate-max-move` and `:magistrate-raiders-flipped` are accumulated per
+magistrate as it moves. `game.cljc` only *reads* them. So:
 
-```clojure
-:G1 (>= (get-in state [:turn-stats :magistrate-max-move] 0) 4)
-:G2 (>= (get-in state [:turn-stats :magistrate-raiders-flipped] 0) 3)
-```
+- **G1 "Move one Magistrate four cities in one turn"** was already correct:
+  `:magistrate-max-move` is the max per-magistrate *cumulative* movement this
+  turn, and `leader-movement` is `{3 4, 4 5, 5 5}` so a leader-3+ reaches 4 in a
+  single influence action. Live; just genuinely hard (needs leader 3+ or stacked
+  influence). Mohammad confirmed the cumulative reading.
+- **G2 "Move a Magistrate through three raiders (owned by any player)"** had a
+  real bug: it counted only `:raiding`-side raiders, so the point-side raiders
+  the magistrate also crosses were ignored — undercounting against the intended
+  "either side, any owner" rule (Mohammad confirmed). **Fixed**: the count now
+  includes raiders of either side and any owner, robust to non-canonical route
+  keys (only `:raiding` ones are still flipped, but all crossed ones count).
 
-but `:magistrate-max-move` and `:magistrate-raiders-flipped` are written in
-**zero places** in `game.cljc` — the turn-stats instrumentation for magistrate
-movement was never wired. `(get … 0)` is always 0, so the conditions can never
-be true. These contests can appear on the board but can never be won.
+Regression test `g1-g2-magistrate-contests-claimable-test` (point-only raiders →
+0 crossings before the fix, ≥3 after) pins both contests live.
 
-This is a real bug, but the *fix* needs a designer decision I won't guess:
-
-- **G1** — does "magistrate max move ≥ 4" mean the magistrate moved ≥4 cities in
-  a single influence action this turn? Or cumulative this turn?
-- **G2** — "magistrate raiders flipped ≥ 3": raiders flipped to point-side *by a
-  single magistrate move*, or total across the turn?
-
-Once you confirm the trigger semantics I'll wire the `update-in [:turn-stats …]`
-counters at the magistrate-move site (mirrors how `:amity`/`:glory`/
-`:temples-flipped` are already accumulated at `game.cljc:855/860/881`).
-
-> Other feats the analysts called "dead" (M1, M2, F2, I1, K2) read keys that
-> *are* written — they are plausibly just **hard**, not impossible. Their
-> zero-claim rates came from stale data, so re-measure on the fixed run before
-> concluding anything.
+> The other feats the analysts called "dead" (M1, M2, F2, I1, K2) read keys that
+> *are* written — plausibly just **hard**, not impossible. Their zero-claim rates
+> came from stale data; re-measure on the fixed run before concluding anything.
 
 ## 3. The dominant strategy — DESIGN, your call (not changed)
 
