@@ -207,7 +207,29 @@
                             0)
         deploy-budget-boost (if (and (> turn-in-round 2)
                                      (< deploys-so-far min-deploys))
-                              3 0)]
+                              3 0)
+        ;; ── Standing awareness: race the reputation leader ──────────
+        ;; reputation = min(amity,glory). When BEHIND the field's leader,
+        ;; add urgency to whichever track is currently binding (the one
+        ;; that raises our score). NEUTRAL at default — exactly 0 when
+        ;; :standing-awareness is absent/0.0, so existing bots are unchanged.
+        standing (:standing-awareness weights 0.0)
+        my-rep (min amity glory)
+        opp-rep (apply max 0
+                       (for [[pk pd] (:players state)
+                             :when (not= pk player)]
+                         (min (:amity pd 0) (:glory pd 0))))
+        behind (max 0 (- opp-rep my-rep))
+        standing-amity (if (<= amity glory) (* standing behind 0.4) 0)
+        standing-glory (if (< glory amity) (* standing behind 0.4) 0)
+        ;; ── Supply conservation: husband finite raider/temple stock ──
+        ;; raiders-supply/temples-supply are finite; a high weight makes the
+        ;; bot hold its last unit in reserve. NEUTRAL at default (0.0 → 0).
+        supply-cons (:supply-conservation weights 0.0)
+        raiders-left (:raiders-supply pdata 0)
+        temples-left (:temples-supply pdata 0)
+        deploy-supply-pen (if (<= raiders-left 1) (* supply-cons -2.0) 0)
+        temple-supply-pen (if (<= temples-left 1) (* supply-cons -1.5) 0)]
     {:take     (+ (* (:take-weight weights 1.0) 1.0) (fb :take))
      :sell     (+ (* (+ (:sell-weight weights 1.0) sell-role-bonus)
                     (+ amity-need amity-target-adj)
@@ -217,12 +239,15 @@
                   amity-emergency
                   gap-sell-boost
                   sell-budget-boost
+                  standing-amity
                   (fb :sell)
                   (* feat-rush-bonus (fb :sell)))
      :temple   (+ (* (+ (:temple-weight weights 1.0) temple-role-bonus)
                     (+ amity-need amity-target-adj))
                   amity-emergency
                   gap-temple-boost
+                  standing-amity
+                  temple-supply-pen
                   (fb :temple)
                   (* feat-rush-bonus (fb :temple)))
      :deploy   (+ (* (+ (:deploy-weight weights 1.0) deploy-role-bonus)
@@ -231,6 +256,8 @@
                   glory-emergency
                   gap-deploy-boost
                   deploy-budget-boost
+                  standing-glory
+                  deploy-supply-pen
                   ;; Minimum deploy floor: raiders needed for glory generation
                   (let [rc (game/count-raiders-deployed pdata)]
                     (cond
@@ -245,6 +272,7 @@
                    raider-glory-boost
                    glory-emergency
                    gap-influence-boost
+                   standing-glory
                    ;; Leader level boost for influence: higher leader = more effective influence
                    (* (dec leader-lv) 0.15)
                    ;; Boost influence when player has raiding-side raiders that need flipping

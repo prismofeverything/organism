@@ -121,6 +121,14 @@
    :min-sells-per-round    1
    ;; Minimum deploys per round: if below this, boost deploy priority
    :min-deploys-per-round  0
+   ;; ── Game-relative dimensions (NEUTRAL at 0.0 — GA discovers value) ──
+   ;; Standing awareness: 0=play own win condition in isolation,
+   ;; >0=add catch-up urgency on the binding track when behind the field's
+   ;; reputation leader. Fills the "bot plays solitaire" gap.
+   :standing-awareness     0.0
+   ;; Supply conservation: 0=spend raiders/temples freely,
+   ;; >0=husband the last unit of finite raider/temple stock for reserve.
+   :supply-conservation    0.0
    })
 
 ;; =============================================================================
@@ -373,6 +381,9 @@
              ;; Round budget
              :min-sells-per-round    (rand-int 3)         ;; 0-2
              :min-deploys-per-round  (rand-int 2)         ;; 0-1
+             ;; Game-relative dimensions (explore the full 0-1 range)
+             :standing-awareness     (rand)
+             :supply-conservation    (rand)
              }))))
 
 (defn mutate-personality
@@ -395,7 +406,8 @@
                        :temple-competition :sell-urgency :feat-persistence]
         numeric-keys (concat numeric-keys [:glory-path :board-exploitation :feat-rush
                                            :feat-sequence :feat-closure-urgency
-                                           :min-sells-per-round :min-deploys-per-round])
+                                           :min-sells-per-round :min-deploys-per-round
+                                           :standing-awareness :supply-conservation])
         mutated (reduce (fn [p k]
                           (if (< (rand) mutation-rate)
                             (let [v (get p k 1.0)
@@ -427,7 +439,8 @@
                        :min-travels-per-round :max-travels-per-round
                        :glory-path :board-exploitation :feat-rush
                        :feat-sequence :feat-closure-urgency
-                       :min-sells-per-round :min-deploys-per-round]
+                       :min-sells-per-round :min-deploys-per-round
+                       :standing-awareness :supply-conservation]
         child (reduce (fn [c k]
                         (assoc c k (if (< (rand) 0.5)
                                      (get parent-a k 1.0)

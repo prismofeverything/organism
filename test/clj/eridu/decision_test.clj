@@ -176,3 +176,65 @@
       (is (= (decision/decide state w)
              (pers/personality-step state w))
           "personality-step delegates to decision/decide"))))
+
+;; =============================================================================
+;; New GA traits: neutral-at-default + live-when-nonzero
+;;
+;; :standing-awareness and :supply-conservation were ADDED to the genome with
+;; NEUTRAL (0.0) defaults so the committed archetypes and any saved population
+;; evolve unchanged, while the GA can discover their value. These guards pin
+;; both halves of that contract:
+;;   - neutrality: a bot decides identically whether the keys are present-at-0.0
+;;     or absent entirely (proves every new scoring term is exactly 0 at default,
+;;     so committing them changes no existing behavior);
+;;   - liveness: when a key is raised AND its trigger condition holds, the action
+;;     priority actually changes (proves the wiring is live, not dead code).
+;; =============================================================================
+
+(def ^:private wap #'decision/weighted-action-priority)
+
+(defn- choose-action-states
+  "Collect the (state, weights) at every :choose-action decision point across a
+   few real games — fully valid states for exercising weighted-action-priority."
+  [games player-count]
+  (->> (some-games games player-count)
+       (filter #(= :choose-action (:phase %)))
+       (filter :state)))
+
+(deftest new-traits-neutral-at-default-test
+  ;; The new traits live entirely inside weighted-action-priority, which is a
+  ;; PURE function of (weights, state, player, pdata) — no RNG (unlike `decide`,
+  ;; whose returned next-state embeds randomly-drawn demand tokens). So we pin
+  ;; neutrality where the change actually is: the priority map is byte-identical
+  ;; whether the new keys are present-at-0.0 or absent.
+  (testing "action priority is invariant to the new keys at 0.0"
+    (let [states (choose-action-states 3 4)]
+      (is (seq states) "collected some :choose-action decision points")
+      (doseq [{:keys [state weights]} states]
+        (let [player (game/current-player state)
+              pdata (game/player-data state player)
+              stripped (dissoc weights :standing-awareness :supply-conservation)]
+          (is (= (wap weights state player pdata)
+                 (wap stripped state player pdata))
+              "present-at-0.0 == absent"))))))
+
+(deftest new-traits-live-when-nonzero-test
+  (let [states (choose-action-states 3 4)
+        {:keys [state weights]} (first states)
+        player (game/current-player state)]
+    (is (seq states))
+    (testing "supply-conservation lowers deploy priority when raider stock is low"
+      (let [low-state (assoc-in state [:players player :raiders-supply] 1)
+            pdata (game/player-data low-state player)]
+        (is (< (:deploy (wap (assoc weights :supply-conservation 1.0)
+                             low-state player pdata))
+               (:deploy (wap weights low-state player pdata))))))
+    (testing "standing-awareness changes priority when the field leads on reputation"
+      (let [opp (first (filter #(not= % player) (keys (:players state))))
+            hi-state (-> state
+                         (assoc-in [:players opp :amity] 30)
+                         (assoc-in [:players opp :glory] 30))
+            pdata (game/player-data hi-state player)]
+        (is (not= (wap weights hi-state player pdata)
+                  (wap (assoc weights :standing-awareness 1.0)
+                       hi-state player pdata)))))))
