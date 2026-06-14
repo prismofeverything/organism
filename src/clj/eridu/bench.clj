@@ -383,7 +383,11 @@
 
 (defn run-bench! [config & {:keys [fresh?]}]
   (ensure-output-dir!)
-  (let [{:keys [pop-size gens-per-run total-runs mutation-rate elite-count
+  ;; Merge over base-config so every field consumed by run-bench!/the banner has a
+  ;; default — a hand-built or REPL config that omits e.g. :inter-fresh-fraction can
+  ;; never produce a nil that crashes arithmetic/printing downstream.
+  (let [config (merge base-config config)
+        {:keys [pop-size gens-per-run total-runs mutation-rate elite-count
                 player-counts games-per-matchup weight-snapshot-every]} config
         start-time (System/currentTimeMillis)
         ;; Load or create initial population
@@ -393,12 +397,18 @@
                       (let [n (count saved-pop)]
                         (cond
                           (= n pop-size) saved-pop
-                          (> n pop-size) (vec (take pop-size
-                                                   (sort-by #(- (:elo %)) saved-pop)))
-                          :else (into (vec saved-pop)
-                                      (repeatedly (- pop-size n)
-                                                  #(evolve/make-organism
-                                                    (pers/random-personality))))))
+                          (> n pop-size)
+                          (do (println (format "  !! Saved population (%d) > pop-size (%d); keeping top %d by Elo."
+                                               n pop-size pop-size))
+                              (vec (take pop-size (sort-by #(- (:elo %)) saved-pop))))
+                          :else
+                          (do (println (format "  !! Saved population (%d) < pop-size (%d); injecting %d FRESH random organisms."
+                                               n pop-size (- pop-size n)))
+                              (println "     A large top-up dilutes the evolved basin with random weights — prefer a fresh run if this gap is big.")
+                              (into (vec saved-pop)
+                                    (repeatedly (- pop-size n)
+                                                #(evolve/make-organism
+                                                  (pers/random-personality)))))))
                       (evolve/initial-population pop-size))
         pc-label (str/join "+" (map str player-counts))]
 
