@@ -533,3 +533,35 @@
                            {:city-demands {:lagash [:gold]} :magistrates {0 :kish}})
             s' (sell-in s :alice :lagash)]
         (is (zero? (glory s')) "magistrate elsewhere → no sell glory")))))
+
+;; =============================================================================
+;; Bot/human path MERGE — one claim primitive, no drift (systemic fix)
+;; =============================================================================
+
+(deftest apply-feat-claim-shared-primitive-test
+  (testing "apply-feat-claim! records claim + wild points + fires the :feat-claimed passive"
+    (let [s  (-> (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 3}})
+                 (assoc :contests [{:id :M1}]))
+          ;; claim M1 uncovering slot 0 (the passive); slot 0 has no instant arm → identity
+          s' (game/apply-feat-claim! s :alice :M1 0 3 identity)]
+      (is (= [:alice] (get-in s' [:contest-claims :M1])) "claim recorded")
+      (is (= 3 (get-in s' [:players :alice :wild-points])) "wild points added")
+      (is (= :uncovered (get-in s' [:players :alice :bonus-board 0])) "slot uncovered")
+      (is (= 3 (glory s')) "slot-0 passive fired: +Leader-level(3) glory"))))
+
+(deftest bot-resolves-interactive-bonus-like-human-test
+  ;; The merge's core invariant: a bot resolves an interactive bonus slot through
+  ;; the SAME apply-bonus-with-choice dispatch a human uses (with a scored pick),
+  ;; NOT the old apply-bonus-effect nil-default. So bot and human reach the same
+  ;; state for the same pick — drift is structurally impossible.
+  (let [base (-> (state-with 2 {:caravan :kish :temples-supply 7})
+                 (assoc :magistrates {0 :uruk}))
+        ;; [2 3] = "place a temple in a magistrate city" (:pick-city :magistrate)
+        bot-state   (game/bot-resolve-bonus base :alice 2 3)
+        human-state (game/apply-bonus-with-choice base :alice 2 3 :uruk)]
+    (testing "bot picks the (only) magistrate city and actually places the temple"
+      (is (game/has-temple? (get-in bot-state [:players :alice]) :uruk)
+          "bot placed a real temple — not a nil-default no-op"))
+    (testing "bot and human reach the same placement"
+      (is (= (get-in bot-state   [:players :alice :temples])
+             (get-in human-state [:players :alice :temples]))))))

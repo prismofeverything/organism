@@ -785,50 +785,32 @@
                            (not raw-needs-choice) nil
                            (and computed-targets? (empty? eligible-cities)) nil
                            :else raw-needs-choice)
-            ;; Base state: claim feat + uncover slot + wild points + log
-            base-state (-> state
-                           (update-in [:contest-claims contest-id] (fnil conj []) player-key)
-                           (assoc-in [:players player-key :bonus-board chosen-slot] :uncovered)
-                           (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
-                           (update :log conj
-                                   {:type :feat-claim
-                                    :player player-key
-                                    :round (:round state 1)
-                                    :turn (:turn-in-round state 1)
-                                    :message (str "Claimed feat " (name contest-id)
-                                                  " (" contest-name ") → +"
-                                                  wild-points " wild points")}))
-            ;; If effect needs choice, defer; otherwise apply now
-            new-state (cond
-                        needs-choice
-                        (update base-state :log conj
-                                {:type :bonus-effect :player player-key
-                                 :round (:round state 1) :turn (:turn-in-round state 1)
-                                 :message (str "Bonus #" chosen-slot " uncovered: "
-                                               effect-text " — choose below")})
-
-                        (and computed-targets? (empty? eligible-cities))
-                        (update base-state :log conj
-                                {:type :bonus-effect :player player-key
-                                 :round (:round state 1) :turn (:turn-in-round state 1)
-                                 :message (str "Bonus #" chosen-slot " uncovered: "
-                                               effect-text
-                                               " — no qualifying cities, no effect")})
-
-                        :else
-                        (-> base-state
-                            (game/apply-bonus-effect player-key board-id chosen-slot)
-                            (update :log conj
-                                    {:type :bonus-effect :player player-key
-                                     :round (:round state 1) :turn (:turn-in-round state 1)
-                                     :message (str "Bonus #" chosen-slot
-                                                   " uncovered: " effect-text)})))
-            ;; Fire the contest-claim passive (e.g. board 11 slot 0: glory =
-            ;; Leader level). The bot path (check-and-claim-feats) already does
-            ;; this; the human path was missing it, so the passive never
-            ;; triggered on a human's claims (designer-reported bug).
-            new-state (game/apply-passive new-state player-key :feat-claimed
-                                          {:contest-id contest-id :slot chosen-slot})]
+            no-target? (and computed-targets? (empty? eligible-cities))
+            ;; Resolve the uncovered slot's bonus through the SHARED primitive
+            ;; game/apply-feat-claim! (same one the bot uses), so claim + wild +
+            ;; :feat-claimed passive can never drift between paths. The human
+            ;; defers an interactive pick to pending-bonus (bonus-fn = identity)
+            ;; and applies a non-interactive effect immediately.
+            bonus-fn (cond
+                       needs-choice identity
+                       no-target?   identity
+                       :else (fn [s] (game/apply-bonus-effect s player-key board-id chosen-slot)))
+            claimed (game/apply-feat-claim! state player-key contest-id chosen-slot
+                                            wild-points bonus-fn)
+            new-state (-> claimed
+                          (update :log conj
+                                  {:type :feat-claim :player player-key
+                                   :round (:round state 1) :turn (:turn-in-round state 1)
+                                   :message (str "Claimed feat " (name contest-id)
+                                                 " (" contest-name ") → +"
+                                                 wild-points " wild points")})
+                          (update :log conj
+                                  {:type :bonus-effect :player player-key
+                                   :round (:round state 1) :turn (:turn-in-round state 1)
+                                   :message (str "Bonus #" chosen-slot " uncovered: " effect-text
+                                                 (cond needs-choice " — choose below"
+                                                       no-target?   " — no qualifying cities, no effect"
+                                                       :else        ""))}))]
         (swap! games
                (fn [gs]
                  (-> gs

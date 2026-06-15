@@ -19,7 +19,8 @@
          city-has-own-face-up-temple? leader-bonus
          ;; Constants used by apply-passive and bonus board effects
          role-threshold-costs merchant-score raider-max-deployed priest-max-temples
-         resource-types roles max-role-level active-routes route-key segment-route-key)
+         resource-types roles max-role-level active-routes route-key segment-route-key
+         eligible-cities-for-filter)
 
 ;; =============================================================================
 ;; Canonical protected-phase sets
@@ -2805,6 +2806,79 @@
             best (apply max-key first scored-chains)]
         (vec (second best))))))
 
+;; =============================================================================
+;; Unified contest-claim primitive (bot + human share ONE path)
+;; =============================================================================
+
+(defn- bot-bonus-city-score
+  "Heuristic value of a city as a bonus-effect target: demands, a magistrate,
+   and your own temple all help. The engine's default agent pick for the bot."
+  [state player-key city]
+  (let [pdata (get-in state [:players player-key])]
+    (+ (count (get-in state [:city-demands city] []))
+       (if (magistrate-in-city? state city) 5 0)
+       (if (city-has-own-face-up-temple? pdata city) 4 0)
+       (if (has-temple? pdata city) 2 0))))
+
+(defn- bot-needed-resource
+  "A resource the bot wants to GAIN: one matching an un-maxed role's next
+   threshold cost, else :gold (versatile)."
+  [state player-key]
+  (let [pdata (get-in state [:players player-key])]
+    (or (first (for [role roles
+                     :let [lvl (get-in pdata [:roles role] 1)
+                           cost (get-in role-threshold-costs [role (inc lvl)])]
+                     :when (and cost (< lvl max-role-level) (keyword? cost))]
+                 cost))
+        :gold)))
+
+(defn- bot-bonus-picks
+  "Choice value(s) a BOT supplies for an interactive bonus slot, scored from
+   public state. Returns a seq of picks (one, or several for :multi / :count)."
+  [state player-key desc]
+  (case (:type desc)
+    :pick-resource (repeat (get desc :count 1) (bot-needed-resource state player-key))
+    :pick-role     (let [pdata (get-in state [:players player-key])
+                         opts (filter #(< (get-in pdata [:roles %] 1) max-role-level) roles)]
+                     [(or (first (sort-by #(get-in pdata [:roles %] 1) opts)) (first roles))])
+    :pick-city     (let [elig (eligible-cities-for-filter state player-key (:filter desc))]
+                     (cond
+                       (empty? elig)  []
+                       (:multi desc)  (vec elig)
+                       :else          [(apply max-key
+                                              #(bot-bonus-city-score state player-key %)
+                                              elig)]))
+    []))
+
+(defn bot-resolve-bonus
+  "Resolve a freshly-uncovered bonus slot for a BOT through the SAME dispatch the
+   human UI uses: an interactive slot gets a scored pick applied via
+   apply-bonus-with-choice (multi-pick folds over every eligible target); a
+   non-interactive slot uses the auto arm. Replaces the bot's old
+   apply-bonus-effect(nil auto-default) so bot and human cannot drift."
+  [state player-key board-id slot]
+  (if-let [desc (bonus-needs-choice? board-id slot)]
+    (reduce (fn [s pick] (apply-bonus-with-choice s player-key board-id slot pick))
+            state
+            (bot-bonus-picks state player-key desc))
+    (apply-bonus-effect state player-key board-id slot)))
+
+(defn apply-feat-claim!
+  "THE single contest-claim primitive — called by BOTH the bot
+   (check-and-claim-feats) and the human (handle-claim-feat!). Records the claim,
+   uncovers `slot`, adds `wild-points`, resolves the slot's bonus via `bonus-fn`
+   (state->state: the bot passes a scored apply-bonus-with-choice; the human
+   passes their UI pick or `identity` to defer), then fires the :feat-claimed
+   passive. Centralizing it makes the two paths structurally unable to drift —
+   the old duplicated split is what let the human-passive bug exist."
+  [state player-key contest-id slot wild-points bonus-fn]
+  (-> state
+      (update-in [:contest-claims contest-id] (fnil conj []) player-key)
+      (assoc-in [:players player-key :bonus-board slot] :uncovered)
+      (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
+      (bonus-fn)
+      (apply-passive player-key :feat-claimed {:contest-id contest-id :slot slot})))
+
 (defn check-and-claim-feats
   "Check all unclaimed feats for the current player. Uses strategic timing
    controlled by personality weights (tempo, feat-awareness) — the genetic
@@ -2863,14 +2937,12 @@
                                   (and (> wild-points 1) (> effect-value 0)))]
              (if (and should-claim? best-slot)
                (let [board-id (get-in s [:bonus-boards player-key])
-                     s' (-> s
-                            (update-in [:contest-claims contest-id] (fnil conj []) player-key)
-                            (assoc-in [:players player-key :bonus-board best-slot] :uncovered)
-                            (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
-                            (apply-bonus-effect player-key board-id best-slot)
-                            (apply-passive player-key :feat-claimed
-                                           {:contest-id contest-id
-                                            :slot best-slot}))
+                     ;; Shared claim primitive: the bot resolves the uncovered
+                     ;; slot's bonus through bot-resolve-bonus (a scored pick via
+                     ;; apply-bonus-with-choice) — the SAME dispatch the human UI
+                     ;; uses, instead of the old apply-bonus-effect nil-default.
+                     s' (apply-feat-claim! s player-key contest-id best-slot wild-points
+                                           #(bot-resolve-bonus % player-key board-id best-slot))
                      ;; Re-target: when a target feat is claimed, select a replacement
                      ;; from unclaimed feats to keep pursuit active
                      s' (if is-target?
