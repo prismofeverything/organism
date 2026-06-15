@@ -85,6 +85,11 @@
         [3 :river-crossed]
         (update-in state [:players player-key :resources :gems] (fnil inc 0))
 
+        ;; ── Board 3: Gems worth Amity each at end of game ─────────────────
+        [3 :end-game]
+        (update-in state [:players player-key :amity]
+                   + (get-in state [:players player-key :resources :gems] 0))
+
         ;; ── Board 4: When you flip a temple, may sell in that city ────────
         [4 :temple-flipped]
         (let [city (:city context)
@@ -1760,6 +1765,64 @@
           (pos? glory) (update-in [:players player-key :glory] + glory)))
       s)))
 
+(defn- sell-for-glory-in
+  "Like bonus-sell-in but the merchant reward is scored as GLORY instead of
+   amity — for cards that say 'Sell ... for Glory instead'. Spends a matching
+   good, consumes the demand token, and adds merchant-level glory (+ the
+   magistrate glory bonus at the sell city). No-op when nothing is sellable."
+  [s player-key city]
+  (let [demands (get-in s [:city-demands city] [])
+        resources (get-in s [:players player-key :resources])
+        sellable (first (filter #(pos? (get resources % 0)) demands))]
+    (if sellable
+      (let [merchant-lv (get-in s [:players player-key :roles :merchant] 1)
+            glory (get merchant-score merchant-lv 2)
+            has-mag (some #{city} (vals (:magistrates s)))
+            leader-lv (get-in s [:players player-key :roles :leader] 1)
+            mag-glory (if has-mag (get leader-bonus leader-lv 0) 0)]
+        (-> s
+            (update-in [:players player-key :resources sellable] dec)
+            (update-in [:city-demands city]
+                       (fn [ds] (let [idx (.indexOf (vec ds) sellable)]
+                                  (into (subvec (vec ds) 0 idx)
+                                        (subvec (vec ds) (inc idx))))))
+            (update-in [:players player-key :demand-tokens] conj sellable)
+            (update-in [:players player-key :glory] + (+ glory mag-glory))))
+      s)))
+
+(defn- place-demand-tokens
+  "Draw `n` random demand tokens from the bag and place them onto `city`'s demand
+   vector. Returns state with :demand-bag advanced. No-op draws on an empty bag."
+  [s city n]
+  (let [bag0 (:demand-bag s (full-demand-bag))]
+    (loop [s (assoc s :demand-bag bag0) i 0]
+      (if (>= i n)
+        s
+        (let [drawn (draw-demand-token (:demand-bag s))]
+          (if-not drawn
+            s
+            (let [[bag' tok] drawn]
+              (recur (-> s
+                         (assoc :demand-bag bag')
+                         (update-in [:city-demands city] (fnil conj []) tok))
+                     (inc i)))))))))
+
+(defn- cities-surrounded-by
+  "Set of cities the player has fully SURROUNDED — every board route adjacent to
+   the city holds one of `player-key`'s raiders. Mirrors
+   choice/city-surrounded-by-player? but lives here so apply-bonus-dispatch can
+   use it without the choice→game require cycle. Cities with no adjacent active
+   routes (e.g. samarra in ≤3p) are never surrounded."
+  [state player-key]
+  (let [player-rks (set (keys (get-in state [:players player-key :raiders])))]
+    (set
+     (for [city all-cities
+           :let [adj-rks (map segment-route-key
+                              (routes-from-city city (board-routes state)))]
+           :when (and (seq adj-rks)
+                      (every? #(contains? player-rks %) adj-rks))]
+       city))))
+
 (defn- touches?
   "True if route `r` has `city` as either endpoint."
   [city r]
@@ -1885,9 +1948,13 @@
                     (place-raider-on player-key rk)
                     (add-player-resource player-key good 1))
                 (add-player-resource state player-key good 1)))
-      [3 4] (-> state ;; Travel then Sell → travel to Eridu + grant a demand-style bonus
-               (bonus-travel-to player-key :eridu)
-               (update-in [:players player-key :amity] + 2))
+      ;; "Take a travel action then a Sell action." choice = adjacent
+      ;; destination (default = stay at caravan); travel there, then sell at the
+      ;; post-travel caravan city.
+      [3 4] (let [dest (or choice (:caravan pdata))]
+              (cond-> state
+                dest (-> (bonus-travel-to player-key dest)
+                         (bonus-sell-in player-key dest))))
 
       ;; ─── Board 4: Blessing of Inanna ────────────────────────────
       [4 1] (place-temple-in state player-key :eridu true)
@@ -1932,10 +1999,14 @@
                         s))
                     state (magistrate-cities state))
       ;; "Sell to Babylon for double points (you don't need to be there)."
-      ;; FAITHFUL (Bucket B): do NOT move the caravan — only score the +4 amity
-      ;; proxy for the sell.
-      [6 3] (update-in state [:players player-key :amity] + 4)
-      [6 4] (-> state ;; Raider near Lagash + Tools x2
+      ;; FAITHFUL: do NOT move the caravan — resolve TWO real sells in Babylon
+      ;; (double points), each scoring merchant amity + magistrate glory. No-ops
+      ;; per sell when nothing sellable.
+      [6 3] (-> state
+                (bonus-sell-in player-key :babylon)
+                (bonus-sell-in player-key :babylon))
+      [6 4] (-> state ;; Place a Raider adjacent to Lagash. Gain Tools, Tools
+               (bonus-deploy-near player-key :lagash)
                (add-player-resource player-key :tools 2))
 
       ;; ─── Board 7: March of Lugalbanda ───────────────────────────
@@ -1963,12 +2034,22 @@
       [8 1] (-> state ;; Increase Raider and Priest
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :priest))
-      [8 2] (-> state ;; Place demand + sell → grant amity from implied sell
-               (update-in [:players player-key :amity] + 3))
+      ;; "Place one random Demand Token in Nippur and Babylon each. Then you may
+      ;; sell once in your city." FAITHFUL: draw a token into each city, then
+      ;; bonus-sell-in your caravan city (no-ops if nothing sellable). Replaces
+      ;; the old flat +3-amity proxy.
+      [8 2] (-> state
+               (place-demand-tokens :nippur 1)
+               (place-demand-tokens :babylon 1)
+               (bonus-sell-in player-key (:caravan pdata)))
+      ;; "Gain Gold, Gems, Pottery. Then you may sell once in your city."
+      ;; FAITHFUL: keep the three resource gains, THEN resolve one real sell in
+      ;; the caravan city (a freshly-gained good can satisfy a demand there).
       [8 3] (-> state ;; Gain Gold, Gems, Pottery + sell
                (add-player-resource player-key :gold 1)
                (add-player-resource player-key :gems 1)
-               (add-player-resource player-key :pottery 1))
+               (add-player-resource player-key :pottery 1)
+               (bonus-sell-in player-key (:caravan pdata)))
       [8 4] (reduce (fn [s [rk _]] ;; Flip all raiders to point
                       (assoc-in s [:players player-key :raiders rk] :point))
                     state (:raiders pdata))
@@ -1985,13 +2066,14 @@
       [9 3] (let [avail (free-routes pdata state #(= :river (:type %)))] ;; Raider on each river
               (reduce #(place-raider-on %1 player-key %2) state (take 3 avail)))
       ;; "Sell to any city with a Magistrate. If you are in that city, you may
-      ;; take a Temple action." Unified: sell in (or choice <first magistrate
-      ;; city without your temple>) + travel there + temple proxy.
+      ;; take a Temple action." FAITHFUL: NO teleport — resolve a real sell in
+      ;; (or choice <first magistrate city without your temple>); the Temple
+      ;; action fires ONLY if your caravan is already in that city.
       [9 4] (let [target (or choice (default-magistrate-target state pdata))]
               (cond-> state
-                target (-> (bonus-travel-to player-key target)
-                          (update-in [:players player-key :amity] + 2)
-                          (place-temple-in player-key target true))))
+                target (bonus-sell-in player-key target)
+                (and target (= (:caravan pdata) target))
+                (place-temple-in player-key target true)))
 
       ;; ─── Board 10: Wealth of Meskalamdug ───────────────────────
       [10 1] (increase-role-free state player-key :merchant)
@@ -2027,8 +2109,12 @@
                        (assoc state :demand-bag bag2)
                        tokens))
       ;; "Sell to Lagash for Double Glory points (you don't have to be there)."
-      ;; FAITHFUL (Bucket B): do NOT move the caravan — only score the +4 glory.
-      [11 2] (update-in state [:players player-key :glory] + 4)
+      ;; FAITHFUL: do NOT move the caravan — resolve TWO real sells in Lagash that
+      ;; score GLORY (double glory), each also earning the magistrate glory bonus.
+      ;; No-ops per sell when nothing sellable.
+      [11 2] (-> state
+                 (sell-for-glory-in player-key :lagash)
+                 (sell-for-glory-in player-key :lagash))
       [11 3] (increase-role-free state player-key :raider)
       [11 4] (let [fd (count-face-down-temples pdata)]
                (update-in state [:players player-key :glory] + fd))
@@ -2042,12 +2128,12 @@
                (add-player-resource player-key :gold 3)
                (add-player-resource player-key :gems 1))
       ;; "Increase your Merchant level (paying any costs). Then Sell to the city
-      ;; you are IN for Glory instead." FAITHFUL (Bucket A): no city pick — sell
-      ;; in the CURRENT city for GLORY (proxy +3). choice ignored. (Old human arm
-      ;; sold in a magistrate city for amity and dropped the merchant increase.)
+      ;; you are IN for Glory instead." FAITHFUL: increase merchant with cost,
+      ;; then resolve a REAL sell in the CURRENT (caravan) city scoring GLORY.
+      ;; No city pick; no-ops if nothing sellable there.
       [12 3] (-> state
                 (increase-role-with-cost player-key :merchant)
-                (update-in [:players player-key :glory] + 3))
+                (sell-for-glory-in player-key (:caravan pdata)))
       [12 4] (let [fd (count-face-down-temples pdata)]
                (update-in state [:players player-key :glory] + fd))
 
@@ -2083,9 +2169,13 @@
                     ;; Then score glory for each raider (including the new one)
                     rc (count-raiders-deployed (get-in s [:players player-key]))]
                 (update-in s [:players player-key :glory] + rc))
-      [14 2] (-> state ;; Resources (partial: no magistrate move)
-               (add-player-resource player-key :tools 1)
-               (add-player-resource player-key :pottery 1))
+      ;; "Move a Magistrate to Uruk. Then gain resources matching Uruk's demands."
+      ;; FAITHFUL: influence a magistrate to :uruk (real move + raider flips), then
+      ;; gain one good per demand token currently in Uruk. (Old arm: flat
+      ;; +1 tools/pottery with no magistrate move.)
+      [14 2] (let [s (bonus-influence state player-key :uruk)
+                   demands (get-in s [:city-demands :uruk] [])]
+               (reduce (fn [st d] (add-player-resource st player-key d 1)) s demands))
       [14 3] (let [bag (:demand-bag state (full-demand-bag))  ;; Place 2 demand tokens in Eridu + travel there
                     [bag1 tok1] (draw-demand-token bag)
                     [bag2 tok2] (if bag1 (draw-demand-token bag1) [bag nil])]
@@ -2137,9 +2227,14 @@
       [16 3] (-> state ;; Increase Leader twice
                (increase-role-with-cost player-key :leader)
                (increase-role-with-cost player-key :leader))
-      [16 4] (-> state ;; Place demands + sell → approximate resource+amity gain
-               (add-player-resource player-key :tools 1)
-               (update-in [:players player-key :amity] + 3))
+      ;; "Put two random demand tokens on the city you are in. You may take Sell
+      ;; action." FAITHFUL: draw two tokens onto the caravan city, then
+      ;; bonus-sell-in that same city (no-ops if nothing sellable). Replaces the
+      ;; old flat +1-tools/+3-amity proxy.
+      [16 4] (let [caravan (:caravan pdata)]
+               (-> state
+                   (place-demand-tokens caravan 2)
+                   (bonus-sell-in player-key caravan)))
 
       ;; ─── Board 17: Cunning of Kubaba ────────────────────────────
       ;; "Place a Raider next to Eridu on its point side." PLACE (not flip): put a
@@ -2162,8 +2257,10 @@
                (if (and (seq adj-rks) (every? player-rks adj-rks))
                  (update-in state [:players player-key :amity] + 8)
                  state))
-      [17 4] (let [ml (get-in pdata [:roles :merchant] 1)] ;; Glory = merchant level (partial: no sell)
-               (update-in state [:players player-key :glory] + ml))
+      ;; "Sell to the city your caravan is in for Glory instead." FAITHFUL:
+      ;; resolve a REAL sell in the caravan's city, scoring GLORY (+ magistrate
+      ;; glory bonus). No-ops if nothing sellable there.
+      [17 4] (sell-for-glory-in state player-key (:caravan pdata))
 
       ;; ─── Board 18: Forge of Tubal-Cain ─────────────────────────
       ;; "Move a Magistrate across a river. You may sell in your caravan's city."
@@ -2207,9 +2304,14 @@
       [19 1] (-> state ;; Increase Priest twice
                (increase-role-with-cost player-key :priest)
                (increase-role-with-cost player-key :priest))
-      [19 2] (-> state ;; Sell to pottery cities → approximate amity + pottery bonus
-                (add-player-resource player-key :pottery 1)
-                (update-in [:players player-key :amity] + 3))
+      ;; "Sell to two cities that demand Pottery (you don't have to be there)."
+      ;; No move: take the first two cities whose live demands include :pottery
+      ;; and resolve a real sell in each (bonus-sell-in no-ops if nothing sellable).
+      [19 2] (let [pottery-cities (->> (:city-demands state)
+                                       (filter (fn [[_ ds]] (some #{:pottery} ds)))
+                                       (map first)
+                                       (take 2))]
+               (reduce #(bonus-sell-in %1 player-key %2) state pottery-cities))
       ;; "Discard a good to move a Magistrate to your City. Then take a sell
       ;; action." choice = good to discard (default = first good held). Then
       ;; influence magistrate to caravan + sell there.
@@ -2250,13 +2352,28 @@
                    leader-lv (get-in pdata [:roles :leader] 1)]
                (-> (cond-> state dest (bonus-influence player-key dest))
                    (update-in [:players player-key :amity] + leader-lv)))
-      [20 4] (-> state ;; Take goods from astronomer spaces → grant 2 resources
-               (add-player-resource player-key :tools 1)
-               (add-player-resource player-key :gold 1))
+      ;; "Take up to four goods based on the action spaces your Astronomers
+      ;; occupy." FAITHFUL: for each space an astronomer sits on, collect that
+      ;; space's :take goods (space-take-resources; nil for space 7), then take
+      ;; up to four of those goods. (Old arm gave a flat tools+gold.)
+      [20 4] (let [astros (:astronomers pdata [])
+                   goods (->> astros
+                              (mapcat space-take-resources)
+                              (remove nil?)
+                              (take 4))]
+               (reduce (fn [s g] (add-player-resource s player-key g 1)) state goods))
 
       ;; ─── Board 21: Legacy of Eannatum ───────────────────────────
-      ;; "If you are in Eridu, travel anywhere." choice = destination, default :eridu.
-      [21 1] (bonus-travel-to state player-key (or choice :eridu))
+      ;; "If you are in Eridu, travel anywhere via the shortest path." FAITHFUL:
+      ;; GATE on the caravan being in Eridu (else no-op). choice = destination;
+      ;; bot default = a meaningful far city (any active city other than Eridu —
+      ;; the current city would be a no-op travel), preferring Babylon.
+      [21 1] (if (= :eridu (:caravan pdata))
+               (let [dest (or choice
+                              (some #{:babylon} (keys (:city-graph state)))
+                              (first (remove #{:eridu} (keys (:city-graph state)))))]
+                 (bonus-travel-to state player-key dest))
+               state)
       [21 2] (-> state ;; Increase Raider and Leader
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :leader))
@@ -2290,9 +2407,11 @@
       [23 1] (-> state ;; Increase Priest and Merchant
                (increase-role-with-cost player-key :priest)
                (increase-role-with-cost player-key :merchant))
-      [23 2] (-> state ;; Sell twice to Eridu → travel + double amity
-                (bonus-travel-to player-key :eridu)
-                (update-in [:players player-key :amity] + 4))
+      ;; "Sell twice to Eridu (you don't need to be there)." No move: resolve two
+      ;; real sells at :eridu (each no-ops if nothing matching is sellable).
+      [23 2] (-> state
+                (bonus-sell-in player-key :eridu)
+                (bonus-sell-in player-key :eridu))
       ;; "Take a good of your choice. Then take a travel action. Increase your
       ;; Merchant Role (paying any costs)." FAITHFUL (Bucket A): grant the chosen
       ;; good AND increase merchant with cost. (Old human arm dropped the merchant
@@ -2315,19 +2434,29 @@
                 (update-in [:players player-key :glory] + 2))
       [24 3] (let [demands (:demand-tokens pdata [])] ;; Glory per demand
                (update-in state [:players player-key :glory] + (count demands)))
-      [24 4] (let [demands (:demand-tokens pdata [])] ;; Goods per demand at magistrates
+      ;; "Take a good for each demand in cities with Magistrates." FAITHFUL: one
+      ;; good per demand TOKEN sitting in any magistrate city (the board's
+      ;; :city-demands, NOT the player's own fulfilled :demand-tokens), no cap.
+      [24 4] (let [mag-cities (magistrate-cities state)
+                   demands (mapcat #(get-in state [:city-demands %] []) mag-cities)]
                 (reduce (fn [s d] (add-player-resource s player-key d 1))
-                        state (take 2 demands)))
+                        state demands))
 
       ;; ─── Board 25: Command of Mesannepada ───────────────────────
       ;; "Influence a Magistrate. Immediately score all of your raiders it moved
-      ;; through" (GLORY). FAITHFUL (Bucket A): do influence THEN glory for
-      ;; raiders moved through (proxy 2 + point-count). choice = magistrate
-      ;; destination. (Old human arm sold for amity — wrong tail.)
+      ;; through" (GLORY). FAITHFUL: run the influence, then score 1 Glory for
+      ;; each of YOUR raiders the magistrate actually moved through — i.e. those
+      ;; flipped :raiding→:point by perform-influence (post-:point keys minus the
+      ;; keys already :point before). choice = magistrate destination.
+      ;; (Old arm hardcoded (+ 2 point-count), which counted pre-existing points
+      ;; and added a phantom +2.)
       [25 1] (let [dest (or choice (first (magistrate-cities state)))
-                   point-count (count (filter #(= :point (val %)) (:raiders pdata)))]
-               (-> (cond-> state dest (bonus-influence player-key dest))
-                   (update-in [:players player-key :glory] + (+ 2 point-count))))
+                   pre-points (set (keys (filter #(= :point (val %)) (:raiders pdata))))
+                   s (cond-> state dest (bonus-influence player-key dest))
+                   post-points (set (keys (filter #(= :point (val %))
+                                                  (get-in s [:players player-key :raiders]))))
+                   flipped (count (clojure.set/difference post-points pre-points))]
+               (update-in s [:players player-key :glory] + flipped))
       [25 2] (-> state ;; Increase Merchant and Leader
                (increase-role-with-cost player-key :merchant)
                (increase-role-with-cost player-key :leader))
@@ -2351,13 +2480,27 @@
       [26 2] (-> state ;; Increase Priest and Raider
                (increase-role-with-cost player-key :priest)
                (increase-role-with-cost player-key :raider))
-      [26 3] (-> state ;; Sell + temple
-                (update-in [:players player-key :amity] + 2)
-                (place-temple-in player-key (:caravan pdata) true))
-      [26 4] (let [any-rk (first (free-routes pdata state (constantly true)))] ;; Raider + surround
-               (cond-> state
-                 any-rk (place-raider-on player-key any-rk)
-                 true (update-in [:players player-key :amity] + 2)))
+      ;; "Sell in your city. If you sold Tools or Pottery you may place a Temple
+      ;; in your city (even if you already have one there)." FAITHFUL: determine
+      ;; WHICH good bonus-sell-in will spend (same selection rule it uses: first
+      ;; demand at the city the player can satisfy), resolve the real sell, then
+      ;; gate the temple on that good being tools/pottery.
+      [26 3] (let [city     (:caravan pdata)
+                   demands  (get-in state [:city-demands city] [])
+                   res      (get-in pdata [:resources])
+                   sold     (first (filter #(pos? (get res % 0)) demands))]
+               (cond-> (bonus-sell-in state player-key city)
+                 (contains? #{:tools :pottery} sold)
+                 (place-temple-in player-key city true)))
+      ;; "Place a Raider adjacent to your city. If you surround it, you may place a
+      ;; temple in it (even if you already have a temple there)." Deploy on a free
+      ;; route adjacent to the caravan city; if that completes the surround
+      ;; (recomputed from the POST-deploy state), drop a duplicate-allowed temple.
+      [26 4] (let [city (:caravan pdata)
+                   s    (bonus-deploy-near state player-key city)]
+               (cond-> s
+                 (and city (contains? (cities-surrounded-by s player-key) city))
+                 (place-temple-in player-key city true)))
 
       ;; ─── Board 27: Path of Alulim ──────────────────────────────
       ;; "Travel to an adjacent city then you may Sell to it." choice = adjacent
@@ -2395,10 +2538,24 @@
                (cond-> state
                  dest (-> (bonus-travel-to player-key dest)
                           (place-temple-in player-key dest true))))
-      [28 3] (let [gold (get-in pdata [:resources :gold] 0)] ;; Sell gold to city + demand
-               (cond-> state
-                 (pos? gold) (update-in [:players player-key :resources :gold] dec)
-                 true (update-in [:players player-key :amity] + 4)))
+      ;; "Sell Gold to your city if it has no Demands. Then place a random demand
+      ;; on it." FAITHFUL mirror of the board-10 :sell-gold-empty option, at the
+      ;; caravan city: only when the city has NO demands AND you hold gold — spend
+      ;; the gold, score merchant-level amity, then draw one random demand onto it.
+      [28 3] (let [city    (:caravan pdata)
+                   gold    (get-in pdata [:resources :gold] 0)
+                   demands (get-in state [:city-demands city] [])]
+               (if (and city (pos? gold) (empty? demands))
+                 (let [merchant-lv (get-in pdata [:roles :merchant] 1)
+                       amity       (get merchant-score merchant-lv 2)
+                       bag         (:demand-bag state (full-demand-bag))
+                       [bag' token] (draw-demand-token bag)]
+                   (-> state
+                       (update-in [:players player-key :resources :gold] dec)
+                       (update-in [:players player-key :amity] + amity)
+                       (cond-> bag'  (assoc :demand-bag bag'))
+                       (cond-> token (update-in [:city-demands city] (fnil conj []) token))))
+                 state))
       [28 4] (let [avail (free-routes pdata state #(touches? :kish %))] ;; Raider point-side near Kish
                (if-let [rk (first avail)]
                  (-> state
@@ -2417,12 +2574,21 @@
                      (increase-role-free player-key :priest)
                      (increase-role-free player-key :raider))
                  state))
-      [29 2] (-> state ;; Travel + sell
-                (update-in [:players player-key :amity] + 3))
+      ;; "Take a travel action then you may take a sell action." choice = adjacent
+      ;; destination (default = stay at caravan); travel there, then sell at the
+      ;; post-travel caravan city.
+      [29 2] (let [dest (or choice (:caravan pdata))]
+               (cond-> state
+                 dest (-> (bonus-travel-to player-key dest)
+                          (bonus-sell-in player-key dest))))
       [29 3] (let [avail (free-routes pdata state #(= :river (:type %)))] ;; Raider on each river
                (reduce #(place-raider-on %1 player-key %2) state (take 3 avail)))
-      [29 4] (-> state ;; Temple in surrounded cities
-                (place-temple-in player-key (:caravan pdata) true))
+      ;; "Place a Temple in each city surrounded by your Raiders (even if you have
+      ;; a Temple there)." Iterate EVERY city whose adjacent board-routes ALL hold
+      ;; one of the player's raiders; drop a duplicate-allowed temple in each.
+      [29 4] (reduce #(place-temple-in %1 player-key %2 true)
+                     state
+                     (cities-surrounded-by state player-key))
 
       ;; ─── Board 30: Council of Amar-Sin ──────────────────────────
       ;; "Influence a Magistrate then take a Travel action." choice = mag dest.
@@ -2471,21 +2637,26 @@
                  any-rk (place-raider-on player-key any-rk)))
 
       ;; ─── Board 32: Jewel of Ku-Bau ─────────────────────────────
-      [32 1] (let [demands (:demand-tokens pdata [])] ;; Sell + glory per demand
-               (update-in state [:players player-key :glory] + (count demands)))
+      ;; "Sell in your city then Score Glory for each demand you have fulfilled."
+      ;; FAITHFUL: resolve the real sell FIRST (so it counts toward the tally),
+      ;; then score 1 Glory per fulfilled demand (the player's :demand-tokens).
+      [32 1] (let [s (bonus-sell-in state player-key (:caravan pdata))
+                   fulfilled (count (get-in s [:players player-key :demand-tokens] []))]
+               (update-in s [:players player-key :glory] + fulfilled))
       ;; "Take a Gem. Take two travel actions." FAITHFUL (Bucket A): grant the gem
       ;; AND travel to (or choice caravan). (Old auto arm gave the gem but no
       ;; travel; old human arm travelled but dropped the gem.) Second travel dropped.
       [32 2] (let [dest (or choice (:caravan pdata))]
                (cond-> (add-player-resource state player-key :gems 1)
                  dest (bonus-travel-to player-key dest)))
-      [32 3] (let [t-cities (set (temple-cities pdata)) ;; Raider between temple cities
-                   avail (free-routes pdata pc
+      ;; "Place a raider in each route that has one of your Temples in both cities."
+      ;; Place on EVERY eligible free route (both endpoints hold your temple), not
+      ;; just the first. place-raider-on no-ops past the raider-supply / max cap.
+      [32 3] (let [t-cities (set (temple-cities pdata))
+                   avail (free-routes pdata state
                                       #(and (contains? t-cities (:from %))
                                             (contains? t-cities (:to %))))]
-               (if-let [rk (first avail)]
-                 (place-raider-on state player-key rk)
-                 state))
+               (reduce #(place-raider-on %1 player-key %2) state avail))
       ;; "Influence a Magistrate then you may take sell action." choice = mag
       ;; dest; influence + sell in that city.
       [32 4] (let [dest (or choice (first (magistrate-cities state)))]
@@ -2574,13 +2745,18 @@
                (or choice
                    (first (sort-by #(get-in state [:players player-key :roles %] 1) roles))))
       ;; "Influence a Magistrate. Score each of your Raiders it moved through."
-      ;; choice = magistrate destination; influence + glory (2 + point-count).
-      ;; "Influence a Magistrate. Score each Raider it moved through." choice =
-      ;; magistrate destination (descriptor fixed to :pick-city :magistrate).
+      ;; FAITHFUL: run the influence, then score 1 Glory for each of YOUR raiders
+      ;; the magistrate actually moved through — those flipped :raiding→:point by
+      ;; perform-influence (post-:point keys minus the keys already :point before).
+      ;; choice = magistrate destination. (Old arm hardcoded (+ 2 point-count),
+      ;; counting pre-existing points and adding a phantom +2.)
       [35 4] (let [dest (or choice (first (magistrate-cities state)))
-                   point-count (count (filter #(= :point (val %)) (:raiders pdata)))]
-               (-> (cond-> state dest (bonus-influence player-key dest))
-                   (update-in [:players player-key :glory] + (+ 2 point-count))))
+                   pre-points (set (keys (filter #(= :point (val %)) (:raiders pdata))))
+                   s (cond-> state dest (bonus-influence player-key dest))
+                   post-points (set (keys (filter #(= :point (val %))
+                                                  (get-in s [:players player-key :raiders]))))
+                   flipped (count (clojure.set/difference post-points pre-points))]
+               (update-in s [:players player-key :glory] + flipped))
 
       ;; Default: unhandled effect, no-op
       state))

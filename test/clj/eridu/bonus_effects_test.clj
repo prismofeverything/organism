@@ -380,26 +380,27 @@
                    :routes (game/active-routes player-count)})))
 
 (deftest fix1-bonus-travel-scores-own-point-raider-on-route-test
-  ;; [21 1] "travel anywhere from Eridu" (choice = uruk). The caravan starts in
-  ;; babylon with a face-up (point) raider on the traversed road [:babylon :uruk].
-  ;; A teleport would silently skip it; real travel resolution scores it: +4
-  ;; glory and the raider returns to supply.
+  ;; [21 1] "If you are in Eridu, travel anywhere" (choice = uruk). The card is
+  ;; GATED on being in Eridu, so the caravan starts in Eridu with a face-up
+  ;; (point) raider on the traversed road [:eridu :uruk]. A teleport would
+  ;; silently skip it; real travel resolution scores it: +4 glory and the raider
+  ;; returns to supply.
   (testing "bonus travel over a route with own point raider → +4 glory, raider returned"
-    (let [s  (board-state 4 21 {:caravan :babylon
-                                :raiders {[:babylon :uruk] :point}
+    (let [s  (board-state 4 21 {:caravan :eridu
+                                :raiders {[:eridu :uruk] :point}
                                 :raiders-supply 5 :glory 0})
           s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
       (is (= :uruk (get-in s' [:players :alice :caravan])) "caravan reached the destination")
       (is (= 4 (glory s')) "scored +4 glory for the own point raider on the traversed route")
-      (is (nil? (get-in s' [:players :alice :raiders [:babylon :uruk]]))
+      (is (nil? (get-in s' [:players :alice :raiders [:eridu :uruk]]))
           "the scored raider was removed (no longer on the route)")
       (is (= 6 (get-in s' [:players :alice :raiders-supply]))
           "the scored raider returned to supply (5 → 6)")))
   (testing "enemy raider on the traversed route is flipped to point (real resolution)"
-    (let [s  (-> (board-state 4 21 {:caravan :babylon :raiders {}})
-                 (assoc-in [:players :bob] {:raiders {[:babylon :uruk] :raiding}}))
+    (let [s  (-> (board-state 4 21 {:caravan :eridu :raiders {}})
+                 (assoc-in [:players :bob] {:raiders {[:eridu :uruk] :raiding}}))
           s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
-      (is (= :point (get-in s' [:players :bob :raiders [:babylon :uruk]]))
+      (is (= :point (get-in s' [:players :bob :raiders [:eridu :uruk]]))
           "the enemy's raider on the route the caravan crossed was flipped to point"))))
 
 ;; =============================================================================
@@ -565,3 +566,592 @@
     (testing "bot and human reach the same placement"
       (is (= (get-in bot-state   [:players :alice :temples])
              (get-in human-state [:players :alice :temples]))))))
+
+
+;; =============================================================================
+;; Faithful-effect fixes (C3/C4) — forced-scenario regressions per slot
+;; =============================================================================
+
+(deftest board-3-slot-4-travel-then-sell-test
+  ;; "Take a travel action then a Sell action." Old arm teleported to Eridu and
+  ;; granted a flat +2 amity. Fix: travel to the chosen adjacent city, then a real
+  ;; sell there (merchant-level amity, demand token consumed) — no flat amity.
+  (testing "travel to chosen adjacent city + real sell there (no flat +2)"
+    (let [s  (board-state 4 3 {:caravan :uruk
+                               :roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                               :resources {:gold 1 :tools 0 :pottery 0 :gems 0}
+                               :amity 0})
+          s  (assoc-in s [:city-demands :eridu] [:gold])
+          s' (game/apply-bonus-with-choice s :alice 3 4 :eridu)]
+      (is (= :eridu (get-in s' [:players :alice :caravan])) "travelled to the chosen adjacent city")
+      (is (= 0 (res s' :gold)) "the matching good was sold (spent)")
+      (is (= 2 (amity s')) "merchant level 1 → +2 amity for the sell (NOT a flat +2 plus a sell)")
+      (is (= [] (get-in s' [:city-demands :eridu])) "demand token consumed at the sell city")))
+  (testing "no choice (auto/bot) → stay at caravan, sell there"
+    (let [s  (board-state 4 3 {:caravan :uruk
+                               :roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                               :resources {:pottery 1 :tools 0 :gold 0 :gems 0}
+                               :amity 0})
+          s  (assoc-in s [:city-demands :uruk] [:pottery])
+          s' (game/apply-bonus-effect s :alice 3 4)]
+      (is (= :uruk (get-in s' [:players :alice :caravan])) "no move (default = stay at caravan)")
+      (is (= 0 (res s' :pottery)) "sold at the current city")
+      (is (= 2 (amity s')) "merchant amity for the sell only")))
+  (testing "nothing sellable at the destination → travel only, no amity"
+    (let [s  (board-state 4 3 {:caravan :uruk
+                               :resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                               :amity 0})
+          s  (assoc-in s [:city-demands :eridu] [:gold])
+          s' (game/apply-bonus-with-choice s :alice 3 4 :eridu)]
+      (is (= :eridu (get-in s' [:players :alice :caravan])) "still travelled")
+      (is (= 0 (amity s')) "no matching good → sell no-ops, no flat amity"))))
+
+(deftest board-19-slot-2-sell-two-pottery-cities-test
+  ;; "Sell to two cities that demand Pottery (you don't have to be there)." Old arm
+  ;; granted +1 pottery and a flat +3 amity. Fix: two real sells (no move) at two
+  ;; cities whose live demands include :pottery.
+  (testing "two pottery-demanding cities → two real sells, no move, no pottery gain"
+    (let [s  (state-with 19 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:pottery 2 :tools 0 :gold 0 :gems 0}
+                             :amity 0 :caravan :kish}
+                         {:city-demands {:lagash [:pottery] :uruk [:pottery]
+                                         :babylon [:gold]}})
+          s' (game/apply-bonus-effect s :alice 19 2)]
+      (is (= 0 (res s' :pottery)) "two pottery spent (NOT a +1 pottery gain)")
+      (is (= 4 (amity s')) "two merchant-level(1) sells = 2+2 = 4 amity (NOT a flat +3)")
+      (is (= :kish (get-in s' [:players :alice :caravan])) "no caravan move (sell at a distance)")
+      (is (= [] (get-in s' [:city-demands :lagash])) "pottery demand consumed at lagash")
+      (is (= [] (get-in s' [:city-demands :uruk])) "pottery demand consumed at uruk")
+      (is (= [:gold] (get-in s' [:city-demands :babylon])) "non-pottery city untouched")))
+  (testing "only one pottery city → only one sell happens"
+    (let [s  (state-with 19 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:pottery 2 :tools 0 :gold 0 :gems 0}
+                             :amity 0}
+                         {:city-demands {:lagash [:pottery] :babylon [:gold]}})
+          s' (game/apply-bonus-effect s :alice 19 2)]
+      (is (= 1 (res s' :pottery)) "only one pottery spent (one city)")
+      (is (= 2 (amity s')) "one sell = +2 amity")))
+  (testing "no pottery held → sells no-op (no amity, demands intact)"
+    (let [s  (state-with 19 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:pottery 0 :tools 0 :gold 0 :gems 0}
+                             :amity 0}
+                         {:city-demands {:lagash [:pottery] :uruk [:pottery]}})
+          s' (game/apply-bonus-effect s :alice 19 2)]
+      (is (= 0 (amity s')) "no good to sell → no amity")
+      (is (= [:pottery] (get-in s' [:city-demands :lagash])) "demand intact"))))
+
+(deftest board-23-slot-2-sell-twice-to-eridu-test
+  ;; "Sell twice to Eridu (you don't need to be there)." Old arm teleported to
+  ;; Eridu and granted a flat +4 amity. Fix: two real sells at :eridu, no move.
+  (testing "two matching goods at Eridu → two real sells, no caravan move"
+    (let [s  (state-with 23 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:gold 1 :gems 1 :tools 0 :pottery 0}
+                             :amity 0 :caravan :kish}
+                         {:city-demands {:eridu [:gold :gems]}})
+          s' (game/apply-bonus-effect s :alice 23 2)]
+      (is (= :kish (get-in s' [:players :alice :caravan])) "NO teleport to Eridu (sell at a distance)")
+      (is (= 0 (res s' :gold)) "first matching good sold")
+      (is (= 0 (res s' :gems)) "second matching good sold")
+      (is (= 4 (amity s')) "two merchant-level(1) sells = 2+2 = 4 amity (now real, not a flat +4)")
+      (is (= [] (get-in s' [:city-demands :eridu])) "both demand tokens consumed")))
+  (testing "only one matching good → only the first sell scores"
+    (let [s  (state-with 23 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:gold 1 :tools 0 :pottery 0 :gems 0}
+                             :amity 0 :caravan :kish}
+                         {:city-demands {:eridu [:gold :gems]}})
+          s' (game/apply-bonus-effect s :alice 23 2)]
+      (is (= 0 (res s' :gold)) "the one matching good sold")
+      (is (= 2 (amity s')) "one sell = +2 amity (second sell no-ops, nothing to sell)")
+      (is (= [:gems] (get-in s' [:city-demands :eridu])) "the unmatched demand remains")))
+  (testing "magistrate at Eridu adds leader-bonus glory per sell"
+    (let [s  (state-with 23 {:roles {:merchant 1 :priest 1 :raider 1 :leader 3}
+                             :resources {:gold 1 :gems 1 :tools 0 :pottery 0}
+                             :amity 0 :glory 0 :caravan :kish}
+                         {:city-demands {:eridu [:gold :gems]} :magistrates {0 :eridu}})
+          s' (game/apply-bonus-effect s :alice 23 2)]
+      (is (= (* 2 (get game/leader-bonus 3)) (glory s'))
+          "two sells at a magistrate city → 2 × leader-bonus(3)=2 glory = 4"))))
+
+(deftest board-29-slot-2-travel-then-may-sell-test
+  ;; "Take a travel action then you may take a sell action." Old arm granted a flat
+  ;; +3 amity and no travel. Fix: travel to chosen adjacent city, then a real sell.
+  (testing "travel to chosen adjacent city + real sell there (no flat +3)"
+    (let [s  (board-state 4 29 {:caravan :uruk
+                                :roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                                :resources {:gold 1 :tools 0 :pottery 0 :gems 0}
+                                :amity 0})
+          s  (assoc-in s [:city-demands :eridu] [:gold])
+          s' (game/apply-bonus-with-choice s :alice 29 2 :eridu)]
+      (is (= :eridu (get-in s' [:players :alice :caravan])) "travelled to the chosen adjacent city")
+      (is (= 0 (res s' :gold)) "the matching good was sold")
+      (is (= 2 (amity s')) "merchant level 1 → +2 amity for the sell (NOT a flat +3)")
+      (is (= [] (get-in s' [:city-demands :eridu])) "demand token consumed")))
+  (testing "no choice (auto) → stay at caravan and sell there"
+    (let [s  (board-state 4 29 {:caravan :uruk
+                                :roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                                :resources {:pottery 1 :tools 0 :gold 0 :gems 0}
+                                :amity 0})
+          s  (assoc-in s [:city-demands :uruk] [:pottery])
+          s' (game/apply-bonus-effect s :alice 29 2)]
+      (is (= :uruk (get-in s' [:players :alice :caravan])) "default = stay at caravan")
+      (is (= 2 (amity s')) "sold at the current city")))
+  (testing "'you may sell': nothing sellable → travel only, no amity"
+    (let [s  (board-state 4 29 {:caravan :uruk
+                                :resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                                :amity 0})
+          s  (assoc-in s [:city-demands :eridu] [:gold])
+          s' (game/apply-bonus-with-choice s :alice 29 2 :eridu)]
+      (is (= :eridu (get-in s' [:players :alice :caravan])) "still travelled")
+      (is (= 0 (amity s')) "no matching good → sell no-ops, no flat amity"))))
+
+(deftest board-6-slot-3-sell-babylon-double-points-test
+  (testing "two matching goods → two sells in Babylon (amity), caravan unchanged"
+    (let [s  (state-with 6 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                            :resources {:tools 0 :pottery 0 :gold 0 :gems 2}
+                            :amity 0 :glory 0 :caravan :uruk}
+                         {:city-demands {:babylon [:gems :gems]}})
+          s' (game/apply-bonus-effect s :alice 6 3)]
+      (is (= 4 (amity s')) "merchant lv1 = 2 amity each × 2 sells = 4 (double)")
+      (is (= 0 (glory s')) "no magistrate in Babylon → no glory")
+      (is (= 0 (res s' :gems)) "both goods spent")
+      (is (= [] (get-in s' [:city-demands :babylon])) "both demands consumed")
+      (is (= :uruk (get-in s' [:players :alice :caravan])) "no caravan move")))
+  (testing "only one matching good → one sell, second no-ops"
+    (let [s  (state-with 6 {:resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                            :amity 0 :caravan :uruk}
+                         {:city-demands {:babylon [:gems :gems]}})
+          s' (game/apply-bonus-effect s :alice 6 3)]
+      (is (= 2 (amity s')) "only one sell possible → +2 amity")
+      (is (= [:gems] (get-in s' [:city-demands :babylon])) "one demand left"))))
+
+(deftest board-9-slot-4-sell-magistrate-city-then-temple-test
+  (testing "caravan elsewhere → sell at magistrate city, NO temple, NO move"
+    (let [s  (state-with 9 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                            :resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                            :amity 0 :glory 0 :caravan :uruk :temples {}}
+                         {:magistrates {:mag-0 :babylon}
+                          :city-demands {:babylon [:gems]}})
+          s' (game/apply-bonus-with-choice s :alice 9 4 :babylon)]
+      (is (= 2 (amity s')) "merchant lv1 sell = +2 amity")
+      (is (= 1 (glory s')) "Babylon has a magistrate → leader-bonus lv1 = +1 glory")
+      (is (= 0 (res s' :gems)) "good spent")
+      (is (= :uruk (get-in s' [:players :alice :caravan])) "NO teleport")
+      (is (empty? (temples-of s')) "NOT in the city → no temple action")))
+  (testing "caravan IN the magistrate city → sell AND temple"
+    (let [s  (state-with 9 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                            :resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                            :amity 0 :glory 0 :caravan :babylon :temples {}}
+                         {:magistrates {:mag-0 :babylon}
+                          :city-demands {:babylon [:gems]}})
+          s' (game/apply-bonus-with-choice s :alice 9 4 :babylon)]
+      (is (= 2 (amity s')) "sell amity")
+      (is (= 1 (glory s')) "magistrate glory bonus")
+      (is (pos? (count (get-in s' [:players :alice :temples :babylon] [])))
+          "caravan IS in the city → temple placed in Babylon"))))
+
+(deftest board-11-slot-2-sell-lagash-double-glory-test
+  (testing "two matching goods → two glory sells in Lagash, caravan unchanged"
+    (let [s  (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:tools 0 :pottery 2 :gold 0 :gems 0}
+                             :amity 0 :glory 0 :caravan :uruk}
+                          {:city-demands {:lagash [:pottery :pottery]}})
+          s' (game/apply-bonus-effect s :alice 11 2)]
+      (is (= 4 (glory s')) "merchant lv1 = 2 each scored as GLORY × 2 = 4 (double)")
+      (is (= 0 (amity s')) "scored as glory, NOT amity")
+      (is (= 0 (res s' :pottery)) "both goods spent")
+      (is (= [] (get-in s' [:city-demands :lagash])) "both demands consumed")
+      (is (= :uruk (get-in s' [:players :alice :caravan])) "no caravan move")))
+  (testing "magistrate in Lagash adds leader-bonus glory per sell"
+    (let [s  (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:tools 0 :pottery 1 :gold 0 :gems 0}
+                             :amity 0 :glory 0 :caravan :uruk}
+                          {:magistrates {:mag-0 :lagash}
+                           :city-demands {:lagash [:pottery]}})
+          s' (game/apply-bonus-effect s :alice 11 2)]
+      (is (= 3 (glory s')) "merchant 2 glory + leader-bonus lv1 1 glory = 3")
+      (is (= 0 (amity s')) "no amity"))))
+
+(deftest board-12-slot-3-human-path-merchant-and-current-city-glory-test
+  (testing "human path increases merchant + REAL glory sell in caravan city; chosen city ignored"
+    (let [s  (state-with 12 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                             :amity 0 :glory 0 :caravan :uruk}
+                          {:magistrates {:mag-0 :babylon}
+                           :city-demands {:uruk [:gems] :babylon [:gems]}})
+          s' (game/apply-bonus-with-choice s :alice 12 3 :babylon)]
+      (is (= 2 (role s' :merchant)) "merchant increased (level 1→2 is free)")
+      (is (= 3 (glory s')) "merchant-level points scored as GLORY for the caravan-city sell")
+      (is (= 0 (amity s')) "amity NOT scored — this is a glory sell, not an amity sell")
+      (is (= 0 (res s' :gems)) "the good was spent")
+      (is (= [] (get-in s' [:city-demands :uruk])) "caravan-city demand consumed")
+      (is (= [:gems] (get-in s' [:city-demands :babylon]))
+          "the chosen city is ignored — its demand vector is unchanged")))
+  (testing "no sellable good in caravan city → merchant increase only, no glory"
+    (let [s  (state-with 12 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                             :amity 0 :glory 0 :caravan :uruk}
+                          {:city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 12 3)]
+      (is (= 2 (role s' :merchant)) "merchant still increased")
+      (is (= 0 (glory s')) "no sellable good → no glory")
+      (is (= 0 (amity s')) "no amity"))))
+
+(deftest board-17-slot-4-sell-caravan-city-for-glory-test
+  (testing "sellable good in caravan city → glory sell"
+    (let [s  (state-with 17 {:roles {:merchant 2 :priest 1 :raider 1 :leader 1}
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                             :amity 0 :glory 0 :caravan :uruk}
+                          {:city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 17 4)]
+      (is (= 3 (glory s')) "merchant lv2 = 3 points scored as glory")
+      (is (= 0 (amity s')) "scored as glory, NOT amity")
+      (is (= 0 (res s' :gems)) "good spent")
+      (is (= [] (get-in s' [:city-demands :uruk])) "demand consumed")))
+  (testing "nothing sellable in caravan city → no-op"
+    (let [s  (state-with 17 {:resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                             :amity 0 :glory 0 :caravan :uruk}
+                          {:city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 17 4)]
+      (is (= 0 (glory s')) "no good → no glory")
+      (is (= 0 (amity s')) "no amity")
+      (is (= [:gems] (get-in s' [:city-demands :uruk])) "demand untouched"))))
+
+(deftest board-8-slot-2-places-nippur-babylon-then-sells-in-city-test
+  ;; "Place one random Demand Token in Nippur and Babylon each. Then you may sell
+  ;; once in your city." (slot index 2)
+  (testing "one token to Nippur, one to Babylon, and a real sell in the caravan city"
+    (let [s  (state-with 8 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                            :resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                            :amity 0 :glory 0 :caravan :uruk}
+                         {:demand-bag (game/full-demand-bag)
+                          :city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 8 2)]
+      (is (= 1 (count (get-in s' [:city-demands :nippur]))) "one demand token placed in Nippur")
+      (is (= 1 (count (get-in s' [:city-demands :babylon]))) "one demand token placed in Babylon")
+      (is (= 26 (game/bag-total (:demand-bag s'))) "two tokens drawn from the 28-token bag")
+      (is (= 0 (res s' :gems)) "the gem was spent on the sell")
+      (is (= [] (get-in s' [:city-demands :uruk])) "the caravan-city demand was consumed by the sell")
+      (is (= 2 (amity s')) "merchant L1 sell scores +2 amity (no flat-3 proxy)")))
+  (testing "no-op sell when nothing in the caravan city is sellable (still places tokens)"
+    (let [s  (state-with 8 {:resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                            :amity 0 :caravan :uruk}
+                         {:demand-bag (game/full-demand-bag)
+                          :city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 8 2)]
+      (is (= 1 (count (get-in s' [:city-demands :nippur]))) "Nippur still got a token")
+      (is (= 1 (count (get-in s' [:city-demands :babylon]))) "Babylon still got a token")
+      (is (= [:gems] (get-in s' [:city-demands :uruk])) "no sellable good → demand untouched")
+      (is (= 0 (amity s')) "no amity when nothing sells"))))
+
+(deftest board-16-slot-4-places-two-on-current-city-then-sells-test
+  ;; "Put two random demand tokens on the city you are in. You may take Sell
+  ;; action." (slot index 4)
+  (testing "two tokens land on the caravan city and a real sell fires there"
+    (let [s  (state-with 16 {:roles {:merchant 2 :priest 1 :raider 1 :leader 1}
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 1}
+                             :amity 0 :caravan :nippur}
+                          {:demand-bag (game/full-demand-bag)
+                           :city-demands {:nippur [:gems]}})
+          s' (game/apply-bonus-effect s :alice 16 4)]
+      (is (= 2 (count (get-in s' [:city-demands :nippur])))
+          "3 demands (1 seeded + 2 placed) minus 1 consumed by the sell")
+      (is (= 26 (game/bag-total (:demand-bag s'))) "two tokens drawn from the bag")
+      (is (= 0 (res s' :gems)) "the gem was spent on the sell")
+      (is (= 3 (amity s')) "merchant L2 sell scores +3 amity (no flat tools/+3 proxy)")
+      (is (= 0 (res s' :tools)) "no spurious free tools granted")))
+  (testing "tokens still placed even when nothing is sellable"
+    (let [s  (state-with 16 {:resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                             :amity 0 :caravan :nippur}
+                          {:demand-bag (game/full-demand-bag) :city-demands {}})
+          s' (game/apply-bonus-effect s :alice 16 4)]
+      (is (= 2 (count (get-in s' [:city-demands :nippur]))) "two tokens placed on the current city")
+      (is (= 0 (amity s')) "no sell, no amity"))))
+
+(deftest board-8-slot-3-gain-three-then-sell-test
+  (testing "grants gold/gems/pottery, then sells a freshly-gained good"
+    (let [s  (state-with 8 {:resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                            :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 8 3)]
+      (is (= 1 (res s' :gold))    "gold gain kept")
+      (is (= 1 (res s' :pottery)) "pottery gain kept")
+      (is (= 0 (res s' :gems))    "the gained gem was spent on the sell")
+      (is (= 2 (amity s'))        "merchant-lv1 sell scored +2 amity")
+      (is (= [] (get-in s' [:city-demands :uruk])) "the gems demand was consumed")
+      (is (= [:gems] (get-in s' [:players :alice :demand-tokens]))
+          "the fulfilled demand token moved to the player")))
+  (testing "no matching demand → goods kept, no sell"
+    (let [s  (state-with 8 {:amity 0 :caravan :uruk}
+                         {:city-demands {:uruk [:tools]}})
+          s' (game/apply-bonus-effect s :alice 8 3)]
+      (is (= 1 (res s' :gold)) "gold kept")
+      (is (= 1 (res s' :gems)) "gems kept (no tools to sell)")
+      (is (= 0 (amity s'))     "no sell happened"))))
+
+(deftest board-26-slot-3-sell-then-temple-iff-tools-or-pottery-test
+  (testing "sold POTTERY → temple placed in caravan city"
+    (let [s  (state-with 26 {:resources {:pottery 1} :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk [:pottery]}})
+          s' (game/apply-bonus-effect s :alice 26 3)]
+      (is (= 2 (amity s')) "merchant-lv1 sell +2 amity")
+      (is (= 0 (res s' :pottery)) "pottery spent")
+      (is (game/has-temple? (get-in s' [:players :alice]) :uruk)
+          "temple placed because tools/pottery was sold")))
+  (testing "sold GEMS (not tools/pottery) → NO temple"
+    (let [s  (state-with 26 {:resources {:gems 1} :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk [:gems]}})
+          s' (game/apply-bonus-effect s :alice 26 3)]
+      (is (= 2 (amity s')) "sell still happened")
+      (is (not (game/has-temple? (get-in s' [:players :alice]) :uruk))
+          "no temple — gems is neither tools nor pottery")))
+  (testing "nothing sellable → no sell, no temple"
+    (let [s  (state-with 26 {:resources {:pottery 0} :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk [:pottery]}})
+          s' (game/apply-bonus-effect s :alice 26 3)]
+      (is (= 0 (amity s')) "no sell")
+      (is (not (game/has-temple? (get-in s' [:players :alice]) :uruk))
+          "no temple when nothing sold"))))
+
+(deftest board-28-slot-3-sell-gold-empty-then-place-demand-test
+  (testing "empty city + gold → spend gold, +merchant amity, place 1 random demand"
+    (let [s  (state-with 28 {:resources {:gold 1} :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk []}
+                          :demand-bag (game/full-demand-bag)})
+          s' (game/apply-bonus-effect s :alice 28 3)]
+      (is (= 0 (res s' :gold)) "gold spent")
+      (is (= 2 (amity s'))     "merchant-lv1 amity +2")
+      (is (= 1 (count (get-in s' [:city-demands :uruk])))
+          "exactly one random demand placed on the city")))
+  (testing "city HAS demands → no-op (gold kept, no amity)"
+    (let [s  (state-with 28 {:resources {:gold 1} :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk [:tools]}
+                          :demand-bag (game/full-demand-bag)})
+          s' (game/apply-bonus-effect s :alice 28 3)]
+      (is (= 1 (res s' :gold)) "gold NOT spent")
+      (is (= 0 (amity s'))     "no amity")
+      (is (= [:tools] (get-in s' [:city-demands :uruk])) "demands unchanged")))
+  (testing "no gold → no-op even on an empty city"
+    (let [s  (state-with 28 {:resources {:gold 0} :amity 0 :caravan :uruk}
+                         {:city-demands {:uruk []}
+                          :demand-bag (game/full-demand-bag)})
+          s' (game/apply-bonus-effect s :alice 28 3)]
+      (is (= 0 (amity s')) "no amity")
+      (is (empty? (get-in s' [:city-demands :uruk])) "no demand placed"))))
+
+(deftest board-32-slot-1-sell-then-glory-per-fulfilled-demand-test
+  (testing "sell adds a token → glory = total fulfilled demands AFTER the sell"
+    (let [s  (state-with 32 {:resources {:tools 1} :glory 0 :amity 0 :caravan :uruk
+                             :demand-tokens [:gold :gems]}
+                         {:city-demands {:uruk [:tools]}})
+          s' (game/apply-bonus-effect s :alice 32 1)]
+      (is (= 0 (res s' :tools)) "tools sold")
+      (is (= 2 (amity s'))      "merchant-lv1 sell +2 amity")
+      (is (= 3 (count (get-in s' [:players :alice :demand-tokens])))
+          "demand-tokens now 3 (2 prior + 1 from this sell)")
+      (is (= 3 (glory s')) "glory = 3 fulfilled demands counted after the sell")))
+  (testing "no sale → glory = pre-existing fulfilled demands only"
+    (let [s  (state-with 32 {:resources {:gold 0} :glory 0 :caravan :uruk
+                             :demand-tokens [:pottery]}
+                         {:city-demands {:uruk [:gold]}})
+          s' (game/apply-bonus-effect s :alice 32 1)]
+      (is (= 1 (glory s')) "no new token; glory = the 1 prior fulfilled demand"))))
+
+(deftest board-6-slot-4-raider-near-lagash-plus-two-tools-test
+  ;; "Place a Raider adjacent to Lagash. Gain Tools, Tools."
+  ;; Bug: old arm gave +2 tools but never placed the raider.
+  (testing "deploys a raider on a free route touching Lagash AND grants +2 tools"
+    (let [s  (board-state 4 6 {:raiders {} :raiders-supply 6
+                               :resources {:tools 0 :pottery 0 :gold 0 :gems 0}})
+          s' (game/apply-bonus-effect s :alice 6 4)
+          rks (set (keys (raiders s')))]
+      (is (= 2 (res s' :tools)) "gained Tools, Tools")
+      (is (= 1 (count rks)) "exactly one raider placed")
+      (is (some (fn [[a b]] (or (= a :lagash) (= b :lagash))) rks)
+          "the placed raider is on a route adjacent to Lagash")
+      (is (= 5 (get-in s' [:players :alice :raiders-supply]))
+          "one raider drawn from supply"))))
+
+(deftest board-26-slot-4-raider-adjacent-caravan-surround-temple-test
+  ;; "Place a Raider adjacent to your city. If you surround it, you may place a
+  ;; temple in it (even if you already have a temple there)."
+  (testing "completing the surround of the caravan city places a temple there"
+    (let [s  (board-state 4 26 {:caravan :eridu
+                                :raiders {[:eridu :lagash] :raiding}
+                                :raiders-supply 5 :temples {} :temples-supply 7})
+          s' (game/apply-bonus-effect s :alice 26 4)]
+      (is (= #{[:eridu :lagash] [:eridu :uruk]} (set (keys (raiders s'))))
+          "second raider completed the surround of Eridu")
+      (is (game/has-temple? (get-in s' [:players :alice]) :eridu)
+          "a temple was placed in the surrounded caravan city")))
+  (testing "no temple when the deploy does NOT complete a surround"
+    (let [s  (board-state 4 26 {:caravan :uruk :raiders {}
+                                :raiders-supply 6 :temples {} :temples-supply 7})
+          s' (game/apply-bonus-effect s :alice 26 4)]
+      (is (= 1 (count (raiders s'))) "one raider placed adjacent to Uruk")
+      (is (not (game/has-temple? (get-in s' [:players :alice]) :uruk))
+          "Uruk is not surrounded → no temple"))))
+
+(deftest board-29-slot-4-temple-in-each-surrounded-city-test
+  ;; "Place a Temple in each city surrounded by your Raiders (even if you have a
+  ;; Temple there)." Bug: old arm only templed the caravan city.
+  (testing "templed EVERY surrounded city, not just one"
+    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash]   :raiding
+                                          [:eridu :uruk]     :raiding
+                                          [:nineveh :samarra] :raiding
+                                          [:babylon :nineveh] :raiding}
+                                :temples {} :temples-supply 7})
+          s' (game/apply-bonus-effect s :alice 29 4)
+          pd (get-in s' [:players :alice])]
+      (is (game/has-temple? pd :eridu) "temple in surrounded Eridu")
+      (is (game/has-temple? pd :nineveh) "temple in surrounded Nineveh")
+      (is (= 2 (count (game/all-temple-states pd)))
+          "exactly two temples placed (one per surrounded city)")))
+  (testing "duplicate-allowed: temples even where one already exists"
+    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash] :raiding
+                                          [:eridu :uruk]   :raiding}
+                                :temples {:eridu [:face-up]} :temples-supply 7})
+          s' (game/apply-bonus-effect s :alice 29 4)]
+      (is (= 2 (count (get-in s' [:players :alice :temples :eridu])))
+          "a SECOND temple was added to the already-templed surrounded city")))
+  (testing "no surrounded city → no temple placed"
+    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash] :raiding}
+                                :temples {} :temples-supply 7})
+          s' (game/apply-bonus-effect s :alice 29 4)]
+      (is (zero? (count (game/all-temple-states (get-in s' [:players :alice]))))
+          "Eridu only half-surrounded → no temple"))))
+
+(deftest board-32-slot-3-raider-on-each-double-temple-route-test
+  ;; "Place a raider in each route that has one of your Temples in both cities."
+  ;; Bug: old arm placed on only the FIRST eligible route (and passed player-count
+  ;; where a state was expected, so it saw zero routes).
+  (testing "places on EVERY route whose both endpoints hold your temple"
+    (let [s  (board-state 4 32 {:temples {:eridu  [:face-up]
+                                          :lagash [:face-up]
+                                          :uruk   [:face-up]}
+                                :raiders {} :raiders-supply 6 :roles {:raider 5 :merchant 1 :priest 1 :leader 1}})
+          s' (game/apply-bonus-effect s :alice 32 3)
+          rks (set (keys (raiders s')))]
+      (is (= #{[:eridu :lagash] [:eridu :uruk] [:lagash :uruk]} rks)
+          "a raider on each of the three double-temple routes")))
+  (testing "no eligible route → no raiders"
+    (let [s  (board-state 4 32 {:temples {:eridu [:face-up]}
+                                :raiders {} :raiders-supply 6})
+          s' (game/apply-bonus-effect s :alice 32 3)]
+      (is (empty? (raiders s')) "only one templed city → no double-temple route"))))
+
+(deftest board-20-slot-4-takes-goods-from-astronomer-spaces-test
+  (testing "two astronomers (spaces 1 and 2) -> their four :take goods"
+    (let [s  (state-with 20 {:astronomers [1 2]
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 0}})
+          s' (game/apply-bonus-effect s :alice 20 4)]
+      (is (= 1 (res s' :gems))) (is (= 1 (res s' :tools)))
+      (is (= 1 (res s' :gold))) (is (= 1 (res s' :pottery)))))
+  (testing "capped at four goods even with more astronomer spaces"
+    (let [s  (state-with 20 {:astronomers [1 2 3]
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 0}})
+          s' (game/apply-bonus-effect s :alice 20 4)]
+      (is (= 4 (reduce + (vals (get-in s' [:players :alice :resources])))))))
+  (testing "astronomer on space 7 (no :take) contributes nothing"
+    (let [s  (state-with 20 {:astronomers [7]
+                             :resources {:tools 0 :pottery 0 :gold 0 :gems 0}})
+          s' (game/apply-bonus-effect s :alice 20 4)]
+      (is (= 0 (reduce + (vals (get-in s' [:players :alice :resources]))))))))
+
+(deftest board-14-slot-2-magistrate-to-uruk-then-uruk-demands-test
+  (testing "magistrate moves to uruk and player gains one good per uruk demand"
+    (let [s  (-> (board-state 4 14 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                                    :resources {:tools 0 :pottery 0 :gold 0 :gems 0}})
+                 (assoc :magistrates {:m1 :eridu}
+                        :city-demands {:uruk [:gold :gems]}))
+          s' (game/apply-bonus-effect s :alice 14 2)]
+      (is (= :uruk (get-in s' [:magistrates :m1])))
+      (is (= 1 (res s' :gold))) (is (= 1 (res s' :gems)))
+      (is (= 0 (res s' :tools))))))
+
+(deftest board-24-slot-4-good-per-demand-in-magistrate-cities-test
+  (testing "one good per demand token across all magistrate cities (no cap)"
+    (let [s  (-> (state-with 24 {:resources {:tools 0 :pottery 0 :gold 0 :gems 0}
+                                 :demand-tokens [:tools :tools :tools]})
+                 (assoc :magistrates {:m1 :kish :m2 :uruk}
+                        :city-demands {:kish [:gold]
+                                       :uruk [:gems :pottery]
+                                       :lagash [:tools]}))
+          s' (game/apply-bonus-effect s :alice 24 4)]
+      (is (= 1 (res s' :gold))) (is (= 1 (res s' :gems)))
+      (is (= 1 (res s' :pottery))) (is (= 0 (res s' :tools)))
+      (is (= 3 (reduce + (vals (get-in s' [:players :alice :resources]))))))))
+
+(deftest board-21-slot-1-gated-on-eridu-test
+  (testing "caravan NOT in eridu -> no-op (no travel)"
+    (let [s  (board-state 4 21 {:caravan :babylon})
+          s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
+      (is (= :babylon (get-in s' [:players :alice :caravan])))))
+  (testing "caravan IN eridu, explicit choice -> travels there"
+    (let [s  (board-state 4 21 {:caravan :eridu})
+          s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
+      (is (= :uruk (get-in s' [:players :alice :caravan])))))
+  (testing "caravan IN eridu, bot default -> a meaningful city other than eridu"
+    (let [s  (board-state 4 21 {:caravan :eridu})
+          s' (game/apply-bonus-effect s :alice 21 1)]
+      (is (not= :eridu (get-in s' [:players :alice :caravan]))))))
+
+(deftest board-25-slot-1-scores-only-raiders-influence-moved-through-test
+  (testing "score = number of raiders flipped :raiding->:point by the move (no +2)"
+    (let [s  (-> (board-state 4 25 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
+                                    :raiders {[:lagash :nippur] :raiding
+                                              [:babylon :uruk] :point}
+                                    :glory 0})
+                 (assoc :magistrates {:m1 :kish}))
+          s' (game/apply-bonus-with-choice s :alice 25 1 :lagash)]
+      (is (= :lagash (get-in s' [:magistrates :m1])))
+      (is (= :point (get-in s' [:players :alice :raiders [:lagash :nippur]])))
+      (is (= 1 (glory s')))))
+  (testing "no raiders on the path -> zero glory (not +2)"
+    (let [s  (-> (board-state 4 25 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
+                                    :raiders {} :glory 0})
+                 (assoc :magistrates {:m1 :kish}))
+          s' (game/apply-bonus-with-choice s :alice 25 1 :lagash)]
+      (is (= 0 (glory s'))))))
+
+(deftest board-35-slot-4-scores-only-raiders-influence-moved-through-test
+  (testing "score = number of raiders flipped :raiding->:point by the move (no +2)"
+    (let [s  (-> (board-state 4 35 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
+                                    :raiders {[:lagash :nippur] :raiding
+                                              [:babylon :uruk] :point}
+                                    :glory 0})
+                 (assoc :magistrates {:m1 :kish}))
+          s' (game/apply-bonus-with-choice s :alice 35 4 :lagash)]
+      (is (= 1 (glory s')))))
+  (testing "no raiders on the path -> zero glory"
+    (let [s  (-> (board-state 4 35 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
+                                    :raiders {} :glory 0})
+                 (assoc :magistrates {:m1 :kish}))
+          s' (game/apply-bonus-with-choice s :alice 35 4 :lagash)]
+      (is (= 0 (glory s'))))))
+
+(deftest board-3-passive-end-game-gems-worth-amity-test
+  ;; [3 0] :end-game: "Your Gems are worth Amity each at end of game" — mirrors
+  ;; the [18 0] tools→glory arm but gems→amity. Authored arm; must fire from
+  ;; apply-end-game-scoring's :end-game pass (not dead).
+  (testing "apply-passive :end-game → +1 amity per gem held"
+    (let [s  (-> (state-with 3 {:resources {:gems 4 :tools 0 :gold 0 :pottery 0}
+                                :amity 1})
+                 uncover-passive)
+          s' (game/apply-passive s :alice :end-game {})]
+      (is (= 5 (amity s')) "4 gems → +4 amity (1 + 4)")))
+  (testing "zero gems → no amity change"
+    (let [s  (-> (state-with 3 {:resources {:gems 0} :amity 2}) uncover-passive)
+          s' (game/apply-passive s :alice :end-game {})]
+      (is (= 2 (amity s')) "no gems → amity unchanged")))
+  (testing "wrong board → arm does not fire even on :end-game"
+    (let [s  (-> (state-with 19 {:resources {:gems 4} :amity 0}) uncover-passive)
+          s' (game/apply-passive s :alice :end-game {})]
+      (is (= 0 (amity s')) "board 19 has no gems→amity end-game arm")))
+  (testing "fires end-to-end through apply-end-game-scoring (arm not dead)"
+    (let [s  (-> (state-with 3 {:resources {:gems 3 :tools 0 :gold 0 :pottery 0}
+                                :amity 0 :glory 0
+                                :roles {:merchant 1 :priest 1 :raider 1 :leader 1}
+                                :wild-points 0})
+                 uncover-passive)
+          s' (game/apply-end-game-scoring s)]
+      (is (= 3 (amity s')) "3 gems → +3 amity after full end-game scoring"))))
