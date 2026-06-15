@@ -601,11 +601,20 @@
                       wants-h1? (contains? target-ids :H1)
                       wants-h2? (contains? target-ids :H2)
                       roles-at-3 (count (filter #(>= (val %) 3) role-levels))
+                      ;; Temple engine: priest level raises the temple cap
+                      ;; (priest-max-temples {3 5, 4 8}), so a committed temple
+                      ;; player must level priest to place a wide base. Neutral 0.
+                      temple-engine (:temple-engine weights 0.0)
                       scored (for [role (keys role-choices)
                                    :when (keyword? role)
                                    :let [pri-idx (.indexOf priority-order role)
                                          pri (if (neg? pri-idx) 99 pri-idx)
                                          level (get role-levels role 1)
+                                         ;; lower score = picked first; boost priest
+                                         ;; up to level 4 (the 8-temple cap)
+                                         te-role-adj (if (and (= role :priest) (< level 4))
+                                                       (* (- temple-engine) 7.0)
+                                                       0)
                                          ;; Bonus for roles near max in late game
                                          near-max-bonus (if (and late-game? (>= level 4))
                                                           (* endgame-push -10)
@@ -638,7 +647,7 @@
                                                        (if (> competitive 0.5) -1 0)
                                                        :else 0)]]
                                [(+ (* pri 3) level near-max-bonus glory-adj
-                                   feat-role-adj compete-adj) role])]
+                                   feat-role-adj compete-adj te-role-adj) role])]
                   (if (seq scored)
                     (second (first (sort scored)))
                     ;; Always pick a role — never skip, there's no downside
@@ -799,6 +808,13 @@
                   (let [river-pref (:temple-river-pref weights 0.5)
                         eridu-pref (:eridu-focus weights 0.3)
                         temple-comp (:temple-competition weights 0.5)
+                        ;; ── Cluster-aware placement (temple engine) ──────────
+                        ;; A tight cluster of temples lets one double-move flip
+                        ;; several at once, so reward placing ADJACENT to your
+                        ;; own temples. Neutral at temple-engine 0.0.
+                        temple-engine (:temple-engine weights 0.0)
+                        graph (:city-graph state)
+                        own-temple-cities (set (keys (:temples pdata)))
                         scored (for [city (keys non-skip)
                                     :let [demands (count (get-in state [:city-demands city] []))
                                           has-mag (game/magistrate-in-city? state city)
@@ -814,10 +830,15 @@
                                           opp-temples (opponent-temples-in-city state player city)
                                           group-adj (if (pos? opp-temples)
                                                       (* (- temple-comp 0.5) 4) ;; positive=group, negative=avoid
-                                                      0)]]
+                                                      0)
+                                          ;; Cluster bonus: graph-neighbors that hold my temples
+                                          cluster-adj (count (filter #(contains? (get graph city #{}) %)
+                                                                     own-temple-cities))
+                                          cluster-bonus (* temple-engine cluster-adj 3.0)]]
                                  [(+ (* demands (:temple-in-demand-city weights 1.5))
                                      mag-bonus on-route late-penalty
-                                     river-bonus eridu-bonus group-adj)
+                                     river-bonus eridu-bonus group-adj
+                                     cluster-bonus)
                                   city])]
                     (if (seq scored)
                       (second (last (sort scored)))
@@ -940,8 +961,14 @@
               :travel-continue
               (let [resources (:resources pdata)
                     total-resources (reduce + (vals resources))
-                    face-up-count (count (filter #{:face-up}
-                                                 (game/all-temple-states pdata)))
+                    temple-states (game/all-temple-states pdata)
+                    face-up-count (count (filter #{:face-up} temple-states))
+                    ;; Compounding flip value (a flip scores amity = face-down
+                    ;; count) + double-flip chaining: pay a good to keep moving
+                    ;; when it flips a temple here AND lets the next hop flip
+                    ;; another. Neutral at temple-engine 0.0.
+                    temple-engine (:temple-engine weights 0.0)
+                    face-down-count (count (filter #{:face-down} temple-states))
                     willingness (:resource-to-move weights 0.3)
                     ;; Check if nearby cities have good destinations
                     current-city (:caravan pdata)
@@ -949,19 +976,25 @@
                     best-nearby-score
                     (apply max 0
                            (for [dest neighbors
-                                 :let [rk (game/route-key current-city dest)]]
-                             (+ (if (game/city-has-own-face-up-temple? pdata dest) 8 0)
+                                 :let [rk (game/route-key current-city dest)
+                                       dest-neighbors (get-in state [:city-graph dest] #{})
+                                       flip-here (game/city-has-own-face-up-temple? pdata dest)
+                                       flip-next (some #(game/city-has-own-face-up-temple? pdata %)
+                                                       dest-neighbors)]]
+                             (+ (if flip-here 8 0)
+                                ;; compounding: this flip is worth ~face-down+1
+                                (if flip-here (* temple-engine (inc face-down-count) 1.0) 0)
+                                ;; double-flip chain: another own temple one hop on
+                                (if (and flip-here flip-next) (* temple-engine 10.0) 0)
                                 (if (game/city-has-sellable-demand? state player dest) 6 0)
                                 ;; Point raider = instant 4 glory, always worth paying to reach
                                 (if (= :point (get-in pdata [:raiders rk])) 15 0)
                                 (if (game/magistrate-in-city? state dest) 3 0)
                                 ;; 2-hop lookahead: sellable city one more hop away
-                                (let [dest-neighbors (get-in state [:city-graph dest] #{})]
-                                  (if (some #(game/city-has-sellable-demand? state player %) dest-neighbors) 2 0))
+                                (if (some #(game/city-has-sellable-demand? state player %) dest-neighbors) 2 0)
                                 ;; 2-hop lookahead: point raider one more hop away
-                                (let [dest-neighbors (get-in state [:city-graph dest] #{})]
-                                  (if (some (fn [n] (= :point (get-in pdata [:raiders (game/route-key dest n)])))
-                                            dest-neighbors) 5 0)))))
+                                (if (some (fn [n] (= :point (get-in pdata [:raiders (game/route-key dest n)])))
+                                          dest-neighbors) 5 0))))
                     should-continue? (and (pos? total-resources)
                                           (or (> best-nearby-score 5)
                                               (and (>= face-up-count 2)
@@ -984,7 +1017,11 @@
               (let [non-skip (dissoc choices :skip)
                     final-round? (>= (:round state 1) game/rounds-per-game)
                     mag-setup (:magistrate-setup weights 0.5)
-                    mag-denial (:magistrate-denial weights 0.3)]
+                    mag-denial (:magistrate-denial weights 0.3)
+                    ;; Temple engine: co-locating a magistrate with your own
+                    ;; temple sets up the flip's magistrate glory AND the M1
+                    ;; "magistrates at temples" contest. Neutral at 0.0.
+                    temple-engine (:temple-engine weights 0.0)]
                 ;; Last round: only influence if it flips own raiders (immediate glory)
                 (if (seq non-skip)
                   (let [scored
@@ -1023,6 +1060,8 @@
                               (if has-temple 7 0)
                               (if can-sell-there 6 0)
                               setup-bonus
+                              ;; temple-engine: drive the magistrate onto my temple
+                              (if has-temple (* temple-engine 6.0) 0)
                               denial-adj
                               ;; On final round, strongly penalize influence that doesn't score
                               (if (and final-round? (not near-own-point) (not has-temple))
