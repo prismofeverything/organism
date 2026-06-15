@@ -822,7 +822,13 @@
                                     {:type :bonus-effect :player player-key
                                      :round (:round state 1) :turn (:turn-in-round state 1)
                                      :message (str "Bonus #" chosen-slot
-                                                   " uncovered: " effect-text)})))]
+                                                   " uncovered: " effect-text)})))
+            ;; Fire the contest-claim passive (e.g. board 11 slot 0: glory =
+            ;; Leader level). The bot path (check-and-claim-feats) already does
+            ;; this; the human path was missing it, so the passive never
+            ;; triggered on a human's claims (designer-reported bug).
+            new-state (game/apply-passive new-state player-key :feat-claimed
+                                          {:contest-id contest-id :slot chosen-slot})]
         (swap! games
                (fn [gs]
                  (-> gs

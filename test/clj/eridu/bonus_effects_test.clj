@@ -482,3 +482,54 @@
           cs (set (game/eligible-cities-for-filter s :alice :magistrate-river))]
       ;; uruk's river edges: uruk↔nippur, uruk↔lagash
       (is (= #{:nippur :lagash} cs) "river-reachable destinations from the magistrate at uruk"))))
+
+;; =============================================================================
+;; Designer-reported bug fixes (from the "PRIEST MASTER" game)
+;; =============================================================================
+
+(deftest board-11-slot-0-feat-claim-glory-passive-test
+  ;; Bug 1: the [11 0] passive ("score Glory = Leader level when you meet a
+  ;; contest") never fired on a HUMAN's claim — the human claim path omitted
+  ;; apply-passive. Pin the passive itself; the WS path now calls it.
+  (testing "claiming a contest with slot 0 uncovered scores glory = Leader level"
+    (let [s  (-> (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 3}})
+                 uncover-passive)
+          s' (game/apply-passive s :alice :feat-claimed {:contest-id :M1 :slot 2})]
+      (is (= 3 (glory s')) "leader level 3 → +3 glory")))
+  (testing "no glory when slot 0 is still covered (player lacks the passive)"
+    (let [s  (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 3}})
+          s' (game/apply-passive s :alice :feat-claimed {:contest-id :M1})]
+      (is (= 0 (glory s')) "passive not active → no glory"))))
+
+(deftest board-11-slot-1-no-teleport-test
+  ;; Bug 2a: "Place two Demand Tokens in Lagash. Gain matching resources" used to
+  ;; bonus-travel-to and teleport the caravan. It must NOT move the caravan.
+  (testing "placing demand tokens in Lagash does not move the caravan"
+    (let [s  (state-with 11 {:caravan :kish}
+                         {:demand-bag {:gold 3 :tools 2 :pottery 2 :gems 1}
+                          :city-demands {:lagash []}})
+          s' (game/apply-bonus-effect s :alice 11 1)]
+      (is (= :kish (get-in s' [:players :alice :caravan])) "caravan stays at kish")
+      (is (pos? (reduce + (vals (get-in s' [:players :alice :resources]))))
+          "gained the matching goods")
+      (is (seq (get-in s' [:city-demands :lagash])) "tokens were placed in Lagash"))))
+
+(deftest bonus-sell-in-magistrate-glory-at-sell-city-test
+  ;; Bug 2b: a sell-at-a-distance must earn the magistrate glory bonus at the
+  ;; SELL city, not the caravan.
+  (let [sell-in #'eridu.game/bonus-sell-in]
+    (testing "magistrate at the sell city → leader-level glory bonus"
+      (let [s  (state-with 11 {:caravan :kish
+                               :roles {:merchant 2 :priest 1 :raider 1 :leader 5}
+                               :resources {:gold 1 :tools 0 :pottery 0 :gems 0}}
+                           {:city-demands {:lagash [:gold]} :magistrates {0 :lagash}})
+            s' (sell-in s :alice :lagash)]
+        (is (pos? (amity s')) "scored merchant amity for the sell")
+        (is (= (get game/leader-bonus 5) (glory s'))
+            "magistrate at Lagash → +leader-bonus(5)=3 glory, even at a distance")))
+    (testing "no magistrate at the sell city → no glory bonus"
+      (let [s  (state-with 11 {:roles {:merchant 2 :priest 1 :raider 1 :leader 5}
+                               :resources {:gold 1 :tools 0 :pottery 0 :gems 0}}
+                           {:city-demands {:lagash [:gold]} :magistrates {0 :kish}})
+            s' (sell-in s :alice :lagash)]
+        (is (zero? (glory s')) "magistrate elsewhere → no sell glory")))))

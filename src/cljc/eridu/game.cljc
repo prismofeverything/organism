@@ -1742,13 +1742,21 @@
 
 (defn- bonus-sell-in
   "Resolve a single Sell in `city`: spend one good matching a demand there,
-   move the token to the player's demand-tokens, score merchant-level amity."
+   move the token to the player's demand-tokens, score merchant-level amity,
+   AND the magistrate glory bonus at the SELL city. A sell-at-a-distance still
+   earns the magistrate bonus — it is tied to where the sell happens (`city`),
+   NOT the caravan's location (designer-confirmed)."
   [s player-key city]
   (let [demands (get-in s [:city-demands city] [])
         resources (get-in s [:players player-key :resources])
         sellable (first (filter #(pos? (get resources % 0)) demands))]
     (if sellable
-      (sell-good-in-city s player-key city sellable)
+      (let [s (sell-good-in-city s player-key city sellable)
+            has-mag (some #{city} (vals (:magistrates s)))
+            leader-lv (get-in s [:players player-key :roles :leader] 1)
+            glory (if has-mag (get leader-bonus leader-lv 0) 0)]
+        (cond-> s
+          (pos? glory) (update-in [:players player-key :glory] + glory)))
       s)))
 
 (defn- touches?
@@ -2002,10 +2010,21 @@
       [10 4] (place-temple-in state player-key :nippur true)
 
       ;; ─── Board 11: Ambition of Sargon ──────────────────────────
-      [11 1] (-> state ;; Place demand tokens in Lagash → approximate with resources
-                (bonus-travel-to player-key :lagash)
-                (add-player-resource player-key :gold 1)
-                (add-player-resource player-key :pottery 1))
+      ;; "Place two random Demand Tokens in Lagash. Gain matching resources."
+      ;; FAITHFUL (Bucket B): NO caravan move (this used to bonus-travel-to and
+      ;; teleport the player to Lagash — designer-reported bug). Draw two demand
+      ;; tokens into Lagash and grant the player the matching goods, at a distance.
+      [11 1] (let [d1 (draw-demand-token (:demand-bag state))
+                   [bag1 t1] (or d1 [(:demand-bag state) nil])
+                   d2 (when t1 (draw-demand-token bag1))
+                   [bag2 t2] (or d2 [bag1 nil])
+                   tokens (remove nil? [t1 t2])]
+               (reduce (fn [s tok]
+                         (-> s
+                             (update-in [:city-demands :lagash] (fnil conj []) tok)
+                             (add-player-resource player-key tok 1)))
+                       (assoc state :demand-bag bag2)
+                       tokens))
       ;; "Sell to Lagash for Double Glory points (you don't have to be there)."
       ;; FAITHFUL (Bucket B): do NOT move the caravan — only score the +4 glory.
       [11 2] (update-in state [:players player-key :glory] + 4)
