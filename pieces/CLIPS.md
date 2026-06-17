@@ -28,7 +28,7 @@ still to `renders/clips/move/single_0070.png` (skip the full animation while you
 
 | # | name | script / where to edit | shows |
 |---|------|------------------------|-------|
-| 6 | `eat`        | `storyboards.py → eat`        | food slides off the board onto an EAT element |
+| 6 | `eat`        | `storyboards.py → eat`        | EAT eats food on a space (1 + 1 created) — bite arcs onto the eater, ends with 2 |
 | 7 | `move`       | `storyboards.py → move`       | MOVE relocates a fellow element (grower) onto center; plasma highlights the move |
 | 8 | `grow`       | `storyboards.py → grow`       | two growers spend a food → new element appears |
 | 9 | `circulate`  | `storyboards.py → circulate`  | half a food stack glides to a non-adjacent element |

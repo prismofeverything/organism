@@ -71,18 +71,23 @@ STORY = {
         ],
     },
 
-    # ---- #8 GROW: two growers spend a food each; a new element appears by a grower ----
+    # ---- #8 GROW: a 5-element organism (2 growers + 2 movers + 1 eater). A single grow spends one
+    #      food off EACH grower to grow a NEW (3rd) mover, highlighted by a plasma flare. Viewport
+    #      rotated (az=0) so the growers sit on the RIGHT and the new mover grows to their right.
+    #      The movers are split: m1 sits up by the left grower, m2 + eater are on the left/center. ----
     "grow": {
-        "len": 124,
-        "cam": {"az": -22, "el": 47, "dist": 300, "lens": 52, "targz": 6,
-                "drift": {"az": -9, "el": 1, "dist": -12}},
-        "actors": {"e": ("green", "eat"), "m": ("green", "move"),
-                   "g1": ("green", "grow"), "g2": ("green", "grow"), "n": ("green", "grow")},
+        "len": 108,
+        "cam": {"az": 0, "el": 50, "dist": 300, "lens": 50, "targz": 6, "tx": -4, "ty": 18,
+                "drift": {"az": -5, "el": 0.5, "dist": -8}},
+        "actors": {"e": ("green", "eat"), "g1": ("green", "grow"), "g2": ("green", "grow"),
+                   "m1": ("green", "move"), "m2": ("green", "move"), "n": ("green", "move")},
+        # growers g1(B:0),g2(B:1) each spend 1 food to grow n(C:1, to their right after rotation);
+        # m1(B:2) is moved up by left grower g2; m2(B:4) + eater e(A:0) are on the left/center.
         "beats": [
-            {"t": 0,   "pos": {"e": "A:0", "m": "B:2", "g1": "B:0", "g2": "B:1"},            "food": {"e": 1, "m": 1, "g1": 1, "g2": 1}, "glow": ["g1", "g2"]},
-            {"t": 42,  "pos": {"e": "A:0", "m": "B:2", "g1": "B:0", "g2": "B:1"},            "food": {"e": 1, "m": 1, "g1": 1, "g2": 1}, "glow": ["g1", "g2"]},
-            {"t": 82,  "pos": {"e": "A:0", "m": "B:2", "g1": "B:0", "g2": "B:1", "n": "C:0"}, "food": {"e": 1, "m": 1, "g1": 0, "g2": 0}, "glow": ["n"]},
-            {"t": 124, "pos": {"e": "A:0", "m": "B:2", "g1": "B:0", "g2": "B:1", "n": "C:0"}, "food": {"e": 1, "m": 1, "g1": 0, "g2": 0}, "glow": ["n"]},
+            {"t": 0,   "pos": {"e": "A:0", "g1": "B:0", "g2": "B:1", "m1": "B:2", "m2": "B:4"},            "food": {"e": 1, "g1": 1, "g2": 1}, "glow": []},
+            {"t": 30,  "pos": {"e": "A:0", "g1": "B:0", "g2": "B:1", "m1": "B:2", "m2": "B:4"},            "food": {"e": 1, "g1": 1, "g2": 1}, "glow": []},
+            {"t": 72,  "pos": {"e": "A:0", "g1": "B:0", "g2": "B:1", "m1": "B:2", "m2": "B:4", "n": "C:1"}, "food": {"e": 1, "g1": 0, "g2": 0}, "glow": ["n"]},
+            {"t": 108, "pos": {"e": "A:0", "g1": "B:0", "g2": "B:1", "m1": "B:2", "m2": "B:4", "n": "C:1"}, "food": {"e": 1, "g1": 0, "g2": 0}, "glow": ["n"]},
         ],
     },
 
