@@ -192,7 +192,7 @@
    [33 4] :implemented  ;; Deploy + travel
    [34 0] :persistent   ;; Score raiders → amity instead of glory
    [34 1] :implemented  ;; Pay tools for raiders around Uruk
-   [34 2] :partial      ;; PROXY: 2 raiders on any routes; needs multi-raider-per-route model (deferred)
+   [34 2] :implemented  ;; Raider on each route you already have a raider (multi-raider-per-route model)
    [34 3] :implemented  ;; Sell at magistrate+temple cities
    [34 4] :implemented  ;; Same as 34-3
    [35 0] :persistent   ;; No goods → gain good of choice

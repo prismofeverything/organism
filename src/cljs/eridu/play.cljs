@@ -705,7 +705,8 @@
      ;; Raiders on routes (offset when multiple on same route)
      (let [route-counts (atom {})]
        (for [[pk pdata] (:players state)
-             [rk raider-state] (:raiders pdata)
+             [rk statuses] (:raiders pdata)
+             [stack-idx raider-state] (map-indexed vector statuses)
              :let [[c1 c2] rk
                    {x1 :x y1 :y} (get city-positions c1)
                    {x2 :x y2 :y} (get city-positions c2)
@@ -722,7 +723,7 @@
                    rx (+ mx ox) ry (+ my oy)
                    p-color (game/player-color state pk)
                    is-raiding (= raider-state :raiding)]]
-         ^{:key (str "raider-" pk "-" (name c1) "-" (name c2))}
+         ^{:key (str "raider-" pk "-" (name c1) "-" (name c2) "-" stack-idx)}
          [:g
           (if is-raiding
             [:g

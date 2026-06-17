@@ -53,8 +53,11 @@
 (defn- all-temple-states [s p] (mapcat val (temples-map s p)))
 (defn- fd-count       [s p] (count (filter #{:face-down} (all-temple-states s p))))
 (defn- temple-count   [s p] (count (all-temple-states s p)))
-(defn- raider-count   [s p] (count (raiders-map s p)))
-(defn- point-raiders  [s p] (count (filter #(= :point (val %)) (raiders-map s p))))
+;; Multi-raider model: (:raiders pdata) is {route -> [status ...]}, so count
+;; over the flattened statuses, not the route keys.
+(defn- all-raider-states [s p] (mapcat val (raiders-map s p)))
+(defn- raider-count   [s p] (count (all-raider-states s p)))
+(defn- point-raiders  [s p] (count (filter #{:point} (all-raider-states s p))))
 (defn- demand-count   [s p] (count (pkv s p :demand-tokens :default [])))
 
 (defn- magistrates-set [s]

@@ -114,15 +114,16 @@
                              :raiders {} :raiders-supply 6})
           s' (game/apply-bonus-effect s :alice 17 1)
           rs (raiders s')]
-      (is (= 1 (count rs)) "raider-count +1 (a placement, not a flip)")
-      (let [[rk side] (first rs)]
-        (is (= :point side) "placed on its POINT side")
+      (is (= 1 (game/count-raiders-deployed (get-in s' [:players :alice])))
+          "raider-count +1 (a placement, not a flip)")
+      (let [[rk statuses] (first rs)]
+        (is (= [:point] statuses) "placed on its POINT side")
         (is (or (contains? (set rk) :eridu)) "route touches Eridu"))))
   (testing "all Eridu routes already occupied → no-op (nothing to place)"
     ;; Eridu's routes in a 2p game: eridu-uruk (road), eridu-lagash (road).
     (let [s  (state-with 17 {:roles {:raider 4 :merchant 1 :priest 1 :leader 1}
-                             :raiders {[:eridu :uruk] :raiding
-                                       [:eridu :lagash] :raiding}
+                             :raiders {[:eridu :uruk] [:raiding]
+                                       [:eridu :lagash] [:raiding]}
                              :raiders-supply 6})
           s' (game/apply-bonus-effect s :alice 17 1)]
       (is (= 2 (count (raiders s'))) "no free Eridu route → raider count unchanged"))))
@@ -200,15 +201,15 @@
   ;; Old human arm dropped the amity entirely. Fix: score 2*raider-count amity
   ;; AND travel to the chosen city.
   (testing "human path scores 2*raider-count amity AND moves the caravan"
-    (let [s  (state-with 22 {:raiders {[:eridu :uruk] :raiding
-                                       [:kish :nippur] :point
-                                       [:lagash :nippur] :raiding}
+    (let [s  (state-with 22 {:raiders {[:eridu :uruk] [:raiding]
+                                       [:kish :nippur] [:point]
+                                       [:lagash :nippur] [:raiding]}
                              :amity 0 :caravan :uruk})
           s' (game/apply-bonus-with-choice s :alice 22 4 :eridu)]
       (is (= 6 (amity s')) "3 raiders × 2 amity = 6 (the amity is NOT dropped)")
       (is (= :eridu (get-in s' [:players :alice :caravan])) "travelled to the chosen city")))
   (testing "auto path (no choice) also scores the amity"
-    (let [s  (state-with 22 {:raiders {[:eridu :uruk] :raiding} :amity 0 :caravan :uruk})
+    (let [s  (state-with 22 {:raiders {[:eridu :uruk] [:raiding]} :amity 0 :caravan :uruk})
           s' (game/apply-bonus-effect s :alice 22 4)]
       (is (= 2 (amity s')) "1 raider × 2 amity = 2 on the auto arm too"))))
 
@@ -387,7 +388,7 @@
   ;; returns to supply.
   (testing "bonus travel over a route with own point raider → +4 glory, raider returned"
     (let [s  (board-state 4 21 {:caravan :eridu
-                                :raiders {[:eridu :uruk] :point}
+                                :raiders {[:eridu :uruk] [:point]}
                                 :raiders-supply 5 :glory 0})
           s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
       (is (= :uruk (get-in s' [:players :alice :caravan])) "caravan reached the destination")
@@ -398,9 +399,9 @@
           "the scored raider returned to supply (5 → 6)")))
   (testing "enemy raider on the traversed route is flipped to point (real resolution)"
     (let [s  (-> (board-state 4 21 {:caravan :eridu :raiders {}})
-                 (assoc-in [:players :bob] {:raiders {[:eridu :uruk] :raiding}}))
+                 (assoc-in [:players :bob] {:raiders {[:eridu :uruk] [:raiding]}}))
           s' (game/apply-bonus-with-choice s :alice 21 1 :uruk)]
-      (is (= :point (get-in s' [:players :bob :raiders [:eridu :uruk]]))
+      (is (= [:point] (get-in s' [:players :bob :raiders [:eridu :uruk]]))
           "the enemy's raider on the route the caravan crossed was flipped to point"))))
 
 ;; =============================================================================
@@ -417,13 +418,13 @@
     (let [s  (-> (board-state 4 18 {:caravan :eridu})
                  (assoc :magistrates {:m1 :uruk})
                  (assoc-in [:players :bob]
-                           {:raiders {[:nippur :uruk] :raiding    ;; river edge
-                                      [:babylon :uruk] :raiding}}));; road edge
+                           {:raiders {[:nippur :uruk] [:raiding]    ;; river edge
+                                      [:babylon :uruk] [:raiding]}}));; road edge
           s' (game/perform-river-influence s :alice :nippur)]
       (is (= :nippur (get-in s' [:magistrates :m1])) "magistrate moved across the river")
-      (is (= :point (get-in s' [:players :bob :raiders [:nippur :uruk]]))
+      (is (= [:point] (get-in s' [:players :bob :raiders [:nippur :uruk]]))
           "the RIVER-edge raider was flipped (the bug: it used to flip a road raider)")
-      (is (= :raiding (get-in s' [:players :bob :raiders [:babylon :uruk]]))
+      (is (= [:raiding] (get-in s' [:players :bob :raiders [:babylon :uruk]]))
           "the ROAD-edge raider is NOT touched by a river move")))
   (testing ":river-crossed passive fires for the mover (board 3 → +1 gem)"
     ;; Board 3 slot 0 :river-crossed grants a gem; a road influence would never
@@ -437,10 +438,10 @@
   (testing "[18 1] full arm: human picks a river destination → river raider flips"
     (let [s  (-> (board-state 4 18 {:caravan :eridu})
                  (assoc :magistrates {:m1 :uruk})
-                 (assoc-in [:players :bob] {:raiders {[:nippur :uruk] :raiding}}))
+                 (assoc-in [:players :bob] {:raiders {[:nippur :uruk] [:raiding]}}))
           s' (game/apply-bonus-with-choice s :alice 18 1 :nippur)]
       (is (= :nippur (get-in s' [:magistrates :m1])) "magistrate moved across the river")
-      (is (= :point (get-in s' [:players :bob :raiders [:nippur :uruk]]))
+      (is (= [:point] (get-in s' [:players :bob :raiders [:nippur :uruk]]))
           "[18 1] flipped the river-edge raider via real typed movement")))
   (testing "no magistrate one river edge from dest → no-op"
     (let [s  (-> (board-state 4 18 {:caravan :eridu})
@@ -456,8 +457,8 @@
 (deftest fix3-eligible-cities-for-filter-covers-all-filters-test
   (testing ":adjacent-to-raider → cities at either end of the player's raider routes"
     (let [s  (board-state 4 13 {:caravan :eridu
-                                :raiders {[:babylon :uruk] :raiding
-                                          [:nippur :uruk] :point}})
+                                :raiders {[:babylon :uruk] [:raiding]
+                                          [:nippur :uruk] [:point]}})
           cs (set (game/eligible-cities-for-filter s :alice :adjacent-to-raider))]
       (is (= #{:babylon :uruk :nippur} cs)
           "the union of both endpoints of every route the player has a raider on")))
@@ -978,7 +979,7 @@
   ;; temple in it (even if you already have a temple there)."
   (testing "completing the surround of the caravan city places a temple there"
     (let [s  (board-state 4 26 {:caravan :eridu
-                                :raiders {[:eridu :lagash] :raiding}
+                                :raiders {[:eridu :lagash] [:raiding]}
                                 :raiders-supply 5 :temples {} :temples-supply 7})
           s' (game/apply-bonus-effect s :alice 26 4)]
       (is (= #{[:eridu :lagash] [:eridu :uruk]} (set (keys (raiders s'))))
@@ -997,10 +998,10 @@
   ;; "Place a Temple in each city surrounded by your Raiders (even if you have a
   ;; Temple there)." Bug: old arm only templed the caravan city.
   (testing "templed EVERY surrounded city, not just one"
-    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash]   :raiding
-                                          [:eridu :uruk]     :raiding
-                                          [:nineveh :samarra] :raiding
-                                          [:babylon :nineveh] :raiding}
+    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash]   [:raiding]
+                                          [:eridu :uruk]     [:raiding]
+                                          [:nineveh :samarra] [:raiding]
+                                          [:babylon :nineveh] [:raiding]}
                                 :temples {} :temples-supply 7})
           s' (game/apply-bonus-effect s :alice 29 4)
           pd (get-in s' [:players :alice])]
@@ -1009,14 +1010,14 @@
       (is (= 2 (count (game/all-temple-states pd)))
           "exactly two temples placed (one per surrounded city)")))
   (testing "duplicate-allowed: temples even where one already exists"
-    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash] :raiding
-                                          [:eridu :uruk]   :raiding}
+    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash] [:raiding]
+                                          [:eridu :uruk]   [:raiding]}
                                 :temples {:eridu [:face-up]} :temples-supply 7})
           s' (game/apply-bonus-effect s :alice 29 4)]
       (is (= 2 (count (get-in s' [:players :alice :temples :eridu])))
           "a SECOND temple was added to the already-templed surrounded city")))
   (testing "no surrounded city → no temple placed"
-    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash] :raiding}
+    (let [s  (board-state 4 29 {:raiders {[:eridu :lagash] [:raiding]}
                                 :temples {} :temples-supply 7})
           s' (game/apply-bonus-effect s :alice 29 4)]
       (is (zero? (count (game/all-temple-states (get-in s' [:players :alice]))))
@@ -1100,13 +1101,13 @@
 (deftest board-25-slot-1-scores-only-raiders-influence-moved-through-test
   (testing "score = number of raiders flipped :raiding->:point by the move (no +2)"
     (let [s  (-> (board-state 4 25 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
-                                    :raiders {[:lagash :nippur] :raiding
-                                              [:babylon :uruk] :point}
+                                    :raiders {[:lagash :nippur] [:raiding]
+                                              [:babylon :uruk] [:point]}
                                     :glory 0})
                  (assoc :magistrates {:m1 :kish}))
           s' (game/apply-bonus-with-choice s :alice 25 1 :lagash)]
       (is (= :lagash (get-in s' [:magistrates :m1])))
-      (is (= :point (get-in s' [:players :alice :raiders [:lagash :nippur]])))
+      (is (= [:point] (get-in s' [:players :alice :raiders [:lagash :nippur]])))
       (is (= 1 (glory s')))))
   (testing "no raiders on the path -> zero glory (not +2)"
     (let [s  (-> (board-state 4 25 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
@@ -1118,8 +1119,8 @@
 (deftest board-35-slot-4-scores-only-raiders-influence-moved-through-test
   (testing "score = number of raiders flipped :raiding->:point by the move (no +2)"
     (let [s  (-> (board-state 4 35 {:roles {:merchant 1 :priest 1 :raider 1 :leader 2}
-                                    :raiders {[:lagash :nippur] :raiding
-                                              [:babylon :uruk] :point}
+                                    :raiders {[:lagash :nippur] [:raiding]
+                                              [:babylon :uruk] [:point]}
                                     :glory 0})
                  (assoc :magistrates {:m1 :kish}))
           s' (game/apply-bonus-with-choice s :alice 35 4 :lagash)]

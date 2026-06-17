@@ -197,7 +197,8 @@
         ;; Point-side raider on adjacent route: traveling through scores 4 glory
         adjacent-point-raider?
         (some (fn [dest]
-                (= :point (get-in pdata [:raiders (game/route-key caravan-city dest)])))
+                (some #{:point} (game/raiders-on (:raiders pdata)
+                                                 (game/route-key caravan-city dest))))
               neighbors-1)
         travel-point-raider-boost (if adjacent-point-raider? 6 0)
         ;; Unflipped temples: face-up temples that need travel to flip
@@ -304,8 +305,7 @@
                    ;; Leader level boost for influence: higher leader = more effective influence
                    (* (dec leader-lv) 0.15)
                    ;; Boost influence when player has raiding-side raiders that need flipping
-                   (let [raiding-count (count (filter (fn [[_rk rs]] (= :raiding rs))
-                                                      (:raiders pdata)))]
+                   (let [raiding-count (game/count-raiders-with-status (:raiders pdata) :raiding)]
                      (if (pos? raiding-count)
                        (+ (* raiding-count 1.0)
                           ;; Extra urgency when glory is 0 and raiders need flipping
@@ -321,8 +321,7 @@
                   ;; Glory emergency also boosts travel (travel through point raiders = 4 glory)
                   (* glory-emergency 0.5)
                   ;; Boost travel when player has point-side raiders to score
-                  (let [point-count (count (filter (fn [[_rk rs]] (= :point rs))
-                                                    (:raiders pdata)))]
+                  (let [point-count (game/count-raiders-with-status (:raiders pdata) :point)]
                     (if (pos? point-count)
                       (+ (* point-count 2.0)
                          ;; Extra urgency when glory is 0 and we have scorable raiders
@@ -680,8 +679,8 @@
                       amity-override?
                       (or (and (zero? amity) (>= glory 3) (> progress 0.25))
                           (and (zero? amity) (> progress 0.4)))
-                      point-raider-count (count (filter (fn [[_rk rs]] (= :point rs)) (:raiders pdata)))
-                      raiding-count (count (filter (fn [[_rk rs]] (= :raiding rs)) (:raiders pdata)))
+                      point-raider-count (game/count-raiders-with-status (:raiders pdata) :point)
+                      raiding-count (game/count-raiders-with-status (:raiders pdata) :raiding)
                       final-round? (>= (:round state 1) game/rounds-per-game)
                       final-turn? (and final-round?
                                        (>= (:turn-in-round state 1)
@@ -879,7 +878,7 @@
                                      ;; Raider aggression: group on opponent routes
                                      (let [opp-raiders (count (for [[pk pd] (:players state)
                                                                     :when (not= pk player)
-                                                                    :when (contains? (:raiders pd) rk)]
+                                                                    :when (game/raider-on-route? (:raiders pd) rk)]
                                                                pk))]
                                        (* (:raider-aggression weights 0.5) opp-raiders 2)))
                                   rk])]
@@ -910,14 +909,14 @@
                 (if (seq non-skip)
                   (let [;; Pre-compute point-raider routes for multi-hop planning
                         point-raider-routes (set (for [[rk rs] (:raiders pdata)
-                                                       :when (= :point rs)] rk))
+                                                       :when (some #{:point} rs)] rk))
                         scored
                         (for [dest (keys non-skip)
                               :let [has-temple (game/city-has-own-face-up-temple? pdata dest)
                                     can-sell (game/city-has-sellable-demand? state player dest)
                                     has-mag (game/magistrate-in-city? state dest)
                                     rk (game/route-key caravan-city dest)
-                                    own-point (= :point (get-in pdata [:raiders rk]))
+                                    own-point (some #{:point} (game/raiders-on (:raiders pdata) rk))
                                     ;; 1-hop lookahead: does dest have a neighbor with point raider?
                                     near-point-raider
                                     (when (and (not own-point) (seq point-raider-routes))
@@ -930,7 +929,7 @@
                                     enemy-raider-risk
                                     (some (fn [[pk pd]]
                                             (and (not= pk player)
-                                                 (= :raiding (get-in pd [:raiders rk]))))
+                                                 (some #{:raiding} (game/raiders-on (:raiders pd) rk))))
                                           (:players state))
                                     ;; Prioritize: temple+magistrate, sellable+magistrate
                                     temple-mag-bonus (if (and has-temple has-mag) 8 0)
@@ -988,12 +987,12 @@
                                 (if (and flip-here flip-next) (* temple-engine 10.0) 0)
                                 (if (game/city-has-sellable-demand? state player dest) 6 0)
                                 ;; Point raider = instant 4 glory, always worth paying to reach
-                                (if (= :point (get-in pdata [:raiders rk])) 15 0)
+                                (if (some #{:point} (game/raiders-on (:raiders pdata) rk)) 15 0)
                                 (if (game/magistrate-in-city? state dest) 3 0)
                                 ;; 2-hop lookahead: sellable city one more hop away
                                 (if (some #(game/city-has-sellable-demand? state player %) dest-neighbors) 2 0)
                                 ;; 2-hop lookahead: point raider one more hop away
-                                (if (some (fn [n] (= :point (get-in pdata [:raiders (game/route-key dest n)])))
+                                (if (some (fn [n] (some #{:point} (game/raiders-on (:raiders pdata) (game/route-key dest n))))
                                           dest-neighbors) 5 0))))
                     should-continue? (and (pos? total-resources)
                                           (or (> best-nearby-score 5)
@@ -1031,16 +1030,14 @@
                                     near-own-point
                                     (when dest
                                       (some (fn [[rk rs]]
-                                              (and (= rs :raiding)
+                                              (and (some #{:raiding} rs)
                                                    (or (= dest (first rk))
                                                        (= dest (second rk)))))
                                             (:raiders pdata)))
                                     ;; Own raiders that would flip to point on this path
                                     own-raiders-flipped
                                     (when dest
-                                      (count (filter (fn [[rk rs]]
-                                                       (= rs :raiding))
-                                                     (:raiders pdata))))
+                                      (game/count-raiders-with-status (:raiders pdata) :raiding))
                                     has-temple (and dest (game/city-has-own-face-up-temple? pdata dest))
                                     has-demands (and dest (seq (get-in state [:city-demands dest] [])))
                                     can-sell-there (and dest

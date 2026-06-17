@@ -539,8 +539,8 @@
            :clauses [{:kind :place-raider :target :around-uruk :cost :tools :count 4 :state :partial
                       :note "CODE BUG (audit): card = a raider on EACH of Uruk's 4 routes for 2 tools; code caps at 2 and pays per-raider"}]}
    [34 2] {:category :instant
-           :clauses [{:kind :place-raider :target :each-existing-route :state :partial :approximation? true
-                      :note "approximated as up to 2 raiders"}]}
+           :clauses [{:kind :place-raider :target :each-existing-route :state :done
+                      :note "multi-raider-per-route model: conj 1 raider onto every route already holding one"}]}
    [34 3] {:category :instant :clauses [{:kind :sell :target :magistrate-and-my-temple :multi? true :no-travel? true :interactive? true :state :done}]}
    [34 4] {:category :instant :clauses [{:kind :sell :target :magistrate-and-my-temple :multi? true :no-travel? true :interactive? true :state :done}]}
 

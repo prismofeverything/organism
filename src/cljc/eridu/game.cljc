@@ -5,6 +5,9 @@
 
 ;; Forward declarations for functions used by feat evaluation and bonus board effects
 (declare count-temples-placed count-face-down-temples count-raiders-deployed
+         raiders-on raider-on-route? all-raider-states total-raiders
+         count-raiders-with-status place-one-raider flip-raiders-on-route-to-point
+         flip-one-raider-to-point score-one-point-raider
          board-routes
          temples-at has-temple? all-temple-states temple-cities add-temple flip-one-temple
          magistrate-in-city? magistrate-cities routes-from-city current-player player-data
@@ -132,11 +135,11 @@
             (let [routes (for [mc mag-cities
                                r (routes-from-city mc (board-routes state))
                                :let [rk (segment-route-key r)]
-                               :when (not (contains? (:raiders pdata) rk))]
+                               :when (not (raider-on-route? (:raiders pdata) rk))]
                            rk)]
               (if (seq routes)
                 (-> state
-                    (assoc-in [:players player-key :raiders (first routes)] :raiding)
+                    (place-one-raider player-key (first routes) :raiding)
                     (update-in [:players player-key :raiders-supply] dec))
                 state))
             state))
@@ -182,9 +185,9 @@
               deployed (count-raiders-deployed pdata)
               supply (:raiders-supply pdata 0)]
           (if (and rk (pos? supply) (< deployed max-deployed)
-                   (not (contains? (:raiders pdata) rk)))
+                   (not (raider-on-route? (:raiders pdata) rk)))
             (-> state
-                (assoc-in [:players player-key :raiders rk] :raiding)
+                (place-one-raider player-key rk :raiding)
                 (update-in [:players player-key :raiders-supply] dec))
             state))
 
@@ -199,11 +202,11 @@
               adj-routes (routes-from-city city (board-routes state))
               free-route (first (for [r adj-routes
                                       :let [rk (segment-route-key r)]
-                                      :when (not (contains? (:raiders pdata) rk))]
+                                      :when (not (raider-on-route? (:raiders pdata) rk))]
                                   rk))]
           (if (and free-route (pos? supply) (< deployed max-deployed))
             (-> state
-                (assoc-in [:players player-key :raiders free-route] :raiding)
+                (place-one-raider player-key free-route :raiding)
                 (update-in [:players player-key :raiders-supply] dec))
             state))
 
@@ -541,6 +544,85 @@
     (if (neg? idx)
       state
       (assoc-in state [:players player-key :temples city] (assoc v idx :face-down)))))
+
+;; =============================================================================
+;; Raider accessors (multi-raider-per-route model)
+;; :raiders is {route-key [status ...]} where status ∈ {:raiding :point} — a
+;; VECTOR of 0..N raiders per (player, route). Mirrors the temple-vector model.
+;; Some callers store NON-CANONICAL [from to] keys (perform-influence relies on
+;; this); these helpers do NOT canonicalize — callers keep their existing keys.
+;; =============================================================================
+
+(defn raiders-on
+  "Vector of raider statuses the player holds on `rk` (empty if none)."
+  [raiders-map rk]
+  (get raiders-map rk []))
+
+(defn raider-on-route?
+  "True iff the player holds >= 1 raider on `rk`."
+  [raiders-map rk]
+  (boolean (seq (raiders-on raiders-map rk))))
+
+(defn all-raider-states
+  "Seq of every raider status across all of the player's routes."
+  [raiders-map]
+  (mapcat val raiders-map))
+
+(defn total-raiders
+  "Total number of raiders on the board for a player (sum of vector lengths)."
+  [raiders-map]
+  (count (all-raider-states raiders-map)))
+
+(defn count-raiders-with-status
+  "Number of the player's raiders (across all routes) currently in `status`."
+  [raiders-map status]
+  (count (filter #{status} (all-raider-states raiders-map))))
+
+(defn place-one-raider
+  "conj a `status` (default :raiding) raider onto `rk`'s vector. Never overwrites
+   existing raiders on the route — the multi-raider analog of assoc-in a single
+   value. Does NOT touch supply (callers manage supply)."
+  ([state player-key rk] (place-one-raider state player-key rk :raiding))
+  ([state player-key rk status]
+   (update-in state [:players player-key :raiders rk] (fnil conj []) status)))
+
+(defn flip-raiders-on-route-to-point
+  "Flip EVERY :raiding status to :point in `rk`'s vector for `player-key`.
+   Returns [state n] where n is how many were flipped. No-op (n=0) if none."
+  [state player-key rk]
+  (let [v (raiders-on (get-in state [:players player-key :raiders]) rk)
+        n (count (filter #{:raiding} v))]
+    (if (zero? n)
+      [state 0]
+      [(assoc-in state [:players player-key :raiders rk]
+                 (mapv #(if (= % :raiding) :point %) v))
+       n])))
+
+(defn flip-one-raider-to-point
+  "Flip ONE :raiding status to :point in `rk`'s vector for `player-key` (used
+   when a placement effect wants the raider it just placed to land point-side).
+   No-op if the route holds no :raiding raider."
+  [state player-key rk]
+  (let [v   (vec (raiders-on (get-in state [:players player-key :raiders]) rk))
+        idx (.indexOf v :raiding)]
+    (if (neg? idx)
+      state
+      (assoc-in state [:players player-key :raiders rk] (assoc v idx :point)))))
+
+(defn score-one-point-raider
+  "Remove ONE :point raider from `rk`'s vector (returning it to supply) and
+   increment :raiders-supply. Preserves any other raiders on the route. If the
+   route ends up empty, the key is dissociated. No-op if no :point raider there."
+  [state player-key rk]
+  (let [v   (vec (raiders-on (get-in state [:players player-key :raiders]) rk))
+        idx (.indexOf v :point)]
+    (if (neg? idx)
+      state
+      (let [v' (into (subvec v 0 idx) (subvec v (inc idx)))]
+        (-> (if (seq v')
+              (assoc-in state [:players player-key :raiders rk] v')
+              (update-in state [:players player-key :raiders] dissoc rk))
+            (update-in [:players player-key :raiders-supply] inc))))))
 
 ;; =============================================================================
 ;; Constants
@@ -907,42 +989,46 @@
       state)))
 
 (defn flip-enemy-raiders-on-route
-  "When caravan travels a route, flip any opposing raiders to :point side."
+  "When caravan travels a route, flip ALL opposing raiders on it to :point side
+   (one flip per raider — a route may hold several)."
   [state player route-key]
   (reduce-kv
    (fn [s pk pdata]
      (if (and (not= pk player)
-              (= :raiding (get-in pdata [:raiders route-key])))
-       (-> s
-           (assoc-in [:players pk :raiders route-key] :point)
-           (add-log {:type :raider-flip
-                     :message (str "Flipped " pk "'s raider on "
-                                   (clojure.string/capitalize (name (first route-key))) "—"
-                                   (clojure.string/capitalize (name (second route-key)))
-                                   " to point side (caravan passed)")
-                     :owner pk :route route-key}))
+              (some #{:raiding} (raiders-on (:raiders pdata) route-key)))
+       (let [[s' n] (flip-raiders-on-route-to-point s pk route-key)]
+         (add-log s' {:type :raider-flip
+                      :message (str "Flipped " n " of " pk "'s raider(s) on "
+                                    (clojure.string/capitalize (name (first route-key))) "—"
+                                    (clojure.string/capitalize (name (second route-key)))
+                                    " to point side (caravan passed)")
+                      :owner pk :route route-key}))
        s))
    state
    (:players state)))
 
 (defn score-own-raider-on-route
-  "When caravan travels a route with own :point raider, remove and score 4 glory."
+  "When caravan travels a route holding own :point raider, score ONE of them
+   (4 glory) per traversal: remove that single raider (return to supply),
+   preserving any other raiders the player has on the route."
   [state player route-key]
-  (let [raider-state (get-in state [:players player :raiders route-key])]
-    (if (= raider-state :point)
+  (let [has-point? (some #{:point} (raiders-on (get-in state [:players player :raiders]) route-key))]
+    (if has-point?
       (let [;; Fire passive first to set flags (e.g. board 8 :keep-scored-raider)
             state (apply-passive state player :raider-scored {:route route-key})
             keep? (get-in state [:players player :keep-scored-raider])
             amity-instead? (get-in state [:players player :raider-score-amity])
             state (if keep?
-                    ;; Board 8: flip back to :raiding instead of removing
-                    (-> state
-                        (assoc-in [:players player :raiders route-key] :raiding)
-                        (update-in [:players player] dissoc :keep-scored-raider))
-                    ;; Normal: remove raider, return to supply
-                    (-> state
-                        (update-in [:players player :raiders] dissoc route-key)
-                        (update-in [:players player :raiders-supply] inc)))
+                    ;; Board 8: flip ONE back to :raiding instead of removing
+                    (let [v   (vec (raiders-on (get-in state [:players player :raiders]) route-key))
+                          idx (.indexOf v :point)]
+                      (-> state
+                          (cond-> (not (neg? idx))
+                            (assoc-in [:players player :raiders route-key]
+                                      (assoc v idx :raiding)))
+                          (update-in [:players player] dissoc :keep-scored-raider)))
+                    ;; Normal: remove ONE point raider, return it to supply (others stay)
+                    (score-one-point-raider state player route-key))
             ;; Clear board 34 flag
             state (if amity-instead?
                     (update-in state [:players player] dissoc :raider-score-amity)
@@ -1075,15 +1161,17 @@
                  (let [rk (route-key from to)]
                    (reduce-kv
                     (fn [s2 pk pdata]
-                      ;; Check both [from to] and canonical route-key
+                      ;; Check all key orderings since raider keys may not be canonical;
+                      ;; flip EVERY :raiding raider on the matched route (a route may
+                      ;; hold several).
                       (let [raiders (:raiders pdata)
                             match (cond
-                                    (= :raiding (get raiders rk)) rk
-                                    (= :raiding (get raiders [from to])) [from to]
-                                    (= :raiding (get raiders [to from])) [to from]
+                                    (some #{:raiding} (raiders-on raiders rk)) rk
+                                    (some #{:raiding} (raiders-on raiders [from to])) [from to]
+                                    (some #{:raiding} (raiders-on raiders [to from])) [to from]
                                     :else nil)]
                         (if match
-                          (assoc-in s2 [:players pk :raiders match] :point)
+                          (first (flip-raiders-on-route-to-point s2 pk match))
                           s2)))
                     s (:players s))))
                state path)]
@@ -1145,12 +1233,12 @@
                    (fn [s pk pdata]
                      (let [raiders (:raiders pdata)
                            match (cond
-                                   (= :raiding (get raiders rk)) rk
-                                   (= :raiding (get raiders [mag-city dest])) [mag-city dest]
-                                   (= :raiding (get raiders [dest mag-city])) [dest mag-city]
+                                   (some #{:raiding} (raiders-on raiders rk)) rk
+                                   (some #{:raiding} (raiders-on raiders [mag-city dest])) [mag-city dest]
+                                   (some #{:raiding} (raiders-on raiders [dest mag-city])) [dest mag-city]
                                    :else nil)]
                        (if match
-                         (assoc-in s [:players pk :raiders match] :point)
+                         (first (flip-raiders-on-route-to-point s pk match))
                          s)))
                    state (:players state))]
         ;; Fire the river-crossing passive (boards 3, 12) — the typed edge was a river
@@ -1275,22 +1363,22 @@
       :E1 (let [kish-routes (set (for [r (board-routes state)
                                        :when (or (= :kish (:from r)) (= :kish (:to r)))]
                                    (segment-route-key r)))]
-             (every? #(contains? raiders %) kish-routes))
+             (every? #(raider-on-route? raiders %) kish-routes))
       :E2 (let [eridu-routes (set (for [r (board-routes state)
                                         :when (or (= :eridu (:from r)) (= :eridu (:to r)))]
                                     (segment-route-key r)))
                 ninev-routes (set (for [r (board-routes state)
                                         :when (or (= :nineveh (:from r)) (= :nineveh (:to r)))]
                                     (segment-route-key r)))]
-             (and (some #(contains? raiders %) eridu-routes)
-                  (some #(contains? raiders %) ninev-routes)))
+             (and (some #(raider-on-route? raiders %) eridu-routes)
+                  (some #(raider-on-route? raiders %) ninev-routes)))
 
       ;; F: Raider state
-      :F1 (>= (count (filter #(= :point (val %)) raiders)) 3)
+      :F1 (>= (count-raiders-with-status raiders :point) 3)
       :F2 (let [river-route-keys (set (for [r (board-routes state)
                                              :when (= :river (:type r))]
                                          (segment-route-key r)))]
-             (every? #(contains? raiders %) river-route-keys))
+             (every? #(raider-on-route? raiders %) river-route-keys))
 
       ;; G: Magistrate movement (event-based — uses turn-stats, must be this player's turn)
       :G1 (and (= player-key (get-in state [:turn-stats :player]))
@@ -1333,7 +1421,7 @@
                (let [adj-routes (routes-from-city sell-city (board-routes state))
                      adj-route-keys (set (map segment-route-key adj-routes))]
                  ;; Check if ALL adjacent routes have YOUR raider
-                 (every? #(contains? raiders %) adj-route-keys)))))
+                 (every? #(raider-on-route? raiders %) adj-route-keys)))))
 
       ;; L: Resource hoarding
       :L1 (>= (get-in pdata [:resources :gems] 0) 5)
@@ -1411,7 +1499,7 @@
       :E1 (let [kish-routes (set (for [r (board-routes state)
                                         :when (or (= :kish (:from r)) (= :kish (:to r)))]
                                     (segment-route-key r)))
-                have (count (filter #(contains? raiders %) kish-routes))
+                have (count (filter #(raider-on-route? raiders %) kish-routes))
                 need (count kish-routes)]
              [(if (pos? need) (/ (min have need) (double need)) 0)
               (str have "/" need " kish routes")])
@@ -1421,11 +1509,11 @@
                              (keys raiders))]
              [(+ (if has-e 0.5 0) (if has-n 0.5 0))
               (str (if has-e "✓" "✗") " eridu-raider " (if has-n "✓" "✗") " nineveh-raider")])
-      :F1 (let [n (count (filter #(= :point (val %)) raiders))]
+      :F1 (let [n (count-raiders-with-status raiders :point)]
              [(/ (min n 3) 3.0) (str n "/3 point-side raiders")])
       :F2 (let [river-rks (set (for [r (board-routes state) :when (= :river (:type r))]
                                   (segment-route-key r)))
-                have (count (filter #(contains? raiders %) river-rks))
+                have (count (filter #(raider-on-route? raiders %) river-rks))
                 need (count river-rks)]
              [(if (pos? need) (/ (min have need) (double need)) 0)
               (str have "/" need " river routes")])
@@ -1620,19 +1708,27 @@
       (add-temple state player-key city :face-up)
       state)))
 
-(defn- place-raider-on [state player-key route-key]
-  (let [pdata (get-in state [:players player-key])
-        raider-level (get-in pdata [:roles :raider] 1)
-        max-r (get raider-max-deployed raider-level 2)
-        deployed (count-raiders-deployed pdata)
-        supply (:raiders-supply pdata 0)]
-    (if (and (pos? supply)
-             (< deployed max-r)
-             (not (contains? (:raiders pdata) route-key)))
-      (-> state
-          (assoc-in [:players player-key :raiders route-key] :raiding)
-          (update-in [:players player-key :raiders-supply] dec))
-      state)))
+(defn- place-raider-on
+  "Place ONE :raiding raider on `route-key` (conj — never overwrites), gated by
+   supply and the raider-level max-deployed cap. By default keeps the classic
+   one-raider-per-route rule (no-op if the route already holds this player's
+   raider); pass allow-stack? true to permit a 2nd raider on an occupied route
+   (board 25 / [34 2])."
+  ([state player-key route-key] (place-raider-on state player-key route-key false))
+  ([state player-key route-key allow-stack?]
+   (let [pdata (get-in state [:players player-key])
+         raider-level (get-in pdata [:roles :raider] 1)
+         max-r (get raider-max-deployed raider-level 2)
+         deployed (count-raiders-deployed pdata)
+         supply (:raiders-supply pdata 0)]
+     (if (and (pos? supply)
+              (< deployed max-r)
+              (or allow-stack?
+                  (not (raider-on-route? (:raiders pdata) route-key))))
+       (-> state
+           (place-one-raider player-key route-key :raiding)
+           (update-in [:players player-key :raiders-supply] dec))
+       state))))
 
 
 ;; =============================================================================
@@ -1694,7 +1790,7 @@
                 :delta-roles     delta-roles
                 :delta-resources delta-resources
                 :delta-temples   (- (count (all-temple-states post-snapshot)) (count (all-temple-states pre-snapshot)))
-                :delta-raiders   (- (count (:raiders post-snapshot)) (count (:raiders pre-snapshot)))
+                :delta-raiders   (- (total-raiders (:raiders post-snapshot)) (total-raiders (:raiders pre-snapshot)))
                 :impl-status     (get effect-implementation-status [board-id slot-idx] :unknown)}]
     (update state :coverage-traces (fnil conj []) record)))
 
@@ -1843,13 +1939,13 @@
    use it without the choice→game require cycle. Cities with no adjacent active
    routes (e.g. samarra in ≤3p) are never surrounded."
   [state player-key]
-  (let [player-rks (set (keys (get-in state [:players player-key :raiders])))]
+  (let [raiders (get-in state [:players player-key :raiders])]
     (set
      (for [city all-cities
            :let [adj-rks (map segment-route-key
                               (routes-from-city city (board-routes state)))]
            :when (and (seq adj-rks)
-                      (every? #(contains? player-rks %) adj-rks))]
+                      (every? #(raider-on-route? raiders %) adj-rks))]
        city))))
 
 (defn- touches?
@@ -1866,7 +1962,7 @@
   (->> (board-routes state)
        (filter pred)
        (map segment-route-key)
-       (remove #(contains? (:raiders pdata) %))))
+       (remove #(raider-on-route? (:raiders pdata) %))))
 
 (defn- default-magistrate-target
   "Prefer a magistrate city where the player has no temple, else any magistrate
@@ -1880,7 +1976,7 @@
   [s player-key city]
   (let [pd (get-in s [:players player-key])
         adj (routes-from-city city (:routes s))
-        avail (remove #(contains? (:raiders pd) %)
+        avail (remove #(raider-on-route? (:raiders pd) %)
                       (map segment-route-key adj))
         rk (first avail)]
     (if rk (place-raider-on s player-key rk) s)))
@@ -2079,9 +2175,9 @@
                (add-player-resource player-key :gems 1)
                (add-player-resource player-key :pottery 1)
                (bonus-sell-in player-key (:caravan pdata)))
-      [8 4] (reduce (fn [s [rk _]] ;; Flip all raiders to point
-                      (assoc-in s [:players player-key :raiders rk] :point))
-                    state (:raiders pdata))
+      [8 4] (reduce (fn [s rk] ;; Flip all raiders to point (every raider on every route)
+                      (first (flip-raiders-on-route-to-point s player-key rk)))
+                    state (keys (:raiders pdata)))
 
       ;; ─── Board 9: Rites of Ninhursag ───────────────────────────
       [9 1] (-> state ;; Gain Tools, Gold, Pottery + Amity = leader level
@@ -2192,7 +2288,7 @@
                     adj (for [r (board-routes state)
                               :when (or (= :lagash (:from r)) (= :lagash (:to r)))]
                           (segment-route-key r))
-                    avail (remove #(contains? (:raiders pdata) %) adj)
+                    avail (remove #(raider-on-route? (:raiders pdata) %) adj)
                     s (if-let [rk (first avail)]
                         (place-raider-on state player-key rk)
                         state)
@@ -2274,7 +2370,8 @@
                (if-let [rk (first avail)]
                  (-> state
                      (place-raider-on player-key rk)
-                     (assoc-in [:players player-key :raiders rk] :point))
+                     ;; flip the just-placed raider to point side (don't clobber the vector)
+                     (flip-one-raider-to-point player-key rk))
                  state))
       [17 2] (reduce (fn [s city] ;; Facedown temple in EACH magistrate city
                        ;; "even if you already have temples there" → genuinely conj
@@ -2318,16 +2415,21 @@
                (if (and (seq adj-rks) (every? player-rks adj-rks))
                  (update-in state [:players player-key :amity] + 6)
                  state))
-      [18 4] (let [point-pairs       (filter #(= :point (val %)) (:raiders pdata))
-                   point-route-keys  (map key point-pairs)
-                   n                 (count point-pairs)]
+      [18 4] (let [raiders (:raiders pdata)
+                   n       (count-raiders-with-status raiders :point)
+                   ;; Drop EVERY :point status across every route, returning each to
+                   ;; supply; keep any :raiding raiders (a route may be left non-empty).
+                   raiders' (into {}
+                                  (keep (fn [[rk v]]
+                                          (let [kept (vec (remove #{:point} v))]
+                                            (when (seq kept) [rk kept])))
+                                        raiders))]
                ;; QA lesson 8: faithful "score then remove" per card text.
                ;;   "Score 4 A for each of your Raiders on their point side.
                ;;    Then remove those raiders."
                (-> state
                    (update-in [:players player-key :amity] + (* 4 n))
-                   (update-in [:players player-key :raiders]
-                              #(apply dissoc % point-route-keys))
+                   (assoc-in [:players player-key :raiders] raiders')
                    (update-in [:players player-key :raiders-supply] (fnil + 0) n))) ;; 4 Amity per point raider, then remove
 
       ;; ─── Board 19: Kilns of Ninkasi ────────────────────────────
@@ -2353,9 +2455,9 @@
                  discard (update-in [:players player-key :resources discard] dec)
                  true (bonus-influence player-key caravan)
                  true (bonus-sell-in player-key caravan)))
-      [19 4] (reduce (fn [s [rk _]] ;; Flip all raiders to point
-                       (assoc-in s [:players player-key :raiders rk] :point))
-                     state (:raiders pdata))
+      [19 4] (reduce (fn [s rk] ;; Flip all raiders to point (every raider on every route)
+                       (first (flip-raiders-on-route-to-point s player-key rk)))
+                     state (keys (:raiders pdata)))
 
       ;; ─── Board 20: Vision of Rimush ─────────────────────────────
       ;; "Place a Raider on each route with an OPPOSING raider." FAITHFUL
@@ -2368,7 +2470,7 @@
                                       :when (and (not (contains? my-rks rk))
                                                  (some (fn [[pk pd]]
                                                          (and (not= pk player-key)
-                                                              (contains? (:raiders pd) rk)))
+                                                              (raider-on-route? (:raiders pd) rk)))
                                                        (:players state)))]
                                   rk)]
                (reduce #(place-raider-on %1 player-key %2) state opposing-rks))
@@ -2489,11 +2591,11 @@
       ;; (Old arm hardcoded (+ 2 point-count), which counted pre-existing points
       ;; and added a phantom +2.)
       [25 1] (let [dest (or choice (first (magistrate-cities state)))
-                   pre-points (set (keys (filter #(= :point (val %)) (:raiders pdata))))
+                   pre-points (count-raiders-with-status (:raiders pdata) :point)
                    s (cond-> state dest (bonus-influence player-key dest))
-                   post-points (set (keys (filter #(= :point (val %))
-                                                  (get-in s [:players player-key :raiders]))))
-                   flipped (count (clojure.set/difference post-points pre-points))]
+                   post-points (count-raiders-with-status
+                                (get-in s [:players player-key :raiders]) :point)
+                   flipped (max 0 (- post-points pre-points))]
                (update-in s [:players player-key :glory] + flipped))
       [25 2] (-> state ;; Increase Merchant and Leader
                (increase-role-with-cost player-key :merchant)
@@ -2598,7 +2700,8 @@
                (if-let [rk (first avail)]
                  (-> state
                      (place-raider-on player-key rk)
-                     (assoc-in [:players player-key :raiders rk] :point))
+                     ;; flip the just-placed raider to point side (don't clobber the vector)
+                     (flip-one-raider-to-point player-key rk))
                  state))
 
       ;; ─── Board 29: Treasury of Ibbi-Sin ────────────────────────
@@ -2741,8 +2844,13 @@
                  (-> (reduce #(place-raider-on %1 player-key %2) state avail)
                      (update-in [:players player-key :resources :tools] - 2))
                  state))
-      [34 2] (let [avail (free-routes pdata state (constantly true))] ;; Raider on each existing route (approx: 2)
-               (reduce #(place-raider-on %1 player-key %2) state (take 2 avail)))
+      ;; "Place a Raider on each route you already have a Raider." FAITHFUL
+      ;; (multi-raider model): for EVERY route the player currently holds >= 1
+      ;; raider, conj one ADDITIONAL :raiding raider (allow-stack), supply/cap
+      ;; permitting. Snapshot the occupied routes first so the newly-added raiders
+      ;; don't recursively beget more.
+      [34 2] (let [occupied (vec (keys (:raiders pdata)))]
+               (reduce #(place-raider-on %1 player-key %2 true) state occupied))
       ;; Board 34 #4 / #5 — "Take a Sell action in each city with a Magistrate +
       ;; your Temple (you don't have to be there)". choice = one such city (the WS
       ;; layer multi-picks); sell there. Auto default sells in each qualifying city.
@@ -2789,11 +2897,11 @@
       ;; choice = magistrate destination. (Old arm hardcoded (+ 2 point-count),
       ;; counting pre-existing points and adding a phantom +2.)
       [35 4] (let [dest (or choice (first (magistrate-cities state)))
-                   pre-points (set (keys (filter #(= :point (val %)) (:raiders pdata))))
+                   pre-points (count-raiders-with-status (:raiders pdata) :point)
                    s (cond-> state dest (bonus-influence player-key dest))
-                   post-points (set (keys (filter #(= :point (val %))
-                                                  (get-in s [:players player-key :raiders]))))
-                   flipped (count (clojure.set/difference post-points pre-points))]
+                   post-points (count-raiders-with-status
+                                (get-in s [:players player-key :raiders]) :point)
+                   flipped (max 0 (- post-points pre-points))]
                (update-in s [:players player-key :glory] + flipped))
 
       ;; Default: unhandled effect, no-op
@@ -2813,7 +2921,7 @@
         pre-roles (:roles pdata)
         pre-resources (:resources pdata)
         pre-temples (count (all-temple-states pdata))
-        pre-raiders (count (:raiders pdata))
+        pre-raiders (total-raiders (:raiders pdata))
         pre-trace-snapshot (bonus-trace-snapshot state player-key)
         result-state (apply-bonus-dispatch state player-key pdata pc board-id slot-idx)]
     ;; Detect what changed and log it
@@ -2841,7 +2949,7 @@
                         :delta-amity (- (:amity post-pdata 0) pre-amity)
                         :delta-glory (- (:glory post-pdata 0) pre-glory)
                         :delta-temples (- (count (all-temple-states post-pdata)) pre-temples)
-                        :delta-raiders (- (count (:raiders post-pdata)) pre-raiders)}]
+                        :delta-raiders (- (total-raiders (:raiders post-pdata)) pre-raiders)}]
       (let [logged-state (update-in result-state [:players player-key :board-effects-log]
                                     (fnil conj []) effect-entry)]
         (cond-> logged-state
@@ -2867,7 +2975,7 @@
         delta-resources (- (reduce + (vals (:resources pdata-after)))
                            (reduce + (vals (:resources pdata-before))))
         delta-temples (- (count (all-temple-states pdata-after)) (count (all-temple-states pdata-before)))
-        delta-raiders (- (count (:raiders pdata-after)) (count (:raiders pdata-before)))]
+        delta-raiders (- (total-raiders (:raiders pdata-after)) (total-raiders (:raiders pdata-before)))]
     ;; Weight: direct points are most valuable, roles/resources less so
     (+ (* 2.0 (+ delta-amity delta-glory))
        (* 3.0 delta-roles)
@@ -3254,7 +3362,7 @@
      :bonus-tokens     5
      :raiders-supply   6      ;; in player's supply (not yet deployed)
      :temples-supply   7      ;; 8 total, 1 placed at starting city
-     :raiders          {}     ;; {route-key -> :raiding | :point}
+     :raiders          {}     ;; {route-key -> [(:raiding | :point) ...]} (multi-raider-per-route)
      :temples          {}     ;; {city -> :face-up | :face-down}
      :demand-tokens    []     ;; collected demand tokens
      :bonus-board      (vec (repeat 5 :covered))
@@ -3327,9 +3435,9 @@
   (count (all-temple-states player-data)))
 
 (defn count-raiders-deployed
-  "Total raiders deployed on routes for a player."
+  "Total raiders deployed on routes for a player (sum across all routes)."
   [player-data]
-  (count (:raiders player-data)))
+  (total-raiders (:raiders player-data)))
 
 (defn astronomers-on-space
   "Return list of [player-key astronomer-index] for all astronomers on a given space."

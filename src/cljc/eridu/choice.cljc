@@ -29,9 +29,9 @@
   [state player city]
   (let [adj-routes (game/routes-from-city city (game/board-routes state))
         adj-rks (map game/segment-route-key adj-routes)
-        player-rks (set (keys (get-in state [:players player :raiders])))]
+        raiders (get-in state [:players player :raiders])]
     (and (seq adj-rks)
-         (every? #(contains? player-rks %) adj-rks))))
+         (every? #(game/raider-on-route? raiders %) adj-rks))))
 
 (defn- return-to-choose-action
   "Reconstruct player-turn to return to choose-action phase, preserving solo-landing."
@@ -638,11 +638,13 @@
       {:done (return-to-choose-action state)}
       (let [;; Board 25: allow two raiders per path
             double-raiders? (get-in state [:players player :allow-double-raiders])
-            ;; Routes where player can place a raider
+            ;; Routes where player can place a raider. Normally one per route;
+            ;; board 25 ("two raiders per path") allows a 2nd — but never a 3rd.
+            max-per-route (if double-raiders? 2 1)
             placeable (for [route adjacent-routes
                            :let [rk (game/segment-route-key route)]
-                           :when (or double-raiders?
-                                     (not (contains? (:raiders pdata) rk)))]
+                           :when (< (count (game/raiders-on (:raiders pdata) rk))
+                                    max-per-route)]
                         rk)
             can-place? (and (pos? supply)
                             (< current-deployed max-deployed)
@@ -652,7 +654,7 @@
                 (for [rk placeable
                       :let [[c1 c2] rk]]
                   [rk (let [s (-> state
-                                  (assoc-in [:players player :raiders rk] :raiding)
+                                  (game/place-one-raider player rk :raiding)
                                   (update-in [:players player :raiders-supply] dec)
                                   ;; Track deploys for round budget
                                   (update-in [:players player :deploys-this-round] (fnil inc 0)))
@@ -764,20 +766,19 @@
 ;; =============================================================================
 
 (defn flip-raiders-on-route
-  "Flip ALL raiders (any player) on a route to their point side.
-   Used when a magistrate passes through."
+  "Flip ALL raiders (any player) on a route to their point side — one flip per
+   raider, a route may hold several. Used when a magistrate passes through."
   [state route-key]
   (reduce-kv
    (fn [s pk pdata]
-     (if (= :raiding (get-in pdata [:raiders route-key]))
-       (-> s
-           (assoc-in [:players pk :raiders route-key] :point)
-           (add-log {:type :magistrate-raider-flip
-                     :message (str "Magistrate flipped " pk "'s raider on "
-                                   (str/capitalize (name (first route-key))) "—"
-                                   (str/capitalize (name (second route-key)))
-                                   " to point side")
-                     :owner pk :route route-key}))
+     (if (some #{:raiding} (game/raiders-on (:raiders pdata) route-key))
+       (let [[s' n] (game/flip-raiders-on-route-to-point s pk route-key)]
+         (add-log s' {:type :magistrate-raider-flip
+                      :message (str "Magistrate flipped " n " of " pk "'s raider(s) on "
+                                    (str/capitalize (name (first route-key))) "—"
+                                    (str/capitalize (name (second route-key)))
+                                    " to point side")
+                      :owner pk :route route-key}))
        s))
    state
    (:players state)))
@@ -807,14 +808,23 @@
                               ;; Check all key orderings since raider keys may be
                               ;; stored non-canonically.
                               raiders-on-path
-                              (count (for [[from to] path
-                                           :let [rk (game/route-key from to)]
-                                           [_pk pdata] (:players state)
-                                           :let [rs (:raiders pdata)]
-                                           :when (or (contains? rs rk)
-                                                     (contains? rs [from to])
-                                                     (contains? rs [to from]))]
-                                       [from to]))
+                              (reduce + 0
+                                      (for [[from to] path
+                                            :let [rk (game/route-key from to)]
+                                            [_pk pdata] (:players state)
+                                            :let [rs (:raiders pdata)
+                                                  ;; Total raiders (any side) on this
+                                                  ;; crossed route. Raider keys may be
+                                                  ;; stored non-canonically; the
+                                                  ;; canonical rk equals one of
+                                                  ;; [from to]/[to from], so picking the
+                                                  ;; first present key avoids double count.
+                                                  v (cond
+                                                      (contains? rs rk)        (rs rk)
+                                                      (contains? rs [from to]) (rs [from to])
+                                                      (contains? rs [to from]) (rs [to from])
+                                                      :else [])]]
+                                        (count v)))
                               ;; Update magistrate position (by ID, not city)
                               s (-> state
                                     (assoc-in [:magistrates mag-id] dest)

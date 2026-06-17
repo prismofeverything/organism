@@ -161,7 +161,7 @@
 (defn- own-raiders-on-routes
   "Returns route-keys where player has a raider in :point state (flippable via influence)."
   [pdata]
-  (for [[rk rs] (:raiders pdata) :when (= rs :point)] rk))
+  (for [[rk rs] (:raiders pdata) :when (some #{:point} rs)] rk))
 
 (defn- influence-can-flip-own-raider?
   "True if any influence choice would move a magistrate to a city adjacent to a :point raider."
@@ -492,7 +492,7 @@
                                     has-magistrate (game/magistrate-in-city? state dest)
                                     ;; Do we have own point raider on this route? (score glory)
                                     rk (game/route-key caravan-city dest)
-                                    own-point-raider (= :point (get-in pdata [:raiders rk]))]]
+                                    own-point-raider (some #{:point} (game/raiders-on (:raiders pdata) rk))]]
                           [(+ (if has-temple 10 0)
                               (if can-sell 8 0)
                               (if own-point-raider 7 0)
@@ -544,7 +544,7 @@
                                     (when dest
                                       (some #(or (= dest (first %)) (= dest (second %)))
                                             (for [[rk rs] (:raiders pdata)
-                                                  :when (= rs :point)]
+                                                  :when (some #{:point} rs)]
                                               rk)))
                                     ;; Is there our temple in destination?
                                     has-own-temple (and dest

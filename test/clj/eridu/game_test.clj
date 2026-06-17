@@ -398,9 +398,13 @@
 
 (deftest count-raiders-deployed-test
   (testing "counts all raiders the player has on the board"
-    (let [p (make-player {:raiders {[:babylon :uruk] :raiding
-                                    [:eridu :uruk]   :point}})]
+    (let [p (make-player {:raiders {[:babylon :uruk] [:raiding]
+                                    [:eridu :uruk]   [:point]}})]
       (is (= 2 (game/count-raiders-deployed p)))))
+  (testing "a route holding two raiders counts both (multi-raider model)"
+    (let [p (make-player {:raiders {[:babylon :uruk] [:raiding :point]
+                                    [:eridu :uruk]   [:point]}})]
+      (is (= 3 (game/count-raiders-deployed p)))))
   (testing "no raiders → 0"
     (is (= 0 (game/count-raiders-deployed (make-player {}))))))
 
@@ -466,7 +470,7 @@
         routes (game/board-routes base)
         ;; opponent holds a POINT-side raider on EVERY route, so whatever
         ;; clockwise path the magistrate sweeps, it crosses point raiders.
-        all-point (into {} (map (fn [r] [(game/route-key (:from r) (:to r)) :point])
+        all-point (into {} (map (fn [r] [(game/route-key (:from r) (:to r)) [:point]])
                                 routes))
         s (-> base
               (assoc-in [:players player :roles :leader] 5)   ;; leader-movement 5
@@ -827,9 +831,9 @@
       ;; This already worked pre-fix — pinning it so the fix doesn't
       ;; accidentally break the amity math.
       (let [s  (make-state-with-raiders
-                {[:babylon :uruk] :point
-                 [:eridu :uruk]   :point
-                 [:kish :nippur]  :point}
+                {[:babylon :uruk] [:point]
+                 [:eridu :uruk]   [:point]
+                 [:kish :nippur]  [:point]}
                 3 0)
             s' (game/apply-bonus-effect s :alice 18 4)]
         (is (= 12 (get-in s' [:players :alice :amity]))
@@ -837,19 +841,31 @@
 
     (testing "removes point raiders from the :raiders map"
       (let [s  (make-state-with-raiders
-                {[:babylon :uruk] :point
-                 [:eridu :uruk]   :point
-                 [:kish :nippur]  :raiding}
+                {[:babylon :uruk] [:point]
+                 [:eridu :uruk]   [:point]
+                 [:kish :nippur]  [:raiding]}
                 3 0)
             s' (game/apply-bonus-effect s :alice 18 4)]
-        (is (= {[:kish :nippur] :raiding}
+        (is (= {[:kish :nippur] [:raiding]}
                (get-in s' [:players :alice :raiders]))
             "point raiders gone; raiding raider untouched")))
 
+    (testing "a route with a point AND a raiding raider keeps only the raiding one"
+      (let [s  (make-state-with-raiders
+                {[:babylon :uruk] [:point :raiding]
+                 [:eridu :uruk]   [:point]}
+                3 0)
+            s' (game/apply-bonus-effect s :alice 18 4)]
+        (is (= {[:babylon :uruk] [:raiding]}
+               (get-in s' [:players :alice :raiders]))
+            "both point raiders removed, the raiding one preserved")
+        (is (= 8 (get-in s' [:players :alice :amity])) "2 point raiders × 4 = 8")
+        (is (= 5 (get-in s' [:players :alice :raiders-supply])) "supply 3 → 5")))
+
     (testing "returns removed point raiders to :raiders-supply"
       (let [s  (make-state-with-raiders
-                {[:babylon :uruk] :point
-                 [:eridu :uruk]   :point}
+                {[:babylon :uruk] [:point]
+                 [:eridu :uruk]   [:point]}
                 3 0)
             s' (game/apply-bonus-effect s :alice 18 4)]
         (is (= 5 (get-in s' [:players :alice :raiders-supply]))
@@ -857,11 +873,11 @@
 
     (testing "no point raiders → no-op (no amity change, no removal, no supply)"
       (let [s  (make-state-with-raiders
-                {[:babylon :uruk] :raiding}
+                {[:babylon :uruk] [:raiding]}
                 3 5)
             s' (game/apply-bonus-effect s :alice 18 4)]
         (is (= 5 (get-in s' [:players :alice :amity])) "amity unchanged")
-        (is (= {[:babylon :uruk] :raiding}
+        (is (= {[:babylon :uruk] [:raiding]}
                (get-in s' [:players :alice :raiders]))
             "raiding raider stays")
         (is (= 3 (get-in s' [:players :alice :raiders-supply]))
@@ -905,13 +921,13 @@
             "eligible cities are the raider-adjacent ones")))
 
     (testing "eligible cities = endpoints of routes the player has a raider on"
-      (let [s (make-state {:raiders {[:eridu :uruk] :raiding
-                                     [:kish :nippur] :point}})]
+      (let [s (make-state {:raiders {[:eridu :uruk] [:raiding]
+                                     [:kish :nippur] [:point]}})]
         (is (= #{:eridu :uruk :kish :nippur}
                (set (game/cities-adjacent-to-my-raiders s :alice))))))
 
     (testing "applying the choice places the temple in the chosen city"
-      (let [s  (make-state {:raiders {[:eridu :uruk] :raiding}})
+      (let [s  (make-state {:raiders {[:eridu :uruk] [:raiding]}})
             s' (game/apply-bonus-with-choice s :alice 13 4 :uruk)]
         (is (= [:face-up] (get-in s' [:players :alice :temples :uruk]))
             "temple placed where the player chose (multi-temple vector)")
@@ -919,7 +935,7 @@
             "temple supply 5 → 4")))
 
     (testing "BUG 2: placing that temple fires the slot-0 passive → raider adjacent"
-      (let [s  (make-state {:raiders {[:eridu :uruk] :raiding}})
+      (let [s  (make-state {:raiders {[:eridu :uruk] [:raiding]}})
             s' (game/apply-bonus-with-choice s :alice 13 4 :uruk)
             raiders (get-in s' [:players :alice :raiders])]
         (is (= 2 (count raiders))
@@ -930,7 +946,7 @@
             "raider supply 4 → 3 (one consumed by the passive)")))
 
     (testing "no passive (slot 0 covered) → temple placed but NO extra raider"
-      (let [s  (make-state {:raiders {[:eridu :uruk] :raiding} :passive? false})
+      (let [s  (make-state {:raiders {[:eridu :uruk] [:raiding]} :passive? false})
             s' (game/apply-bonus-with-choice s :alice 13 4 :uruk)]
         (is (= [:face-up] (get-in s' [:players :alice :temples :uruk])))
         (is (= 1 (count (get-in s' [:players :alice :raiders])))
@@ -962,8 +978,10 @@
       ;; moved partial→implemented when its raider-placement was fixed. 22→25:
       ;; [22 2]/[24 2]/[34 2] corrected implemented→partial (they are proxies that
       ;; need a data-model change; honest status after the bug-watcher pass).
-      (is (= 23 (:partial d))
-          "23 entries still admit being partial in the legacy map")
+      ;; 23→22: [34 2] moved partial→implemented when the multi-raider-per-route
+      ;; model landed ("place a raider on each route you have a raider").
+      (is (= 22 (:partial d))
+          "22 entries still admit being partial in the legacy map")
       (is (pos? (:implemented d)) "at least some are faithfully implemented")
       (is (pos? (:persistent d))  "at least some passives are wired up"))))
 
@@ -1049,3 +1067,158 @@
           [s-after-good _] (play-and-record s0 2)]
       (is (= s-after-good s')
           "replay halts at the bogus key, returning state after the 2 good ones"))))
+
+;; =============================================================================
+;; Multi-raider-per-route model — accessors, conservation, [34 2], [25 :deployed]
+;; =============================================================================
+;; The data model is :raiders {route-key [status ...]} (a VECTOR of 0..N raiders
+;; per route, mirroring the multi-temple model). These tests pin the invariants
+;; that make raider logic correct across the whole engine.
+
+(defn- raider-supply-of [s pk] (get-in s [:players pk :raiders-supply] 0))
+(defn- raiders-on-board  [s pk] (game/total-raiders (get-in s [:players pk :raiders])))
+(defn- raider-total      [s pk] (+ (raider-supply-of s pk) (raiders-on-board s pk)))
+
+(deftest raider-accessor-helpers-test
+  (let [raiders {[:eridu :uruk]   [:raiding :point]
+                 [:kish :nippur]  [:point]}]
+    (testing "raiders-on returns the status vector (empty for absent route)"
+      (is (= [:raiding :point] (game/raiders-on raiders [:eridu :uruk])))
+      (is (= [:point] (game/raiders-on raiders [:kish :nippur])))
+      (is (= [] (game/raiders-on raiders [:babylon :uruk]))))
+    (testing "raider-on-route? is true only when >= 1 raider present"
+      (is (game/raider-on-route? raiders [:eridu :uruk]))
+      (is (not (game/raider-on-route? raiders [:babylon :uruk]))))
+    (testing "total-raiders sums vector lengths; count-with-status filters"
+      (is (= 3 (game/total-raiders raiders)))
+      (is (= 1 (game/count-raiders-with-status raiders :raiding)))
+      (is (= 2 (game/count-raiders-with-status raiders :point))))))
+
+(deftest raider-conservation-invariant-test
+  ;; INVARIANT: for any player, (raiders on the board) + (raiders-supply) is
+  ;; CONSTANT across place / flip / score / influence. Flips never change the
+  ;; count; scoring moves a raider from board → supply (total preserved).
+  (testing "PLACE: board count up by N, supply down by N (total constant)"
+    (let [s0 (game/initial-state [:alice :bob])
+          pk :alice
+          total0 (raider-total s0 pk)
+          ;; place a raider via the generic helper on two distinct routes
+          s1 (-> s0
+                 (game/place-one-raider pk [:eridu :uruk] :raiding)
+                 (update-in [:players pk :raiders-supply] dec)
+                 (game/place-one-raider pk [:kish :nippur] :raiding)
+                 (update-in [:players pk :raiders-supply] dec))]
+      (is (= 2 (raiders-on-board s1 pk)) "two raiders now on the board")
+      (is (= total0 (raider-total s1 pk)) "place conserves the total")))
+
+  (testing "FLIP: flipping :raiding->:point does NOT change any count"
+    (let [s0 (-> (game/initial-state [:alice :bob])
+                 (assoc-in [:players :alice :raiders]
+                           {[:eridu :uruk] [:raiding :raiding] [:kish :nippur] [:raiding]}))
+          pk :alice
+          before-total (raider-total s0 pk)
+          before-board (raiders-on-board s0 pk)
+          [s1 n] (game/flip-raiders-on-route-to-point s0 pk [:eridu :uruk])]
+      (is (= 2 n) "both raiders on the route were flipped")
+      (is (= [:point :point] (game/raiders-on (get-in s1 [:players pk :raiders]) [:eridu :uruk])))
+      (is (= before-board (raiders-on-board s1 pk)) "flip leaves board count unchanged")
+      (is (= before-total (raider-total s1 pk)) "flip conserves the total")))
+
+  (testing "SCORE: removes exactly the scored point raider, returns it to supply"
+    (let [s0 (-> (game/initial-state [:alice :bob])
+                 (assoc-in [:players :alice :raiders]
+                           {[:eridu :uruk] [:point :raiding]})
+                 (assoc-in [:players :alice :raiders-supply] 4))
+          pk :alice
+          total0 (raider-total s0 pk)
+          s1 (game/score-one-point-raider s0 pk [:eridu :uruk])]
+      (is (= [:raiding] (game/raiders-on (get-in s1 [:players pk :raiders]) [:eridu :uruk]))
+          "the point raider was removed; the raiding one preserved")
+      (is (= 5 (raider-supply-of s1 pk)) "supply 4 → 5 (scored raider returned)")
+      (is (= total0 (raider-total s1 pk)) "score conserves the total")))
+
+  (testing "INFLUENCE: magistrate sweep flips raiders without changing counts"
+    (let [base (game/initial-state [:alice :bob :carol :dave])
+          routes (game/board-routes base)
+          all-raiding (into {} (map (fn [r] [(game/route-key (:from r) (:to r)) [:raiding]]) routes))
+          s0 (-> base
+                 (assoc-in [:players :alice :roles :leader] 5)
+                 (assoc-in [:players :bob :raiders] all-raiding)
+                 (assoc :magistrates {0 (first (keys (:city-graph base)))})
+                 (assoc-in [:turn-stats :player] :alice))
+          before-bob (raider-total s0 :bob)
+          choices (choice/resolve-influence-choices s0)
+          after-states (vals choices)]
+      (is (every? #(= before-bob (raider-total % :bob)) after-states)
+          "every resulting influence state conserves bob's raider total (flips only)"))))
+
+(deftest board-34-slot-2-raider-on-each-occupied-route-test
+  ;; "Place a Raider on each route you already have a Raider." Faithful multi-
+  ;; raider model: add ONE raider to every route currently holding >= 1.
+  (testing "adds a second raider to each already-occupied route (conj, supply --)"
+    (let [s0 (-> (game/initial-state [:alice :bob])
+                 (assoc-in [:players :alice :roles :raider] 5) ;; high cap so all fit
+                 (assoc-in [:players :alice :raiders]
+                           {[:eridu :uruk] [:raiding] [:kish :nippur] [:point]})
+                 (assoc-in [:players :alice :raiders-supply] 6)
+                 (assoc-in [:bonus-boards :alice] 34))
+          s' (game/apply-bonus-effect s0 :alice 34 2)
+          rs (get-in s' [:players :alice :raiders])]
+      (is (= 2 (count (game/raiders-on rs [:eridu :uruk])))
+          "the raiding route now holds two raiders")
+      (is (= 2 (count (game/raiders-on rs [:kish :nippur])))
+          "the point route now holds two raiders")
+      (is (= [:point :raiding] (game/raiders-on rs [:kish :nippur]))
+          "the original :point raider is NOT clobbered; the new one is :raiding")
+      (is (= 4 (raiders-on-board s' :alice)) "4 raiders total on board (2 added)")
+      (is (= 4 (raider-supply-of s' :alice)) "supply 6 → 4 (two consumed)")))
+
+  (testing "no raiders on the board → no-op"
+    (let [s0 (-> (game/initial-state [:alice :bob])
+                 (assoc-in [:players :alice :raiders] {})
+                 (assoc-in [:bonus-boards :alice] 34))
+          s' (game/apply-bonus-effect s0 :alice 34 2)]
+      (is (zero? (raiders-on-board s' :alice)) "nothing placed when no route is occupied"))))
+
+(deftest board-25-deployed-two-raiders-per-path-test
+  ;; [25 0] passive "you may have two raiders on each path" sets
+  ;; :allow-double-raiders so resolve-deploy-choices offers an already-occupied
+  ;; adjacent route. A 2nd raider is conj'd (supply --), the first untouched; a
+  ;; 3rd is never allowed.
+  (let [setup
+        (fn [allow?]
+          (-> (game/initial-state [:alice :bob])
+              (assoc-in [:players :alice :roles :raider] 5)
+              ;; put alice's caravan at uruk with a raider already on an adjacent route
+              (assoc-in [:players :alice :caravan] :uruk)
+              (assoc-in [:players :alice :raiders] {[:eridu :uruk] [:point]})
+              (assoc-in [:players :alice :raiders-supply] 5)
+              (assoc-in [:players :alice :allow-double-raiders] allow?)
+              (assoc :current-player-idx 0)
+              (assoc :turn-order [:alice :bob])
+              (assoc :player-turn {:phase :resolve-deploy :space 7
+                                   :deploys-left 2 :actions-remaining 1})))]
+
+    (testing "WITHOUT the passive: the already-occupied route is NOT placeable"
+      (let [choices (choice/resolve-deploy-choices (setup false))]
+        (is (not (contains? choices [:eridu :uruk]))
+            "one-raider-per-route rule still holds when passive is off")))
+
+    (testing "WITH the passive: a 2nd raider conj's onto the occupied route"
+      (let [s0 (setup true)
+            choices (choice/resolve-deploy-choices s0)]
+        (is (contains? choices [:eridu :uruk])
+            "board 25 makes the occupied adjacent route placeable")
+        (let [s1 (get choices [:eridu :uruk])
+              rs (get-in s1 [:players :alice :raiders])]
+          (is (= [:point :raiding] (game/raiders-on rs [:eridu :uruk]))
+              "2nd raider conj'd as :raiding; the original :point NOT clobbered")
+          (is (= 4 (raider-supply-of s1 :alice)) "supply 5 → 4 (decremented exactly once)")
+          (is (= 2 (raiders-on-board s1 :alice)) "two raiders now on the board"))))
+
+    (testing "a 3rd raider on the same path is never offered (cap 2 per route)"
+      (let [s0 (-> (setup true)
+                   (assoc-in [:players :alice :raiders] {[:eridu :uruk] [:point :raiding]}))
+            choices (choice/resolve-deploy-choices s0)]
+        (is (not (contains? choices [:eridu :uruk]))
+            "route already at 2 raiders → not placeable even with the passive")))))
