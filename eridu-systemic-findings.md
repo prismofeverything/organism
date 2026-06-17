@@ -249,3 +249,27 @@ These 8 are NOT band-aided. Each needs a structural change I won't rush overnigh
   - *Plan:* 1) Resolve the influence as today (choice = magistrate destination), THEN set `[:players PK :pending-free-travel]` true so the player gets one real interactive travel via the existing board-6 free-travel path (choice.cljc consumer; end-of-turn cleanup already in place at game.cljc:3288). 2) This requires the dispatch arm's `choice` to carry the influence target only; the travel destination is supplied later by the free-travel prompt — confirm the WS/choice layer threads a follow-up travel after 
 - **3** — Needs the queued free-travel mechanism (board-6 pending-free-travel) after the role increase. Card: 'Increase your lowest role then take a Travel action (you pick if there is a tie).' Current arm [15 3] (game.cljc:2159) faithfully increases the lowest role (with cost, choice resolves a tie among lowest roles), but the 'then take a Travel action' half is dropped (effect_spec [15 3] `{:kind :travel :state :stub :note "'then take a Travel action' dropped"}`). The travel needs a destination chosen AFTER the role increase, separate from the tie-break choice already consumed by the role half — the single-`choice` dispatch arm cannot carry both a tie-break pick and a travel destination.
   - *Plan:* 1) Keep the lowest-role increase exactly as-is (choice = tie-break role among the lowest set). 2) After the increase, set `[:players PK :pending-free-travel]` true to grant one real interactive travel via the board-6 free-travel path (consumed in choice.cljc, cleared end-of-turn at game.cljc:3288). 3) Because the slot already consumes `choice` for the role tie-break, the travel destination MUST come from the follow-up free-travel prompt rather than the dispatch arm — same requirement as [30 1]/[
+
+## 9. Bug-watcher pass (post-fix re-verification)
+
+A multi-agent watcher adversarially re-verified the 26 faithful fixes + the merge.
+**Merge invariant: independently sound** — bot==human on 10 same-state cases + a
+175-slot choice-sensitivity audit; `:feat-claimed` fires exactly once; the slot-0
+gate is correct. One real regression was found and fixed (`5dca379`): interactive
+slots with a choice-independent rider (`[20 3]`) lost the rider for bots when no
+eligible target existed — both paths now fire the arm once in that case.
+
+**Needs your call (ambiguity — not changed):**
+- **`[11 2]` "Sell to Lagash for Double Glory points."** I implemented it as TWO
+  sells at Lagash (consume 2 goods / 2 tokens). `bonus_oracle.clj` reads it as
+  ONE sell scoring *double* the merchant glory (1 good / 1 token, 2× glory). Both
+  are defensible; they differ in goods/tokens spent. Per the "ask about ambiguity"
+  policy I left the code as-is. **Which is intended?** — I'll reconcile the code
+  (single sell, doubled) or the oracle note once you confirm.
+
+**Newly-surfaced deferrals (same model-change class as §8):**
+- **`[25 :deployed]` "You may have two raiders on each path."** The `:raiders`
+  map is route→single-status, so the 2nd raider overwrites the 1st and leaks
+  supply. Needs the multi-raider-per-route model (same as `[34 2]`).
+- **`[15 4]`** is a flat amity proxy missing its "raider adjacent to a magistrate"
+  condition (status correctly `:partial`).
