@@ -1171,3 +1171,42 @@
           auto (game/apply-bonus-effect s :alice 20 3)]
       (is (pos? (amity bot)) "the unconditional amity rider fired for the bot (was 0 pre-fix)")
       (is (= (amity auto) (amity bot)) "bot resolution matches the auto arm"))))
+
+;; =============================================================================
+;; Demand-token ownership model ([22 2] [24 2]) — "only you may fulfill"
+;; =============================================================================
+
+(deftest board-22-slot-2-owned-demands-on-facedown-temples-test
+  (testing "one owner-restricted demand per FACE-DOWN temple city (not face-up)"
+    (let [s  (state-with 22 {:temples {:kish [:face-down] :uruk [:face-down]
+                                       :babylon [:face-up]}}
+                         {:demand-bag {:gold 5 :tools 5}})
+          s' (game/apply-bonus-effect s :alice 22 2)]
+      (is (= 1 (count (get-in s' [:players :alice :owned-demands :kish]))) "kish got a demand")
+      (is (= 1 (count (get-in s' [:players :alice :owned-demands :uruk]))) "uruk got a demand")
+      (is (nil? (get-in s' [:players :alice :owned-demands :babylon])) "face-up temple got none"))))
+
+(deftest board-24-slot-2-owned-demands-on-magistrates-test
+  (testing "one owner-restricted demand per magistrate city"
+    (let [s  (state-with 24 {} {:magistrates {0 :uruk 1 :lagash}
+                                :demand-bag {:gold 5 :tools 5}})
+          s' (game/apply-bonus-effect s :alice 24 2)]
+      (is (= 1 (count (get-in s' [:players :alice :owned-demands :uruk]))))
+      (is (= 1 (count (get-in s' [:players :alice :owned-demands :lagash])))))))
+
+(deftest owned-demands-only-owner-may-fulfill-test
+  (let [sell-in #'eridu.game/bonus-sell-in
+        s (-> (state-with 24 {:resources {:gold 1 :tools 0 :pottery 0 :gems 0} :amity 0}
+                          {:city-demands {:uruk []}})
+              (assoc-in [:players :alice :owned-demands :uruk] [:gold])
+              (assoc-in [:players :bob] {:resources {:gold 1} :amity 0 :owned-demands {}}))]
+    (testing "owner sees and fulfills their owned demand (consumes it, scores amity)"
+      (is (game/city-has-sellable-demand? s :alice :uruk))
+      (let [s' (sell-in s :alice :uruk)]
+        (is (= 0 (get-in s' [:players :alice :resources :gold])) "good spent")
+        (is (empty? (get-in s' [:players :alice :owned-demands :uruk])) "owned demand consumed")
+        (is (pos? (get-in s' [:players :alice :amity])) "amity scored")))
+    (testing "another player cannot see or fulfill it"
+      (is (not (game/city-has-sellable-demand? s :bob :uruk))
+          "bob does not see alice's owner-restricted demand")
+      (is (= s (sell-in s :bob :uruk)) "bob's sell at uruk is a no-op (nothing he may fulfill)"))))

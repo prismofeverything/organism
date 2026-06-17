@@ -1728,21 +1728,41 @@
                   1)]
     (perform-influence s player-key mag-id dest steps)))))
 
+(defn- splice-first
+  "Remove the first occurrence of `x` from vector `ds` (order-preserving)."
+  [ds x]
+  (let [v (vec ds) idx (.indexOf v x)]
+    (if (neg? idx) v (into (subvec v 0 idx) (subvec v (inc idx))))))
+
+(defn fulfillable-goods
+  "Goods the player can fulfill by selling in `city`: the city's OPEN demands
+   plus the player's own OWNER-RESTRICTED demands placed there (`:owned-demands`,
+   from boards 22/24). Other players never see another's owned-demands, so
+   'only you may fulfill those demands' is enforced automatically."
+  [state player-key city]
+  (concat (get-in state [:city-demands city] [])
+          (get-in state [:players player-key :owned-demands city] [])))
+
+(defn consume-demand
+  "Remove one fulfilled `good` token at `city`: from the player's owner-restricted
+   demands FIRST (if present there), else from the city's open demands."
+  [state player-key city good]
+  (let [owned (get-in state [:players player-key :owned-demands city] [])]
+    (if (>= (.indexOf (vec owned) good) 0)
+      (update-in state [:players player-key :owned-demands city] splice-first good)
+      (update-in state [:city-demands city] splice-first good))))
+
 (defn- sell-good-in-city
-  "Sell one `good` matching a demand in `city`: dec the good, splice that demand
-   out of the city's demand vector (.indexOf + subvec, preserving order), conj the
-   demand token onto the player's :demand-tokens, and add merchant-level amity.
-   Assumes `good` is present and matches a live demand there (callers guarantee
-   this). Returns state. Callers handle glory/turn-stats/:sold/logging."
+  "Sell one `good` matching a demand in `city`: dec the good, consume the demand
+   token (owned-restricted first, else open), conj the token onto the player's
+   :demand-tokens, and add merchant-level amity. Assumes `good` is present and
+   matches a live (open or owned) demand. Callers handle glory/turn-stats/logging."
   [state player-key city good]
   (let [merchant-lv (get-in state [:players player-key :roles :merchant] 1)
         amity-score (get merchant-score merchant-lv 2)]
     (-> state
         (update-in [:players player-key :resources good] dec)
-        (update-in [:city-demands city]
-                   (fn [ds] (let [idx (.indexOf (vec ds) good)]
-                              (into (subvec (vec ds) 0 idx)
-                                    (subvec (vec ds) (inc idx))))))
+        (consume-demand player-key city good)
         (update-in [:players player-key :demand-tokens] conj good)
         (update-in [:players player-key :amity] + amity-score))))
 
@@ -1753,9 +1773,9 @@
    earns the magistrate bonus — it is tied to where the sell happens (`city`),
    NOT the caravan's location (designer-confirmed)."
   [s player-key city]
-  (let [demands (get-in s [:city-demands city] [])
-        resources (get-in s [:players player-key :resources])
-        sellable (first (filter #(pos? (get resources % 0)) demands))]
+  (let [resources (get-in s [:players player-key :resources])
+        sellable (first (filter #(pos? (get resources % 0))
+                                (fulfillable-goods s player-key city)))]
     (if sellable
       (let [s (sell-good-in-city s player-key city sellable)
             has-mag (some #{city} (vals (:magistrates s)))
@@ -1773,9 +1793,9 @@
    when nothing is sellable."
   ([s player-key city] (sell-for-glory-in s player-key city 1))
   ([s player-key city mult]
-   (let [demands (get-in s [:city-demands city] [])
-        resources (get-in s [:players player-key :resources])
-        sellable (first (filter #(pos? (get resources % 0)) demands))]
+   (let [resources (get-in s [:players player-key :resources])
+        sellable (first (filter #(pos? (get resources % 0))
+                                (fulfillable-goods s player-key city)))]
     (if sellable
       (let [merchant-lv (get-in s [:players player-key :roles :merchant] 1)
             glory (* mult (get merchant-score merchant-lv 2))
@@ -1784,10 +1804,7 @@
             mag-glory (if has-mag (get leader-bonus leader-lv 0) 0)]
         (-> s
             (update-in [:players player-key :resources sellable] dec)
-            (update-in [:city-demands city]
-                       (fn [ds] (let [idx (.indexOf (vec ds) sellable)]
-                                  (into (subvec (vec ds) 0 idx)
-                                        (subvec (vec ds) (inc idx))))))
+            (consume-demand player-key city sellable)
             (update-in [:players player-key :demand-tokens] conj sellable)
             (update-in [:players player-key :glory] + (+ glory mag-glory))))
       s))))
@@ -1808,6 +1825,16 @@
                          (assoc :demand-bag bag')
                          (update-in [:city-demands city] (fnil conj []) tok))
                      (inc i)))))))))
+
+(defn- place-owned-demand
+  "Draw one random demand token onto the player's OWNER-RESTRICTED demands at
+   `city` (only that player can later fulfill it). No-op on an empty bag."
+  [s player-key city]
+  (if-let [[bag' tok] (draw-demand-token (:demand-bag s (full-demand-bag)))]
+    (-> s
+        (assoc :demand-bag bag')
+        (update-in [:players player-key :owned-demands city] (fnil conj []) tok))
+    s))
 
 (defn- cities-surrounded-by
   "Set of cities the player has fully SURROUNDED — every board route adjacent to
@@ -2393,8 +2420,13 @@
       [22 1] (-> state ;; Increase Raider and Merchant
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :merchant))
-      [22 2] (-> state ;; Demands on facedown temples → amity from flipped
-                (update-in [:players player-key :amity] + (count-face-down-temples pdata)))
+      ;; "Put a random demand token on each of your facedown temples. Only you
+      ;; may fulfill those demands." Owner-restricted demand per face-down temple
+      ;; city (only this player can sell them, via fulfillable-goods).
+      [22 2] (reduce (fn [s city] (place-owned-demand s player-key city))
+                     state
+                     (for [[c states] (:temples pdata)
+                           :when (some #{:face-down} states)] c))
       ;; "Take a good of your choice. Then take a travel action." choice =
       ;; resource (default :pottery); the travel half is dropped (disclosed).
       [22 3] (add-player-resource state player-key (or choice :pottery) 1)
@@ -2433,8 +2465,11 @@
       [24 1] (-> state ;; Increase Raider and Leader
                (increase-role-with-cost player-key :raider)
                (increase-role-with-cost player-key :leader))
-      [24 2] (-> state ;; Demands on magistrates → partial glory
-                (update-in [:players player-key :glory] + 2))
+      ;; "Put a random demand token on each Magistrate. Only you may fulfill
+      ;; those demands." Owner-restricted demand per magistrate city.
+      [24 2] (reduce (fn [s city] (place-owned-demand s player-key city))
+                     state
+                     (magistrate-cities state))
       [24 3] (let [demands (:demand-tokens pdata [])] ;; Glory per demand
                (update-in state [:players player-key :glory] + (count demands)))
       ;; "Take a good for each demand in cities with Magistrates." FAITHFUL: one
@@ -3369,12 +3404,11 @@
   (some #(> (get-in pdata [:resources %] 0) 2) resources))
 
 (defn city-has-sellable-demand?
-  "True if the city has a demand the player can currently fulfill."
+  "True if the city has a demand the player can currently fulfill (open demands
+   or the player's own owner-restricted demands there)."
   [state player city]
-  (let [pdata (player-data state player)
-        demands (get-in state [:city-demands city] [])
-        resources (:resources pdata)]
-    (some #(pos? (get resources % 0)) demands)))
+  (let [resources (get-in state [:players player :resources])]
+    (some #(pos? (get resources % 0)) (fulfillable-goods state player city))))
 
 (defn city-has-own-face-up-temple?
   "True if the player has at least one face-up temple in the given city."

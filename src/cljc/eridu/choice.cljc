@@ -468,9 +468,10 @@
         leader-level (get-in pdata [:roles :leader] 1)
         has-magistrate? (game/magistrate-in-city? state city)
         glory-bonus (if has-magistrate? (get game/leader-bonus leader-level 0) 0)
-        ;; Find demands the player can satisfy
+        ;; Find demands the player can satisfy — open city demands PLUS the
+        ;; player's own owner-restricted demands here (boards 22/24).
         sellable (distinct
-                  (for [demand demands
+                  (for [demand (game/fulfillable-goods state player city)
                         :when (pos? (get resources demand 0))]
                     demand))
         ;; ── Board 10: sell Gold to a city with NO demands ──────────────────
@@ -525,13 +526,11 @@
     (if (seq sellable)
       (into (merge {:skip (return-to-choose-action state)} sell-gold-empty-choice)
             (for [demand sellable]
-              [demand (let [;; Remove demand from city
-                            new-demands (let [idx (.indexOf demands demand)]
-                                          (into (subvec (vec demands) 0 idx)
-                                                (subvec (vec demands) (inc idx))))
+              [demand (let [;; Consume the fulfilled token (owner-restricted first,
+                            ;; else open) via the shared engine primitive.
                             s (-> state
                                   (spend-resource player demand)
-                                  (assoc-in [:city-demands city] new-demands)
+                                  (game/consume-demand player city demand)
                                   (update-in [:players player :demand-tokens] conj demand)
                                   (add-amity player amity-score)
                                   ;; Track sell stats for event-based feats

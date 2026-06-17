@@ -962,8 +962,8 @@
       ;; moved partial→implemented when its raider-placement was fixed. 22→25:
       ;; [22 2]/[24 2]/[34 2] corrected implemented→partial (they are proxies that
       ;; need a data-model change; honest status after the bug-watcher pass).
-      (is (= 25 (:partial d))
-          "25 entries still admit being partial in the legacy map")
+      (is (= 23 (:partial d))
+          "23 entries still admit being partial in the legacy map")
       (is (pos? (:implemented d)) "at least some are faithfully implemented")
       (is (pos? (:persistent d))  "at least some passives are wired up"))))
 
