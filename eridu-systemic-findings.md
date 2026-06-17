@@ -286,3 +286,29 @@ against competent self-play opponents — fzghoul's 37-vs-11-vs-4 blowout exploi
 weak/passive bots, not a broken strategy. The game looks well-balanced: no single
 strategy (temple engine included) takes over. Priest is now a viable niche, not a
 dominated one — which is a healthy place to land.
+
+## 11. Deferred slots — ALL resolved (designer-approved, 2026-06)
+
+After the designer approved the model changes, all 8 deferred slots were
+implemented (no remaining proxies/no-ops in the bonus deck):
+
+- **[11 2]** "Double Glory" → ONE sell at Lagash scoring 2× merchant glory
+  (designer's call), via a multiplier on sell-for-glory-in.
+- **Demand-token ownership** ([22 2]/[24 2]) — per-player `:owned-demands`;
+  "only you may fulfill" enforced automatically (others never see them);
+  fulfillment centralized in `fulfillable-goods`/`consume-demand` so the open-
+  demand sell path is unchanged.
+- **Multi-raider-per-route** ([34 2] + the [25 :deployed] passive) — `:raiders`
+  is now route→`[status...]`; all readers/writers/flips/scoring migrated, with a
+  raider-conservation invariant test (board+supply constant across
+  place/flip/score/influence). Done in isolation + verified before merge.
+- **[17 3]/[18 3]** surround-amity → auto-flip one surrounding raider to point
+  (beneficial; avoids a new choice type for a "may" rider).
+- **[15 3]/[30 1]/[32 2]** "...then travel" → queued same-turn free travel
+  (board-6 `:pending-free-travel`); works for a human's mid-turn claim, a bot's
+  turn-end claim drops it (minor).
+
+Net: the bonus-board deck is faithful end-to-end; the bot/human paths are unified
+(one `apply-feat-claim!` + shared dispatch); the suite is ~120 tests / 2250+
+assertions with a forced-scenario regression per fixed slot. The remaining
+designer item is purely a balance judgment (the +10 role-5 lever, §3).
