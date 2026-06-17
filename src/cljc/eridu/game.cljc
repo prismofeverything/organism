@@ -1448,22 +1448,37 @@
    Used by personality to boost relevant actions."
   [contest-id]
   (case contest-id
-    ;; Fulfill feats → need to sell (and travel to sell cities)
+    ;; Fulfill goods → sell (consumes a demand) + travel + take
     (:A1 :A2 :B1 :B2) #{:sell :travel :take}
-    ;; Temple count/placement → place temples, travel to flip
-    (:C1 :C2 :D1 :D2 :M2) #{:temple :travel}
-    ;; Raider placement → deploy raiders
-    (:E1 :E2 :F1 :F2) #{:deploy :influence :travel}
-    ;; Magistrate movement → influence
-    (:G1 :G2 :M1) #{:influence :deploy}
-    ;; Role levels → land alone on spaces for role increases
-    (:H1 :H2) #{:take}  ;; take = generic "get resources for role costs"
-    ;; Scoring thresholds → need temple flips + sells + travel combos
-    (:I1 :I2 :J1) #{:sell :temple :travel :deploy}
-    ;; Resource feats → take resources, don't sell them
+    ;; Four FACE-UP temples → just place them
+    :C1 #{:temple}
+    ;; Face-down / specific-city / no-demand temples → place + travel to flip/reach
+    (:C2 :D1 :D2 :M2) #{:temple :travel}
+    ;; Raider placement (surround / at-cities / on-rivers) → deploy + travel
+    (:E1 :E2 :F2) #{:deploy :travel}
+    ;; Three POINT raiders → deploy + flip them (influence / travel-through)
+    :F1 #{:deploy :influence :travel}
+    ;; Move a magistrate far → influence only
+    :G1 #{:influence}
+    ;; Magistrate through raiders → need raiders (deploy) AND magistrate move (influence)
+    :G2 #{:deploy :influence}
+    ;; Magistrates AT your temples → place temples (:temple) AND move magistrates there
+    ;; (:influence). The missing :temple was why M1+C2/M2 synergy was invisible.
+    :M1 #{:temple :influence}
+    ;; Role levels → gather resources for role costs (role-increase action)
+    (:H1 :H2) #{:take}
+    ;; 10 pts on a temple-flip turn → flip a temple + pile on points
+    :I1 #{:sell :temple :travel :deploy}
+    ;; 5 glory in one turn → glory sources (raiders/magistrate/temple-flip leader bonus)
+    :I2 #{:deploy :influence :travel}
+    ;; 5 amity in one turn → amity sources (sells + temple flips)
+    :J1 #{:sell :temple :travel}
+    ;; Resource-holding feats → take, don't sell them off
     (:J2 :L1 :L2) #{:take}
-    ;; Sell feats → sell + travel + maybe deploy
-    (:K1 :K2) #{:sell :deploy :travel}
+    ;; Big gold sale → sell (ideally a magistrate city) + travel
+    :K1 #{:sell :travel}
+    ;; Sell in a surrounded city → surround (deploy) + sell
+    :K2 #{:sell :deploy :travel}
     ;; Default
     #{}))
 
@@ -3058,25 +3073,27 @@
                    [slot (+ base (* 12.0 delta-prog) synergy)])))))))
 
 (defn- feat-feasible?
-  "Is this feat worth planning toward? Excludes claimed feats and hard-to-pre-plan
-   event-based feats. Event-based feats (e.g., :G1 :I1 :I2 :J1 :K1) depend on
-   turn-specific stats and can't be committed to in a plan."
+  "Is this feat worth planning toward? Only excludes feats this player already
+   claimed. Event-based feats (G2/J1/K1/...) ARE plannable now — the human
+   deliberately chains into them (raiders placed for E2 also satisfy G2; a big
+   amity turn satisfies J1). chain-score's claim-prob discounts their volatility,
+   and action-profile synergy lifts the ones that genuinely chain."
   [state player-key contest]
-  (let [claims (:contest-claims state {})
-        cid (:id contest)
-        already? (some #{player-key} (get claims cid []))
-        ;; Event-based feats: too volatile for planning
-        event-based? (#{:G1 :G2 :I1 :I2 :J1 :K1} cid)]
-    (and (not already?)
-         (not event-based?))))
+  (not (some #{player-key} (get-in state [:contest-claims (:id contest)] []))))
 
 (defn- chain-score
   "Score a chain of 2-3 feats without deep simulation.
    Sums: wild-points estimate, current progress, ease factor, action-profile overlap.
+   The bonus a claim UNLOCKS (effect-v) and feat-to-feat SYNERGY (profile overlap)
+   are weighted by the personality genes :bonus-foresight and :feat-synergy — so
+   'best feat' is context-dependent, and the GA tunes the trade-off.
    Positions earlier in the chain weigh more (they're attempted first)."
   [state player-key chain]
   (let [board-id (get-in state [:bonus-boards player-key])
         pdata (get-in state [:players player-key])
+        cache (:personality-cache pdata {})
+        bonus-foresight (get cache :bonus-foresight 0.3)
+        synergy-w (get cache :feat-synergy 0.5)
         board (:bonus-board pdata (vec (repeat 5 :covered)))
         n-covered (count (filter #{:covered} board))]
     (reduce
@@ -3103,7 +3120,7 @@
              contribution (* pos-weight
                              (* claim-prob
                                 (+ wild-points
-                                   (* 0.3 effect-v)
+                                   (* bonus-foresight effect-v)
                                    (* 3.0 prog)
                                    (* 2.0 ease-factor))))
              ;; Overlap bonus with the NEXT feat in the chain
@@ -3113,7 +3130,7 @@
                                    prof-nxt (feat-action-profile (:id next-c))
                                    common (count (clojure.set/intersection
                                                   (set prof-cur) (set prof-nxt)))]
-                               (* 0.5 common pos-weight))
+                               (* synergy-w common pos-weight))
                              0.0)]
          (+ total contribution overlap-bonus)))
      0.0

@@ -1222,3 +1222,21 @@
             choices (choice/resolve-deploy-choices s0)]
         (is (not (contains? choices [:eridu :uruk]))
             "route already at 2 raiders → not placeable even with the passive")))))
+
+(deftest feat-chaining-logic-test
+  (testing "feat-action-profile accuracy (synergy foundation)"
+    (is (contains? (game/feat-action-profile :M1) :temple)
+        "M1 'magistrates at your temples' requires :temple (was missing → no M1/C2 synergy)")
+    (is (contains? (game/feat-action-profile :M1) :influence) "M1 also needs magistrate movement")
+    (is (seq (set/intersection (game/feat-action-profile :E2) (game/feat-action-profile :G2)))
+        "E2 and G2 share setup (raiders) — the chain you used in boardtest")
+    (is (not (contains? (game/feat-action-profile :K1) :deploy))
+        "K1 'big gold sale' is a pure sell — no deploy"))
+  (testing "event-based feats are now plannable (the bot can target the feats you chain)"
+    (let [feasible? #'eridu.game/feat-feasible?
+          s (game/initial-state [:p1 :p2])]
+      (is (feasible? s :p1 {:id :G2}) "G2 (magistrate through raiders) is plannable")
+      (is (feasible? s :p1 {:id :J1}) "J1 (5 amity in a turn) is plannable")
+      (is (feasible? s :p1 {:id :K1}) "K1 (big gold sale) is plannable")
+      (is (not (feasible? (assoc-in s [:contest-claims :G2] [:p1]) :p1 {:id :G2}))
+          "already-claimed feats are still excluded"))))

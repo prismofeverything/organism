@@ -138,6 +138,14 @@
    ;; flipping it late, reflecting the COMPOUNDING payoff (a flip scores
    ;; amity = your face-down count). The fix for the priest-path bot blind spot.
    :temple-engine          0.0
+   ;; ── Feat-chain planning (default = prior hardcoded chain-score weights, so
+   ;;    behavior is unchanged at default and the GA tunes the trade-off) ──
+   ;; Synergy: how much to favor a feat that SHARES setup with the partner feat
+   ;; (overlapping action profile) — one investment cashes two feats.
+   :feat-synergy           0.5
+   ;; Bonus foresight: how much the bonus-board slot a claim would UNLOCK pulls
+   ;; the bot toward that feat (predictive "once I claim this I'll be better at X").
+   :bonus-foresight        0.3
    })
 
 ;; =============================================================================
@@ -395,6 +403,8 @@
              :supply-conservation    (rand)
              :feat-race-urgency      (rand)
              :temple-engine          (rand)
+             :feat-synergy           (rand)
+             :bonus-foresight        (rand)
              }))))
 
 (def weight-bounds
@@ -432,7 +442,8 @@
    :feat-closure-urgency [0.0 1.0]
    :min-sells-per-round [0 3 :int] :min-deploys-per-round [0 2 :int]
    :standing-awareness [0.0 1.0] :supply-conservation [0.0 1.0]
-   :feat-race-urgency [0.0 1.0] :temple-engine [0.0 1.0]})
+   :feat-race-urgency [0.0 1.0] :temple-engine [0.0 1.0]
+   :feat-synergy [0.0 1.5] :bonus-foresight [0.0 1.0]})
 
 (defn clamp-weight
   "Clamp a mutated weight value to its design [lo hi] range (the fix for the
@@ -467,7 +478,8 @@
                                            :feat-sequence :feat-closure-urgency
                                            :min-sells-per-round :min-deploys-per-round
                                            :standing-awareness :supply-conservation
-                                           :feat-race-urgency :temple-engine])
+                                           :feat-race-urgency :temple-engine
+                                           :feat-synergy :bonus-foresight])
         mutated (reduce (fn [p k]
                           (if (< (rand) mutation-rate)
                             (let [v (get p k 1.0)
@@ -501,7 +513,8 @@
                        :feat-sequence :feat-closure-urgency
                        :min-sells-per-round :min-deploys-per-round
                        :standing-awareness :supply-conservation
-                       :feat-race-urgency :temple-engine]
+                       :feat-race-urgency :temple-engine
+                       :feat-synergy :bonus-foresight]
         child (reduce (fn [c k]
                         (assoc c k (if (< (rand) 0.5)
                                      (get parent-a k 1.0)
