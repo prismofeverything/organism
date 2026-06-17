@@ -5,7 +5,10 @@
 # Per stage: make blanks | grafts | food | plate
 # Override:  make print BLENDER=/path/to/blender  (also read by meshlib/build.py)
 
-BLENDER ?= $(HOME)/Downloads/blender-5.1.2-linux-x64/blender
+# auto-detect the newest installed blender-5.1.* (machines differ: 5.1.1 here, 5.1.2 elsewhere);
+# override explicitly with `make <target> BLENDER=/path/to/blender`.
+BLENDER_AUTO := $(shell ls -d $(HOME)/Downloads/blender-5.1.*/blender 2>/dev/null | sort -V | tail -1)
+BLENDER ?= $(or $(BLENDER_AUTO),$(HOME)/Downloads/blender-5.1.2-linux-x64/blender)
 PY      ?= ../.venv/bin/python
 UV      ?= uv
 BFLAGS  := --background --threads 4 --python

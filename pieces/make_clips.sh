@@ -5,7 +5,9 @@
 # THREADS=2 / nice -19 are intentionally gentle: threads-4 has frozen this box on big
 # animation renders. Bump THREADS for a quick low-frame pass; keep it low for full batches.
 set -e
-BL=${BLENDER:-$HOME/Downloads/blender-5.1.2-linux-x64/blender}
+# auto-detect newest installed blender-5.1.* (5.1.1 / 5.1.2); override with BLENDER=/path
+BL=${BLENDER:-$(ls -d "$HOME"/Downloads/blender-5.1.*/blender 2>/dev/null | sort -V | tail -1)}
+BL=${BL:-$HOME/Downloads/blender-5.1.2-linux-x64/blender}
 SAMPLES=${SAMPLES:-48}
 RES=${RES:-1080}
 THREADS=${THREADS:-2}

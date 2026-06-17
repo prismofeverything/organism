@@ -10,6 +10,8 @@
 #   SAMPLES=16 RES=720 ./render_all.sh   # fast preview pass
 # Env: BLENDER THREADS NICE SAMPLES RES (board clips read these via make_clips.sh).
 cd "$(dirname "$0")"
+# auto-detect newest installed blender-5.1.* (5.1.1 / 5.1.2); override with BLENDER=/path
+export BLENDER=${BLENDER:-$(ls -d "$HOME"/Downloads/blender-5.1.*/blender 2>/dev/null | sort -V | tail -1)}
 export BLENDER=${BLENDER:-$HOME/Downloads/blender-5.1.2-linux-x64/blender}
 export THREADS=${THREADS:-2}
 export NICE=${NICE:-19}

@@ -143,6 +143,19 @@ def topz(o): return max((o.matrix_world @ v.co).z for v in o.data.vertices)
 PEG = {t: (topz(TPL[t]) - 4.3) * PSCALE for t in TPL}   # seat height above element base
 
 RING_STR = float(os.environ.get("RING", "8.0"))
+RINGCOL  = tuple(float(x) for x in os.environ.get("RINGCOL", "1.0,0.85,0.45").split(","))  # ring emission (warm gold)
+# golden "plasma pillar" highlight (replaces the flat ring when PLASMA=1): a transparent
+# fire column on a cylinder, denser at the base, scrolling up + morphing, emissive -> blooms.
+USE_PLASMA = os.environ.get("PLASMA", "1") != "0"
+PL_R     = float(os.environ.get("PL_R", "21.0"))     # pillar radius (mm) — wider than the 16.5mm piece (no intersect)
+PL_H     = float(os.environ.get("PL_H", "18.0"))     # pillar height (mm) — short: highlights the base, doesn't surround
+PL_STR   = float(os.environ.get("PL_STR", "28.0"))   # emission strength (denser cells/edges keep a gentle gold glow)
+PL_OPAC  = float(os.environ.get("PL_OPAC", "0.067")) # max opacity (~1/3 of prior: very transparent; piece reads through)
+PL_SPEED = float(os.environ.get("PL_SPEED", "0.16")) # upward scroll per frame (vapor rise)
+PL_MORPH = float(os.environ.get("PL_MORPH", "0.15")) # 4D shimmer per frame
+PL_NSCALE= float(os.environ.get("PL_NSCALE", "0.18"))# noise scale (LOW -> a few big slow shapes, not fine fuzz)
+PL_BASE  = float(os.environ.get("PL_BASE", "0.2"))   # base z (just above the board)
+PL_LEAD  = float(os.environ.get("PL_LEAD", "10"))    # frames the plasma bell leads in / trails out around the move
 bpy.ops.mesh.primitive_torus_add(major_radius=17.5, minor_radius=1.3, location=(9000, 9000, 0))
 RING_T = bpy.context.active_object; RING_T.name = "TPL_ring"
 try: bpy.ops.object.shade_smooth()
@@ -154,11 +167,87 @@ def glow_ring(aid):
     o.material_slots[0].link = 'OBJECT'
     m = bpy.data.materials.new("ringm_" + aid); m.use_nodes = True
     pb = m.node_tree.nodes["Principled BSDF"]
-    pb.inputs["Emission Color"].default_value = lin3((1.0, 0.93, 0.55))   # warm gold highlight
+    pb.inputs["Emission Color"].default_value = lin3(RINGCOL)   # warm gold highlight
     pb.inputs["Emission Strength"].default_value = 0.0
     o.material_slots[0].material = m
     o.scale = (0, 0, 0)
     return o, m
+
+def plasma_mat(aid):
+    """Transparent golden plasma fire on a cylinder: 4D noise that scrolls upward and
+    morphs over time, masked into wisps, denser at the base, fading at the top. Emissive
+    so the compositor bloom turns it into a soft shimmering glow."""
+    m = bpy.data.materials.new("plasma_" + aid); m.use_nodes = True; nt = m.node_tree
+    for n in list(nt.nodes): nt.nodes.remove(n)
+    out = nt.nodes.new("ShaderNodeOutputMaterial"); tc = nt.nodes.new("ShaderNodeTexCoord")
+    # height 0(base)->1(top) drives the vertical profile + breakup + color
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ"); nt.links.new(tc.outputs["Generated"], sep.inputs[0])
+    # animated noise: object coords scrolled up (Location.Z) + 4D morph (W)
+    mp = nt.nodes.new("ShaderNodeMapping"); mp.inputs["Scale"].default_value = (1.0, 1.0, 0.5)
+    nt.links.new(tc.outputs["Object"], mp.inputs["Vector"])
+    noise = nt.nodes.new("ShaderNodeTexNoise"); noise.noise_dimensions = '4D'
+    noise.inputs["Scale"].default_value = PL_NSCALE
+    noise.inputs["Detail"].default_value = 1.5; noise.inputs["Roughness"].default_value = 0.40
+    nt.links.new(mp.outputs["Vector"], noise.inputs["Vector"])
+    # KEYFRAME the scroll + morph (reliable in headless; drivers can silently no-op).
+    # LINEAR (constant-speed shimmer); save/restore so the piece glides stay smooth Bezier.
+    _pe = bpy.context.preferences.edit; _ki = _pe.keyframe_new_interpolation_type
+    _pe.keyframe_new_interpolation_type = 'LINEAR'
+    mp.inputs["Location"].default_value[2] = 0.0
+    mp.inputs["Location"].keyframe_insert("default_value", index=2, frame=0)
+    mp.inputs["Location"].default_value[2] = -LEN * PL_SPEED
+    mp.inputs["Location"].keyframe_insert("default_value", index=2, frame=LEN)
+    noise.inputs["W"].default_value = 0.0
+    noise.inputs["W"].keyframe_insert("default_value", frame=0)
+    noise.inputs["W"].default_value = LEN * PL_MORPH
+    noise.inputs["W"].keyframe_insert("default_value", frame=LEN)
+    _pe.keyframe_new_interpolation_type = _ki
+    # vertical profile: a fat "pool" at the base tapering to a thin rising tail (vapor)
+    prof = nt.nodes.new("ShaderNodeValToRGB"); pr = prof.color_ramp
+    pr.elements[0].position = 0.0; pr.elements[0].color = (1, 1, 1, 1)        # base pool (dense)
+    pr.elements[1].position = 1.0; pr.elements[1].color = (0.0, 0.0, 0.0, 1)  # top edge invisible (no cylinder cutoff)
+    pmid = pr.elements.new(0.22); pmid.color = (0.7, 0.7, 0.7, 1)             # fat pool taper
+    ptop = pr.elements.new(0.80); ptop.color = (0.0, 0.0, 0.0, 1)             # vapor faded out before the geometric top
+    nt.links.new(sep.outputs["Z"], prof.inputs[0])
+    # wispy flame mask from the noise
+    flame = nt.nodes.new("ShaderNodeValToRGB")
+    flame.color_ramp.elements[0].position = 0.30; flame.color_ramp.elements[0].color = (0, 0, 0, 1)
+    flame.color_ramp.elements[1].position = 0.68; flame.color_ramp.elements[1].color = (1, 1, 1, 1)
+    nt.links.new(noise.outputs["Fac"], flame.inputs[0])
+    # density = vertical profile (pool low -> vapor high) * big-cell shapes; gaps stay fully clear
+    pw = nt.nodes.new("ShaderNodeMath"); pw.operation = 'MULTIPLY'
+    nt.links.new(prof.outputs["Color"], pw.inputs[0]); nt.links.new(flame.outputs["Color"], pw.inputs[1])
+    dens = nt.nodes.new("ShaderNodeMath"); dens.operation = 'MULTIPLY'        # * max opacity (<1 -> piece shows through)
+    nt.links.new(pw.outputs[0], dens.inputs[0]); dens.inputs[1].default_value = PL_OPAC
+    # emission color by HEIGHT (hot pale-gold base -> gold -> orange tip), fire-like
+    ecol = nt.nodes.new("ShaderNodeValToRGB"); cr = ecol.color_ramp
+    cr.elements[0].position = 0.0; cr.elements[0].color = lin3((1.0, 0.72, 0.22))   # low blue -> bloom stays gold
+    mid = cr.elements.new(0.5); mid.color = lin3((1.0, 0.50, 0.12))
+    cr.elements[2].position = 1.0; cr.elements[2].color = lin3((1.0, 0.34, 0.06))
+    nt.links.new(sep.outputs["Z"], ecol.inputs[0])
+    emi = nt.nodes.new("ShaderNodeEmission"); emi.inputs["Strength"].default_value = PL_STR
+    nt.links.new(ecol.outputs["Color"], emi.inputs["Color"])
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent"); mix = nt.nodes.new("ShaderNodeMixShader")
+    nt.links.new(dens.outputs[0], mix.inputs[0])        # density -> opacity
+    nt.links.new(tr.outputs[0], mix.inputs[1]); nt.links.new(emi.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+    for attr, val in [("surface_render_method", "BLENDED"), ("blend_method", "BLEND"),
+                      ("use_backface_culling", False), ("use_transparent_shadow", False),
+                      ("shadow_method", "NONE")]:
+        try: setattr(m, attr, val)
+        except Exception: pass
+    return m
+
+def plasma_obj(aid):
+    bpy.ops.mesh.primitive_cylinder_add(radius=PL_R, depth=PL_H, end_fill_type='NOTHING', location=(9000, 9000, 0))
+    o = bpy.context.active_object; o.name = "plasma_" + aid
+    for v in o.data.vertices: v.co.z += PL_H / 2.0     # base at object origin -> z-scale rises from the board
+    o.data.update()
+    try: bpy.ops.object.shade_smooth()
+    except Exception: pass
+    o.data.materials.clear(); o.data.materials.append(plasma_mat(aid))
+    o.scale = (1.0, 1.0, 0.0)
+    return o
 
 def inst(tpl, name, rgb, rough=0.45):
     """A render copy with its OWN (object-linked) material so it can recolor/glow
@@ -223,7 +312,7 @@ def food_z(space, t):
 for aid, (player, ptype) in S["actors"].items():
     o, _ = inst(TPL[ptype], "pc_" + aid, COLORS[player])
     ring = rmat = None
-    if any(aid in b.get("glow", []) for b in beats):
+    if (not USE_PLASMA) and any(aid in b.get("glow", []) for b in beats):
         ring, rmat = glow_ring(aid)
     for b in beats:
         if aid in b["pos"]:
@@ -236,6 +325,31 @@ for aid, (player, ptype) in S["actors"].items():
         else:
             kf(o, b["t"], s=0.0)
             if ring: kf(ring, b["t"], s=0.0)
+
+# plasma pillars (golden "move energy" rising from the board under a glowing element).
+# Position follows the element; z-scale rises 0->1 when it enters glow[] (so it emanates
+# upward right before the move), then travels with the piece. The shimmer is shader-driven.
+if USE_PLASMA:
+    for aid in {a for b in beats for a in b.get("glow", [])}:
+        po = plasma_obj(aid)
+        # position follows the element through the beats
+        for b in beats:
+            if aid in b["pos"]:
+                x, y = P2(b["pos"][aid]); po.location = (x, y, PL_BASE)
+                po.keyframe_insert("location", frame=b["t"])
+        # scale = ONE smooth Bezier bell (rise -> peak -> fall) bracketing the element's move:
+        # peaks at the move's midpoint, leads in / trails out by PL_LEAD so it overlaps the move
+        # curve as a single continuous gesture (no flat "held" stage in the middle).
+        ts = sorted(b["t"] for b in beats); pos_at = {b["t"]: b["pos"].get(aid) for b in beats}
+        chg = [(ts[i - 1], ts[i]) for i in range(1, len(ts)) if pos_at[ts[i]] != pos_at[ts[i - 1]]]
+        if chg:
+            m0 = min(a for a, _ in chg); m1 = max(b2 for _, b2 in chg)
+        else:                                      # static highlight (no move): bracket the glow span
+            gb = [b["t"] for b in beats if aid in b.get("glow", [])]
+            m0, m1 = (min(gb), max(gb)) if gb else (0, LEN)
+        peak = (m0 + m1) / 2.0
+        for t, s in [(max(0, m0 - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, m1 + PL_LEAD), 0.0)]:
+            po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
 
 # carried food stacks
 for aid, (player, ptype) in S["actors"].items():
@@ -261,14 +375,20 @@ for si, sp in enumerate(free_spaces):
             vis = b.get("free", {}).get(sp, 0) > k
             kf(fo, b["t"], (x, y, BOARD_FOOD_Z + k * FOOD_DZ), FSCALE if vis else 0.0)
 
-# gliding food tokens (eat / circulate)
+# gliding / hopping food tokens (eat / circulate). A key is (t, space) or (t, space, dz),
+# where dz lifts the token above its resting height (a hop arc apex). "grow" = scale-in
+# frames (default 6); used so a newly-created food materializes over a curve, not a pop.
 for fa in S.get("food_actors", []):
     fo, _ = inst(FOODT, "fa_" + fa["id"], FOOD_RGB, rough=0.5)
     keys = fa["keys"]; t0 = keys[0][0]; koff = fa.get("k", 0) * FOOD_DZ   # stack offset at endpoints
-    if t0 > 0:                              # pop in just before it starts moving
-        x, y = P2(keys[0][1]); kf(fo, max(0, t0 - 6), (x, y, food_z(keys[0][1], t0) + koff), 0.0)
-    for (t, sp) in keys:
-        x, y = P2(sp); kf(fo, t, (x, y, food_z(sp, t) + koff), FSCALE)
+    grow = fa.get("grow", 6)
+    fxy = lambda sp: P2(sp) if isinstance(sp, str) else tuple(sp)         # board space id OR raw (x,y) apex
+    fz  = lambda sp, t: food_z(sp, t) if isinstance(sp, str) else BOARD_FOOD_Z
+    if t0 > 0:                              # scale in (grow) just before it appears / starts moving
+        sp0 = keys[0][1]; x, y = fxy(sp0); kf(fo, max(0, t0 - grow), (x, y, fz(sp0, t0) + koff), 0.0)
+    for key in keys:
+        t, sp = key[0], key[1]; dz = key[2] if len(key) > 2 else 0.0
+        x, y = fxy(sp); kf(fo, t, (x, y, fz(sp, t) + koff + dz), FSCALE)
 
 # ---------------- compositor bloom (makes emission read as glow in EEVEE Next) ----------------
 def add_bloom():
@@ -287,15 +407,17 @@ def add_bloom():
     gl = nt.nodes.new("CompositorNodeGlare")
     # 5.1: glare params are input sockets. High threshold so only the bright glow rings
     # bloom (strength ~8), not the board emission (<=~1.3).
-    socks = {"Type": 'Bloom', "Highlights Threshold": float(os.environ.get("BLOOMTHRESH", "1.6")),
-             "Strength": 0.8, "Size": 0.45}
+    socks = {"Type": 'Bloom', "Highlights Threshold": float(os.environ.get("BLOOMTHRESH", "2.5")),
+             "Strength": float(os.environ.get("BLOOMSTR", "2.0")), "Size": float(os.environ.get("BLOOMSIZE", "0.9"))}
     for name, val in socks.items():
         if name in gl.inputs:
             try: gl.inputs[name].default_value = val
             except Exception: pass
     nt.links.new(src.outputs["Image"], gl.inputs["Image"])
     nt.links.new(gl.outputs["Image"], out.inputs[0])
-    return "ok type=" + str(gl.inputs["Type"].default_value if "Type" in gl.inputs else "?")
+    si = gl.inputs["Size"] if "Size" in gl.inputs else None
+    sinfo = f" size={si.default_value} range=[{getattr(si,'min_value','?')},{getattr(si,'max_value','?')}]" if si else ""
+    return "ok type=" + str(gl.inputs["Type"].default_value if "Type" in gl.inputs else "?") + sinfo
 if os.environ.get("BLOOM", "1") != "0":
     try: print("bloom:", add_bloom())
     except Exception as e: print("bloom skipped:", e)

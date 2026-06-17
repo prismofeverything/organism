@@ -29,7 +29,7 @@ still to `renders/clips/move/single_0070.png` (skip the full animation while you
 | # | name | script / where to edit | shows |
 |---|------|------------------------|-------|
 | 6 | `eat`        | `storyboards.py → eat`        | food slides off the board onto an EAT element |
-| 7 | `move`       | `storyboards.py → move`       | a fed element glides to an adjacent space |
+| 7 | `move`       | `storyboards.py → move`       | MOVE relocates a fellow element (grower) onto center; plasma highlights the move |
 | 8 | `grow`       | `storyboards.py → grow`       | two growers spend a food → new element appears |
 | 9 | `circulate`  | `storyboards.py → circulate`  | half a food stack glides to a non-adjacent element |
 | 10| `conflict`   | `storyboards.py → conflict`   | adjacent enemies resolve (move beats eat) → loser becomes food |
@@ -65,9 +65,14 @@ Spaces are real board ids; central adjacencies are listed at the top of `storybo
 
 ## Look knobs (env vars)
 
-`SAMPLES` (24) · `RES` (1080) · `BOARD` (override board image) · `BOARDSAT` (1.55) /
-`BOARDVAL` (1.12, counter mipmap wash) · `RING` (8.0, glow ring brightness) ·
-`BLOOMTHRESH` (1.6) · `BLOOM=0` to disable bloom · `FRAME=<n>` single-still mode.
+`SAMPLES` (48) · `RES` (1080) · `BOARD` (override board image) · `BOARDSAT` (1.55) /
+`BOARDVAL` (1.12, counter mipmap wash) · `BLOOMTHRESH` (2.5) / `BLOOMSTR` (2.0) /
+`BLOOMSIZE` (0.9) · `BLOOM=0` to disable · `FRAME=<n>` single-still mode.
+
+**Plasma highlight** — the golden "fire" marking a glowing/moving element (one smooth bell
+that brackets the element's move; `PLASMA=0` reverts to the old flat ring): `PL_R` width ·
+`PL_H` height · `PL_OPAC` transparency · `PL_STR` glow · `PL_NSCALE` shape size (low=big) ·
+`PL_SPEED`/`PL_MORPH` rise/shimmer speed · `PL_LEAD` frames the bell leads/trails the move.
 
 ## Dependencies (regenerable)
 

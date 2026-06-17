@@ -17,33 +17,58 @@ A beat is a state the board passes through; the engine glides between beats.
 
 STORY = {
 
-    # ---- #7 MOVE: a fed element glides to an adjacent space ----
+    # ---- #7 MOVE: the MOVE element relocates a FELLOW element (the grower) onto the CENTER
+    #      space, "opening" the triangle. Shows what moving is without the actor moving itself
+    #      (and without separating the organism). A golden plasma pillar rises under the grower
+    #      just before it moves. ----
+    #      Triangle: mover back-center (C:1), eater left (B:1), grower right (B:0).
+    #      Grower glides B:0 -> A:0 (center, below the mover); organism stays joined via eater B:1.
+    #      The plasma is one smooth bell (rise->peak->fall) auto-bracketing the grower's move, peaking
+    #      at the move midpoint -- a single gesture overlapping the move, gone before the piece rests.
     "move": {
-        "len": 120,
-        "cam": {"az": 40, "el": 42, "dist": 300, "lens": 52, "targz": 6,
-                "drift": {"az": 8, "el": 1.5, "dist": -14}},
-        "actors": {"e": ("green", "eat"), "g": ("green", "grow"), "m": ("green", "move")},
+        "len": 84,
+        "cam": {"az": -80, "el": 44, "dist": 255, "lens": 52, "targz": 6, "tx": 0, "ty": 38,
+                "drift": {"az": 5, "el": 0.5, "dist": -8}},
+        "actors": {"ea": ("green", "eat"), "mv": ("green", "move"), "gr": ("green", "grow")},
         "beats": [
-            {"t": 0,   "pos": {"e": "A:0", "g": "B:1", "m": "B:0"}, "food": {"e": 1, "g": 1, "m": 1}, "glow": ["m"]},
-            {"t": 45,  "pos": {"e": "A:0", "g": "B:1", "m": "B:0"}, "food": {"e": 1, "g": 1, "m": 1}, "glow": ["m"]},
-            {"t": 95,  "pos": {"e": "A:0", "g": "B:1", "m": "C:0"}, "food": {"e": 1, "g": 1, "m": 1}, "glow": ["m"]},
-            {"t": 120, "pos": {"e": "A:0", "g": "B:1", "m": "C:0"}, "food": {"e": 1, "g": 1, "m": 1}, "glow": ["m"]},
+            {"t": 0,  "pos": {"ea": "B:1", "mv": "C:1", "gr": "B:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": []},
+            {"t": 8,  "pos": {"ea": "B:1", "mv": "C:1", "gr": "B:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": []},
+            {"t": 16, "pos": {"ea": "B:1", "mv": "C:1", "gr": "B:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": ["gr"]},
+            {"t": 20, "pos": {"ea": "B:1", "mv": "C:1", "gr": "B:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": ["gr"]},
+            {"t": 58, "pos": {"ea": "B:1", "mv": "C:1", "gr": "A:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": ["gr"]},
+            {"t": 66, "pos": {"ea": "B:1", "mv": "C:1", "gr": "A:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": []},
+            {"t": 84, "pos": {"ea": "B:1", "mv": "C:1", "gr": "A:0"}, "food": {"ea": 1, "mv": 1, "gr": 1}, "glow": []},
         ],
     },
 
-    # ---- #6 EAT: a food token slides from the board onto an adjacent EAT element ----
+    # ---- #6 EAT: an EAT element eats the food on an adjacent FRONT space (B:4, on the camera
+    #      side so it isn't occluded). The plasma flares FIRST and longest (the dramatic beat);
+    #      then the bite HOPS in on a continuous arc and lands on the eater; eating also CREATES
+    #      a food (the base), so the eater ends with 2 (1 + what was on the space). ----
     "eat": {
-        "len": 120,
+        "len": 116,
         "cam": {"az": -34, "el": 50, "dist": 285, "lens": 54, "targz": 6,
                 "drift": {"az": -7, "el": -3, "dist": -10}},
         "actors": {"e": ("green", "eat"), "g": ("green", "grow"), "m": ("green", "move")},
+        # eater is static, so the plasma bell brackets the glow span (t34..t96 -> bell ~24..106,
+        # peak ~65): it starts well before the bite (t44) and outlasts everything (longest curve).
         "beats": [
-            {"t": 0,   "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": ["e"]},
-            {"t": 40,  "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": ["e"]},
-            {"t": 85,  "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": ["e"]},
-            {"t": 120, "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": ["e"]},
+            {"t": 0,   "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": []},
+            {"t": 24,  "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": []},
+            {"t": 34,  "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": ["e"]},
+            {"t": 96,  "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": ["e"]},
+            {"t": 104, "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": []},
+            {"t": 116, "pos": {"e": "A:0", "g": "B:1", "m": "B:5"}, "food": {"g": 1, "m": 1}, "glow": []},
         ],
-        "food_actors": [{"id": "bite", "keys": [(0, "B:0"), (40, "B:0"), (85, "A:0"), (120, "A:0")]}],
+        "food_actors": [
+            # eating CREATES a food out of nothing -> grows in EARLY as the BASE (stack 0), during
+            # the plasma flare and before the bite descends, so the bite lands on an established food
+            {"id": "new",  "k": 0, "keys": [(48, "A:0"), (116, "A:0")], "grow": 20},
+            # the board bite (on FRONT space B:4) follows ONE continuous arc: a single high apex
+            # (past the B:4->A:0 midpoint) so it descends steeply and lands directly on the created
+            # base (stack 1; +6.4=FOOD_DZ). No second key at A:0 -> no separate vertical-drop phase.
+            {"id": "bite", "k": 0, "keys": [(0, "B:4"), (44, "B:4"), (62, (9, -15), 56), (82, "A:0", 6.4)]},
+        ],
     },
 
     # ---- #8 GROW: two growers spend a food each; a new element appears by a grower ----
