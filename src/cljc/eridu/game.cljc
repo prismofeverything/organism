@@ -2325,12 +2325,16 @@
       ;; choice is one of the (tied) lowest roles use it, else use the computed
       ;; lowest. (Travel dropped — disclosed stub. Old auto arm increased FREE;
       ;; old human arm let you pick ANY role.)
+      ;; "Increase your lowest role then take a Travel action." The travel is a
+      ;; same-turn free travel (board-6 mechanism); offered after the increase
+      ;; (works for a human's mid-turn claim; a bot's turn-end claim drops it).
       [15 3] (let [min-lv (apply min (map #(get-in pdata [:roles %] 1) roles))
                    lowest-set (set (filter #(= min-lv (get-in pdata [:roles %] 1)) roles))
                    target (if (contains? lowest-set choice)
                             choice
                             (first (filter lowest-set roles)))]
-               (increase-role-with-cost state player-key target))
+               (-> (increase-role-with-cost state player-key target)
+                   (assoc-in [:players player-key :pending-free-travel] true)))
       [15 4] (let [routes (board-routes state)
                    route-by-key (into {} (for [r routes]
                                            [(segment-route-key r) r]))
@@ -2378,11 +2382,18 @@
                        ;; a facedown temple (supply-gated inside add-temple).
                        (add-temple s player-key city :face-down))
                      state (magistrate-cities state))
+      ;; "Score 8 Amity if you have Uruk surrounded by Raiders. Then you may flip
+      ;; one of those raiders." Flip is beneficial (a :point raider can be scored
+      ;; by travelling through), so auto-flip one surrounding :raiding raider.
       [17 3] (let [adj-rks (set (map segment-route-key
                                       (routes-from-city :uruk (board-routes state))))
                    player-rks (set (keys (:raiders pdata)))]
                (if (and (seq adj-rks) (every? player-rks adj-rks))
-                 (update-in state [:players player-key :amity] + 8)
+                 (let [s (update-in state [:players player-key :amity] + 8)
+                       flip-rk (first (filter #(some #{:raiding}
+                                                     (raiders-on (get-in s [:players player-key :raiders]) %))
+                                              adj-rks))]
+                   (if flip-rk (flip-one-raider-to-point s player-key flip-rk) s))
                  state))
       ;; "Sell to the city your caravan is in for Glory instead." FAITHFUL:
       ;; resolve a REAL sell in the caravan's city, scoring GLORY (+ magistrate
@@ -2409,11 +2420,17 @@
                (if (some #{:face-down} (temples-at pdata :samarra))
                  (update-in s [:players player-key :glory] + 5)
                  s))
+      ;; "Score 6 Amity if you have Kish surrounded by Raiders. Then you may flip
+      ;; one of those raiders." Auto-flip one surrounding :raiding raider (beneficial).
       [18 3] (let [adj-rks (set (map segment-route-key
                                       (routes-from-city :kish (board-routes state))))
                    player-rks (set (keys (:raiders pdata)))]
                (if (and (seq adj-rks) (every? player-rks adj-rks))
-                 (update-in state [:players player-key :amity] + 6)
+                 (let [s (update-in state [:players player-key :amity] + 6)
+                       flip-rk (first (filter #(some #{:raiding}
+                                                     (raiders-on (get-in s [:players player-key :raiders]) %))
+                                              adj-rks))]
+                   (if flip-rk (flip-one-raider-to-point s player-key flip-rk) s))
                  state))
       [18 4] (let [raiders (:raiders pdata)
                    n       (count-raiders-with-status raiders :point)
@@ -2732,9 +2749,12 @@
                      (cities-surrounded-by state player-key))
 
       ;; ─── Board 30: Council of Amar-Sin ──────────────────────────
-      ;; "Influence a Magistrate then take a Travel action." choice = mag dest.
+      ;; "Influence a Magistrate then take a Travel action." choice = mag dest;
+      ;; the travel is a same-turn free travel (board-6 mechanism), queued after
+      ;; the influence.
       [30 1] (let [dest (or choice (first (magistrate-cities state)))]
-               (cond-> state dest (bonus-influence player-key dest)))
+               (-> (cond-> state dest (bonus-influence player-key dest))
+                   (assoc-in [:players player-key :pending-free-travel] true)))
       ;; "Influence a Magistrate then take a Sell action." choice = mag dest;
       ;; influence + sell in that city.
       [30 2] (let [dest (or choice (first (magistrate-cities state)))]
@@ -2787,9 +2807,12 @@
       ;; "Take a Gem. Take two travel actions." FAITHFUL (Bucket A): grant the gem
       ;; AND travel to (or choice caravan). (Old auto arm gave the gem but no
       ;; travel; old human arm travelled but dropped the gem.) Second travel dropped.
+      ;; "Take a Gem. Take two travel actions." Gem + first travel to the chosen
+      ;; adjacent city, then a second same-turn free travel (board-6 mechanism).
       [32 2] (let [dest (or choice (:caravan pdata))]
-               (cond-> (add-player-resource state player-key :gems 1)
-                 dest (bonus-travel-to player-key dest)))
+               (-> (add-player-resource state player-key :gems 1)
+                   (cond-> dest (bonus-travel-to player-key dest))
+                   (assoc-in [:players player-key :pending-free-travel] true)))
       ;; "Place a raider in each route that has one of your Temples in both cities."
       ;; Place on EVERY eligible free route (both endpoints hold your temple), not
       ;; just the first. place-raider-on no-ops past the raider-supply / max cap.

@@ -1211,3 +1211,43 @@
       (is (not (game/city-has-sellable-demand? s :bob :uruk))
           "bob does not see alice's owner-restricted demand")
       (is (= s (sell-in s :bob :uruk)) "bob's sell at uruk is a no-op (nothing he may fulfill)"))))
+
+;; =============================================================================
+;; Optional-flip ([17 3]/[18 3]) + queued free-travel ([15 3]/[30 1]/[32 2])
+;; =============================================================================
+
+(defn- point-count [s]
+  (->> (vals (get-in s [:players :alice :raiders])) (apply concat) (filter #{:point}) count))
+
+(deftest board-17-slot-3-surround-amity-and-flip-test
+  ;; In 4p, Uruk has 4 adjacent routes — all must hold a raider to surround it.
+  (testing "Uruk surrounded by raiders → +8 amity AND one surrounding raider flipped to point"
+    (let [s  (board-state 4 17 {:raiders {[:babylon :uruk] [:raiding]
+                                          [:eridu :uruk]   [:raiding]
+                                          [:nippur :uruk]  [:raiding]
+                                          [:lagash :uruk]  [:raiding]}
+                                :amity 0})
+          s' (game/apply-bonus-effect s :alice 17 3)]
+      (is (= 8 (amity s')) "scored 8 amity for the surround")
+      (is (= 1 (point-count s')) "exactly one surrounding raider flipped :raiding→:point")))
+  (testing "not surrounded → no amity, no flip"
+    (let [s  (board-state 4 17 {:raiders {[:babylon :uruk] [:raiding]} :amity 0})
+          s' (game/apply-bonus-effect s :alice 17 3)]
+      (is (= 0 (amity s')))
+      (is (= 0 (point-count s'))))))
+
+(deftest queued-free-travel-slots-test
+  (testing "[30 1] influence then queues a same-turn free travel"
+    (let [s  (-> (board-state 4 30 {}) (assoc :magistrates {0 :uruk}))
+          s' (game/apply-bonus-effect s :alice 30 1)]
+      (is (true? (get-in s' [:players :alice :pending-free-travel])) "free travel queued")))
+  (testing "[15 3] increases lowest role then queues a free travel"
+    (let [s  (board-state 4 15 {:roles {:merchant 1 :priest 3 :raider 3 :leader 3}})
+          s' (game/apply-bonus-effect s :alice 15 3)]
+      (is (= 2 (get-in s' [:players :alice :roles :merchant])) "lowest role (merchant) increased")
+      (is (true? (get-in s' [:players :alice :pending-free-travel])) "free travel queued")))
+  (testing "[32 2] grants a gem and queues a (second) free travel"
+    (let [s  (board-state 4 32 {:caravan :uruk :resources {:gems 0 :tools 0 :gold 0 :pottery 0}})
+          s' (game/apply-bonus-effect s :alice 32 2)]
+      (is (= 1 (res s' :gems)) "gem granted")
+      (is (true? (get-in s' [:players :alice :pending-free-travel])) "second travel queued"))))
