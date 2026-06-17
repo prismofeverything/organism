@@ -64,7 +64,17 @@ Regression test `g1-g2-magistrate-contests-claimable-test` (point-only raiders �
 > *are* written — plausibly just **hard**, not impossible. Their zero-claim rates
 > came from stale data; re-measure on the fixed run before concluding anything.
 
-## 3. The +10 role-5 bonus — re-examined on fixed-run data (NOT dominant)
+## 3. The +10 role-5 bonus — CLOSED: leave as-is (designer decision)
+
+**DECISION (Mohammad, 2026-06): leave it — working as intended. Issue closed.**
+Rationale: reaching level 5 costs 4 resources and is a *blockable* path through
+player interaction; pushing deep into one strategy leaves your final scoring
+potentially imbalanced (reputation = min(amity,glory)); there is no viable line
+that maxes all 4 roles (confirmed: 0 of 400k player-rows). It is strong — very
+strong — and intentionally so, so players *feel good* doing it. No code change.
+
+The analysis below stands as supporting evidence (it is strong but NOT dominant —
+66% of winners maxed zero roles).
 
 Source-confirmed (`game.cljc:1223-1227`): the role end-game bonus is a **flat
 +10 points to the opposite track** for reaching level 5, identical for all four
@@ -221,13 +231,12 @@ counts [1 2 3 4], **170,000 games**, no `:fresh?` reseed from stale data.
 Committed baseline: `resources/eridu/evolved-baseline.edn` (20 organisms, full
 provenance header). Mirrors `output/bench/evolved-population.edn`.
 
-## 7. Still open — your calls
+## 7. Open items — NONE
 
-- **+10 role-5 lever** (Section 3). The fixed-run data is now in: the population
-  is still merchant/leader-led even with diversity preserved, consistent with
-  this being the dominant lever. Decide leave / scale / diminishing — or leave it
-  as a legible win condition. Not changed.
-- Nothing else outstanding; G1/G2 are fixed (Section 2).
+- **+10 role-5 lever** (§3) — **CLOSED**: leave as-is, working as intended
+  (designer decision). Strong by design; blockable; no max-all-4 line exists.
+- G1/G2 fixed (§2); all bonus-board gaps + deferred slots resolved (§8/§11);
+  bot/human paths unified. No outstanding correctness or design issues.
 
 ## 8. Deferred bonus slots — need a data-model change or new choice (your call)
 
