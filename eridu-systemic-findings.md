@@ -273,3 +273,16 @@ eligible target existed — both paths now fire the arm once in that case.
   supply. Needs the multi-raider-per-route model (same as `[34 2]`).
 - **`[15 4]`** is a flat amity proxy missing its "raider adjacent to a magistrate"
   condition (status correctly `:partial`).
+
+## 10. Priest components — honest result after the rebuild
+
+After porting all 4 priest decision components (cluster placement, double-flip
+chaining, magistrate→temple setup, priest leveling) + the faithful bonus effects,
+a fresh 170k-game bench shows: priest viability **improved modestly** (priest-top
+reputation 8.79 → 9.32; bots attempting priest 39k → 64k of 400k), but the GA
+still does **not** select the `:temple-engine` gene (mean ~0.01). Interpretation:
+the bot can now *execute* the temple engine, but it isn't a *dominant* line
+against competent self-play opponents — fzghoul's 37-vs-11-vs-4 blowout exploited
+weak/passive bots, not a broken strategy. The game looks well-balanced: no single
+strategy (temple engine included) takes over. Priest is now a viable niche, not a
+dominated one — which is a healthy place to land.
