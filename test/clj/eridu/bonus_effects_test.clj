@@ -750,25 +750,27 @@
           "caravan IS in the city → temple placed in Babylon"))))
 
 (deftest board-11-slot-2-sell-lagash-double-glory-test
-  (testing "two matching goods → two glory sells in Lagash, caravan unchanged"
+  ;; Designer-confirmed: ONE sell at Lagash scoring DOUBLE the merchant glory
+  ;; (one good + one token), no caravan move.
+  (testing "one sell at Lagash → double merchant glory, one good/token, no move"
     (let [s  (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
                              :resources {:tools 0 :pottery 2 :gold 0 :gems 0}
                              :amity 0 :glory 0 :caravan :uruk}
                           {:city-demands {:lagash [:pottery :pottery]}})
           s' (game/apply-bonus-effect s :alice 11 2)]
-      (is (= 4 (glory s')) "merchant lv1 = 2 each scored as GLORY × 2 = 4 (double)")
+      (is (= 4 (glory s')) "merchant lv1 glory 2 × 2 (double) = 4")
       (is (= 0 (amity s')) "scored as glory, NOT amity")
-      (is (= 0 (res s' :pottery)) "both goods spent")
-      (is (= [] (get-in s' [:city-demands :lagash])) "both demands consumed")
+      (is (= 1 (res s' :pottery)) "exactly ONE good spent (single sell)")
+      (is (= [:pottery] (get-in s' [:city-demands :lagash])) "exactly ONE demand consumed")
       (is (= :uruk (get-in s' [:players :alice :caravan])) "no caravan move")))
-  (testing "magistrate in Lagash adds leader-bonus glory per sell"
+  (testing "magistrate in Lagash adds leader-bonus glory once on the doubled sell"
     (let [s  (state-with 11 {:roles {:merchant 1 :priest 1 :raider 1 :leader 1}
                              :resources {:tools 0 :pottery 1 :gold 0 :gems 0}
                              :amity 0 :glory 0 :caravan :uruk}
                           {:magistrates {:mag-0 :lagash}
                            :city-demands {:lagash [:pottery]}})
           s' (game/apply-bonus-effect s :alice 11 2)]
-      (is (= 3 (glory s')) "merchant 2 glory + leader-bonus lv1 1 glory = 3")
+      (is (= 5 (glory s')) "doubled merchant glory (2×2=4) + leader-bonus lv1 (1) = 5")
       (is (= 0 (amity s')) "no amity"))))
 
 (deftest board-12-slot-3-human-path-merchant-and-current-city-glory-test

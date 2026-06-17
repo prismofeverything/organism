@@ -1768,15 +1768,17 @@
 (defn- sell-for-glory-in
   "Like bonus-sell-in but the merchant reward is scored as GLORY instead of
    amity — for cards that say 'Sell ... for Glory instead'. Spends a matching
-   good, consumes the demand token, and adds merchant-level glory (+ the
-   magistrate glory bonus at the sell city). No-op when nothing is sellable."
-  [s player-key city]
-  (let [demands (get-in s [:city-demands city] [])
+   good, consumes the demand token, and adds merchant-level glory (* `mult`, for
+   'double Glory' cards) + the magistrate glory bonus at the sell city. No-op
+   when nothing is sellable."
+  ([s player-key city] (sell-for-glory-in s player-key city 1))
+  ([s player-key city mult]
+   (let [demands (get-in s [:city-demands city] [])
         resources (get-in s [:players player-key :resources])
         sellable (first (filter #(pos? (get resources % 0)) demands))]
     (if sellable
       (let [merchant-lv (get-in s [:players player-key :roles :merchant] 1)
-            glory (get merchant-score merchant-lv 2)
+            glory (* mult (get merchant-score merchant-lv 2))
             has-mag (some #{city} (vals (:magistrates s)))
             leader-lv (get-in s [:players player-key :roles :leader] 1)
             mag-glory (if has-mag (get leader-bonus leader-lv 0) 0)]
@@ -1788,7 +1790,7 @@
                                         (subvec (vec ds) (inc idx))))))
             (update-in [:players player-key :demand-tokens] conj sellable)
             (update-in [:players player-key :glory] + (+ glory mag-glory))))
-      s)))
+      s))))
 
 (defn- place-demand-tokens
   "Draw `n` random demand tokens from the bag and place them onto `city`'s demand
@@ -2112,9 +2114,10 @@
       ;; FAITHFUL: do NOT move the caravan — resolve TWO real sells in Lagash that
       ;; score GLORY (double glory), each also earning the magistrate glory bonus.
       ;; No-ops per sell when nothing sellable.
-      [11 2] (-> state
-                 (sell-for-glory-in player-key :lagash)
-                 (sell-for-glory-in player-key :lagash))
+      ;; "Sell to Lagash for Double Glory points (you don't have to be there)."
+      ;; Designer-confirmed: ONE sell at Lagash scoring 2x merchant glory (one
+      ;; good + one token), no caravan move.
+      [11 2] (sell-for-glory-in state player-key :lagash 2)
       [11 3] (increase-role-free state player-key :raider)
       [11 4] (let [fd (count-face-down-temples pdata)]
                (update-in state [:players player-key :glory] + fd))
