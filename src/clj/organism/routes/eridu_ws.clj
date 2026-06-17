@@ -792,8 +792,11 @@
             ;; defers an interactive pick to pending-bonus (bonus-fn = identity)
             ;; and applies a non-interactive effect immediately.
             bonus-fn (cond
+                       ;; interactive WITH a real target → defer to pending-bonus
                        needs-choice identity
-                       no-target?   identity
+                       ;; no eligible target (or non-interactive) → fire the arm
+                       ;; once: a choice-independent rider still happens, the
+                       ;; choice-dependent part no-ops via (or choice default).
                        :else (fn [s] (game/apply-bonus-effect s player-key board-id chosen-slot)))
             claimed (game/apply-feat-claim! state player-key contest-id chosen-slot
                                             wild-points bonus-fn)

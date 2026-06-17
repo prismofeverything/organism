@@ -1155,3 +1155,17 @@
                  uncover-passive)
           s' (game/apply-end-game-scoring s)]
       (is (= 3 (amity s')) "3 gems → +3 amity after full end-game scoring"))))
+
+(deftest board-20-slot-3-unconditional-rider-fires-without-target-test
+  ;; Merge-regression guard: [20 3] "Influence a Magistrate. Then score Amity
+  ;; based on your Leader level." The score-amity rider is choice-INDEPENDENT —
+  ;; with NO magistrate the influence half no-ops but the amity must still fire.
+  ;; The C1+C2 merge briefly dropped it for bots (empty pick list → arm never
+  ;; invoked); both the bot path and the auto arm must fire the rider.
+  (testing "no magistrate → leader-level amity still scored, bot == auto arm"
+    (let [s    (state-with 20 {:roles {:merchant 1 :priest 1 :raider 1 :leader 3}}
+                           {:magistrates {}})
+          bot  (game/bot-resolve-bonus s :alice 20 3)
+          auto (game/apply-bonus-effect s :alice 20 3)]
+      (is (pos? (amity bot)) "the unconditional amity rider fired for the bot (was 0 pre-fix)")
+      (is (= (amity auto) (amity bot)) "bot resolution matches the auto arm"))))

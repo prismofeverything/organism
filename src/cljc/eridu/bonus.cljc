@@ -132,7 +132,7 @@
    [21 4] :implemented  ;; Glory per demand fulfilled
    [22 0] :persistent   ;; Space 7 same action twice
    [22 1] :implemented  ;; Increase Raider and Merchant
-   [22 2] :implemented  ;; Demands on facedown temples
+   [22 2] :partial      ;; PROXY: amity=facedown count; needs :temple-demands model (deferred)
    [22 3] :implemented  ;; Good + travel
    [22 4] :partial        ;; 2 Amity per raider (partial, no travel)
    [23 0] :persistent   ;; Sell → glory instead of amity
@@ -142,7 +142,7 @@
    [23 4] :implemented  ;; Temple in magistrate city
    [24 0] :persistent   ;; Surround city → sell there
    [24 1] :implemented  ;; Increase Raider and Leader
-   [24 2] :implemented  ;; Demands on magistrates
+   [24 2] :partial      ;; placement done; "only you fulfill" needs demand-owner model (deferred)
    [24 3] :implemented  ;; Glory per demand fulfilled
    [24 4] :implemented  ;; Goods per demand at magistrates
    [25 0] :persistent   ;; Two raiders per path
@@ -192,7 +192,7 @@
    [33 4] :implemented  ;; Deploy + travel
    [34 0] :persistent   ;; Score raiders → amity instead of glory
    [34 1] :implemented  ;; Pay tools for raiders around Uruk
-   [34 2] :implemented  ;; Raider on each existing route
+   [34 2] :partial      ;; PROXY: 2 raiders on any routes; needs multi-raider-per-route model (deferred)
    [34 3] :implemented  ;; Sell at magistrate+temple cities
    [34 4] :implemented  ;; Same as 34-3
    [35 0] :persistent   ;; No goods → gain good of choice

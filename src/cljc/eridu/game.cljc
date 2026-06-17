@@ -3034,9 +3034,14 @@
    apply-bonus-effect(nil auto-default) so bot and human cannot drift."
   [state player-key board-id slot]
   (if-let [desc (bonus-needs-choice? board-id slot)]
-    (reduce (fn [s pick] (apply-bonus-with-choice s player-key board-id slot pick))
-            state
-            (bot-bonus-picks state player-key desc))
+    (let [picks (bot-bonus-picks state player-key desc)]
+      (if (seq picks)
+        (reduce (fn [s pick] (apply-bonus-with-choice s player-key board-id slot pick))
+                state picks)
+        ;; No eligible target: still fire the arm ONCE so a choice-INDEPENDENT
+        ;; rider (e.g. [20 3] "Influence a Magistrate, THEN score amity by leader
+        ;; level") happens; the choice-dependent part no-ops via (or choice default).
+        (apply-bonus-effect state player-key board-id slot)))
     (apply-bonus-effect state player-key board-id slot)))
 
 (defn apply-feat-claim!
