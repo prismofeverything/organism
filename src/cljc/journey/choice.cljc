@@ -245,8 +245,9 @@
                  available)))))
 
 (defn choose-activate-owner-bonus-choices
-  "After activator finishes base actions, owner decides to decline (0) or take full bonus.
-   No partial bonus — all or nothing."
+  "After the activator's base actions on another player's station, the owner
+   decides: decline (0) — which passes the option to the activator — or take the
+   full bonus. All-or-nothing; feasibility is the owner's resources."
   [state]
   (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
         owner        (get-in state [:player-turn :action :current-owner])
@@ -260,32 +261,36 @@
                        :tower
                        (min bonus-total (game/total-spendable-sundivers state owner))
                        bonus-total)
-        options (if (pos? max-feasible) [0 max-feasible] [0])]
-    (into {}
-          (map
-           (fn [n]
-             [n (-> state
-                    (assoc-in [:player-turn :action :owner-actions] n)
-                    (assoc-in [:player-turn :choice-player] nil)
-                    (game/begin-actor-actions :owner))])
-           options))))
+        ;; Decline → hand the option to the activator (fall back to self-bonus).
+        decline      (-> state
+                         (assoc-in [:player-turn :choice-player] nil)
+                         (assoc-in [:player-turn :phase] :choose-activate-self-bonus))]
+    (cond-> {0 decline}
+      (pos? max-feasible)
+      (assoc max-feasible
+             (-> state
+                 (assoc-in [:player-turn :action :owner-actions] max-feasible)
+                 (assoc-in [:player-turn :action :bonus-total] 0)
+                 (assoc-in [:player-turn :choice-player] nil)
+                 (game/begin-actor-actions :owner))))))
 
 (defn choose-activate-self-bonus-choices
-  "Activating their own station: choose to decline (0) or take full bonus.
-   No partial bonus — it's all or nothing."
+  "After base actions, the activator chooses to decline (0) or take the full bonus.
+   Used for their own station, and as the fallback when the owner of another
+   station declines. All-or-nothing; feasibility is the activator's current
+   (post-base) resources, and the bonus is consumed once resolved."
   [state]
   (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
-        base         (get-in state [:player-turn :action :activator-actions] 0)
         player       (game/current-player state)
         station-type (get-in state [:player-turn :action :station-type])
         max-feasible (case station-type
                        :matrix
-                       (let [positions (count (game/matrix-beacon-positions state player))
-                             spendable (game/total-spendable-sundivers state player)
-                             beacons   (get-in state [:players player :reserve :beacons] 0)]
-                         (max 0 (min bonus-total (- positions base) (- spendable base) (- beacons base))))
+                       (min bonus-total
+                            (count (game/matrix-beacon-positions state player))
+                            (game/total-spendable-sundivers state player)
+                            (get-in state [:players player :reserve :beacons] 0))
                        :tower
-                       (max 0 (min bonus-total (- (game/total-spendable-sundivers state player) base)))
+                       (min bonus-total (game/total-spendable-sundivers state player))
                        bonus-total)
         ;; Only offer 0 (decline) and max-feasible (take full bonus)
         options (if (pos? max-feasible)
@@ -295,7 +300,9 @@
           (map
            (fn [n]
              [n (-> state
-                    (assoc-in [:player-turn :action :activator-actions] (+ base n))
+                    (assoc-in [:player-turn :action :activator-actions] n)
+                    (assoc-in [:player-turn :action :bonus-total] 0)
+                    (assoc-in [:player-turn :choice-player] nil)
                     (game/begin-actor-actions :activator))])
            options))))
 
@@ -754,9 +761,11 @@
         has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
                                       (> (game/hex-distance from-pos %) 1))
                                 (keys (:board state)))]
-    (cond-> {:direct (process-drift-flare-advance state next-pos)}
+    ;; Key by destination hex so the client shows clickable board spaces
+    ;; (straight-ahead and wrap), not :direct/:wrap buttons at the top.
+    (cond-> {next-pos (process-drift-flare-advance state next-pos)}
       (not has-tiles-beyond?)
-      (assoc :wrap (process-drift-flare-advance state wrap-pos)))))
+      (assoc wrap-pos (process-drift-flare-advance state wrap-pos)))))
 
 (defn choose-draw-drift-card-choices
   "Auto-choice to draw one drift card after captain drift.
@@ -890,9 +899,11 @@
         has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
                                       (> (game/hex-distance from-pos %) 1))
                                 (keys (:board state)))]
-    (cond-> {:direct (game/advance-flare-ark-to state next-pos)}
+    ;; Key by destination hex so the client shows clickable board spaces
+    ;; (straight-ahead and wrap), not :direct/:wrap buttons at the top.
+    (cond-> {next-pos (game/advance-flare-ark-to state next-pos)}
       (not has-tiles-beyond?)
-      (assoc :wrap (game/advance-flare-ark-to state wrap-pos)))))
+      (assoc wrap-pos (game/advance-flare-ark-to state wrap-pos)))))
 
 ;; --- action type ---
 
@@ -960,10 +971,11 @@
       ;; Auto-advance: if exactly 1 choice, skip this phase entirely.
       ;; Never auto-advance these phases — the player must always choose explicitly.
       ;; Also never auto-advance choose-convert (player should see what they're building).
+      ;; The bonus phases ARE auto-advanced when they hold only the decline option
+      ;; (the player can't afford any bonus), so there's no redundant prompt.
       (if (and (= 1 (count choices))
                (not (#{:choose-action-type :choose-move :choose-convert
-                       :choose-activate :choose-activate-self-bonus
-                       :choose-activate-owner-bonus :choose-land} phase)))
+                       :choose-activate :choose-land} phase)))
         (let [next-state (first (vals choices))]
           (if (and next-state (not= phase :game-over))
             (recur next-state)

@@ -153,35 +153,54 @@ STORY = {
         ],
     },
 
-    # ---- #11 PERISH: an organism with no EAT dies; its elements become piles of food ----
+    # ---- #11 PERISH: an organism with no EAT starves -- every element MORPHS into food (the same
+    #      treatment as a conflict capture): each scales out as its carried food FALLS onto its
+    #      body food (2 food per spot). Purple plasma flares on each (glow_player_color). ----
     "perish": {
-        "len": 120,
-        "cam": {"az": -42, "el": 45, "dist": 300, "lens": 52, "targz": 6,
-                "drift": {"az": -7, "el": 3, "dist": -8}},
+        "len": 92,
+        "glow_player_color": True,
+        "cam": {"az": -90, "el": 46, "dist": 275, "lens": 50, "targz": 6, "tx": 0, "ty": 18,
+                "drift": {"az": 5, "el": 0.5, "dist": -8}},
         "actors": {"m": ("purple", "move"), "g1": ("purple", "grow"), "g2": ("purple", "grow")},
+        # m(A:0), g1(B:0), g2(B:1): a move + 2 grow, no EAT -> perishes. All flare purple (t38..58)
+        # and morph out (scale 0.9->0 over t32..64); each carried food falls onto its body food.
         "beats": [
-            {"t": 0,   "pos": {"m": "A:0", "g1": "B:0", "g2": "B:1"}, "food": {"m": 1, "g1": 1, "g2": 1}, "glow": ["m", "g1", "g2"]},
-            {"t": 44,  "pos": {"m": "A:0", "g1": "B:0", "g2": "B:1"}, "food": {"m": 1, "g1": 1, "g2": 1}, "glow": ["m", "g1", "g2"]},
-            {"t": 72,  "pos": {}, "food": {}, "free": {"A:0": 2, "B:0": 2, "B:1": 2}, "glow": []},
-            {"t": 120, "pos": {}, "food": {}, "free": {"A:0": 2, "B:0": 2, "B:1": 2}, "glow": []},
+            {"t": 0,  "pos": {"m": "A:0", "g1": "B:0", "g2": "B:1"}, "food": {}, "glow": []},
+            {"t": 32, "pos": {"m": "A:0", "g1": "B:0", "g2": "B:1"}, "food": {}, "glow": []},
+            {"t": 38, "pos": {"m": "A:0", "g1": "B:0", "g2": "B:1"}, "food": {}, "scale": {"m": 0.7, "g1": 0.7, "g2": 0.7}, "glow": ["m", "g1", "g2"]},
+            {"t": 58, "pos": {"m": "A:0", "g1": "B:0", "g2": "B:1"}, "food": {}, "scale": {"m": 0.1, "g1": 0.1, "g2": 0.1}, "free": {"A:0": 1, "B:0": 1, "B:1": 1}, "glow": ["m", "g1", "g2"]},
+            {"t": 64, "pos": {}, "food": {}, "free": {"A:0": 1, "B:0": 1, "B:1": 1}, "glow": []},
+            {"t": 92, "pos": {}, "food": {}, "free": {"A:0": 1, "B:0": 1, "B:1": 1}, "glow": []},
+        ],
+        # each element's carried food sits on it, then falls onto its body food (stack 1) as it morphs
+        "food_actors": [
+            {"id": "c_m",  "k": 0, "keys": [(0, "A:0"), (34, "A:0"), (58, (0.0, 0.0), 6.4)]},
+            {"id": "c_g1", "k": 0, "keys": [(0, "B:0"), (34, "B:0"), (58, (21.5, 37.2), 6.4)]},
+            {"id": "c_g2", "k": 0, "keys": [(0, "B:1"), (34, "B:1"), (58, (-21.5, 37.2), 6.4)]},
         ],
     },
 
-    # ---- #5 TWO ORGANISMS: one player acts in each (highlight one, then the other) ----
+    # ---- #5 TWO ORGANISMS: ONE player (blue) with TWO organisms, both acting at once. LEFT =
+    #      TRIANGLE (B:1,B:2,C:3) grows a MOVER off to the left (n1 at C:4); RIGHT = a STRAIGHT line
+    #      (C:8-C:9-C:10) whose EATER is in FRONT (C:8) and moves IN toward center (C:8 -> B:4),
+    #      bending the line. Both highlighted in the player color (glow_player_color, blue); the
+    #      actions overlap, the right (eater move) starting a little later than the left (grow). ----
     "two_org": {
-        "len": 144,
-        "cam": {"az": 4, "el": 53, "dist": 420, "lens": 50, "targz": 5,
-                "drift": {"az": 7, "el": -1.5, "dist": -10}},
-        "actors": {"e1": ("green", "eat"), "m1": ("green", "move"), "g1": ("green", "grow"),
-                   "e2": ("green", "eat"), "m2": ("green", "move"), "g2": ("green", "grow")},
-        "_pos": "org1 around B:1 (top), org2 around B:4 (opposite) -> separate organisms",
+        "len": 90,
+        "glow_player_color": True,
+        "cam": {"az": -90, "el": 47, "dist": 400, "lens": 50, "targz": 5, "tx": 0, "ty": -12,
+                "drift": {"az": 6, "el": -0.5, "dist": -8}},
+        "actors": {"e1": ("blue", "eat"), "m1": ("blue", "move"), "g1": ("blue", "grow"), "n1": ("blue", "move"),
+                   "e2": ("blue", "eat"), "m2": ("blue", "move"), "g2": ("blue", "grow")},
+        # LEFT triangle e1/m1/g1 grows n1 (C:4) off to the left; g1 spends a food. RIGHT line
+        # g2(C:10)/m2(C:9)/e2(C:8) starts straight, its front eater e2 moves IN (C:8->B:4) bending
+        # it. n1 grows in (scale 0->0.9 via per-beat "scale") t20..58; e2 moves t36..58 (later); overlap.
         "beats": [
-            {"t": 0,   "pos": {"e1": "B:1", "m1": "C:2", "g1": "C:3", "e2": "B:4", "m2": "C:8", "g2": "C:7"}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": []},
-            {"t": 22,  "pos": {"e1": "B:1", "m1": "C:2", "g1": "C:3", "e2": "B:4", "m2": "C:8", "g2": "C:7"}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["m1"]},
-            {"t": 64,  "pos": {"e1": "B:1", "m1": "C:2", "g1": "C:3", "e2": "B:4", "m2": "C:8", "g2": "C:7"}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["m1"]},
-            {"t": 84,  "pos": {"e1": "B:1", "m1": "C:2", "g1": "C:3", "e2": "B:4", "m2": "C:8", "g2": "C:7"}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["g2"]},
-            {"t": 126, "pos": {"e1": "B:1", "m1": "C:2", "g1": "C:3", "e2": "B:4", "m2": "C:8", "g2": "C:7"}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["g2"]},
-            {"t": 144, "pos": {"e1": "B:1", "m1": "C:2", "g1": "C:3", "e2": "B:4", "m2": "C:8", "g2": "C:7"}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["g2"]},
+            {"t": 0,  "pos": {"e1": "B:1", "m1": "B:2", "g1": "C:3", "n1": "C:4", "e2": "C:8", "m2": "C:9", "g2": "C:10"}, "scale": {"n1": 0.0}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": []},
+            {"t": 20, "pos": {"e1": "B:1", "m1": "B:2", "g1": "C:3", "n1": "C:4", "e2": "C:8", "m2": "C:9", "g2": "C:10"}, "scale": {"n1": 0.0}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["n1"]},
+            {"t": 36, "pos": {"e1": "B:1", "m1": "B:2", "g1": "C:3", "n1": "C:4", "e2": "C:8", "m2": "C:9", "g2": "C:10"}, "scale": {"n1": 0.5}, "food": {"e1": 1, "m1": 1, "g1": 1, "e2": 1, "m2": 1, "g2": 1}, "glow": ["n1", "e2"]},
+            {"t": 58, "pos": {"e1": "B:1", "m1": "B:2", "g1": "C:3", "n1": "C:4", "e2": "B:4", "m2": "C:9", "g2": "C:10"}, "food": {"e1": 1, "m1": 1, "g1": 0, "e2": 1, "m2": 1, "g2": 1}, "glow": ["n1", "e2"]},
+            {"t": 90, "pos": {"e1": "B:1", "m1": "B:2", "g1": "C:3", "n1": "C:4", "e2": "B:4", "m2": "C:9", "g2": "C:10"}, "food": {"e1": 1, "m1": 1, "g1": 0, "e2": 1, "m2": 1, "g2": 1}, "glow": []},
         ],
     },
 

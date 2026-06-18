@@ -181,6 +181,42 @@
       (is (= :choose-activate-self-bonus (game/current-phase state))
           "owner activating their own station chooses the bonus themselves"))))
 
+(deftest activate-bonus-order-and-fallback-test
+  (testing "base actions run BEFORE the bonus is offered (own station)"
+    (let [start (-> (game/initial-state ["alice"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "alice" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]]))
+          hab0  (get-in start [:players "alice" :habitat :sundivers] 0)
+          state (game/begin-next-station start)]
+      ;; The base foundry action already executed (sundivers moved to habitat)…
+      (is (> (get-in state [:players "alice" :habitat :sundivers] 0) hab0)
+          "base action executed before any bonus prompt")
+      ;; …and only then is the activator offered the bonus.
+      (is (= :choose-activate-self-bonus (game/current-phase state)))))
+
+  (testing "owner declines the bonus on their station → the activator gets the option"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "bob" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+                    game/begin-next-station)]
+      ;; After base, the owner (bob) decides first.
+      (is (= :choose-activate-owner-bonus (game/current-phase state)))
+      (is (= "bob" (get-in state [:player-turn :choice-player])))
+      ;; Bob declines (choice 0) → alice (the activator) is offered the bonus.
+      (let [declined (get (choice/choose-activate-owner-bonus-choices state) 0)]
+        (is (= :choose-activate-self-bonus (game/current-phase declined))
+            "declining hands the option to the activator")
+        (is (nil? (get-in declined [:player-turn :choice-player]))
+            "control returns to the activator")))))
+
 (deftest convert-not-reactivatable-test
   (testing "a station converted (and auto-activated) this turn cannot be activated again"
     ;; Foundry pattern: sundivers at [3 0] and [2 -1] convert to a station at [2 0].
@@ -290,10 +326,11 @@
       :flare-beacon-join   (:join choices (:skip choices))
       :captain-beacon-join (:join choices (:skip choices))
 
-      ;; Ark advance wrap: always go direct
-      :choose-ark-advance        (:direct choices)
-      :choose-flare-advance      (:direct choices)
-      :choose-drift-flare-advance (:direct choices)
+      ;; Ark advance (flare/drift-flare are now keyed by destination hex):
+      ;; just take the first option (straight ahead).
+      :choose-ark-advance        (first (vals choices))
+      :choose-flare-advance      (first (vals choices))
+      :choose-drift-flare-advance (first (vals choices))
 
       ;; Drift card: auto-draw
       :draw-drift-card (:draw choices)

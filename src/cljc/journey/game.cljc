@@ -570,7 +570,6 @@
   [state player station-type target]
   (let [level     (get-in state [:board target :station :level] 0)
         {:keys [base bonus]} (station-action-counts level)
-        same?     true ;; player always owns the station they just converted
         feasible? (case station-type
                     :matrix
                     (let [positions (count (matrix-beacon-positions state player))
@@ -596,14 +595,11 @@
                       ;; again (each station activates at most once per turn).
                       (update-in [:player-turn :action :activated-stations] (fnil conj #{}) target)
                       (assoc-in [:player-turn :choice-player] nil))]
-        ;; Own station with bonus: ask how many bonus actions to take first
-        (if (and same? (pos? bonus))
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (begin-actor-actions :activator))))
+        ;; Do the base actions first; the bonus is offered afterward
+        ;; (advance-after-actions :activator).
+        (-> state
+            (assoc-in [:player-turn :action :activator-actions] base)
+            (begin-actor-actions :activator)))
       (assoc-in state [:player-turn :phase] :draw-cards))))
 
 ;; --- activate action ---
@@ -904,19 +900,31 @@
         state))))
 
 (defn advance-after-actions
-  "After current actor finishes:
-   - Activator done → offer owner their bonus (if other's station with bonus), else next station.
-   - Owner done → return sundiver from station to habitat, then next station."
+  "After an actor finishes an action run:
+   - Activator just finished base actions and a bonus remains → offer it. Own
+     station: the activator decides (:choose-activate-self-bonus). Another's
+     station: the owner decides first (:choose-activate-owner-bonus); only if they
+     decline does it fall back to the activator.
+   - Bonus already resolved (bonus-total 0) or none → next station.
+   - Owner finished → return the activator's sundiver, then next station."
   [state actor]
   (if (= actor :activator)
     (let [bonus-total (get-in state [:player-turn :action :bonus-total] 0)
           owner       (get-in state [:player-turn :action :current-owner])
           player      (current-player state)]
-      (if (and (pos? bonus-total) (not= player owner))
+      (cond
+        (not (pos? bonus-total))
+        (-> state return-sundiver-from-station begin-next-station)
+
+        (= player owner)
+        ;; Own station: the activator chooses whether to take the bonus.
+        (assoc-in state [:player-turn :phase] :choose-activate-self-bonus)
+
+        :else
+        ;; Another's station: the owner decides first.
         (-> state
             (assoc-in [:player-turn :choice-player] owner)
-            (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
-        (-> state return-sundiver-from-station begin-next-station)))
+            (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))))
     (-> state return-sundiver-from-station begin-next-station)))
 
 (defn begin-next-station
@@ -942,19 +950,12 @@
                          (assoc-in [:player-turn :action :bonus-total] bonus)
                          (assoc-in [:player-turn :action :beacons-joined] 0)
                          (update-in [:player-turn :action :cards-to-draw] (fnil + 0) level))]
-        (if (and (pos? bonus) (= owner player))
-          ;; Own station with bonus: activator (= owner) chooses how many bonus actions to take.
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (assoc-in [:player-turn :action :owner-actions] 0)
-              (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
-          ;; No bonus, or another player's station: activator does base actions only.
-          ;; For another's station the owner is offered the bonus afterward
-          ;; (see advance-after-actions :activator).
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (assoc-in [:player-turn :action :owner-actions] 0)
-              (begin-actor-actions :activator)))))))
+        ;; Always do the base actions first; the bonus (if any) is offered after,
+        ;; via advance-after-actions :activator.
+        (-> state
+            (assoc-in [:player-turn :action :activator-actions] base)
+            (assoc-in [:player-turn :action :owner-actions] 0)
+            (begin-actor-actions :activator))))))
 
 (defn start-activate
   "Initialize the activate action for the chosen station type.
