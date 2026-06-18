@@ -7,6 +7,8 @@
    [org.httpkit.server :as hk]
    [eridu.game :as game]
    [eridu.choice :as choice]
+   [eridu.decision :as decision]
+   [eridu.personality :as personality]
    [organism.persist :as persist]
    [organism.persist-eridu :as persist-e])
   (:import
@@ -128,6 +130,35 @@
   "Advance state through trivial single-choice phases."
   [state]
   (choice/advance-through-trivial state bot-protected-phases))
+
+(def ^:private baseline-personalities
+  "Smart evolved personalities for live bots, loaded once from the committed
+   baseline. Falls back to the hand-built archetypes if the resource is missing."
+  (delay
+    (or (try
+          (->> (slurp (io/resource "eridu/evolved-baseline.edn"))
+               (edn/read-string {:default (fn [_ v] v)})
+               :organisms
+               (keep :personality)
+               vec
+               seq)
+          (catch Throwable _ nil))
+        (vec personality/archetypes))))
+
+(defn assign-bot-personalities
+  "Cache a smart personality on every bot player. We cache the FULL weight map
+   (not a subset) so both decide and the engine-side chain-score see every gene.
+   Personalities are cycled from the baseline pool deterministically by sorted
+   player key, so a multi-bot game gets a spread of styles."
+  [state bots]
+  (let [pool (vec @baseline-personalities)]
+    (if (empty? pool)
+      state
+      (reduce (fn [s [i pk]]
+                (assoc-in s [:players pk :personality-cache]
+                          (nth pool (mod i (count pool)))))
+              state
+              (map-indexed vector (sort bots))))))
 
 ;; ── Bot AI helpers ────────────────────────────────────────────────────────────
 
@@ -590,7 +621,10 @@
               (when (and current-state
                          (not (:game-over current-state))
                          (contains? bots (choice-player current-state)))
-                (let [step-result (or (agent-step current-state)
+                (let [weights (or (get-in current-state
+                                           [:players (choice-player current-state) :personality-cache])
+                                  personality/default-weights)
+                      step-result (or (personality/personality-step current-state weights)
                                       (let [[_ cs] (choice/find-state-raw current-state)]
                                         (when (seq cs)
                                           [(first (keys cs)) (first (vals cs))])))]
@@ -613,8 +647,8 @@
 
 (defn handle-create! [db play-key {:keys [players bots]}]
   (when (seq players)
-    (let [state    (game/initial-state (vec players))
-          bot-set  (set (or bots []))]
+    (let [bot-set  (set (or bots []))
+          state    (assign-bot-personalities (game/initial-state (vec players)) bot-set)]
       (swap! games
              (fn [gs]
                (-> gs

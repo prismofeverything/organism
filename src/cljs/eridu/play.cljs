@@ -224,14 +224,12 @@
           (flush-pending-games!))))))
 
 (defn- cache-personalities-on-state
-  "Mirror simulate.clj: stash decision-relevant weights on each bot player so
-   downstream feat/bonus heuristics can read them from state."
+  "Mirror simulate.clj: stash the FULL weight map on each bot player so every
+   downstream feat/bonus heuristic (chain-score reads :feat-synergy and
+   :bonus-foresight, etc.) sees the real gene values, not a 5-key subset."
   [state pmap]
   (reduce (fn [s [pk weights]]
-            (assoc-in s [:players pk :personality-cache]
-                      (select-keys weights [:tempo :feat-awareness
-                                            :prefer-onetime-bonus
-                                            :feat-sequence :feat-closure-urgency])))
+            (assoc-in s [:players pk :personality-cache] weights))
           state pmap))
 
 (defn- offline-human-name

@@ -148,7 +148,7 @@
   (let [players  (vec (take 3 (shuffle generate-bot-names)))
         bot-set  (set players)
         game-key (generate-game-name)
-        state    (game/initial-state players)
+        state    (eridu-ws/assign-bot-personalities (game/initial-state players) bot-set)
         player-key (get-in request [:session :player])]
     (swap! eridu-ws/games
            assoc-in [:games game-key]
@@ -181,10 +181,12 @@
     (if (and (seq play-name) (seq players)
              (<= (count players) (if (= mode :solo) 1 4)))
       (let [players (if (= mode :solo) [(first players)] (vec (take 4 players)))
-            state   (if (= mode :solo)
-                      (game/initial-solo-state (first players))
-                      (game/initial-state players))
-            bot-set (set bots)]
+            bot-set (set bots)
+            state   (eridu-ws/assign-bot-personalities
+                     (if (= mode :solo)
+                       (game/initial-solo-state (first players))
+                       (game/initial-state players))
+                     bot-set)]
         (swap! eridu-ws/games
                assoc-in [:games play-name]
                {:key           play-name
