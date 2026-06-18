@@ -489,7 +489,8 @@
                                            :min-sells-per-round :min-deploys-per-round
                                            :standing-awareness :supply-conservation
                                            :feat-race-urgency :temple-engine
-                                           :feat-synergy :bonus-foresight])
+                                           :feat-synergy :bonus-foresight
+                                           :feat-lookahead])
         mutated (reduce (fn [p k]
                           (if (< (rand) mutation-rate)
                             (let [v (get p k 1.0)
@@ -524,7 +525,8 @@
                        :min-sells-per-round :min-deploys-per-round
                        :standing-awareness :supply-conservation
                        :feat-race-urgency :temple-engine
-                       :feat-synergy :bonus-foresight]
+                       :feat-synergy :bonus-foresight
+                       :feat-lookahead]
         child (reduce (fn [c k]
                         (assoc c k (if (< (rand) 0.5)
                                      (get parent-a k 1.0)
