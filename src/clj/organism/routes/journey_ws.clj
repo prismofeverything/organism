@@ -122,7 +122,7 @@
 
 (def ^:private bot-protected-phases
   "Phases where bot should stop, broadcast, and make a visible decision."
-  #{:choose-action-type :choose-move :choose-convert :choose-activate
+  #{:choose-action-type :choose-deconvert :choose-move :choose-convert :choose-activate
     :choose-activate-matrix-beacon :choose-activate-tower-heading
     :choose-land :game-over})
 
@@ -232,7 +232,8 @@
           (if next-state
             ;; Auto-advance through single-choice non-protected phases.
             ;; Implemented entirely in .clj — no dependency on .cljc auto-advance.
-            (let [protected-phases #{:choose-action-type :choose-move :choose-convert
+            (let [protected-phases #{:choose-action-type :choose-deconvert
+                                     :choose-move :choose-convert
                                      :choose-activate :choose-land
                                      :game-over}
                   effective (loop [s next-state]

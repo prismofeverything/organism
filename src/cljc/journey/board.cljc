@@ -1218,7 +1218,8 @@
                       (choice/pending-cipher-queue pending)))]
         (when (seq items)
           (let [is-pending? (empty? cipher-queue)]
-            [:g {:transform "translate(0,110)"}
+            ;; Below the cipher (which extends to ~y=150 at scale 2.0), not over it.
+            [:g {:transform "translate(0,190)"}
              [:text {:x 0 :y -16
                      :text-anchor "middle"
                      :fill (if is-pending? "#554433" "#445566")

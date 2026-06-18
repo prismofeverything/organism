@@ -242,6 +242,52 @@
           (is (not (contains? choices [2 0]))
               "the just-converted station must not be activatable again this turn"))))))
 
+(deftest deconvert-when-stuck-test
+  (testing "starting a turn with no usable sundivers but a station forces a deconvert"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    ;; Bob: no sundivers on the board or in his habitat, but owns a tower.
+                    (assoc-in [:players "bob" :habitat :sundivers] 0)
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :tower "bob" 1)))
+                    (assoc-in [:players "bob" :stations [2 0]] {:type :tower :level 1})
+                    ;; Make it alice's turn so begin-next-player-turn advances to bob.
+                    (assoc-in [:player-turn :player] "alice"))
+          after (game/begin-next-player-turn state)]
+      (is (= "bob" (game/current-player after)))
+      (is (zero? (game/total-spendable-sundivers after "bob")))
+      (is (= :choose-deconvert (game/current-phase after))
+          "bob is forced to deconvert")
+      ;; Deconverting the tower removes it and returns 3 sundivers to bob's habitat.
+      (let [done (get (choice/choose-deconvert-choices after) [2 0])]
+        (is (nil? (get-in done [:board [2 0] :station])) "station removed from the board")
+        (is (not (contains? (get-in done [:players "bob" :stations]) [2 0]))
+            "station removed from bob's stations")
+        (is (= 3 (get-in done [:players "bob" :habitat :sundivers]))
+            "3 sundivers reclaimed for a tower")
+        (is (= :choose-action-type (game/current-phase done))
+            "then the player takes a normal turn with the reclaimed sundivers")))))
+
+(deftest keep-card-held-is-an-option-test
+  (testing "the held card is offered as an equal keep option alongside drawn cards"
+    (let [held    (game/make-card 0 5)
+          drawn   [(game/make-card 1 3) (game/make-card 2 7)]
+          state   (-> (game/initial-state ["alice"])
+                      (assoc-in [:players "alice" :held-card] held)
+                      (assoc-in [:player-turn :action :drawn-cards] drawn)
+                      (assoc-in [:player-turn :phase] :keep-card))
+          choices (choice/choose-keep-card-choices state)]
+      ;; All three cards (held + 2 drawn) are options, keyed by the card itself —
+      ;; no separate :keep-held option.
+      (is (= 3 (count choices)))
+      (is (contains? choices held) "the held card is a keep option")
+      (is (every? #(contains? choices %) drawn) "the drawn cards are options")
+      (is (not (contains? choices :keep-held)) "no separate held/keep option")
+      ;; Keeping the held card discards the two drawn cards.
+      (let [done (get choices held)]
+        (is (= held (get-in done [:players "alice" :held-card])))
+        (is (= (set drawn) (set (:discard done))) "the unchosen cards are discarded")))))
+
 ;; ─── extended simulation ──────────────────────────────────────────────────────
 
 (defn- try-if-choices
@@ -368,7 +414,7 @@
         [s phases]
 
         (and (seq phases)
-             (= :choose-action-type (game/current-phase s))
+             (contains? #{:choose-action-type :choose-deconvert} (game/current-phase s))
              (not= (game/current-player s) start-player))
         [s phases]
 

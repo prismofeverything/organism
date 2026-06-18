@@ -43,6 +43,10 @@
 (defonce history-view-step
   (r/atom nil))
 
+;; History/log panel visibility — hidden by default, toggled with ESC.
+(defonce history-visible?
+  (r/atom false))
+
 ;; When non-nil, the player has clicked a convert ghost station and must pick
 ;; which sundiver arrangement to use. Value: {:target pos :type t :options [conv...]}
 (defonce pending-convert
@@ -236,6 +240,7 @@
          "PageUp"     (swap! board-zoom #(min 4.0 (* % 1.15)))
          "PageDown"   (swap! board-zoom #(max 0.2  (/ % 1.15)))
          " "          (do (reset! board-pan-x 0) (reset! board-pan-y 0) (reset! board-zoom 1.0))
+         "Escape"     (swap! history-visible? not)
          nil))
      on-move
      (fn [e]
@@ -339,7 +344,7 @@
         view-step  @history-view-step
         n          (count history)
         ;; If viewing a historical step, use that state; otherwise live
-        viewing-history? (and view-step (< view-step (dec n)))
+        viewing-history? (and @history-visible? view-step (< view-step (dec n)))
         state      (if (and viewing-history? (< view-step n))
                      (:state (nth history view-step))
                      live-state)]
@@ -415,10 +420,7 @@
             chosen-pos        (get-in state [:player-turn :action :fly-from])
             undo-btn          (when (and active? undo?)
                                 [{:label "undo" :on-click send-undo!}])
-            ;; Filter out :keep-held when showing card UI (handled in card row)
-            filtered-btns     (if (seq card-choices)
-                                (remove #(= :keep-held (:choice-key %)) btn-choices)
-                                btn-choices)
+            filtered-btns     btn-choices
             buttons           (concat
                                undo-btn
                                (when active?
@@ -446,12 +448,13 @@
                 summary
                 (case srv-phase
                   :choose-action-type  "choose an action: move, convert, or activate"
+                  :choose-deconvert    "no usable sundivers — deconvert a station to reclaim them"
                   :choose-move         (let [rem (get-in state [:player-turn :action :moves-remaining] 0)
                                              tot (game/move-points state (game/current-player state))]
                                          (str "move sundivers (" rem "/" tot " remaining)"))
                   :choose-fly-to       "choose where to fly"
                   :choose-convert      "choose a conversion pattern"
-                  :choose-activate     "choose a station type to activate"
+                  :choose-activate     "choose a station to activate"
                   :choose-activate-station "choose a station to activate"
                   :choose-activate-self-bonus "choose how many bonus actions to take"
                   :choose-activate-owner-bonus "choose how many owner bonus actions to take"
@@ -535,21 +538,7 @@
              (when (seq card-choices)
                [:div {:style {:display "flex" :gap "12px" :flex-wrap "wrap"
                               :justify-content "center"}}
-                ;; "Keep current" option if player has a held card
-                (when-let [keep-held (some #(when (= :keep-held (:choice-key %)) %)
-                                           (map (fn [{:keys [label choice-key]}]
-                                                  {:label label :choice-key choice-key
-                                                   :on-click #(on-button-click choice-key)})
-                                                btn-choices))]
-                  [:div {:on-click (:on-click keep-held)
-                         :style {:cursor "pointer" :text-align "center"}}
-                   [:div {:style {:width "44px" :height "64px" :border-radius "5px"
-                                  :background "#1A1A30" :border "2px solid #3A5090"
-                                  :display "flex" :align-items "center" :justify-content "center"}}
-                    [:span {:style {:color "#556677" :font-size "13px" :font-family "monospace"}} "held"]]
-                   [:div {:style {:color "#556677" :font-size "13px" :margin-top "2px"
-                                  :font-family "monospace"}} "keep"]])
-                ;; Drawn cards
+                ;; All keepable cards (held + drawn) shown as equal options.
                 (for [[i {:keys [card choice-key]}] (map-indexed vector card-choices)
                       :let [suit (:suit card)
                             sc   (get game/suit-colors suit "#555")
@@ -609,8 +598,9 @@
             :on-habitat-click (when habitat-choice
                                 (fn [] (send-action! nil)))
             :habitat-player (when habitat-choice my)}]]
-         ;; History panel (right side)
-         (let [sel       (or view-step (dec n))
+         ;; History panel (right side) — hidden by default, toggled with ESC.
+         (when @history-visible?
+           (let [sel       (or view-step (dec n))
                btn-style {:background "none" :border "1px solid #1E2A3A"
                           :border-radius "3px" :color "#556677"
                           :font-size "11px" :cursor "pointer"
@@ -675,7 +665,7 @@
                       ;; If this entry has no state (pre-reload), request it from server
                       (when-not (:state (nth history i))
                         (ws/send-transit-message!
-                         {:type "replay-state" :step i})))]))])])
+                         {:type "replay-state" :step i})))]))])]))
          ]
         ))))
 

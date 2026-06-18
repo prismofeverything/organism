@@ -204,30 +204,32 @@ STORY = {
         ],
     },
 
-    # ---- #3 THREE ORGANISMS: a last element glides in to complete the third (then all glow) ----
+    # ---- #3 THREE ORGANISMS: start as ONE giant 9-element organism (a continuous but IRREGULAR
+    #      blob, sitting OFF-CENTER in the upper board on the blue/yellow rings, off the red sun).
+    #      THREE different KINDS of element move (an EAT, a MOVE, a GROW) -- overlapping but staggered
+    #      -- each splitting off a full organism in a DIFFERENT shape: a TRIANGLE, a LINE, and a BENT
+    #      curve. Purple player; each moving element highlighted (purple plasma). ----
     "three_org": {
-        "len": 150,
-        "cam": {"az": -8, "el": 56, "dist": 450, "lens": 50, "targz": 5,
-                "drift": {"az": 6, "el": -2, "dist": -12}},
-        "actors": {
-            "ae": ("green", "eat"), "am": ("green", "move"), "ag": ("green", "grow"),   # org A (top-right)
-            "be": ("green", "eat"), "bm": ("green", "move"), "bg": ("green", "grow"),   # org B (bottom)
-            "ce": ("green", "eat"), "cg": ("green", "grow"), "last": ("green", "move"), # org C (left) + last
-        },
-        # org A: B:1,C:2,C:3 | org B: B:3,C:6,C:5 | org C: B:5,C:10 + last glides C:8->C:9
+        "len": 85,
+        "glow_player_color": True,
+        "cam": {"az": -90, "el": 58, "dist": 430, "lens": 50, "targz": 5, "tx": 0, "ty": 55,
+                "drift": {"az": 6, "el": -1, "dist": -10}},
+        "actors": {"te": ("purple", "eat"), "tm": ("purple", "move"), "tg": ("purple", "grow"),   # -> TRIANGLE org (right)
+                   "le": ("purple", "eat"), "lm": ("purple", "move"), "lg": ("purple", "grow"),   # -> LINE org (top)
+                   "be": ("purple", "eat"), "bm": ("purple", "move"), "bg": ("purple", "grow")},  # -> BENT org (left)
+        # START irregular connected blob (upper, off the red center): te=C:10, tm=B:0, tg=C:11,
+        # le=D:1, lm=C:0, lg=D:2, be=C:3, bm=C:4, bg=C:2. Three different-kind movers glide out (on
+        # overlapping/staggered "moves" timelines): te(EAT) C:10->B:5 completes TRIANGLE {B:0,B:5,C:11};
+        # lm(MOVE) C:0->D:0 completes LINE {D:0,D:1,D:2}; bg(GROW) C:2->D:4 completes BENT {C:3,C:4,D:4}.
         "beats": [
-            {"t": 0,   "pos": {"ae": "B:1", "am": "C:2", "ag": "C:3", "be": "B:3", "bm": "C:6", "bg": "C:5", "ce": "B:5", "cg": "C:10", "last": "C:8"},
-             "food": {k: 1 for k in ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]}, "glow": ["last"]},
-            {"t": 44,  "pos": {"ae": "B:1", "am": "C:2", "ag": "C:3", "be": "B:3", "bm": "C:6", "bg": "C:5", "ce": "B:5", "cg": "C:10", "last": "C:8"},
-             "food": {k: 1 for k in ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]}, "glow": ["last"]},
-            {"t": 92,  "pos": {"ae": "B:1", "am": "C:2", "ag": "C:3", "be": "B:3", "bm": "C:6", "bg": "C:5", "ce": "B:5", "cg": "C:10", "last": "C:9"},
-             "food": {k: 1 for k in ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]}, "glow": ["last"]},
-            {"t": 112, "pos": {"ae": "B:1", "am": "C:2", "ag": "C:3", "be": "B:3", "bm": "C:6", "bg": "C:5", "ce": "B:5", "cg": "C:10", "last": "C:9"},
-             "food": {k: 1 for k in ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]},
-             "glow": ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]},
-            {"t": 150, "pos": {"ae": "B:1", "am": "C:2", "ag": "C:3", "be": "B:3", "bm": "C:6", "bg": "C:5", "ce": "B:5", "cg": "C:10", "last": "C:9"},
-             "food": {k: 1 for k in ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]},
-             "glow": ["ae", "am", "ag", "be", "bm", "bg", "ce", "cg", "last"]},
+            {"t": 0,  "pos": {"te": "C:10", "tm": "B:0", "tg": "C:11", "le": "D:1", "lm": "C:0", "lg": "D:2", "be": "C:3", "bm": "C:4", "bg": "C:2"}, "food": {}, "glow": []},
+            {"t": 85, "pos": {"te": "C:10", "tm": "B:0", "tg": "C:11", "le": "D:1", "lm": "C:0", "lg": "D:2", "be": "C:3", "bm": "C:4", "bg": "C:2"}, "food": {}, "glow": []},
+        ],
+        # three different-kind movers, overlapping but staggered (~28f each; starts ~12f apart):
+        "moves": [
+            {"id": "te", "from": "C:10", "to": "B:5", "t0": 20, "t1": 48},   # EAT  -> triangle (right)
+            {"id": "lm", "from": "C:0",  "to": "D:0", "t0": 32, "t1": 60},   # MOVE -> line (top)
+            {"id": "bg", "from": "C:2",  "to": "D:4", "t0": 44, "t1": 72},   # GROW -> bent (left)
         ],
     },
 

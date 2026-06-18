@@ -1083,12 +1083,33 @@
         next-idx (mod (inc idx) (count order))
         next-p   (order next-idx)
         round    (if (zero? next-idx) (inc (:round state)) (:round state))]
+    (let [state (-> state
+                    (assoc :round round)
+                    (update :pending-cipher (constantly []))
+                    (assoc :player-turn {:player                  next-p
+                                         :phase                   :choose-action-type
+                                         :captain-beacons-joined  0}))]
+      ;; Stuck with no usable sundivers (none on the board or in the habitat) but
+      ;; still holding a station → must deconvert one to recover.
+      (if (and (zero? (total-spendable-sundivers state next-p))
+               (seq (get-in state [:players next-p :stations])))
+        (assoc-in state [:player-turn :phase] :choose-deconvert)
+        state))))
+
+(defn deconvert
+  "Remove the player's station at pos, returning its sundivers to the habitat
+   (3 for a tower, 2 for matrix/foundry) and the station piece to reserve. Runs
+   automatically at the start of a turn when the player has no usable sundivers;
+   afterward they take a normal turn with the reclaimed sundivers."
+  [state player pos]
+  (let [stype (get-in state [:board pos :station :type])
+        n     (if (= stype :tower) 3 2)]
     (-> state
-        (assoc :round round)
-        (update :pending-cipher (constantly []))
-        (assoc :player-turn {:player                  next-p
-                             :phase                   :choose-action-type
-                             :captain-beacons-joined  0}))))
+        (assoc-in [:board pos :station] nil)
+        (update-in [:players player :stations] dissoc pos)
+        (update-in [:players player :habitat :sundivers] (fnil + 0) n)
+        (update-in [:players player :reserve (station-reserve-key stype)] (fnil inc 0))
+        (assoc-in [:player-turn :phase] :choose-action-type))))
 
 ;; --- movement points ---
 

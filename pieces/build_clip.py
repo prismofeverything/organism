@@ -304,6 +304,7 @@ def expand_ogf(spec):
 S = STORY[CLIP]
 if "from_ogf" in S: S = expand_ogf(S)
 beats = S["beats"]; LEN = S["len"]
+MOVES = {m["id"]: m for m in S.get("moves", [])}   # per-element glides on their OWN timeline (overlap/stagger)
 sc.frame_start = 0; sc.frame_end = LEN
 if os.environ.get("MAXF"): sc.frame_end = min(LEN, int(os.environ["MAXF"]))   # quick test: first N frames
 
@@ -326,10 +327,12 @@ for aid, (player, ptype) in S["actors"].items():
     ring = rmat = None
     if (not USE_PLASMA) and any(aid in b.get("glow", []) for b in beats):
         ring, rmat = glow_ring(aid)
+    mv = MOVES.get(aid)                            # if set, position comes from an explicit glide
     for b in beats:
         if aid in b["pos"]:
             x, y = P2(b["pos"][aid]); s = b.get("scale", {}).get(aid, PSCALE)   # per-beat scale (e.g. a capture morph-out)
-            kf(o, b["t"], (x, y, ELEV), s)
+            if mv: kf(o, b["t"], s=s)              # mover: scale here, position from the glide below
+            else:  kf(o, b["t"], (x, y, ELEV), s)
             if ring:
                 kf(ring, b["t"], (x, y, 1.25), 1.0)
                 e = rmat.node_tree.nodes["Principled BSDF"].inputs["Emission Strength"]
@@ -338,6 +341,10 @@ for aid, (player, ptype) in S["actors"].items():
         else:
             kf(o, b["t"], s=0.0)
             if ring: kf(ring, b["t"], s=0.0)
+    if mv:                                          # explicit glide on its OWN timeline (staggered/overlapping moves)
+        fx, fy = P2(mv["from"]); tx, ty = P2(mv["to"])
+        kf(o, 0, (fx, fy, ELEV)); kf(o, mv["t0"], (fx, fy, ELEV))
+        kf(o, mv["t1"], (tx, ty, ELEV)); kf(o, LEN, (tx, ty, ELEV))
 
 # plasma pillars (the "energy" rising from the board under a glowing element). Position follows
 # the element. Scale = one smooth Bezier bell PER glow EPISODE (a contiguous run of glow beats),
@@ -347,9 +354,21 @@ for aid, (player, ptype) in S["actors"].items():
 if USE_PLASMA:
     gpc = S.get("glow_player_color", False)
     ts = sorted(b["t"] for b in beats)
-    for aid in {a for b in beats for a in b.get("glow", [])}:
+    for aid in ({a for b in beats for a in b.get("glow", [])} | set(MOVES)):
         basecol = vivid(COLORS[S["actors"][aid][0]]) if gpc else None
         po = plasma_obj(aid, basecol)
+        mv = MOVES.get(aid)
+        if mv:                                     # plasma follows the glide; one bell over [t0,t1]
+            fx, fy = P2(mv["from"]); tx, ty = P2(mv["to"])
+            po.location = (fx, fy, PL_BASE); po.keyframe_insert("location", frame=0)
+            po.keyframe_insert("location", frame=mv["t0"])
+            po.location = (tx, ty, PL_BASE); po.keyframe_insert("location", frame=mv["t1"])
+            po.keyframe_insert("location", frame=LEN)
+            po.scale = (1.0, 1.0, 0.0); po.keyframe_insert("scale", frame=0)
+            peak = (mv["t0"] + mv["t1"]) / 2.0
+            for t, s in [(max(0, mv["t0"] - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, mv["t1"] + PL_LEAD), 0.0)]:
+                po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
+            continue
         pos_at = {b["t"]: b["pos"].get(aid) for b in beats}
         for b in beats:                            # position follows the element
             if aid in b["pos"]:
