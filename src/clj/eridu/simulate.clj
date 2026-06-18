@@ -79,12 +79,14 @@
         initial (if (= 1 (count player-configs))
                   (game/initial-solo-state (first player-keys))
                   (game/initial-state player-keys))
-        ;; Cache personality weights on player state for feat-claiming decisions
+        ;; Cache the FULL personality weight vector on player state so every
+        ;; engine-side feat/bonus decision (chain-score reads :bonus-foresight +
+        ;; :feat-synergy; check-and-claim reads :tempo/:feat-awareness; etc.) sees
+        ;; the real genes. The old 5-key select-keys silently dropped
+        ;; :bonus-foresight/:feat-synergy, so those genes were DEAD in the scoring
+        ;; loop the GA evolved against.
         initial (reduce (fn [s [pk weights]]
-                          (assoc-in s [:players pk :personality-cache]
-                                    (select-keys weights [:tempo :feat-awareness
-                                                          :prefer-onetime-bonus
-                                                          :feat-sequence :feat-closure-urgency])))
+                          (assoc-in s [:players pk :personality-cache] weights))
                         initial personality-map)
         ;; Live board auditor: record a coverage trace per bonus effect.
         initial (cond-> initial *audit?* (assoc :coverage-trace? true))

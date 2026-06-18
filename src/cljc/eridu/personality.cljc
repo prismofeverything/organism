@@ -30,7 +30,7 @@
    :role-priority    [:merchant :priest :raider :leader]
    ;; Strategic weights (0-1 scale)
    :track-balance    0.5    ;; 0=maximize stronger track, 1=strictly balance
-   :early-role-bias  0.7    ;; how much to prefer role increases in early game
+   :early-role-bias  0.9    ;; (tuned) earlier role investment banks toward role-5
    :chain-weight     0.5    ;; how much to weigh dice chaining lookahead
    :contest-focus    0.3    ;; how much to steer toward contest conditions
    :resource-hoard   0.3    ;; tendency to avoid spending resources
@@ -49,13 +49,13 @@
    ;; Resource planning: prioritize taking resources needed for next role cost
    :resource-planning     0.5
    ;; Score balance target: 0=all amity, 1=all glory, 0.5=balanced
-   :score-balance-target  0.5
+   :score-balance-target  0.45 ;; (tuned) solo/early play is amity-heavy; lean glory slightly
    ;; Feat awareness: steer toward fulfilling feats in play
    :feat-awareness        0.3
    ;; Tempo: 0=claim feats immediately, 1=hold for better timing
    :tempo                 0.3
    ;; Endgame role push: how much to prioritize roles in round 3
-   :endgame-role-push     0.5
+   :endgame-role-push     0.8  ;; (tuned) harvest more role-5 end-game bonuses
    ;; ── Travel and positioning dimensions ─────────────────────────
    ;; Min travel actions per round: below this, boost travel priority
    :min-travels-per-round 1

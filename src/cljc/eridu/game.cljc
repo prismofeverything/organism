@@ -1619,6 +1619,17 @@
    :M1 7   ;; Magistrates at temples
    :M2 8}) ;; 4 temples in empty cities
 
+(def event-feat-claimability
+  "Empirical per-game claim rate for SINGLE-TURN-BURST / event feats — these need
+   a threshold met within ONE turn (magistrate move, 5 amity/glory in a turn, big
+   gold sale), so a season-long progress proxy massively overstates them (e.g. the
+   J1 proxy reads 1.0 but J1 actually fires ~20% of games; G2 ~5%). Multiplied into
+   chain-score's claim-prob and feat-affinity's progress term so the planner stops
+   sinking ~1/3 of its chain slots into near-unclaimable 'phantom' feats. State
+   feats default to 1.0. (Measured on current decision logic; revisit if burst
+   logic later lifts these rates.)"
+  {:G1 0.15 :G2 0.05 :I1 0.20 :I2 0.20 :J1 0.20 :K1 0.27 :K2 0.15})
+
 (defn feat-affinity
   "Score how well a player's starting position aligns with a contest.
    Higher = easier to achieve from this starting position.
@@ -1654,9 +1665,11 @@
        :K2 (if (#{:kish :uruk} city) 1 0)
        0)
 
-     ;; Current progress (heavily weighted — a feat you're already close to is gold)
+     ;; Current progress (heavily weighted — a feat you're already close to is
+     ;; gold) DISCOUNTED by event-feat claimability so a single-turn-burst feat's
+     ;; inflated season-long proxy can't masquerade as near-complete.
      (let [[prog _] (feat-progress state player-key contest)]
-       (* prog 5)))))
+       (* prog 5 (get event-feat-claimability (:id contest) 1.0))))))
 
 (defn select-target-feats
   "Select 1-2 target feats for a player based on affinity with starting position.
@@ -3116,7 +3129,11 @@
                         0)
              ;; Position weight: first feat gets full weight, later less
              pos-weight (case idx 0 1.0 1 0.7 2 0.4 0.2)
-             claim-prob (min 1.0 (+ 0.25 (* 0.6 prog) (* 0.3 ease-factor)))
+             ;; Discount single-turn-burst feats: their season-long progress proxy
+             ;; overstates claimability (J1 reads ~1.0 but fires ~20%; G2 ~5%).
+             claimability (get event-feat-claimability cid 1.0)
+             claim-prob (* claimability
+                          (min 1.0 (+ 0.25 (* 0.6 prog) (* 0.3 ease-factor))))
              contribution (* pos-weight
                              (* claim-prob
                                 (+ wild-points
@@ -3310,17 +3327,16 @@
                      ;; uses, instead of the old apply-bonus-effect nil-default.
                      s' (apply-feat-claim! s player-key contest-id best-slot wild-points
                                            #(bot-resolve-bonus % player-key board-id best-slot))
-                     ;; Re-target: when a target feat is claimed, select a replacement
-                     ;; from unclaimed feats to keep pursuit active
-                     s' (if is-target?
-                          ;; Advance the chain: drop the just-claimed feat, then
-                          ;; re-plan from what remains. target-feats is first 2.
-                          (let [new-chain (plan-feat-chain s' player-key)
-                                new-targets (vec (take 2 new-chain))]
-                            (-> s'
-                                (assoc-in [:players player-key :feat-chain] new-chain)
-                                (assoc-in [:players player-key :target-feats] new-targets)))
-                          s')]
+                     ;; Re-plan after ANY claim (target OR incidental) so the bot
+                     ;; always has a fresh coherent next-feat plan instead of
+                     ;; coasting after its one claim. (Was gated on is-target?,
+                     ;; which left incidental claimers planless — a key reason bots
+                     ;; stopped at one feat.)
+                     new-chain (plan-feat-chain s' player-key)
+                     s' (-> s'
+                            (assoc-in [:players player-key :feat-chain] new-chain)
+                            (assoc-in [:players player-key :target-feats]
+                                      (vec (take 2 new-chain))))]
                  s')
                s)))))
      state
@@ -3672,7 +3688,7 @@
                                needs-replan? (or chain-hijacked?
                                                  (and (not has-claimed?)
                                                       (or (nil? best-progress)
-                                                          (< best-progress 0.2))))
+                                                          (< best-progress 0.4))))
                                new-chain (if needs-replan?
                                            (plan-feat-chain state pk)
                                            chain)

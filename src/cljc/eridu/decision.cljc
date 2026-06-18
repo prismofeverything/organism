@@ -614,10 +614,17 @@
                                          te-role-adj (if (and (= role :priest) (< level 4))
                                                        (* (- temple-engine) 7.0)
                                                        0)
-                                         ;; Bonus for roles near max in late game
-                                         near-max-bonus (if (and late-game? (>= level 4))
-                                                          (* endgame-push -10)
-                                                          0)
+                                         ;; Finish a near-max role (L4→5 = +10 to a
+                                         ;; track). Fire regardless of game phase
+                                         ;; (the old late-game?>0.6 gate meant the
+                                         ;; bot rarely harvested role-5s — they hit
+                                         ;; in ~7% of games), stronger past 40%.
+                                         near-max-bonus (cond
+                                                          (and (>= level 4) (> progress 0.4))
+                                                          (* endgame-push -12)
+                                                          (>= level 4)
+                                                          (* endgame-push -8)
+                                                          :else 0)
                                          ;; Glory deficit: strongly prefer raider/leader
                                          glory-adj (if glory-deficit?
                                                      (case role
