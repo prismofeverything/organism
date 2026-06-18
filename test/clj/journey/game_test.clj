@@ -146,6 +146,66 @@
       (is (some? drawn))
       (is (= (dec game/num-worlds-per-color) (get bag2 drawn))))))
 
+(deftest activate-bonus-routing-test
+  ;; Foundry: base 1, bonus 1 at level 1. Foundry base actions always feasible,
+  ;; so begin-next-station runs the activator's base action immediately.
+  (testing "activating ANOTHER player's station offers the bonus to the owner, not the activator"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "bob" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+                    game/begin-next-station)]
+      ;; The turn still belongs to alice (the activator)…
+      (is (= "alice" (game/current-player state)))
+      ;; …but she is NOT offered the self bonus on bob's station.
+      (is (not= :choose-activate-self-bonus (game/current-phase state))
+          "activator must not be offered the bonus on another player's station")
+      ;; After her base action, bob (the owner) is offered the bonus.
+      (is (= :choose-activate-owner-bonus (game/current-phase state))
+          "owner is offered the bonus after the activator's base actions")
+      (is (= "bob" (get-in state [:player-turn :choice-player]))
+          "the bonus choice is handed to the station owner")))
+
+  (testing "activating your OWN station still offers the bonus to you (the activator)"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "alice" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+                    game/begin-next-station)]
+      (is (= :choose-activate-self-bonus (game/current-phase state))
+          "owner activating their own station chooses the bonus themselves"))))
+
+(deftest convert-not-reactivatable-test
+  (testing "a station converted (and auto-activated) this turn cannot be activated again"
+    ;; Foundry pattern: sundivers at [3 0] and [2 -1] convert to a station at [2 0].
+    ;; Put an extra alice sundiver ON the target so the new station would otherwise
+    ;; reappear in the follow-on station-selection (it has a sundiver on its tile).
+    (let [state (-> (game/initial-state ["alice"])
+                    (place-tile [2 0] :blue)
+                    (place-sundiver "alice" [3 0])
+                    (place-sundiver "alice" [2 -1])
+                    (place-sundiver "alice" [2 0]))
+          after (game/convert state "alice" :foundry [2 0] [[3 0] [2 -1]])]
+      ;; Recorded as activated on creation, and the target still holds alice's
+      ;; sundiver (so without the guard it would be offered for activation again).
+      (is (contains? (get-in after [:player-turn :action :activated-stations]) [2 0])
+          "converted station is marked activated on creation")
+      (is (pos? (get-in after [:board [2 0] :sundivers "alice"] 0)))
+      (is (= :choose-activate-self-bonus (game/current-phase after)))
+      ;; Decline the automatic activation's bonus to reach station selection…
+      (let [at-station (get (choice/choose-activate-self-bonus-choices after) 0)]
+        (is (= :choose-activate-station (game/current-phase at-station)))
+        ;; …and confirm the just-converted station is not offered again.
+        (let [[_ choices] (choice/find-state-raw at-station)]
+          (is (not (contains? choices [2 0]))
+              "the just-converted station must not be activatable again this turn"))))))
+
 ;; ─── extended simulation ──────────────────────────────────────────────────────
 
 (defn- try-if-choices
@@ -165,13 +225,45 @@
         [_ mc]     (when move-state (choice/find-state move-state))]
     (or (contains? mc :launch) (contains? mc :fly))))
 
+(def ^:private walker-protected-phases
+  "Phases the walker must always decide explicitly — mirrors choice/find-state's
+   no-auto-advance set, so auto-advance stops at real decision points."
+  #{:choose-action-type :choose-move :choose-convert :choose-activate
+    :choose-activate-self-bonus :choose-activate-owner-bonus :choose-land})
+
+(defn- auto-advance-state
+  "Follow single-choice, non-protected phases and return the resulting STATE.
+   Mirrors choice/find-state's auto-advance but yields the state, so a game-over
+   reached this way (e.g. the draw that triggers the 13-flare loss) is observable
+   instead of looking like a dead-end."
+  [state]
+  (loop [s state]
+    (let [[phase choices] (choice/find-state-raw s)
+          nxt             (first (vals choices))]
+      (if (and (= 1 (count choices))
+               (not (contains? walker-protected-phases phase))
+               nxt
+               (not= phase :game-over))
+        (recur nxt)
+        s))))
+
 (defn- simulate-step
-  "Pick one smart choice and return the next state. Throws on dead-end."
+  "Pick one smart choice and return the next state. Throws on a genuine dead-end."
   [state]
   (let [[phase choices] (choice/find-state state)]
-    (when (empty? choices)
-      (throw (ex-info "Dead end" {:phase phase})))
-    (case phase
+    (cond
+      ;; The game ended during auto-advance (e.g. drawing the 13th flare → loss,
+      ;; which find-state advances straight into). Surface the game-over state
+      ;; instead of treating its empty choice set as a dead-end.
+      (= phase :game-over)
+      (auto-advance-state state)
+
+      (empty? choices)
+      (throw (ex-info "Dead end" {:phase phase}))
+
+      :else
+      (or
+       (case phase
       ;; Action type: prefer activate (own stations) → convert → move with real
       ;; sub-choices. Skip move if its only sub-choice would be :done.
       :choose-action-type
@@ -206,8 +298,9 @@
       ;; Drift card: auto-draw
       :draw-drift-card (:draw choices)
 
-      ;; Captain drift: no turn (straight ahead)
-      :choose-captain-drift (:none choices)
+      ;; Captain drift: choices are keyed by destination hex (like tower headings),
+      ;; not :none/:left/:right — take the first available heading.
+      :choose-captain-drift (first (vals choices))
 
       ;; Never land during the simulation — let all 5 rounds complete
       :choose-land (:continue choices)
@@ -221,7 +314,11 @@
         (get choices (if (seq no-station) (first no-station) (first (keys choices)))))
 
       ;; Everything else: first available
-      (first (vals choices)))))
+      (first (vals choices)))
+     ;; Safety net: a case returning nil (e.g. a choice key the walker no longer
+     ;; matches, like a renamed phase) must never cause a recur on nil — fall
+     ;; back to any valid choice so the simulation keeps progressing.
+     (first (vals choices))))))
 
 (defn- play-one-player-turn
   "Step from the current player's :choose-action-type until the next player's.

@@ -91,38 +91,65 @@ STORY = {
         ],
     },
 
-    # ---- #9 CIRCULATE: half a food stack moves to a non-adjacent element of the organism ----
+    # ---- #9 CIRCULATE: a food stack moves to a NON-ADJACENT element. The eater holds 4 food
+    #      (2 carried + 2 on top); the top 2 circulate across to the mover. Two plasma bells in
+    #      sequence: first the SOURCE (eater, where it comes from), then the DEST (mover). ----
     "circulate": {
-        "len": 126,
-        "cam": {"az": 18, "el": 43, "dist": 330, "lens": 50, "targz": 6,
-                "drift": {"az": 9, "el": 2, "dist": -12}},
-        "actors": {"e": ("blue", "eat"), "m": ("blue", "move"),
-                   "src": ("blue", "grow"), "dst": ("blue", "grow")},
+        "len": 104,
+        "cam": {"az": -90, "el": 45, "dist": 300, "lens": 50, "targz": 8, "tx": 0, "ty": 0,
+                "drift": {"az": 5, "el": 0.5, "dist": -8}},
+        "actors": {"e": ("blue", "eat"), "g": ("blue", "grow"), "m": ("blue", "move")},
+        # eater e(B:2, left, 4 food) -> mover m(B:5, right), non-adjacent, connected via g(A:0).
+        # MUTUAL-RISING timing: food departs (25) as the source bell starts rising (~23), well
+        # underway by the peak (43). Reversed at the dest: bell peaks (79) just before the food
+        # arrives (85). The food traces a high, centered inverted-U arch (apex over the center at
+        # t55) -- a clear up-then-down. source glow [33..53]; dest [69..89].
         "beats": [
-            {"t": 0,   "pos": {"e": "B:1", "m": "A:0", "src": "B:0", "dst": "B:2"}, "food": {"e": 1, "m": 1, "src": 2, "dst": 0}, "glow": ["src", "dst"]},
-            {"t": 45,  "pos": {"e": "B:1", "m": "A:0", "src": "B:0", "dst": "B:2"}, "food": {"e": 1, "m": 1, "src": 2, "dst": 0}, "glow": ["src", "dst"]},
-            {"t": 95,  "pos": {"e": "B:1", "m": "A:0", "src": "B:0", "dst": "B:2"}, "food": {"e": 1, "m": 1, "src": 2, "dst": 0}, "glow": ["src", "dst"]},
-            {"t": 126, "pos": {"e": "B:1", "m": "A:0", "src": "B:0", "dst": "B:2"}, "food": {"e": 1, "m": 1, "src": 2, "dst": 0}, "glow": ["src", "dst"]},
+            {"t": 0,   "pos": {"e": "B:2", "g": "A:0", "m": "B:5"}, "food": {"e": 2, "g": 0, "m": 0}, "glow": []},
+            {"t": 33,  "pos": {"e": "B:2", "g": "A:0", "m": "B:5"}, "food": {"e": 2, "g": 0, "m": 0}, "glow": ["e"]},
+            {"t": 53,  "pos": {"e": "B:2", "g": "A:0", "m": "B:5"}, "food": {"e": 2, "g": 0, "m": 0}, "glow": ["e"]},
+            {"t": 69,  "pos": {"e": "B:2", "g": "A:0", "m": "B:5"}, "food": {"e": 2, "g": 0, "m": 0}, "glow": ["m"]},
+            {"t": 89,  "pos": {"e": "B:2", "g": "A:0", "m": "B:5"}, "food": {"e": 2, "g": 0, "m": 0}, "glow": ["m"]},
+            {"t": 104, "pos": {"e": "B:2", "g": "A:0", "m": "B:5"}, "food": {"e": 2, "g": 0, "m": 0}, "glow": []},
         ],
-        # two tokens off the top of src's stack glide across to dst
+        # the top 2 of the eater's stack arc across (apex over the center grower) onto the mover
         "food_actors": [
-            {"id": "c1", "k": 0, "keys": [(0, "B:0"), (45, "B:0"), (95, "B:2"), (126, "B:2")]},
-            {"id": "c2", "k": 1, "keys": [(0, "B:0"), (45, "B:0"), (95, "B:2"), (126, "B:2")]},
+            {"id": "c1", "k": 0, "keys": [(0, "B:2"), (25, "B:2"), (55, (0, 0), 68), (85, "B:5")]},
+            {"id": "c2", "k": 1, "keys": [(0, "B:2"), (25, "B:2"), (55, (0, 0), 68), (85, "B:5")]},
         ],
     },
 
-    # ---- #10 CONFLICT: adjacent enemies resolve (move beats eat); loser -> free food ----
+    # ---- #10 CONFLICT: a green MOVE element moves into a red organism and captures its EAT
+    #      element (move beats eat). First a MOVE (green mover glides adjacent; green highlight),
+    #      then the CONFLICT resolves (both elements highlighted in their PLAYER colors), then the
+    #      captured red eater is removed and its remains drop as food. Victim centered at A:0;
+    #      glow_player_color tints each plasma its player color (green attacker, red victim). ----
     "conflict": {
-        "len": 130,
-        "cam": {"az": 56, "el": 40, "dist": 292, "lens": 54, "targz": 6,
-                "drift": {"az": 11, "el": -2, "dist": -8}},
-        "actors": {"gm": ("green", "move"), "ge": ("green", "eat"), "gg": ("green", "grow"),
-                   "re": ("red", "eat"), "rm": ("red", "move"), "rg": ("red", "grow")},
+        "len": 95,
+        "glow_player_color": True,
+        "cam": {"az": -90, "el": 48, "dist": 300, "lens": 50, "targz": 6, "tx": 0, "ty": -4,
+                "drift": {"az": 6, "el": 0.5, "dist": -8}},
+        "actors": {"re": ("red", "eat"), "rm": ("red", "move"), "rg": ("red", "grow"),
+                   "gm": ("green", "move"), "ge": ("green", "eat"), "gg": ("green", "grow")},
+        # red org: victim re(A:0) + rm(B:0) + rg(B:1). green org: gm moves C:8->B:4 (adjacent to re),
+        # ge(C:7), gg(C:9). gm glows green ONLY during the move. On contact the victim re flares RED
+        # and MORPHS away starting early in that rise (scale 0.9->0 over t40..66 via per-beat "scale");
+        # re's carried food FALLS onto its remains: a body food grows at A:0 (stack 0) + the carried
+        # token (food_actor) drops onto it (stack 1) = 2 food. (re is omitted from food[] -> its
+        # carried token is the food_actor, free to fall.)
         "beats": [
-            {"t": 0,   "pos": {"gm": "A:0", "ge": "B:2", "gg": "B:3", "re": "B:0", "rm": "C:0", "rg": "C:1"}, "food": {"gm": 1, "ge": 1, "gg": 1, "re": 1, "rm": 1, "rg": 1}, "glow": ["gm", "re"]},
-            {"t": 52,  "pos": {"gm": "A:0", "ge": "B:2", "gg": "B:3", "re": "B:0", "rm": "C:0", "rg": "C:1"}, "food": {"gm": 1, "ge": 1, "gg": 1, "re": 1, "rm": 1, "rg": 1}, "glow": ["gm", "re"]},
-            {"t": 74,  "pos": {"gm": "A:0", "ge": "B:2", "gg": "B:3", "rm": "C:0", "rg": "C:1"},              "food": {"gm": 1, "ge": 1, "gg": 1, "rm": 1, "rg": 1}, "free": {"B:0": 2}, "glow": ["gm"]},
-            {"t": 130, "pos": {"gm": "A:0", "ge": "B:2", "gg": "B:3", "rm": "C:0", "rg": "C:1"},              "food": {"gm": 1, "ge": 1, "gg": 1, "rm": 1, "rg": 1}, "free": {"B:0": 2}, "glow": []},
+            {"t": 0,   "pos": {"re": "A:0", "rm": "B:0", "rg": "B:1", "gm": "C:8", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "glow": []},
+            {"t": 12,  "pos": {"re": "A:0", "rm": "B:0", "rg": "B:1", "gm": "C:8", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "glow": ["gm"]},
+            {"t": 38,  "pos": {"re": "A:0", "rm": "B:0", "rg": "B:1", "gm": "B:4", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "glow": ["gm"]},
+            {"t": 40,  "pos": {"re": "A:0", "rm": "B:0", "rg": "B:1", "gm": "B:4", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "glow": []},
+            {"t": 48,  "pos": {"re": "A:0", "rm": "B:0", "rg": "B:1", "gm": "B:4", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "scale": {"re": 0.5}, "glow": ["re"]},
+            {"t": 66,  "pos": {"re": "A:0", "rm": "B:0", "rg": "B:1", "gm": "B:4", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "scale": {"re": 0.0}, "free": {"A:0": 1}, "glow": ["re"]},
+            {"t": 72,  "pos": {"rm": "B:0", "rg": "B:1", "gm": "B:4", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "free": {"A:0": 1}, "glow": []},
+            {"t": 95,  "pos": {"rm": "B:0", "rg": "B:1", "gm": "B:4", "ge": "C:7", "gg": "C:9"}, "food": {"rm": 1, "rg": 1, "gm": 1, "ge": 1, "gg": 1}, "free": {"A:0": 1}, "glow": []},
+        ],
+        # re's carried food sits on re (A:0 seat) then FALLS onto the remains (A:0 stack 1) as re morphs
+        "food_actors": [
+            {"id": "carried", "k": 0, "keys": [(0, "A:0"), (40, "A:0"), (66, (0, 0), 6.4)]},
         ],
     },
 

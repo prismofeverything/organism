@@ -173,8 +173,13 @@ def glow_ring(aid):
     o.scale = (0, 0, 0)
     return o, m
 
-def plasma_mat(aid):
-    """Transparent golden plasma fire on a cylinder: 4D noise that scrolls upward and
+def vivid(rgb):
+    """A saturated, mid-light version of a color so a tinted plasma blooms in that hue."""
+    h, l, s = colorsys.rgb_to_hls(*rgb[:3])
+    return colorsys.hls_to_rgb(h, 0.5, 1.0)
+
+def plasma_mat(aid, basecol=None):
+    """Transparent plasma fire on a cylinder: 4D noise that scrolls upward and
     morphs over time, masked into wisps, denser at the base, fading at the top. Emissive
     so the compositor bloom turns it into a soft shimmering glow."""
     m = bpy.data.materials.new("plasma_" + aid); m.use_nodes = True; nt = m.node_tree
@@ -219,11 +224,18 @@ def plasma_mat(aid):
     nt.links.new(prof.outputs["Color"], pw.inputs[0]); nt.links.new(flame.outputs["Color"], pw.inputs[1])
     dens = nt.nodes.new("ShaderNodeMath"); dens.operation = 'MULTIPLY'        # * max opacity (<1 -> piece shows through)
     nt.links.new(pw.outputs[0], dens.inputs[0]); dens.inputs[1].default_value = PL_OPAC
-    # emission color by HEIGHT (hot pale-gold base -> gold -> orange tip), fire-like
+    # emission color by HEIGHT (hot base -> color -> deep tip). Gold by default; if basecol is
+    # given (a player color) tint the whole gradient that hue so the bloom reads in that color.
     ecol = nt.nodes.new("ShaderNodeValToRGB"); cr = ecol.color_ramp
-    cr.elements[0].position = 0.0; cr.elements[0].color = lin3((1.0, 0.72, 0.22))   # low blue -> bloom stays gold
-    mid = cr.elements.new(0.5); mid.color = lin3((1.0, 0.50, 0.12))
-    cr.elements[2].position = 1.0; cr.elements[2].color = lin3((1.0, 0.34, 0.06))
+    if basecol is None:
+        cr.elements[0].position = 0.0; cr.elements[0].color = lin3((1.0, 0.72, 0.22))   # low blue -> bloom stays gold
+        mid = cr.elements.new(0.5); mid.color = lin3((1.0, 0.50, 0.12))
+        cr.elements[2].position = 1.0; cr.elements[2].color = lin3((1.0, 0.34, 0.06))
+    else:
+        mix3 = lambda c, d, t: tuple(c[i] * (1 - t) + d[i] * t for i in range(3))
+        cr.elements[0].position = 0.0; cr.elements[0].color = lin3(mix3(basecol, (1, 1, 1), 0.30))  # hot core
+        mid = cr.elements.new(0.5); mid.color = lin3(basecol)
+        cr.elements[2].position = 1.0; cr.elements[2].color = lin3(mix3(basecol, (0, 0, 0), 0.35))  # deep tip
     nt.links.new(sep.outputs["Z"], ecol.inputs[0])
     emi = nt.nodes.new("ShaderNodeEmission"); emi.inputs["Strength"].default_value = PL_STR
     nt.links.new(ecol.outputs["Color"], emi.inputs["Color"])
@@ -238,14 +250,14 @@ def plasma_mat(aid):
         except Exception: pass
     return m
 
-def plasma_obj(aid):
+def plasma_obj(aid, basecol=None):
     bpy.ops.mesh.primitive_cylinder_add(radius=PL_R, depth=PL_H, end_fill_type='NOTHING', location=(9000, 9000, 0))
     o = bpy.context.active_object; o.name = "plasma_" + aid
     for v in o.data.vertices: v.co.z += PL_H / 2.0     # base at object origin -> z-scale rises from the board
     o.data.update()
     try: bpy.ops.object.shade_smooth()
     except Exception: pass
-    o.data.materials.clear(); o.data.materials.append(plasma_mat(aid))
+    o.data.materials.clear(); o.data.materials.append(plasma_mat(aid, basecol))
     o.scale = (1.0, 1.0, 0.0)
     return o
 
@@ -316,7 +328,8 @@ for aid, (player, ptype) in S["actors"].items():
         ring, rmat = glow_ring(aid)
     for b in beats:
         if aid in b["pos"]:
-            x, y = P2(b["pos"][aid]); kf(o, b["t"], (x, y, ELEV), PSCALE)
+            x, y = P2(b["pos"][aid]); s = b.get("scale", {}).get(aid, PSCALE)   # per-beat scale (e.g. a capture morph-out)
+            kf(o, b["t"], (x, y, ELEV), s)
             if ring:
                 kf(ring, b["t"], (x, y, 1.25), 1.0)
                 e = rmat.node_tree.nodes["Principled BSDF"].inputs["Emission Strength"]
@@ -326,30 +339,38 @@ for aid, (player, ptype) in S["actors"].items():
             kf(o, b["t"], s=0.0)
             if ring: kf(ring, b["t"], s=0.0)
 
-# plasma pillars (golden "move energy" rising from the board under a glowing element).
-# Position follows the element; z-scale rises 0->1 when it enters glow[] (so it emanates
-# upward right before the move), then travels with the piece. The shimmer is shader-driven.
+# plasma pillars (the "energy" rising from the board under a glowing element). Position follows
+# the element. Scale = one smooth Bezier bell PER glow EPISODE (a contiguous run of glow beats),
+# so an element can be highlighted more than once (e.g. a move-bell then a conflict-bell). Each
+# bell brackets the element's move within that episode (peak at move midpoint) or its glow span.
+# With "glow_player_color" the plasma is tinted each element's player color instead of gold.
 if USE_PLASMA:
+    gpc = S.get("glow_player_color", False)
+    ts = sorted(b["t"] for b in beats)
     for aid in {a for b in beats for a in b.get("glow", [])}:
-        po = plasma_obj(aid)
-        # position follows the element through the beats
-        for b in beats:
+        basecol = vivid(COLORS[S["actors"][aid][0]]) if gpc else None
+        po = plasma_obj(aid, basecol)
+        pos_at = {b["t"]: b["pos"].get(aid) for b in beats}
+        for b in beats:                            # position follows the element
             if aid in b["pos"]:
                 x, y = P2(b["pos"][aid]); po.location = (x, y, PL_BASE)
                 po.keyframe_insert("location", frame=b["t"])
-        # scale = ONE smooth Bezier bell (rise -> peak -> fall) bracketing the element's move:
-        # peaks at the move's midpoint, leads in / trails out by PL_LEAD so it overlaps the move
-        # curve as a single continuous gesture (no flat "held" stage in the middle).
-        ts = sorted(b["t"] for b in beats); pos_at = {b["t"]: b["pos"].get(aid) for b in beats}
-        chg = [(ts[i - 1], ts[i]) for i in range(1, len(ts)) if pos_at[ts[i]] != pos_at[ts[i - 1]]]
-        if chg:
-            m0 = min(a for a, _ in chg); m1 = max(b2 for _, b2 in chg)
-        else:                                      # static highlight (no move): bracket the glow span
-            gb = [b["t"] for b in beats if aid in b.get("glow", [])]
-            m0, m1 = (min(gb), max(gb)) if gb else (0, LEN)
-        peak = (m0 + m1) / 2.0
-        for t, s in [(max(0, m0 - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, m1 + PL_LEAD), 0.0)]:
-            po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
+        on = {b["t"]: (aid in b.get("glow", [])) for b in beats}
+        episodes = []; i = 0                        # contiguous runs of glow beats
+        while i < len(ts):
+            if on[ts[i]]:
+                j = i
+                while j + 1 < len(ts) and on[ts[j + 1]]: j += 1
+                episodes.append((ts[i], ts[j])); i = j + 1
+            else: i += 1
+        po.scale = (1.0, 1.0, 0.0); po.keyframe_insert("scale", frame=0)   # start collapsed
+        for (e0, e1) in episodes:
+            inner = [t for t in ts if e0 <= t <= e1]
+            chg = [(inner[k - 1], inner[k]) for k in range(1, len(inner)) if pos_at[inner[k]] != pos_at[inner[k - 1]]]
+            m0, m1 = (min(a for a, _ in chg), max(b2 for _, b2 in chg)) if chg else (e0, e1)
+            peak = (m0 + m1) / 2.0
+            for t, s in [(max(0, m0 - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, m1 + PL_LEAD), 0.0)]:
+                po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
 
 # carried food stacks
 for aid, (player, ptype) in S["actors"].items():

@@ -31,6 +31,15 @@
   (or (get-in state [:player-turn :choice-player])
       (game/current-player state)))
 
+(defn- turn-advanced?
+  "True only when a step moved play to a different turn-player — the real turn
+   boundary (begin-next-player-turn). The choice-player can change *within* a turn
+   (owner bonus, cipher beacon placement, flare/captain joins) without advancing
+   the turn; those steps must stay on the undo stack, so they are NOT turn changes."
+  [prev-state next-state]
+  (not= (game/current-player prev-state)
+        (game/current-player next-state)))
+
 ;; ── Persistence helper ──────────────────────────────────────────────────────
 
 (defn- save-state!
@@ -173,7 +182,18 @@
                            (fn [gs]
                              (-> gs
                                  (assoc-in [:games play-key :state] effective)
-                                 (assoc-in [:games play-key :history] []))))
+                                 ;; Keep the undo stack threaded through the turn.
+                                 ;; Clear only when this move ends a turn, or is part
+                                 ;; of the bot's *own* turn (bot turns aren't undoable).
+                                 ;; When a bot resolves a sub-decision inside a human's
+                                 ;; turn (e.g. the owner bonus on the bot's station),
+                                 ;; leave history intact so the human can still undo
+                                 ;; their action — the bot's response folds into it.
+                                 (assoc-in [:games play-key :history]
+                                           (if (or (contains? bots (game/current-player effective))
+                                                   (turn-advanced? current-state effective))
+                                             []
+                                             (:history (get-in gs [:games play-key])))))))
                     (broadcast-state! play-key)
                     (save-state! db play-key ck)
                     (recur)))))))))
@@ -227,9 +247,8 @@
                                          (not (contains? protected-phases p)))
                                   (recur (first (vals cs)))
                                   s)))
-                  old-player    (choice-player state)
                   new-player    (choice-player effective)
-                  turn-changed? (not= old-player new-player)
+                  turn-changed? (turn-advanced? state effective)
                   bots          (:bots game-data)]
               (swap! games
                      (fn [gs]

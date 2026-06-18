@@ -591,6 +591,10 @@
                       (assoc-in [:player-turn :action :beacons-joined] 0)
                       (assoc-in [:player-turn :action :owner-actions] 0)
                       (assoc-in [:player-turn :action :free-activation?] true)
+                      ;; The converted station is activated on creation — record it
+                      ;; so the follow-on :choose-activate-station cannot offer it
+                      ;; again (each station activates at most once per turn).
+                      (update-in [:player-turn :action :activated-stations] (fnil conj #{}) target)
                       (assoc-in [:player-turn :choice-player] nil))]
         ;; Own station with bonus: ask how many bonus actions to take first
         (if (and same? (pos? bonus))
@@ -938,13 +942,15 @@
                          (assoc-in [:player-turn :action :bonus-total] bonus)
                          (assoc-in [:player-turn :action :beacons-joined] 0)
                          (update-in [:player-turn :action :cards-to-draw] (fnil + 0) level))]
-        (if (pos? bonus)
-          ;; Station has bonus: ask activator how many bonus actions to take
+        (if (and (pos? bonus) (= owner player))
+          ;; Own station with bonus: activator (= owner) chooses how many bonus actions to take.
           (-> state
               (assoc-in [:player-turn :action :activator-actions] base)
               (assoc-in [:player-turn :action :owner-actions] 0)
               (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
-          ;; No bonus: activator does base actions only
+          ;; No bonus, or another player's station: activator does base actions only.
+          ;; For another's station the owner is offered the bonus afterward
+          ;; (see advance-after-actions :activator).
           (-> state
               (assoc-in [:player-turn :action :activator-actions] base)
               (assoc-in [:player-turn :action :owner-actions] 0)
