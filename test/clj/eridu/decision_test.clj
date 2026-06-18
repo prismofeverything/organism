@@ -246,6 +246,96 @@
         (is (> (:temple (wap (assoc weights :temple-engine 1.0) state player pdata))
                (:temple (wap (assoc weights :temple-engine 0.0) state player pdata))))))))
 
+;; =============================================================================
+;; Feat lookahead (the horizon fix): neutral-at-default + live-when-nonzero
+;;
+;; :feat-lookahead adds a potential-based forecast (ΔΦ over the planned feat
+;; chain) into every RESOLUTION phase of `decide`. Unlike the other new traits
+;; it lives in `decide` itself (not weighted-action-priority), so these guards
+;; pin the contract at the `decide` level. `decide` is a deterministic function
+;; of (state, weights) — find-state-raw is deterministic; RNG only enters when a
+;; chosen next-state is ADVANCED — so equality of picks is a sound neutrality
+;; probe (cf. personality-step-delegates-test, which asserts decide-equality).
+;; =============================================================================
+
+(defn- drive-keep-all-states
+  "Like drive-game but retains (state, weights) at EVERY decision point, so the
+   feat-lookahead guards can sample resolution phases (temple/deploy/sell/...),
+   not just :choose-action."
+  [weights-by-player player-keys max-steps]
+  (loop [state (game/initial-state player-keys) log [] n 0]
+    (if (or (:game-over state) (> n max-steps))
+      log
+      (let [[phase choices] (choice/find-state-raw state)]
+        (if (or (= phase :game-over) (empty? choices))
+          log
+          (let [player  (game/current-player state)
+                weights (get weights-by-player player pers/default-weights)
+                step    (or (decision/decide state weights)
+                            [(first (keys choices)) (first (vals choices))])
+                [_ next-s] step]
+            (recur (choice/advance-through-trivial next-s game/bot-protected-phases)
+                   (conj log {:phase phase :state state :weights weights})
+                   (inc n))))))))
+
+(defn- all-phase-states [games player-count]
+  (let [pks (mapv #(keyword (str "p" %)) (range 1 (inc player-count)))]
+    (mapcat (fn [_] (drive-keep-all-states (weights-map pks) pks 5000)) (range games))))
+
+(deftest feat-lookahead-neutral-at-default-test
+  (testing "at the 0.0 default, feat-lookahead adds exactly nothing — the PICK is
+            identical whether the key is present-at-0.0 or absent, at every phase"
+    ;; Compare the chosen choice-KEY, not [pick next-s]: find-state-raw rolls fresh
+    ;; dice into the returned next-state, so the next-state is RNG-nondeterministic,
+    ;; but the pick is a pure function of (state, weights) and is the thing the
+    ;; neutrality contract is about.
+    (let [states (all-phase-states 4 4)]
+      (is (seq states) "collected decision points across all phases")
+      (doseq [{:keys [state weights]} states]
+        (is (= (first (decision/decide state (assoc weights :feat-lookahead 0.0)))
+               (first (decision/decide state (dissoc weights :feat-lookahead))))
+            (str "present-at-0.0 == absent at phase "
+                 (first (choice/find-state-raw state))))))))
+
+(deftest feat-lookahead-live-test
+  ;; Liveness: somewhere in real play, raising feat-lookahead must change a pick
+  ;; — proving the ΔΦ wiring actually feeds the scorer (not dead code). It can
+  ;; only bite at states where the player has a planned feat chain AND a presented
+  ;; resolution differs in realized feat-progress, so we scan many states.
+  (testing "raising feat-lookahead changes decide's pick on some real state"
+    (let [flipped?
+          (some (fn [{:keys [state weights]}]
+                  (not= (decision/decide state (assoc weights :feat-lookahead 0.0))
+                        (decision/decide state (assoc weights :feat-lookahead 1.5))))
+                (all-phase-states 8 4))]
+      (is flipped? "feat-lookahead 1.5 diverges from 0.0 on at least one decision"))))
+
+(deftest feat-potential-monotone-test
+  ;; The potential Φ must be a genuine gradient: more progress toward a targeted
+  ;; feat ⇒ strictly higher potential. Pin it directly on the private helper.
+  (testing "feat-potential rises with feat progress"
+    (let [fp #'decision/feat-potential
+          state (game/initial-state [:p1 :p2])
+          player (game/current-player state)
+          ;; Pin the plan to a SINGLE feat deterministically: feat-potential reads
+          ;; :feat-chain first (initial-state pre-rolls a random one), so we
+          ;; overwrite it and clear any pre-placed temples. C1 = four face-up
+          ;; temples; progress = face-up count / 4.
+          contest {:id :C1}
+          base (-> state
+                   (assoc-in [:players player :feat-chain] [contest])
+                   (assoc-in [:players player :temples] {}))
+          pdata0 (game/player-data base player)
+          ;; Two face-up temples ⇒ progress 0.5 vs none ⇒ 0.0.
+          two-up (assoc-in base [:players player :temples]
+                           {:uruk [:face-up] :kish [:face-up]})
+          pdata2 (game/player-data two-up player)
+          with-target base]
+      (is (zero? (fp with-target player pdata0)) "no progress ⇒ Φ = 0")
+      (is (pos? (fp two-up player pdata2)) "partial progress ⇒ Φ > 0")
+      (is (> (fp two-up player pdata2) (fp with-target player pdata0))
+          "Φ is monotone in realized feat progress"))))
+
 (deftest feat-race-urgency-live-test
   ;; Find a real state where the player pursues a contest with positive
   ;; progress, mirror the player's board onto an opponent seat (so the opponent

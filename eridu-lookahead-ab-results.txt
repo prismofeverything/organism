@@ -1,0 +1,9 @@
+=== Eridu :feat-lookahead A/B ===
+games=300  lookahead=0.80  base-personality=Gen-927add22-m
+seats: 2 treatment vs 2 control per game (positions swapped each game)
+
+FEATS CLAIMED / seat-game   treatment=0.858   control=0.805   (lift +6.6%)
+REPUTATION    / seat-game   treatment=11.592   control=11.332   (lift +2.3%)
+GAME WINS (by reputation)   treatment=174      control=144
+
+n treatment seat-games=600  n control seat-games=600

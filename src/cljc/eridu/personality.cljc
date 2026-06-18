@@ -138,6 +138,14 @@
    ;; flipping it late, reflecting the COMPOUNDING payoff (a flip scores
    ;; amity = your face-down count). The fix for the priest-path bot blind spot.
    :temple-engine          0.0
+   ;; Feat lookahead (the HORIZON fix): 0=pure greedy per-turn scorer (blind to
+   ;; any feat whose payoff is backloaded several turns out), >0=add a potential-
+   ;; based forecast — score each presented resolution by ΔΦ, the realized change
+   ;; in expected feat-chain value (Φ = Σ value·progress over targeted feats),
+   ;; read off the SAME next-state a human sees. Potential-based reward shaping
+   ;; (Ng/Harada/Russell 1999) gives the missing gradient toward distant feats
+   ;; WITHOUT distorting the optimum. Generalizes across the whole feat layer.
+   :feat-lookahead         0.0
    ;; ── Feat-chain planning (default = prior hardcoded chain-score weights, so
    ;;    behavior is unchanged at default and the GA tunes the trade-off) ──
    ;; Synergy: how much to favor a feat that SHARES setup with the partner feat
@@ -403,6 +411,7 @@
              :supply-conservation    (rand)
              :feat-race-urgency      (rand)
              :temple-engine          (rand)
+             :feat-lookahead         (rand)
              :feat-synergy           (rand)
              :bonus-foresight        (rand)
              }))))
@@ -443,6 +452,7 @@
    :min-sells-per-round [0 3 :int] :min-deploys-per-round [0 2 :int]
    :standing-awareness [0.0 1.0] :supply-conservation [0.0 1.0]
    :feat-race-urgency [0.0 1.0] :temple-engine [0.0 1.0]
+   :feat-lookahead [0.0 1.5]
    :feat-synergy [0.0 1.5] :bonus-foresight [0.0 1.0]})
 
 (defn clamp-weight

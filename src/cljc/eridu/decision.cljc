@@ -457,6 +457,59 @@
       (* (:chain-weight weights 0.5) (+ combo-max revisit-value)))))
 
 ;; =============================================================================
+;; Feat forecasting — potential-based reward shaping (the horizon fix)
+;;
+;; The rest of `decide` is a GREEDY per-turn scorer: it ranks the *type* of an
+;; action and its immediate, this-turn consequence. That is structurally blind
+;; to any feat whose payoff is BACKLOADED several turns out — the bot sees no
+;; gradient, so it never sets up the multi-turn play. This is a general horizon
+;; gap across the whole feat layer, not a quirk of any one feat.
+;;
+;; The fix (Arimaa goal-distance / AlphaGo "value the resulting position, not
+;; the move label" / classical reward-shaping): define a POTENTIAL function Φ
+;; over the player's planned feat chain and score each presented choice by the
+;; realized change in potential, ΔΦ = Φ(next-state) − Φ(state). Because ΔΦ is
+;; read off the SAME `next-state` a human would see, it is a true 1-ply forecast
+;; of how much a choice advances the plan — the slope a greedy scorer can't feel.
+;; Potential-based shaping (Ng et al.) adds gradient without changing the optimal
+;; policy. A no-op / precondition-dead resolution yields ΔΦ = 0, so this also
+;; subsumes the "dead action looks live" representation gap for free.
+;; =============================================================================
+
+(defn- feat-value
+  "Grounded payoff estimate for claiming `contest` from `state`. Mirrors the
+   planner's `game/chain-score` ingredients (claim-order wild points + an ease
+   factor from feat-difficulty), discounted by single-turn-burst claimability so
+   phantom event-feats (J1/G2-style) don't dominate the forecast."
+  [state contest]
+  (let [cid (:id contest)
+        claim-count (count (get-in state [:contest-claims cid] []))
+        wild (get game/bonus-contest-values claim-count 1)
+        difficulty (get game/feat-difficulty cid 5)
+        ease (max 0.3 (- 1.5 (/ difficulty 6.0)))
+        claimability (get game/event-feat-claimability cid 1.0)]
+    (* claimability (+ wild ease))))
+
+(defn- feat-potential
+  "Forecasting potential Φ for `player` in `state`: the expected realized value of
+   the player's targeted feat chain, as Σ value(f)·progress(f)·position-weight
+   over still-unclaimed targets. Evaluated on a presented next-state and differenced
+   against the current state, this is the gradient toward backloaded feats that the
+   greedy per-turn scorer is blind to. Earlier chain positions weigh more (they're
+   attempted first) — matching the planner's own ordering."
+  [state player pdata]
+  (let [claims (:contest-claims state {})
+        already? (fn [cid] (some #{player} (get claims cid [])))
+        chain (or (seq (:feat-chain pdata)) (:target-feats pdata []))
+        active (remove #(already? (:id %)) chain)]
+    (reduce (fn [acc [idx contest]]
+              (let [[prog _] (game/feat-progress state player contest)
+                    pos-w (case idx 0 1.0 1 0.7 2 0.4 0.2)]
+                (+ acc (* (feat-value state contest) prog pos-w))))
+            0.0
+            (map-indexed vector active))))
+
+;; =============================================================================
 ;; The decision-making algorithm
 ;; =============================================================================
 
@@ -486,6 +539,19 @@
       ;; (c) build the per-turn modulation context from public game state.
       (let [player (game/current-player state)
             pdata  (game/player-data state player)
+            ;; ── Feat forecasting (horizon fix) ──────────────────────────
+            ;; ΔΦ between a presented next-state and now is a 1-ply forecast of
+            ;; how much a choice advances the planned feat chain. `fl` returns
+            ;; that shaped reward for a candidate's next-state; at the neutral
+            ;; default weight 0.0 it is exactly 0.0 (existing bots unchanged).
+            lookahead (:feat-lookahead weights 0.0)
+            phi0 (if (pos? lookahead) (feat-potential state player pdata) 0.0)
+            fl (fn [next-s]
+                 (if (and (pos? lookahead) (map? next-s))
+                   (* lookahead
+                      (- (feat-potential next-s player (game/player-data next-s player))
+                         phi0))
+                   0.0))
             progress (game-progress state)
             amity (:amity pdata 0)
             glory (:glory pdata 0)
@@ -652,8 +718,12 @@
                                                        (> level opp-max)
                                                        (if (> competitive 0.5) -1 0)
                                                        :else 0)]]
+                               ;; Forecast: a role bump that advances the feat plan
+                               ;; lowers the sort key (picked first). Sign-flipped
+                               ;; because lower = preferred here.
                                [(+ (* pri 3) level near-max-bonus glory-adj
-                                   feat-role-adj compete-adj te-role-adj) role])]
+                                   feat-role-adj compete-adj te-role-adj
+                                   (- (fl (get role-choices role)))) role])]
                   (if (seq scored)
                     (second (first (sort scored)))
                     ;; Always pick a role — never skip, there's no downside
@@ -762,7 +832,8 @@
                                       :influence -3
                                       0)
                                     0)]]
-                        [(+ base-pri res-pen travel-adj endgame-adj glory-adj amity-adj) idx])]
+                        [(+ base-pri res-pen travel-adj endgame-adj glory-adj amity-adj
+                            (fl next-s)) idx])]
                   (let [best-idx (if (seq scored)
                                    (second (last (sort scored)))
                                    nil)
@@ -797,7 +868,9 @@
                                 ;; Protect resources needed for target feats
                                 (if (and (> awareness 0.2)
                                          (feat-needs-resource? pdata demand))
-                                  (* awareness -5) 0)))
+                                  (* awareness -5) 0)
+                                ;; Forecast: prefer the sale that most advances the plan
+                                (fl (get non-skip demand))))
                            (keys non-skip)))
                   :skip))
 
@@ -844,7 +917,8 @@
                                  [(+ (* demands (:temple-in-demand-city weights 1.5))
                                      mag-bonus on-route late-penalty
                                      river-bonus eridu-bonus group-adj
-                                     cluster-bonus)
+                                     cluster-bonus
+                                     (fl (get non-skip city)))
                                   city])]
                     (if (seq scored)
                       (second (last (sort scored)))
@@ -887,7 +961,8 @@
                                                                     :when (not= pk player)
                                                                     :when (game/raider-on-route? (:raiders pd) rk)]
                                                                pk))]
-                                       (* (:raider-aggression weights 0.5) opp-raiders 2)))
+                                       (* (:raider-aggression weights 0.5) opp-raiders 2))
+                                     (fl (get non-skip rk)))
                                   rk])]
                     (if (seq scored)
                       (second (last (sort scored)))
@@ -956,7 +1031,8 @@
                               (if enemy-raider-risk
                                 (* (:avoid-enemy-flip weights 0.5) -4) 0)
                               ;; Base travel value — always better than nothing
-                              1.0)
+                              1.0
+                              (fl (get non-skip dest)))
                            dest])
                         best (last (sort scored))]
                     ;; Always travel somewhere — don't waste the action
@@ -1031,7 +1107,7 @@
                 ;; Last round: only influence if it flips own raiders (immediate glory)
                 (if (seq non-skip)
                   (let [scored
-                        (for [[k _next-s] non-skip
+                        (for [[k next-s] non-skip
                               :let [dest (when (vector? k) (second k))
                                     steps (when (vector? k) (nth k 2 1))
                                     near-own-point
@@ -1069,7 +1145,8 @@
                               denial-adj
                               ;; On final round, strongly penalize influence that doesn't score
                               (if (and final-round? (not near-own-point) (not has-temple))
-                                -15 0))
+                                -15 0)
+                              (fl next-s))
                            k])]
                     (if (seq scored)
                       (let [best (last (sort scored))]
