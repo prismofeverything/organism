@@ -89,8 +89,8 @@ def imgmat(name, path, rough=0.9, shadeless=False):
         # A saturation/value boost counteracts the desaturation that mipmap minification
         # introduces when the high-contrast board is viewed at an oblique angle.
         hsv = nt.nodes.new("ShaderNodeHueSaturation")
-        hsv.inputs["Saturation"].default_value = float(os.environ.get("BOARDSAT", "1.55"))
-        hsv.inputs["Value"].default_value = float(os.environ.get("BOARDVAL", "1.12"))
+        hsv.inputs["Saturation"].default_value = float(os.environ.get("BOARDSAT", "1.15"))   # board a step DOWN from the pieces (was 1.55, competed)
+        hsv.inputs["Value"].default_value = float(os.environ.get("BOARDVAL", "0.92"))
         nt.links.new(t.outputs["Color"], hsv.inputs["Color"])
         nt.links.new(hsv.outputs["Color"], b.inputs["Emission Color"])
         b.inputs["Emission Strength"].default_value = 1.0
@@ -353,43 +353,57 @@ for aid, (player, ptype) in S["actors"].items():
 # With "glow_player_color" the plasma is tinted each element's player color instead of gold.
 if USE_PLASMA:
     gpc = S.get("glow_player_color", False)
-    ts = sorted(b["t"] for b in beats)
-    for aid in ({a for b in beats for a in b.get("glow", [])} | set(MOVES)):
+    VICTORY = S.get("victory")                 # {"t": finale_start, "rise": frames}: every piece's
+    ts = sorted(b["t"] for b in beats)         # plasma rises and HOLDS up (no fall) -> a "total victory" finale
+    glow_aids = {a for b in beats for a in b.get("glow", [])}
+    plasma_aids = glow_aids | set(MOVES) | (set(S["actors"]) if VICTORY else set())
+    for aid in plasma_aids:
         basecol = vivid(COLORS[S["actors"][aid][0]]) if gpc else None
         po = plasma_obj(aid, basecol)
         mv = MOVES.get(aid)
-        if mv:                                     # plasma follows the glide; one bell over [t0,t1]
+        # ---- position: follow the glide (a mover) or the beats (everyone else) ----
+        if mv:
             fx, fy = P2(mv["from"]); tx, ty = P2(mv["to"])
             po.location = (fx, fy, PL_BASE); po.keyframe_insert("location", frame=0)
             po.keyframe_insert("location", frame=mv["t0"])
             po.location = (tx, ty, PL_BASE); po.keyframe_insert("location", frame=mv["t1"])
             po.keyframe_insert("location", frame=LEN)
-            po.scale = (1.0, 1.0, 0.0); po.keyframe_insert("scale", frame=0)
-            peak = (mv["t0"] + mv["t1"]) / 2.0
-            for t, s in [(max(0, mv["t0"] - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, mv["t1"] + PL_LEAD), 0.0)]:
-                po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
-            continue
-        pos_at = {b["t"]: b["pos"].get(aid) for b in beats}
-        for b in beats:                            # position follows the element
-            if aid in b["pos"]:
-                x, y = P2(b["pos"][aid]); po.location = (x, y, PL_BASE)
-                po.keyframe_insert("location", frame=b["t"])
-        on = {b["t"]: (aid in b.get("glow", [])) for b in beats}
-        episodes = []; i = 0                        # contiguous runs of glow beats
-        while i < len(ts):
-            if on[ts[i]]:
-                j = i
-                while j + 1 < len(ts) and on[ts[j + 1]]: j += 1
-                episodes.append((ts[i], ts[j])); i = j + 1
-            else: i += 1
+        else:
+            for b in beats:
+                if aid in b["pos"]:
+                    x, y = P2(b["pos"][aid]); po.location = (x, y, PL_BASE)
+                    po.keyframe_insert("location", frame=b["t"])
+        # ---- scale (z-rise) ----
         po.scale = (1.0, 1.0, 0.0); po.keyframe_insert("scale", frame=0)   # start collapsed
-        for (e0, e1) in episodes:
-            inner = [t for t in ts if e0 <= t <= e1]
-            chg = [(inner[k - 1], inner[k]) for k in range(1, len(inner)) if pos_at[inner[k]] != pos_at[inner[k - 1]]]
-            m0, m1 = (min(a for a, _ in chg), max(b2 for _, b2 in chg)) if chg else (e0, e1)
-            peak = (m0 + m1) / 2.0
-            for t, s in [(max(0, m0 - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, m1 + PL_LEAD), 0.0)]:
-                po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
+        if VICTORY and mv:                         # mover: rise with its move, hold up (no fall), then SURGE tall in finale
+            peak = (mv["t0"] + mv["t1"]) / 2.0
+            tf = VICTORY["t"]; rise = VICTORY.get("rise", 22); vh = VICTORY.get("h", 2.0)
+            kfs = [(max(0, mv["t0"] - PL_LEAD), 0.0), (peak, 1.0), (tf, 1.0), (min(LEN, tf + rise), vh), (LEN, vh)]
+        elif VICTORY and aid not in glow_aids:     # the REST: rise tall during the finale, then HOLD up (total victory)
+            tf = VICTORY["t"]; rise = VICTORY.get("rise", 22); vh = VICTORY.get("h", 2.0)
+            kfs = [(tf, 0.0), (min(LEN, tf + rise), vh), (LEN, vh)]
+        elif mv:                                   # normal move bell: rise -> peak (midpoint) -> fall
+            peak = (mv["t0"] + mv["t1"]) / 2.0
+            kfs = [(max(0, mv["t0"] - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, mv["t1"] + PL_LEAD), 0.0)]
+        else:                                      # one smooth bell PER glow EPISODE (contiguous run of glow beats)
+            pos_at = {b["t"]: b["pos"].get(aid) for b in beats}
+            on = {b["t"]: (aid in b.get("glow", [])) for b in beats}
+            episodes = []; i = 0
+            while i < len(ts):
+                if on[ts[i]]:
+                    j = i
+                    while j + 1 < len(ts) and on[ts[j + 1]]: j += 1
+                    episodes.append((ts[i], ts[j])); i = j + 1
+                else: i += 1
+            kfs = []
+            for (e0, e1) in episodes:
+                inner = [t for t in ts if e0 <= t <= e1]
+                chg = [(inner[k - 1], inner[k]) for k in range(1, len(inner)) if pos_at[inner[k]] != pos_at[inner[k - 1]]]
+                m0, m1 = (min(a for a, _ in chg), max(b2 for _, b2 in chg)) if chg else (e0, e1)
+                peak = (m0 + m1) / 2.0
+                kfs += [(max(0, m0 - PL_LEAD), 0.0), (peak, 1.0), (min(LEN, m1 + PL_LEAD), 0.0)]
+        for t, s in kfs:
+            po.scale = (1.0, 1.0, s); po.keyframe_insert("scale", frame=int(round(t)))
 
 # carried food stacks
 for aid, (player, ptype) in S["actors"].items():

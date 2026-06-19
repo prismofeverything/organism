@@ -295,7 +295,11 @@
              (-> state
                  (assoc-in [:player-turn :action :owner-actions] max-feasible)
                  (assoc-in [:player-turn :action :bonus-total] 0)
-                 (assoc-in [:player-turn :choice-player] nil)
+                 ;; Hand control to the owner for the WHOLE bonus: they make every
+                 ;; sub-choice (matrix beacon + payment; tower heading, join, payment,
+                 ;; landing). begin-next-station resets choice-player back to the
+                 ;; activator once the owner's actions finish.
+                 (assoc-in [:player-turn :choice-player] owner)
                  (game/begin-actor-actions :owner))))))
 
 (defn choose-activate-self-bonus-choices

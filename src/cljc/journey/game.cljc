@@ -928,9 +928,13 @@
     (-> state return-sundiver-from-station begin-next-station)))
 
 (defn begin-next-station
-  "Pop the next station from the queue and set it up, or return to station selection."
+  "Pop the next station from the queue and set it up, or return to station selection.
+   Always resets choice-player to nil: control returns to the activator here — for the
+   next station's base actions or to re-select a station — including after an owner took
+   the previous station's bonus (which held choice-player = owner for its whole span)."
   [state]
-  (let [player       (current-player state)
+  (let [state        (assoc-in state [:player-turn :choice-player] nil)
+        player       (current-player state)
         queue        (get-in state [:player-turn :action :stations-queue] [])
         station-type (get-in state [:player-turn :action :station-type])]
     (if (empty? queue)
@@ -1097,17 +1101,23 @@
         state))))
 
 (defn deconvert
-  "Remove the player's station at pos, returning its sundivers to the habitat
-   (3 for a tower, 2 for matrix/foundry) and the station piece to reserve. Runs
-   automatically at the start of a turn when the player has no usable sundivers;
-   afterward they take a normal turn with the reclaimed sundivers."
+  "Remove the player's station at pos, moving its sundivers from the RESERVE back
+   to the habitat (3 for a tower, 2 for matrix/foundry) and the station piece to
+   reserve. The sundivers come from the reserve — where `convert` parked them when
+   the station was built — never minted from nothing, so the player's total sundiver
+   count is conserved. Runs automatically at the start of a turn when the player has
+   no usable sundivers; afterward they take a normal turn with the reclaimed sundivers."
   [state player pos]
   (let [stype (get-in state [:board pos :station :type])
-        n     (if (= stype :tower) 3 2)]
+        n     (if (= stype :tower) 3 2)
+        ;; Reserve always holds these at a forced deconvert (the player is stuck with
+        ;; board+habitat = 0, so all their sundivers are in reserve); min is a guard.
+        moved (min n (get-in state [:players player :reserve :sundivers] 0))]
     (-> state
         (assoc-in [:board pos :station] nil)
         (update-in [:players player :stations] dissoc pos)
-        (update-in [:players player :habitat :sundivers] (fnil + 0) n)
+        (update-in [:players player :reserve :sundivers] - moved)
+        (update-in [:players player :habitat :sundivers] (fnil + 0) moved)
         (update-in [:players player :reserve (station-reserve-key stype)] (fnil inc 0))
         (assoc-in [:player-turn :phase] :choose-action-type))))
 

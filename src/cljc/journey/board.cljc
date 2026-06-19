@@ -342,7 +342,10 @@
    with a background fill that erases the hex gap."
   [state player-order player-colors]
   (let [board (:board state)]
-    [:g
+    ;; pointer-events none: gate ovals straddle the edge between two tiles and are
+    ;; drawn on top of them; without this they swallow clicks on either tile near
+    ;; that edge. Gates are never click targets.
+    [:g {:style {:pointer-events "none"}}
      (for [[pos _]  board
            :let     [[cx cy] (hex->pixel pos)]
            player   player-order
@@ -389,7 +392,11 @@
 ;; Two such rings from adjacent tiles form a complete annulus around the gate.
 (defn cipher-match-dots [state pos color-key]
   (when (game/cipher-color-active? state [0 0] color-key)
-    [:g
+    ;; pointer-events none: these arcs bulge past the tile edge over neighboring
+    ;; tiles. Without this they intercept clicks meant for those neighbors (the
+    ;; "highlighted but unclickable space" bug), since this arc belongs to a
+    ;; different tile's group.
+    [:g {:style {:pointer-events "none"}}
      (for [dir   game/hex-directions
              :let  [neighbor-color (get-in state [:board (game/add-hex pos dir) :color])]
              :when (and neighbor-color (game/cipher-color-active? state dir neighbor-color))

@@ -208,12 +208,16 @@ STORY = {
     #      blob, sitting OFF-CENTER in the upper board on the blue/yellow rings, off the red sun).
     #      THREE different KINDS of element move (an EAT, a MOVE, a GROW) -- overlapping but staggered
     #      -- each splitting off a full organism in a DIFFERENT shape: a TRIANGLE, a LINE, and a BENT
-    #      curve. Purple player; each moving element highlighted (purple plasma). ----
+    #      curve. Purple player; each moving element highlighted (purple plasma). FINALE: instead of
+    #      the move highlights falling, they HOLD up, then every other piece's highlight rises too
+    #      -- "total victory" (see "victory"). ----
     "three_org": {
-        "len": 85,
+        "len": 116,
         "glow_player_color": True,
+        "victory": {"t": 74, "rise": 26, "h": 2.2},   # finale: movers hold then SURGE tall; the rest rise tall at t74 -> all 9
+
         "cam": {"az": -90, "el": 58, "dist": 430, "lens": 50, "targz": 5, "tx": 0, "ty": 55,
-                "drift": {"az": 6, "el": -1, "dist": -10}},
+                "drift": {"az": 5, "el": -17, "dist": -14}},   # lowers through the clip so the victory columns read side-on
         "actors": {"te": ("purple", "eat"), "tm": ("purple", "move"), "tg": ("purple", "grow"),   # -> TRIANGLE org (right)
                    "le": ("purple", "eat"), "lm": ("purple", "move"), "lg": ("purple", "grow"),   # -> LINE org (top)
                    "be": ("purple", "eat"), "bm": ("purple", "move"), "bg": ("purple", "grow")},  # -> BENT org (left)
@@ -223,7 +227,7 @@ STORY = {
         # lm(MOVE) C:0->D:0 completes LINE {D:0,D:1,D:2}; bg(GROW) C:2->D:4 completes BENT {C:3,C:4,D:4}.
         "beats": [
             {"t": 0,  "pos": {"te": "C:10", "tm": "B:0", "tg": "C:11", "le": "D:1", "lm": "C:0", "lg": "D:2", "be": "C:3", "bm": "C:4", "bg": "C:2"}, "food": {}, "glow": []},
-            {"t": 85, "pos": {"te": "C:10", "tm": "B:0", "tg": "C:11", "le": "D:1", "lm": "C:0", "lg": "D:2", "be": "C:3", "bm": "C:4", "bg": "C:2"}, "food": {}, "glow": []},
+            {"t": 116, "pos": {"te": "C:10", "tm": "B:0", "tg": "C:11", "le": "D:1", "lm": "C:0", "lg": "D:2", "be": "C:3", "bm": "C:4", "bg": "C:2"}, "food": {}, "glow": []},
         ],
         # three different-kind movers, overlapping but staggered (~28f each; starts ~12f apart):
         "moves": [

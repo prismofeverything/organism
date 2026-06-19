@@ -217,6 +217,61 @@
         (is (nil? (get-in declined [:player-turn :choice-player]))
             "control returns to the activator")))))
 
+(deftest owner-bonus-control-handoff-test
+  ;; Regression: when the owner TAKES the bonus on another player's station, the
+  ;; owner — not the activator — must make EVERY choice for the bonus actions
+  ;; (where the beacon goes, how to pay), and control must return to the activator
+  ;; once the bonus is spent. Previously the activator made the owner's choices.
+  (testing "owner taking a matrix bonus controls every sub-choice, then hands back"
+    (let [base (-> (game/initial-state ["alice" "bob"])
+                   ;; bob's matrix station; alice's sundiver is the activating one.
+                   (assoc-in [:board [2 0]]
+                             (-> (game/make-tile :blue)
+                                 (game/add-station :matrix "bob" 1)
+                                 (assoc-in [:sundivers "alice"] 1)))
+                   ;; bob can pay (habitat sundivers) and has beacons (default 21).
+                   (assoc-in [:players "bob" :habitat :sundivers] 3)
+                   ;; Park at the owner-bonus decision: alice's base action is done,
+                   ;; one bonus action remains, and the owner (bob) decides first.
+                   (assoc-in [:player-turn :action :station-type] :matrix)
+                   (assoc-in [:player-turn :action :current-station] [2 0])
+                   (assoc-in [:player-turn :action :current-owner] "bob")
+                   (assoc-in [:player-turn :action :bonus-total] 1)
+                   (assoc-in [:player-turn :action :owner-actions] 0)
+                   (assoc-in [:player-turn :action :activator-actions] 0)
+                   (assoc-in [:player-turn :choice-player] "bob")
+                   (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
+          ;; bob takes the full bonus (max-feasible = 1).
+          taken (get (choice/choose-activate-owner-bonus-choices base) 1)]
+      (is (some? taken) "the owner can take the bonus")
+      (is (= "alice" (game/current-player taken))
+          "it is still the activator's turn")
+      (is (= "bob" (get-in taken [:player-turn :choice-player]))
+          "but the OWNER controls the bonus actions")
+      (is (= :owner (get-in taken [:player-turn :action :current-actor]))
+          "the bonus actions run as the owner")
+      (is (= :choose-activate-matrix-beacon (game/current-phase taken))
+          "the owner is placing the bonus beacon")
+      ;; Placing the beacon: it is the OWNER's beacon, and control stays with bob.
+      (let [beacon-pos (first (game/matrix-beacon-positions taken "bob"))
+            beacons0   (get-in taken [:players "bob" :reserve :beacons])
+            placed     (get (choice/choose-activate-matrix-beacon-choices taken) beacon-pos)]
+        (is (= "bob" (get-in placed [:player-turn :choice-player]))
+            "owner still controls the payment step")
+        (is (= "bob" (get-in placed [:board beacon-pos :beacon]))
+            "the beacon placed belongs to the owner")
+        (is (= (dec beacons0) (get-in placed [:players "bob" :reserve :beacons]))
+            "the beacon came from the owner's reserve")
+        ;; Paying from bob's habitat (nil = habitat) finishes the only bonus action.
+        (let [done (get (choice/choose-activate-matrix-spend-choices placed) nil)]
+          (is (some? done) "owner pays from their own pool")
+          (is (= 2 (get-in done [:players "bob" :habitat :sundivers]))
+              "the sundiver was spent from the OWNER's habitat")
+          (is (nil? (get-in done [:player-turn :choice-player]))
+              "control returns to the activator once the bonus is done")
+          (is (= :choose-activate-station (game/current-phase done))
+              "back to the activator's station selection"))))))
+
 (deftest convert-not-reactivatable-test
   (testing "a station converted (and auto-activated) this turn cannot be activated again"
     ;; Foundry pattern: sundivers at [3 0] and [2 -1] convert to a station at [2 0].
@@ -258,13 +313,25 @@
       (is (zero? (game/total-spendable-sundivers after "bob")))
       (is (= :choose-deconvert (game/current-phase after))
           "bob is forced to deconvert")
-      ;; Deconverting the tower removes it and returns 3 sundivers to bob's habitat.
-      (let [done (get (choice/choose-deconvert-choices after) [2 0])]
+      ;; Deconverting the tower moves 3 sundivers FROM bob's reserve to his habitat
+      ;; (not minted) and returns the tower piece to reserve.
+      (let [res-before    (get-in after [:players "bob" :reserve :sundivers])
+            hab-before    (get-in after [:players "bob" :habitat :sundivers])
+            towers-before (get-in after [:players "bob" :reserve :towers])
+            done          (get (choice/choose-deconvert-choices after) [2 0])]
         (is (nil? (get-in done [:board [2 0] :station])) "station removed from the board")
         (is (not (contains? (get-in done [:players "bob" :stations]) [2 0]))
             "station removed from bob's stations")
         (is (= 3 (get-in done [:players "bob" :habitat :sundivers]))
             "3 sundivers reclaimed for a tower")
+        (is (= (- res-before 3) (get-in done [:players "bob" :reserve :sundivers]))
+            "the 3 sundivers came FROM the reserve, not minted from nothing")
+        (is (= (+ res-before hab-before)
+               (+ (get-in done [:players "bob" :reserve :sundivers])
+                  (get-in done [:players "bob" :habitat :sundivers])))
+            "deconvert conserves the player's total sundivers")
+        (is (= (inc towers-before) (get-in done [:players "bob" :reserve :towers]))
+            "the tower piece is returned to reserve")
         (is (= :choose-action-type (game/current-phase done))
             "then the player takes a normal turn with the reclaimed sundivers")))))
 
