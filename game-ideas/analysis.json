@@ -1,0 +1,211 @@
+{
+ "corpus": {
+  "file": "volume-1500.jsonl",
+  "games": 1500,
+  "totalPlacements": 82947,
+  "drawSuccessRate": 0.902
+ },
+ "pacing": {
+  "avgTurns": 18.4,
+  "minTurns": 4,
+  "maxTurns": 41
+ },
+ "dryComposition": {
+  "mud": 1846,
+  "empty": 3957,
+  "conflict": 2310
+ },
+ "dryShare": {
+  "mud": 0.228,
+  "empty": 0.488,
+  "conflict": 0.285
+ },
+ "conflictRule": {
+  "conflictDriesPerGame": 1.54,
+  "note": "draw-conflict denials (Muhammad's new rule) per game"
+ },
+ "blankPlayShare": 0.464,
+ "decisiveness": {
+  "decidedGames": 1430,
+  "winnerHadTopMult": 1,
+  "winnerHeldMostChits": 0.858
+ },
+ "archetypeWinRates": [
+  {
+   "name": "Survivor",
+   "winRate": 0.559,
+   "avgMult": 44.2,
+   "avgDry": 0.85,
+   "n": 329
+  },
+  {
+   "name": "Hoarder",
+   "winRate": 0.522,
+   "avgMult": 42.4,
+   "avgDry": 0.72,
+   "n": 299
+  },
+  {
+   "name": "Rimwalker",
+   "winRate": 0.413,
+   "avgMult": 38,
+   "avgDry": 1.03,
+   "n": 355
+  },
+  {
+   "name": "Canvasser",
+   "winRate": 0.406,
+   "avgMult": 36.5,
+   "avgDry": 1.36,
+   "n": 334
+  },
+  {
+   "name": "Secondist",
+   "winRate": 0.364,
+   "avgMult": 36.3,
+   "avgDry": 1.64,
+   "n": 414
+  },
+  {
+   "name": "Corehugger",
+   "winRate": 0.354,
+   "avgMult": 35,
+   "avgDry": 1.7,
+   "n": 412
+  },
+  {
+   "name": "Capper",
+   "winRate": 0.346,
+   "avgMult": 33.8,
+   "avgDry": 1.42,
+   "n": 366
+  },
+  {
+   "name": "Primarist",
+   "winRate": 0.291,
+   "avgMult": 33,
+   "avgDry": 1.86,
+   "n": 554
+  },
+  {
+   "name": "Monochrome",
+   "winRate": 0.267,
+   "avgMult": 29,
+   "avgDry": 1.9,
+   "n": 357
+  },
+  {
+   "name": "Dumper",
+   "winRate": 0.232,
+   "avgMult": 28.5,
+   "avgDry": 2.33,
+   "n": 380
+  },
+  {
+   "name": "Bridger",
+   "winRate": 0.232,
+   "avgMult": 31.4,
+   "avgDry": 2.11,
+   "n": 248
+  },
+  {
+   "name": "MudRusher",
+   "winRate": 0.116,
+   "avgMult": 17.6,
+   "avgDry": 3.92,
+   "n": 452
+  }
+ ],
+ "dominance": {
+  "topArchetype": "Survivor",
+  "topWinRate": 0.597,
+  "fieldNeutral": 0.333,
+  "topToBottomSpread": 0.486,
+  "naiveDumperWinRate": 0.217,
+  "naiveDumperRank": 11,
+  "mudRusherWinRate": 0.111,
+  "mudRusherRank": 12,
+  "intransitiveTriples": 0,
+  "rps": [
+   {
+    "name": "Survivor",
+    "beats": 10,
+    "losesTo": 1
+   },
+   {
+    "name": "Hoarder",
+    "beats": 8,
+    "losesTo": 3
+   },
+   {
+    "name": "Rimwalker",
+    "beats": 1,
+    "losesTo": 10
+   },
+   {
+    "name": "Canvasser",
+    "beats": 1,
+    "losesTo": 10
+   },
+   {
+    "name": "Secondist",
+    "beats": 0,
+    "losesTo": 11
+   },
+   {
+    "name": "Capper",
+    "beats": 0,
+    "losesTo": 11
+   },
+   {
+    "name": "Primarist",
+    "beats": 0,
+    "losesTo": 11
+   },
+   {
+    "name": "Corehugger",
+    "beats": 0,
+    "losesTo": 11
+   },
+   {
+    "name": "Monochrome",
+    "beats": 0,
+    "losesTo": 11
+   },
+   {
+    "name": "Bridger",
+    "beats": 0,
+    "losesTo": 11
+   },
+   {
+    "name": "Dumper",
+    "beats": 1,
+    "losesTo": 10
+   },
+   {
+    "name": "MudRusher",
+    "beats": 0,
+    "losesTo": 11
+   }
+  ]
+ },
+ "gaConvergence": {
+  "generations": 22,
+  "totalGames": 3168,
+  "topRegionMix": {
+   "bridge": 3,
+   "balanced": 6,
+   "cap": 1,
+   "cmy": 2,
+   "center": 2,
+   "blank": 2
+  },
+  "bestElo": 1646
+ },
+ "verdict": [
+  "OK: no archetype runs away (top win-rate 0.597 in a 3-player field where 0.333 is neutral).",
+  "OK: the naive 'dump least-present chit' baseline (Dumper) is below neutral (0.217) — the obvious mindless line is NOT optimal.",
+  "WARN: 0 intransitive (rock-paper-scissors) triples among archetypes — no cycles found; ordering may be near-total.",
+  "5/12 archetypes both beat someone AND lose to someone (matchup texture)."
+ ]
+}

@@ -1,0 +1,926 @@
+{
+ "schema": "chroma-game/1",
+ "seed": 341295443,
+ "palette": "CMY",
+ "nPlayers": 3,
+ "depth": 3,
+ "perColor": 30,
+ "mudLimit": 3,
+ "bases": [
+  0,
+  2,
+  4
+ ],
+ "turns": 23,
+ "regions": {
+  "C": 3,
+  "B": 1,
+  "M": 6,
+  "R": 4,
+  "Y": 5,
+  "G": 21
+ },
+ "finalText": "New game · 3p · palette CMY · 30/color · depth 3.\nYou played Green on a empty space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Red on a empty space → Red, drew Red.\nYou skip the swap.\nYou played Green on a empty space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Red on a empty space → Red, drew Red.\nYou skip the swap.\nYou played Green on a empty space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Red on a empty space → Red, drew Red.\nYou skip the swap.\nYou played Magenta on a empty space → Magenta, drew Magenta.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Red on a empty space → Red, drew Red.\nYou skip the swap.\nB2 swapped Red+Red → Cyan (opposite).\nYou played Green on a Yellow space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Red on a empty space → Red, drew Red.\nYou skip the swap.\nB2 swapped Red+Green → Yellow (between).\nYou played Green on a empty space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Yellow on a Magenta space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a empty space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Magenta on a empty space → Magenta, drew Magenta.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Yellow space → Green, drew Green.\nB1 played Cyan on a empty space → Cyan, drew Cyan.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a empty space → Green, drew Green.\nB1 played Red on a empty space → Red, drew Red.\nB2 played Yellow on a Magenta space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Green on a empty space → Green, drew Green.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Green on a empty space → Green, drew Green.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nB1 swapped Green+Green → Magenta (opposite).\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Magenta on a empty space → Magenta, drew Magenta.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Magenta on a empty space → Magenta, drew Magenta.\nB1 played Red on a empty space → Red, drew Red.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Yellow space → Green, drew Green.\nB1 played Red on a empty space → Red, drew Red.\nB2 played Yellow on a Magenta space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Yellow space → Green, drew Green.\nB1 played Magenta on a empty space → Magenta, drew Magenta.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Red on a Magenta space → Red, drew Red.\nB2 played Yellow on a Magenta space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Magenta on a empty space → Magenta, drew Magenta.\nB2 played Yellow on a Red space → Red, drew Red.\nYou skip the swap.\nYou played Green on a Cyan space → Green, drew Green.\nB1 played Green on a empty space → Green, drew Green.\nB2 played Yellow on a Red space → Red — dry (pile empty).\nYou skip the swap.\nYou played Magenta on a empty space → Magenta, drew Magenta.\nB1 played Yellow on a empty space → Yellow, drew Yellow.\nB2 played Yellow on a Red space → Red — dry (pile empty).\nYou skip the swap.\nYou played Green on a Yellow space → Green, drew Green.\nB1 played Green on a Yellow space → Green, drew Green.\nB2 played Yellow on a Red space → Red — dry (pile empty).\nYou skip the swap.\n⚠ end triggered (3 dry plays) — ONE final simultaneous turn.\nYou played Green on a Yellow space → Green — dry (pile empty).\nB1 played Magenta on a empty space → Magenta, drew Magenta.\nB2 played Yellow on a Magenta space → Red — dry (pile empty).\nYou skip the swap.\n— Game over —\nWinner: B1 with 39 (score = Σ region size for colors held).\n· game cached in browser (Download log to keep; run serve_nocache.py for disk autosave).",
+ "players": [
+  {
+   "name": "You",
+   "isBot": false,
+   "target": null,
+   "dry": 1,
+   "hand": [
+    "M",
+    "G",
+    "G",
+    "C",
+    "M"
+   ],
+   "mult": 30,
+   "add": 7
+  },
+  {
+   "name": "B1",
+   "isBot": true,
+   "target": "C",
+   "dry": 0,
+   "hand": [
+    "R",
+    "C",
+    "Y",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "C",
+    "R",
+    "G",
+    "M",
+    "M",
+    "R",
+    "R",
+    "M",
+    "R",
+    "M",
+    "G",
+    "Y",
+    "G",
+    "M"
+   ],
+   "mult": 39,
+   "add": 11
+  },
+  {
+   "name": "B2",
+   "isBot": true,
+   "target": "R",
+   "dry": 4,
+   "hand": [
+    "G",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "C",
+    "R",
+    "Y",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R",
+    "R"
+   ],
+   "mult": 33,
+   "add": 9
+  }
+ ],
+ "moves": [
+  {
+   "turn": 0,
+   "rot": 0,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "2,-1",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-4,3",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "2,-5",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 1,
+   "rot": 0,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "1,1",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-3,-2",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "3,-3",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 2,
+   "rot": 0,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-1,2",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "0,-4",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "4,-1",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 3,
+   "rot": 0,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-2,1",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "3,-5",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "2,3",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": [
+    {
+     "pi": 2,
+     "type": "opposite",
+     "discards": [
+      "R",
+      "R"
+     ],
+     "get": "C"
+    }
+   ]
+  },
+  {
+   "turn": 4,
+   "rot": 0,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "0,-1",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "4,1",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-5,3",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": [
+    {
+     "pi": 2,
+     "type": "between",
+     "discards": [
+      "R",
+      "G"
+     ],
+     "get": "Y"
+    }
+   ]
+  },
+  {
+   "turn": 5,
+   "rot": 0,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "2,-2",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "0,3",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-3,1",
+     "placed": "Y",
+     "prev": "Magenta",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 6,
+   "rot": 1,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "2,0",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-5,4",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "2,-5",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 7,
+   "rot": 1,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "0,2",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-3,0",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "3,-3",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 8,
+   "rot": 1,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-3,4",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "1,-5",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "4,-1",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 9,
+   "rot": 1,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-2,-1",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "1,-2",
+     "placed": "C",
+     "prev": "empty",
+     "res": "C",
+     "drew": "C",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "2,3",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 10,
+   "rot": 1,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-1,-1",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "4,0",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-3,4",
+     "placed": "Y",
+     "prev": "Magenta",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 11,
+   "rot": 1,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "3,-2",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-2,5",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-1,0",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 12,
+   "rot": 2,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "2,1",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-4,4",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "2,-5",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": [
+    {
+     "pi": 1,
+     "type": "opposite",
+     "discards": [
+      "G",
+      "G"
+     ],
+     "get": "M"
+    }
+   ]
+  },
+  {
+   "turn": 13,
+   "rot": 2,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "1,2",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-5,2",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "3,-3",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 14,
+   "rot": 2,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-3,5",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "0,-5",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "4,-1",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 15,
+   "rot": 2,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-3,-1",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "5,-3",
+     "placed": "R",
+     "prev": "empty",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-1,3",
+     "placed": "Y",
+     "prev": "Magenta",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 16,
+   "rot": 2,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-1,-2",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "5,-1",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-5,3",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 17,
+   "rot": 2,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "4,-3",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-1,4",
+     "placed": "R",
+     "prev": "Magenta",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-4,2",
+     "placed": "Y",
+     "prev": "Magenta",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 18,
+   "rot": 3,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "3,0",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-4,5",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "0,-5",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": "R",
+     "dry": null
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 19,
+   "rot": 3,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "1,3",
+     "placed": "G",
+     "prev": "Cyan",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-2,0",
+     "placed": "G",
+     "prev": "empty",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "5,-3",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": null,
+     "dry": "empty"
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 20,
+   "rot": 3,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-5,5",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "-1,-4",
+     "placed": "Y",
+     "prev": "empty",
+     "res": "Y",
+     "drew": "Y",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "4,0",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": null,
+     "dry": "empty"
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 21,
+   "rot": 3,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "-4,-1",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 1,
+     "cell": "4,-5",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": "G",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "2,3",
+     "placed": "Y",
+     "prev": "Red",
+     "res": "R",
+     "drew": null,
+     "dry": "empty"
+    }
+   ],
+   "swaps": []
+  },
+  {
+   "turn": 22,
+   "rot": 3,
+   "plays": [
+    {
+     "pi": 0,
+     "cell": "0,-3",
+     "placed": "G",
+     "prev": "Yellow",
+     "res": "G",
+     "drew": null,
+     "dry": "empty"
+    },
+    {
+     "pi": 1,
+     "cell": "3,1",
+     "placed": "M",
+     "prev": "empty",
+     "res": "M",
+     "drew": "M",
+     "dry": null
+    },
+    {
+     "pi": 2,
+     "cell": "-2,4",
+     "placed": "Y",
+     "prev": "Magenta",
+     "res": "R",
+     "drew": null,
+     "dry": "empty"
+    }
+   ],
+   "swaps": []
+  }
+ ]
+}

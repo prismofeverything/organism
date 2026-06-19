@@ -1,0 +1,356 @@
+{
+  "categories": [
+    {
+      "id": "79b085e4-15b0-5154-a1f3-c161fafbd1bb",
+      "name": "Add Media",
+      "shortcuts": [
+        {
+          "id": "99971a9d-ecba-5fd1-9161-afdded3390ce",
+          "name": "Add Audiobook",
+          "method": "POST",
+          "url": "http://100.115.113.111:8765/media-add",
+          "headers": [
+            {
+              "key": "X-Pipe-Token",
+              "value": "1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup"
+            }
+          ],
+          "requestBodyType": "custom_text",
+          "contentType": "application/json",
+          "bodyContent": "{\"category\":\"audiobooks\",\"title\":\"{{ab_title}}\",\"author\":\"{{ab_author}}\"}",
+          "iconName": "flat_color_book",
+          "responseHandling": {
+            "actions": [
+              "rerun",
+              "share",
+              "save"
+            ]
+          }
+        },
+        {
+          "id": "1562bf8f-28ed-5154-870a-5c6c508dbae7",
+          "name": "Add Movie",
+          "method": "POST",
+          "url": "http://100.115.113.111:8765/media-add",
+          "headers": [
+            {
+              "key": "X-Pipe-Token",
+              "value": "1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup"
+            }
+          ],
+          "requestBodyType": "custom_text",
+          "contentType": "application/json",
+          "bodyContent": "{\"category\":\"movies\",\"title\":\"{{mov_title}}\"}",
+          "iconName": "flat_color_film",
+          "responseHandling": {
+            "actions": [
+              "rerun",
+              "share",
+              "save"
+            ]
+          }
+        },
+        {
+          "id": "ebdd35d3-44de-5d46-ac85-00c13b95b2af",
+          "name": "Add TV Show",
+          "method": "POST",
+          "url": "http://100.115.113.111:8765/media-add",
+          "headers": [
+            {
+              "key": "X-Pipe-Token",
+              "value": "1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup"
+            }
+          ],
+          "requestBodyType": "custom_text",
+          "contentType": "application/json",
+          "bodyContent": "{\"category\":\"tv\",\"title\":\"{{tv_title}}\"}",
+          "iconName": "flat_color_television",
+          "responseHandling": {
+            "actions": [
+              "rerun",
+              "share",
+              "save"
+            ]
+          }
+        },
+        {
+          "id": "ad0c309b-f639-5900-9a9a-b0df56463159",
+          "name": "Add Music",
+          "method": "POST",
+          "url": "http://100.115.113.111:8765/media-add",
+          "headers": [
+            {
+              "key": "X-Pipe-Token",
+              "value": "1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup"
+            }
+          ],
+          "requestBodyType": "custom_text",
+          "contentType": "application/json",
+          "bodyContent": "{\"category\":\"music\",\"artist\":\"{{mu_artist}}\",\"album\":\"{{mu_album}}\"}",
+          "iconName": "flat_color_music_note",
+          "responseHandling": {
+            "actions": [
+              "rerun",
+              "share",
+              "save"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "61df16e7-2bcb-5ac9-bc8a-3bf4ab2fe60a",
+      "name": "Samaari",
+      "shortcuts": [
+        {
+          "id": "aaf557a5-6044-51c6-ba28-0c302bfdcc00",
+          "name": "Samaari Vol I",
+          "url": "http://100.115.113.111:8765/samaari/I?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_document"
+        },
+        {
+          "id": "0b4717df-7522-542a-a93a-79296760d590",
+          "name": "Samaari Vol II",
+          "url": "http://100.115.113.111:8765/samaari/II?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_document"
+        },
+        {
+          "id": "79abb404-8588-5df3-9dbb-c0054333af82",
+          "name": "Samaari Vol III",
+          "url": "http://100.115.113.111:8765/samaari/III?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_document"
+        },
+        {
+          "id": "cf1f172d-8e96-5e21-a2b4-9e354950a232",
+          "name": "Samaari Vol IV",
+          "url": "http://100.115.113.111:8765/samaari/IV?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_document"
+        },
+        {
+          "id": "7f9bffcc-7e1a-5e96-b024-00f8e9e8b3fe",
+          "name": "Samaari Vol V",
+          "url": "http://100.115.113.111:8765/samaari/V?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_document"
+        },
+        {
+          "id": "08ddbf37-97c4-5c52-ac44-c2c51340b3d1",
+          "name": "Samaari Vol VI",
+          "url": "http://100.115.113.111:8765/samaari/VI?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_document"
+        }
+      ]
+    },
+    {
+      "id": "ca15bee3-0cec-5fda-99fa-2998b9178c70",
+      "name": "Games",
+      "shortcuts": [
+        {
+          "id": "79caccb2-7b4e-5362-b44a-64bf0fb51b50",
+          "name": "Eridu",
+          "url": "http://100.115.113.111:8765/launch/eridu?t=1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_controller"
+        },
+        {
+          "id": "0da31fa1-2ca7-5f3e-a254-294dc2127672",
+          "name": "Chroma",
+          "url": "http://100.115.113.111:8770/chroma-mock.html",
+          "executionType": "browser",
+          "iconName": "flat_color_controller"
+        },
+        {
+          "id": "c294c59f-9d15-5a90-bfa9-10791c70db7f",
+          "name": "Chroma (LAN)",
+          "url": "http://192.168.254.38:8770/chroma-mock.html",
+          "executionType": "browser",
+          "iconName": "flat_color_controller"
+        }
+      ]
+    },
+    {
+      "id": "d31ad43e-f910-53ae-9106-9f87a8fce117",
+      "name": "Pipeline",
+      "shortcuts": [
+        {
+          "id": "393b8a62-7f1e-5c96-b219-8a07f9d66ed9",
+          "name": "Poke",
+          "method": "POST",
+          "url": "http://100.115.113.111:8765/poke",
+          "headers": [
+            {
+              "key": "X-Pipe-Token",
+              "value": "1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup"
+            }
+          ],
+          "bodyContent": "",
+          "iconName": "flat_color_star",
+          "responseHandling": {
+            "actions": [
+              "rerun",
+              "share",
+              "save"
+            ]
+          }
+        },
+        {
+          "id": "0d657475-f7cc-5ef8-a87f-ac0c2f77657e",
+          "name": "Push Data",
+          "method": "POST",
+          "url": "http://100.115.113.111:8765/data",
+          "headers": [
+            {
+              "key": "X-Pipe-Token",
+              "value": "1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup"
+            }
+          ],
+          "requestBodyType": "custom_text",
+          "contentType": "application/json",
+          "bodyContent": "{\"kind\":\"note\",\"text\":\"{{data_payload}}\"}",
+          "iconName": "flat_color_upload",
+          "responseHandling": {
+            "actions": [
+              "rerun",
+              "share",
+              "save"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "28fa55bd-9de1-5e7c-aa44-39ec40c8f572",
+      "name": "Launchers",
+      "shortcuts": [
+        {
+          "id": "d03ff9cf-7067-5d42-94c6-36278843bedc",
+          "name": "\u27f3 Sync shortcuts",
+          "url": "http-shortcuts://import?url=http%3A%2F%2F100.115.113.111%3A8765%2Fshortcuts%3Ft%3D1PyHlQMsXmkxPUa9ncQCaGy0-2br3uup",
+          "executionType": "browser",
+          "iconName": "flat_color_download"
+        },
+        {
+          "id": "baf17d40-3dd3-58bd-8404-9e4e26021ce6",
+          "name": "Transmission (paused queue)",
+          "url": "http://100.115.113.111:9091/transmission/web/",
+          "executionType": "browser",
+          "iconName": "flat_color_download"
+        },
+        {
+          "id": "78e4124e-ffa7-51b8-b08d-6e7bc342614a",
+          "name": "AudioBookShelf",
+          "url": "http://100.115.113.111:13378",
+          "executionType": "browser",
+          "iconName": "flat_color_book"
+        },
+        {
+          "id": "2c6f6afd-3051-5c87-93e4-cce7527d4388",
+          "name": "Jellyfin",
+          "url": "http://100.115.113.111:8096",
+          "executionType": "browser",
+          "iconName": "flat_color_film"
+        },
+        {
+          "id": "ea523b14-e3f3-5fea-8844-83efd2e1060b",
+          "name": "Prowlarr",
+          "url": "http://100.115.113.111:9696",
+          "executionType": "browser",
+          "iconName": "flat_color_search"
+        },
+        {
+          "id": "3c423b34-f79b-597a-bea8-fef1099e97f3",
+          "name": "Sonarr",
+          "url": "http://100.115.113.111:8989",
+          "executionType": "browser",
+          "iconName": "flat_color_television"
+        },
+        {
+          "id": "45cb54a6-a759-54f9-a89e-c04b2a05c20b",
+          "name": "Radarr",
+          "url": "http://100.115.113.111:7878",
+          "executionType": "browser",
+          "iconName": "flat_color_film"
+        },
+        {
+          "id": "3c3a8512-f642-53a1-9194-982dc3fea500",
+          "name": "Lidarr",
+          "url": "http://100.115.113.111:8686",
+          "executionType": "browser",
+          "iconName": "flat_color_music_note"
+        },
+        {
+          "id": "adf65325-dae1-5a43-a890-e6c9ecb01b98",
+          "name": "KMHD Jazz",
+          "url": "https://audioplayer.opb.org/kmhd",
+          "executionType": "browser",
+          "iconName": "flat_color_music_note"
+        }
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "id": "50635fb6-57de-5def-8ea5-c70208b5bb95",
+      "key": "ab_title",
+      "type": "text",
+      "title": "Audiobook title?",
+      "urlEncode": false,
+      "jsonEncode": true
+    },
+    {
+      "id": "cb322bbd-8339-5a05-86b4-fe834ab88b25",
+      "key": "ab_author",
+      "type": "text",
+      "title": "Author? (optional \u2014 improves accuracy)",
+      "urlEncode": false,
+      "jsonEncode": true
+    },
+    {
+      "id": "fdbb0122-b574-52ec-8026-f9e56c77ca01",
+      "key": "mov_title",
+      "type": "text",
+      "title": "Movie title?",
+      "urlEncode": false,
+      "jsonEncode": true
+    },
+    {
+      "id": "a7b8cc47-597e-562e-bb70-e24a309027c2",
+      "key": "tv_title",
+      "type": "text",
+      "title": "TV show title?",
+      "urlEncode": false,
+      "jsonEncode": true
+    },
+    {
+      "id": "f018f78a-2893-53e0-b1dc-515939309ed7",
+      "key": "mu_artist",
+      "type": "text",
+      "title": "Artist?",
+      "urlEncode": false,
+      "jsonEncode": true
+    },
+    {
+      "id": "63de8f14-5057-5085-ba31-ba95e6b88fb1",
+      "key": "mu_album",
+      "type": "text",
+      "title": "Album? (optional \u2014 blank = whole discography)",
+      "urlEncode": false,
+      "jsonEncode": true
+    },
+    {
+      "id": "83ffac0f-c497-5dd8-9190-34ecc01af5af",
+      "key": "data_payload",
+      "type": "text",
+      "title": "Data / note to push?",
+      "urlEncode": false,
+      "jsonEncode": true
+    }
+  ],
+  "compatibilityVersion": 90,
+  "version": 91
+}

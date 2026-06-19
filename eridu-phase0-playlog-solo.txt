@@ -1,0 +1,10 @@
+=== Eridu play log (SOLO) — Claude drives P1-YOU ===
+[YOU pick 1] key=1 -> Selected die 5
+[YOU pick 0] key=2 -> Moved Alpha astronomer 3 from space 1 to space 6 (2 astronomers there)
+[auto/you] resolve-landing -> 2 astronomers on space 6 — taking 2 actions
+[YOU pick 1] key=1 -> Selected action: 🏛 temple
+[YOU pick 1] key=:uruk -> Placed face-up temple in Uruk (magistrate city)
+[YOU pick 1] key=2 -> Selected action: 🏛 temple
+[YOU pick 1] key=:kish -> Placed face-up temple in Kish (magistrate city)
+[auto/you] choose-action -> 
+[YOU pick 1] key=1 -> Selected die 3

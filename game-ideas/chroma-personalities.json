@@ -1,0 +1,543 @@
+{
+ "schema": "chroma-personalities/1",
+ "note": "Base-12 painter personalities for future Chroma plays. genome = decision weights (see chroma-sim.js GENES).",
+ "validation": {
+  "seed": 2718,
+  "gamesPerCombo": 24,
+  "totalGames": 5280,
+  "table": [
+   {
+    "name": "Monet",
+    "winRate": 0.399,
+    "elo": 1589
+   },
+   {
+    "name": "Vermeer",
+    "winRate": 0.382,
+    "elo": 1506
+   },
+   {
+    "name": "Cezanne",
+    "winRate": 0.373,
+    "elo": 1475
+   },
+   {
+    "name": "Matisse",
+    "winRate": 0.367,
+    "elo": 1566
+   },
+   {
+    "name": "Klein",
+    "winRate": 0.345,
+    "elo": 1466
+   },
+   {
+    "name": "Klimt",
+    "winRate": 0.345,
+    "elo": 1523
+   },
+   {
+    "name": "Mondrian",
+    "winRate": 0.341,
+    "elo": 1477
+   },
+   {
+    "name": "Picasso",
+    "winRate": 0.334,
+    "elo": 1485
+   },
+   {
+    "name": "Miro",
+    "winRate": 0.313,
+    "elo": 1434
+   },
+   {
+    "name": "Kandinsky",
+    "winRate": 0.299,
+    "elo": 1501
+   },
+   {
+    "name": "Seurat",
+    "winRate": 0.263,
+    "elo": 1527
+   },
+   {
+    "name": "Goya",
+    "winRate": 0.239,
+    "elo": 1451
+   }
+  ],
+  "h2h": {
+   "Mondrian": {
+    "Matisse": 0.33,
+    "Klein": 0.34,
+    "Monet": 0.34,
+    "Seurat": 0.37,
+    "Klimt": 0.33,
+    "Kandinsky": 0.32,
+    "Miro": 0.35,
+    "Vermeer": 0.32,
+    "Goya": 0.37,
+    "Cezanne": 0.34,
+    "Picasso": 0.32
+   },
+   "Matisse": {
+    "Mondrian": 0.37,
+    "Klein": 0.33,
+    "Monet": 0.34,
+    "Seurat": 0.38,
+    "Klimt": 0.4,
+    "Kandinsky": 0.41,
+    "Miro": 0.39,
+    "Vermeer": 0.34,
+    "Goya": 0.39,
+    "Cezanne": 0.32,
+    "Picasso": 0.39
+   },
+   "Klein": {
+    "Mondrian": 0.32,
+    "Matisse": 0.37,
+    "Monet": 0.27,
+    "Seurat": 0.37,
+    "Klimt": 0.31,
+    "Kandinsky": 0.36,
+    "Miro": 0.35,
+    "Vermeer": 0.31,
+    "Goya": 0.44,
+    "Cezanne": 0.37,
+    "Picasso": 0.32
+   },
+   "Monet": {
+    "Matisse": 0.36,
+    "Mondrian": 0.42,
+    "Klein": 0.4,
+    "Seurat": 0.41,
+    "Klimt": 0.38,
+    "Kandinsky": 0.46,
+    "Miro": 0.42,
+    "Vermeer": 0.36,
+    "Goya": 0.42,
+    "Cezanne": 0.34,
+    "Picasso": 0.42
+   },
+   "Seurat": {
+    "Mondrian": 0.25,
+    "Matisse": 0.25,
+    "Klein": 0.25,
+    "Monet": 0.26,
+    "Klimt": 0.25,
+    "Kandinsky": 0.27,
+    "Miro": 0.25,
+    "Vermeer": 0.24,
+    "Goya": 0.29,
+    "Cezanne": 0.3,
+    "Picasso": 0.28
+   },
+   "Klimt": {
+    "Matisse": 0.3,
+    "Mondrian": 0.36,
+    "Klein": 0.4,
+    "Monet": 0.31,
+    "Seurat": 0.35,
+    "Kandinsky": 0.39,
+    "Miro": 0.3,
+    "Vermeer": 0.37,
+    "Goya": 0.33,
+    "Cezanne": 0.32,
+    "Picasso": 0.35
+   },
+   "Kandinsky": {
+    "Matisse": 0.3,
+    "Mondrian": 0.3,
+    "Klein": 0.29,
+    "Monet": 0.3,
+    "Seurat": 0.33,
+    "Klimt": 0.28,
+    "Miro": 0.28,
+    "Vermeer": 0.3,
+    "Goya": 0.35,
+    "Cezanne": 0.3,
+    "Picasso": 0.28
+   },
+   "Miro": {
+    "Matisse": 0.3,
+    "Mondrian": 0.3,
+    "Klein": 0.32,
+    "Monet": 0.29,
+    "Seurat": 0.37,
+    "Klimt": 0.32,
+    "Kandinsky": 0.31,
+    "Vermeer": 0.3,
+    "Goya": 0.36,
+    "Cezanne": 0.27,
+    "Picasso": 0.3
+   },
+   "Vermeer": {
+    "Matisse": 0.35,
+    "Mondrian": 0.38,
+    "Klein": 0.38,
+    "Monet": 0.35,
+    "Seurat": 0.44,
+    "Klimt": 0.35,
+    "Kandinsky": 0.37,
+    "Miro": 0.4,
+    "Goya": 0.45,
+    "Cezanne": 0.35,
+    "Picasso": 0.39
+   },
+   "Goya": {
+    "Matisse": 0.23,
+    "Mondrian": 0.23,
+    "Klein": 0.21,
+    "Monet": 0.23,
+    "Seurat": 0.27,
+    "Klimt": 0.28,
+    "Kandinsky": 0.25,
+    "Miro": 0.24,
+    "Vermeer": 0.21,
+    "Cezanne": 0.22,
+    "Picasso": 0.26
+   },
+   "Cezanne": {
+    "Matisse": 0.38,
+    "Mondrian": 0.35,
+    "Klein": 0.35,
+    "Monet": 0.33,
+    "Seurat": 0.4,
+    "Klimt": 0.39,
+    "Kandinsky": 0.37,
+    "Miro": 0.42,
+    "Vermeer": 0.36,
+    "Goya": 0.4,
+    "Picasso": 0.35
+   },
+   "Picasso": {
+    "Matisse": 0.3,
+    "Mondrian": 0.34,
+    "Klein": 0.33,
+    "Monet": 0.29,
+    "Seurat": 0.38,
+    "Klimt": 0.32,
+    "Kandinsky": 0.35,
+    "Miro": 0.37,
+    "Vermeer": 0.3,
+    "Goya": 0.39,
+    "Cezanne": 0.31
+   }
+  }
+ },
+ "painters": [
+  {
+   "name": "Mondrian",
+   "painter": "Piet Mondrian",
+   "style": "De Stijl grids of pure primaries",
+   "signatureTrait": "C·M·Y primary focus",
+   "region": "cmy",
+   "genome": {
+    "cmyFocus": 1.9,
+    "rgbFocus": -0.4,
+    "colorLock": 0.4,
+    "mudRush": 0,
+    "blankPriority": 0,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1.3,
+    "targetDraw": 1.8,
+    "anyDraw": 1.5,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.9,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Mondrian"
+   }
+  },
+  {
+   "name": "Matisse",
+   "painter": "Henri Matisse",
+   "style": "Fauvist bold secondaries",
+   "signatureTrait": "R·G·B secondary focus",
+   "region": "rgb",
+   "genome": {
+    "cmyFocus": -0.4,
+    "rgbFocus": 1.9,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1.3,
+    "targetDraw": 1.8,
+    "anyDraw": 1.2,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.6,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Matisse"
+   }
+  },
+  {
+   "name": "Klein",
+   "painter": "Yves Klein",
+   "style": "whole canvases of one blue (IKB)",
+   "signatureTrait": "lock one color from the start",
+   "region": "lock",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0.85,
+    "mudRush": 0,
+    "blankPriority": 0.6,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 1,
+    "growRegion": 1.6,
+    "targetDraw": 2.6,
+    "anyDraw": 1.5,
+    "spendTargetPen": 1.8,
+    "dryAversion": 1.9,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Klein"
+   }
+  },
+  {
+   "name": "Monet",
+   "painter": "Claude Monet",
+   "style": "builds light across open fields",
+   "signatureTrait": "blank-canvas farming",
+   "region": "blank",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 1.9,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1.2,
+    "targetDraw": 1.8,
+    "anyDraw": 1.7,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.6,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Monet"
+   }
+  },
+  {
+   "name": "Seurat",
+   "painter": "Georges Seurat",
+   "style": "pointillist, fills to completion",
+   "signatureTrait": "stack-capping / sealing",
+   "region": "cap",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0,
+    "capPriority": 1.9,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1.2,
+    "targetDraw": 1.8,
+    "anyDraw": 1.2,
+    "spendTargetPen": 1.4,
+    "dryAversion": 1.6,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Seurat"
+   }
+  },
+  {
+   "name": "Klimt",
+   "painter": "Gustav Klimt",
+   "style": "decorative gilded borders",
+   "signatureTrait": "edge / rim preference",
+   "region": "edge",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0.6,
+    "capPriority": 0,
+    "edgeCenterPref": 0.85,
+    "bridgeWeight": 0,
+    "growRegion": 1,
+    "targetDraw": 1.8,
+    "anyDraw": 1.2,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.6,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Klimt"
+   }
+  },
+  {
+   "name": "Kandinsky",
+   "painter": "Wassily Kandinsky",
+   "style": "concentric forms around a center",
+   "signatureTrait": "center preference",
+   "region": "center",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0,
+    "capPriority": 0,
+    "edgeCenterPref": -0.85,
+    "bridgeWeight": 1.2,
+    "growRegion": 1.3,
+    "targetDraw": 1.8,
+    "anyDraw": 1.2,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.6,
+    "mudAversion": 2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Kandinsky"
+   }
+  },
+  {
+   "name": "Miro",
+   "painter": "Joan Miró",
+   "style": "linked biomorphic bodies",
+   "signatureTrait": "island-bridging",
+   "region": "bridge",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0.7,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 2.4,
+    "growRegion": 1.7,
+    "targetDraw": 1.8,
+    "anyDraw": 1.5,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.9,
+    "mudAversion": 2.2,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Miro"
+   }
+  },
+  {
+   "name": "Vermeer",
+   "painter": "Johannes Vermeer",
+   "style": "patient, withholds, transforms late",
+   "signatureTrait": "patient late-game hand-swaps",
+   "region": "balanced",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1.2,
+    "targetDraw": 2,
+    "anyDraw": 1.2,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.6,
+    "mudAversion": 2.2,
+    "earlySwap": 0.2,
+    "lateSwap": 1.9,
+    "name": "Vermeer"
+   }
+  },
+  {
+   "name": "Goya",
+   "painter": "Francisco Goya",
+   "style": "the darkening Black Paintings",
+   "signatureTrait": "mud / clock pressure (tempered)",
+   "region": "mudrush",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0.7,
+    "blankPriority": 0.4,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1,
+    "targetDraw": 1.7,
+    "anyDraw": 1.3,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1,
+    "mudAversion": 1.4,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Goya"
+   }
+  },
+  {
+   "name": "Cezanne",
+   "painter": "Paul Cézanne",
+   "style": "methodical structural building",
+   "signatureTrait": "pure survival / endurance",
+   "region": "balanced",
+   "genome": {
+    "cmyFocus": 0,
+    "rgbFocus": 0,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0.5,
+    "capPriority": 0,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 0,
+    "growRegion": 1,
+    "targetDraw": 1.8,
+    "anyDraw": 1.7,
+    "spendTargetPen": 1.2,
+    "dryAversion": 2.3,
+    "mudAversion": 2.9,
+    "earlySwap": 0,
+    "lateSwap": 0,
+    "name": "Cezanne"
+   }
+  },
+  {
+   "name": "Picasso",
+   "painter": "Pablo Picasso",
+   "style": "versatile across every style",
+   "signatureTrait": "balanced all-rounder (GA-favoured)",
+   "region": "bridge",
+   "genome": {
+    "cmyFocus": 0.6,
+    "rgbFocus": 0.6,
+    "colorLock": 0,
+    "mudRush": 0,
+    "blankPriority": 0.7,
+    "capPriority": 0.6,
+    "edgeCenterPref": 0,
+    "bridgeWeight": 1.2,
+    "growRegion": 1.4,
+    "targetDraw": 1.8,
+    "anyDraw": 1.3,
+    "spendTargetPen": 1.2,
+    "dryAversion": 1.6,
+    "mudAversion": 2,
+    "earlySwap": 0.5,
+    "lateSwap": 0.9,
+    "name": "Picasso"
+   }
+  }
+ ]
+}

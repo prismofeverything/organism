@@ -86,19 +86,25 @@
 (defn- you-view [server G you]
   (when (and you (not (:over G)))
     (let [p (get-in G [:players you])
-          phase (:phase server)]
+          phase (:phase server)
+          swap? (= phase :swap)
+          mud? (and swap? (boolean (contains? (:turn-mudded server) you)))]
+      ;; swap info is ALWAYS present so the client can keep a persistent hand + swap
+      ;; area on screen; :canSwap gates whether the options are actionable this step
+      ;; (sequence of play: place first, then swap). During placement the swaps are a
+      ;; preview of the normal (non-mud) options on the current hand.
       (cond-> {:seat you :hand (:hand p)
                :wedge (e/wedge-of p (:turn G))
+               :phase (name phase)
+               :canSwap swap?
+               :madeMud mud?
+               :availableSwaps (e/available-swaps (:hand p) (:bag G) (:stacks G) mud?)
                :submitted (boolean (or (contains? (:pending-placements server) you)
-                                       (and (= phase :swap) (contains? (:pending-swaps server) you))))}
+                                       (and swap? (contains? (:pending-swaps server) you))))}
         (= phase :place)
         (assoc :legal (mapv :k (e/enumerate-moves G you))
                :moves (e/enumerate-moves G you)
-               :canPass (e/can-pass G you))
-        (= phase :swap)
-        (assoc :madeMud (boolean (contains? (:turn-mudded server) you))
-               :availableSwaps (e/available-swaps (:hand p) (:bag G) (:stacks G)
-                                                  (contains? (:turn-mudded server) you)))))))
+               :canPass (e/can-pass G you))))))
 
 (defn- view [server you]
   (let [G (:state server)]
@@ -156,6 +162,12 @@
     (when (:state server)
       (try
         (persist-c/save-game! db play-key server)
+        ;; finished games are also archived under their unique :game-id so completed
+        ;; history accumulates across games AND devices (the live doc keyed by play-key
+        ;; gets reused by the next game). Idempotent: re-saving an over game upserts
+        ;; the same archive row.
+        (when (get-in server [:state :over])
+          (persist-c/archive-completed! db server))
         (catch Exception e
           ;; persistence is best-effort: a Mongo outage must not break live play.
           ;; the game stays in memory and keeps running; it just won't survive a
@@ -325,7 +337,11 @@
                     (range n))
         G (e/new-game specs {:palette pal-kw :depth depth :seed seed
                              :removed (if trim e/trim-cells #{})})]
-    {:key play-key :state G :phase :place :bots bot-set
+    {:key play-key
+     ;; unique per-game id: the live doc is keyed by play-key (reused for resume),
+     ;; but each finished game is archived under this id so history accumulates.
+     :game-id (str play-key "-" (System/nanoTime))
+     :state G :phase :place :bots bot-set
      :players (mapv #(nth players % (str "seat-" %)) (range n))
      :pending-placements {} :pending-swaps {}
      :turn-mudded #{} :turn-placed #{} :turn-plays []

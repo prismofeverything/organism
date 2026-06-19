@@ -1,0 +1,53 @@
+<html>
+<body style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; color: #1a1a1a; max-width: 720px;">
+
+<p>The walkthrough is waiting for you at <code>~/organism/bonus-walkthrough.md</code> — 175 slots, one section each. Below is the reflective layer you asked for: the systemic patterns underneath the individual flags, not the flags themselves. Every example is pulled from a real slot in the doc so you can jump straight to it.</p>
+
+<p>Out of 175 slots, the honesty pass landed at <b>117 implemented, 23 partial, 35 persistent</b> — and the 58 non-clean slots cluster into four root patterns, not 58 unique mistakes. That clustering <i>is</i> the finding.</p>
+
+<hr>
+
+<h3>Gap 1 — Compound-effect truncation (the biggest, ~23 slots)</h3>
+<p><b>Symptom:</b> a printed card says "do X <i>and</i> Y" (or "X, then sell / influence / travel"), and the code does only X. The drop is silent — the slot still reports success.</p>
+<ul>
+<li>Board 6 / Slot 4: grants <code>Tools x2</code> but never places the Lagash raider.</li>
+<li>Board 8 / Slot 3: grants the resources but skips the sell step.</li>
+<li>Board 30, the <i>entire</i> row (slots 1–4): each is level-value-only — no influence, no travel, no deploy, no temple. The whole board is half-built.</li>
+</ul>
+<p><b>Root cause:</b> the dropped clause is almost always the <i>interactive</i> one — sell, influence, travel, place. The deterministic head of the effect is easy to auto-resolve; the tail needs a player decision, so it got deferred and never came back. The truncation isn't random — it follows the seam between "compute a value" and "ask the player something."</p>
+<p><b>Fix methodology:</b> treat a printed effect as an ordered list of clauses, not one blob. For each partial, the fix is "implement clause N+1," and clause N+1 is nearly always a decision step that needs a choice descriptor wired in. Batch them by clause-type (all the missing "sells," all the missing "influences") rather than board-by-board — the same helper unblocks a dozen slots.</p>
+<p><b>Prevention:</b> at design-spec time, tag every card effect with its clause count and mark which clauses are interactive. A card with 2 clauses but 1 implemented arm is then a visible mismatch, not a hidden one.</p>
+
+<h3>Gap 2 — "Persistent" used as a status that hides un-built work (8 slots)</h3>
+<p><b>Symptom:</b> 8 passives are labeled <code>:persistent</code> — which reads like "done, just fires later" — but their dispatch arm is a literal no-op. Boards 5, 10, 14, 21, 24, 30, 31, 33. Board 5/0 is the tell: the code is <code>NO-OP / skip</code> with the comment <i>"complex, would need movement tracking."</i></p>
+<p><b>Root cause:</b> the status taxonomy collapsed two different things into one label — "this is a passive/triggered effect" (a <i>category</i>) and "this is implemented" (a <i>state</i>). Once a hard passive got parked as <code>:persistent</code>, it looked the same as a working one. The label became a place to hide difficulty.</p>
+<p><b>Fix methodology:</b> split the axis. Category (instant vs. passive) and implementation state (done / partial / stub) are independent — every slot needs both, separately. The 8 stubs then surface immediately as "passive + stub," and "complex, would need movement tracking" becomes a real backlog item instead of a buried comment.</p>
+<p><b>Prevention:</b> never let a single enum carry both "what kind of thing is this" and "is it finished." Any status vocabulary that can absorb an unimplemented effect without flagging it will eventually be used to do exactly that.</p>
+
+<h3>Gap 3 — Dual-path divergence (auto-resolve vs. human choice)</h3>
+<p><b>Symptom:</b> the same card produces different outcomes depending on who plays it. Board 17 / Slot 1: the auto dispatch flips a raider to <i>point</i>, but <code>bonus-needs-choice?</code> routes the human path as <code>:pick-resource</code>, which grants a <i>resource</i> instead. Bot and human are playing two different cards.</p>
+<p><b>Root cause:</b> there are two code paths for every choice-bearing effect — the human path (<code>apply-bonus-with-choice</code>) and the bot/no-UI fallback (the dispatch arm) — and they were authored separately with no shared source of truth tying both back to the printed intent. They drift the moment one is edited without the other.</p>
+<p><b>Fix methodology:</b> make the printed intent the single spec, and have both paths derive from it — or at minimum add a test that asserts auto-outcome and human-outcome are semantically equivalent for every choice slot. 17/1 is the one I'd eyeball first; there are likely a few more once you assert the invariant.</p>
+<p><b>Prevention:</b> any effect with a human path and an auto path needs a consistency check as a structural rule, not a per-card review. Two independent implementations of one rule will diverge unless something forces them equal.</p>
+
+<h3>Gap 4 — Coordinate-system mismatch (spec language vs. code indices)</h3>
+<p><b>Symptom:</b> the bug report says "slot 5," the code indexes 0–4, and "slot 5" actually means code index 4. Cheap to reconcile once, expensive every time it's re-encountered — every reader re-derives the off-by-one.</p>
+<p><b>Root cause:</b> player-facing numbering (1–5, or "the 5th slot") was never reconciled with 0-based code indices, so reports and code speak different coordinate systems for the same object.</p>
+<p><b>Fix methodology:</b> pick one canonical addressing scheme and translate at the boundary (UI/report layer), so internal code and specs never disagree. The walkthrough already does this — every Slot 4 entry is tagged as the "slot 5" the bug maps to — which is the translation made explicit.</p>
+<p><b>Prevention:</b> decide the canonical index for any addressable game object <i>once</i>, at design time, and write it into the spec. Off-by-one between spec and code is free to prevent and never stops costing if you don't.</p>
+
+<hr>
+
+<h3>Why this matters for Eridu &amp; Chroma scaffolding</h3>
+<p>Three of these four gaps are not coding mistakes — they're <b>spec-to-implementation traceability</b> failures. The effect was designed in prose, implemented in code, and nothing structurally tied the two together, so clauses fell out (Gap 1), difficulty got hidden (Gap 2), and parallel implementations drifted (Gap 3). The scaffolding lesson is the same each time:</p>
+<ul>
+<li><b>A card's printed text should be a machine-checkable spec, not just flavor.</b> If each effect were authored as a structured list of typed clauses (compute / place / travel / sell / choose), then "is every clause implemented?" and "do the auto and human paths match?" become automatic checks rather than a 175-slot manual audit after the fact.</li>
+<li><b>Status vocabulary must never be able to absorb un-built work.</b> Separate "what kind of effect" from "is it finished" from day one.</li>
+<li><b>Decide addressing and coordinate conventions before content exists,</b> not after the first bug report exposes the off-by-one.</li>
+</ul>
+<p>If Eridu and Chroma both carry a structured effect schema from the start — clauses typed, interactivity flagged, one canonical index, both resolution paths derived from one spec — this entire audit becomes a build-time check that can't silently pass. That's the reusable mechanism worth lifting out of this exercise.</p>
+
+<p style="color:#555;">No code was touched — read/document only. Say the word and I can turn any of these four into a concrete fix pass (Gap 1's clause-batching and Gap 2's 8 stubs are the highest-leverage starting points).</p>
+
+</body>
+</html>

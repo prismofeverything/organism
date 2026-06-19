@@ -1,0 +1,178 @@
+{
+ "rule": "base",
+ "games": 100,
+ "turnsSum": 1994,
+ "dry": {
+  "mud": 95,
+  "empty": 303,
+  "conflict": 159
+ },
+ "swaps": {
+  "opposite": 22,
+  "between": 4,
+  "denied": 0
+ },
+ "byArch": {
+  "Primarist": {
+   "win": 11,
+   "n": 32,
+   "swaps": 0,
+   "winRate": 0.344,
+   "swapsPerGame": 0
+  },
+  "Secondist": {
+   "win": 12,
+   "n": 24,
+   "swaps": 0,
+   "winRate": 0.5,
+   "swapsPerGame": 0
+  },
+  "Monochrome": {
+   "win": 3.5,
+   "n": 19,
+   "swaps": 0,
+   "winRate": 0.184,
+   "swapsPerGame": 0
+  },
+  "MudRusher": {
+   "win": 4.5,
+   "n": 24,
+   "swaps": 0,
+   "winRate": 0.188,
+   "swapsPerGame": 0
+  },
+  "Canvasser": {
+   "win": 11.5,
+   "n": 20,
+   "swaps": 0,
+   "winRate": 0.575,
+   "swapsPerGame": 0
+  },
+  "Capper": {
+   "win": 6.333333333333333,
+   "n": 22,
+   "swaps": 0,
+   "winRate": 0.288,
+   "swapsPerGame": 0
+  },
+  "Rimwalker": {
+   "win": 6.5,
+   "n": 24,
+   "swaps": 0,
+   "winRate": 0.271,
+   "swapsPerGame": 0
+  },
+  "Corehugger": {
+   "win": 6.333333333333333,
+   "n": 26,
+   "swaps": 0,
+   "winRate": 0.244,
+   "swapsPerGame": 0
+  },
+  "Bridger": {
+   "win": 3.5,
+   "n": 20,
+   "swaps": 0,
+   "winRate": 0.175,
+   "swapsPerGame": 0
+  },
+  "Hoarder": {
+   "win": 4.5,
+   "n": 16,
+   "swaps": 0,
+   "winRate": 0.281,
+   "swapsPerGame": 0
+  },
+  "Survivor": {
+   "win": 10.333333333333332,
+   "n": 16,
+   "swaps": 0,
+   "winRate": 0.646,
+   "swapsPerGame": 0
+  },
+  "Dumper": {
+   "win": 9,
+   "n": 25,
+   "swaps": 0,
+   "winRate": 0.36,
+   "swapsPerGame": 0
+  },
+  "LateSwapper": {
+   "win": 4,
+   "n": 17,
+   "swaps": 13,
+   "winRate": 0.235,
+   "swapsPerGame": 0.76
+  },
+  "EarlyShifter": {
+   "win": 7,
+   "n": 15,
+   "swaps": 13,
+   "winRate": 0.467,
+   "swapsPerGame": 0.87
+  }
+ },
+ "winnerTurns": [],
+ "avgTurns": 19.9,
+ "swapsPerGame": 0.26,
+ "variety": {
+  "rule": "base",
+  "games": 100,
+  "seats": 300,
+  "avgHandLen": 4.06,
+  "winnerAvgHandLen": 4.65,
+  "avgDistinct": 2.68,
+  "winnerAvgDistinct": 3.3,
+  "distinctDist": [
+   0.003,
+   0.09,
+   0.333,
+   0.4,
+   0.147,
+   0.027,
+   0
+  ],
+  "winnerDistinctDist": [
+   0,
+   0,
+   0.15,
+   0.47,
+   0.31,
+   0.07,
+   0
+  ],
+  "perColorPerGame": {
+   "C": 0.68,
+   "B": 3.27,
+   "M": 0.81,
+   "R": 3.37,
+   "Y": 0.81,
+   "G": 3.23
+  },
+  "winnerPerColorShare": {
+   "C": 0.38,
+   "B": 1.14,
+   "M": 0.43,
+   "R": 1.17,
+   "Y": 0.41,
+   "G": 1.12
+  },
+  "mudFreq": 0.0106,
+  "byArchWinnerDistinct": {
+   "Primarist": 3.23,
+   "Secondist": 3.63,
+   "Monochrome": 3.43,
+   "MudRusher": 2.22,
+   "Canvasser": 3.22,
+   "Capper": 3.32,
+   "Rimwalker": 3.38,
+   "Corehugger": 3.24,
+   "Bridger": 3.29,
+   "Hoarder": 3.22,
+   "Survivor": 3.1,
+   "Dumper": 3.28,
+   "LateSwapper": 3.75,
+   "EarlyShifter": 3.71
+  }
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "seed": 31415,
+ "games": 3000,
+ "baseline": 0.319,
+ "variants": {
+  "baseline(no swap)": {
+   "seatWinShare": 0.319,
+   "swapsPerGame": 0,
+   "games": 3000
+  },
+  "earlySwap": {
+   "seatWinShare": 0.245,
+   "swapsPerGame": 0.77,
+   "games": 3000
+  },
+  "lateSwap": {
+   "seatWinShare": 0.293,
+   "swapsPerGame": 0.96,
+   "games": 3000
+  },
+  "both swaps": {
+   "seatWinShare": 0.294,
+   "swapsPerGame": 0.94,
+   "games": 3000
+  }
+ }
+}

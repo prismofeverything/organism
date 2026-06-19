@@ -186,25 +186,50 @@
         (when-not already
           (write-pending-queue! (conj queue record)))))))
 
-(defn flush-pending-games!
-  "POST each queued game to /eridu/offline/log. On success, drop it from
-   the queue. On network failure, leave it for next attempt. Fire-and-
-   forget — does not block UI."
+(defn- logged-in?
+  "The offline-log endpoint is auth-gated, so only attempt a sync when a player is
+   signed in. When logged out, the queue simply waits in localStorage until the
+   next page load after sign-in."
   []
-  (let [queue (read-pending-queue)]
-    (doseq [record queue]
-      (POST offline-log-endpoint
-            {:params record
-             :format :transit
-             :response-format :transit
-             :handler (fn [_]
-                        (let [remaining (vec (remove #(= (:game-key %)
-                                                         (:game-key record))
-                                                     (read-pending-queue)))]
-                          (write-pending-queue! remaining)))
-             :error-handler (fn [_]
-                              ;; Silent — leave in queue, retry next time
-                              nil)}))))
+  (and (exists? js/playerKey) (string? js/playerKey) (seq js/playerKey)))
+
+(defn flush-pending-games!
+  "POST each queued game to /eridu/offline/log. On success, drop it from the queue;
+   on failure (network/auth) leave it for the next attempt. Skips entirely when not
+   logged in. Fire-and-forget — does not block UI. The server upserts by game-key,
+   so overlapping flushes (load + online + visibility) are harmless."
+  []
+  (when (logged-in?)
+    (let [queue (read-pending-queue)]
+      (doseq [record queue]
+        (POST offline-log-endpoint
+              {:params record
+               :format :transit
+               :response-format :transit
+               :handler (fn [_]
+                          (let [remaining (vec (remove #(= (:game-key %)
+                                                           (:game-key record))
+                                                       (read-pending-queue)))]
+                            (write-pending-queue! remaining)))
+               :error-handler (fn [_]
+                                ;; Silent — leave in queue, retry on the next trigger
+                                nil)})))))
+
+(defonce ^:private offline-sync-listeners-installed? (atom false))
+
+(defn- setup-offline-sync!
+  "Give the pending-sync queue reliable chances to reach the server beyond the
+   game-over moment (when the network or session may be flaky): retry when the
+   network comes back online, when the tab is shown/hidden, and on bfcache restore.
+   Idempotent — listeners are installed once."
+  []
+  (when (and (exists? js/window) (not @offline-sync-listeners-installed?))
+    (reset! offline-sync-listeners-installed? true)
+    (.addEventListener js/window "online"   (fn [_] (flush-pending-games!)))
+    (.addEventListener js/window "pageshow"  (fn [_] (flush-pending-games!)))
+    (when (exists? js/document)
+      (.addEventListener js/document "visibilitychange"
+                         (fn [_] (flush-pending-games!))))))
 
 (defn apply-choice-locally!
   "Apply a player choice to local game state, then run AI turns until a
@@ -1943,9 +1968,13 @@
       (reset! observe-games (reader/read-string js/observeGames))
       (catch :default _ nil)))
   (mount-components)
+  ;; offline-game sync: install retry triggers (online/visibility/pageshow) and
+  ;; flush any games queued from a prior failed sync. Runs on EVERY eridu page now
+  ;; (not just the offline page), so a game queued while offline / logged out gets
+  ;; pushed the next time any eridu page loads (e.g. after reconnecting or signing in).
+  (setup-offline-sync!)
+  (flush-pending-games!)
   (cond
-    (url-param "offline")  (do
-                             (or (resume-offline-game!)
-                                 (start-offline-game! (or (url-param "ai") "default")))
-                             (flush-pending-games!))
+    (url-param "offline")  (or (resume-offline-game!)
+                               (start-offline-game! (or (url-param "ai") "default")))
     :else                  (connect-ws!)))

@@ -1,0 +1,117 @@
+{
+ "games": 5,
+ "turnsSum": 97,
+ "dry": {
+  "mud": 4,
+  "empty": 15,
+  "conflict": 2
+ },
+ "swaps": {
+  "opposite": 2,
+  "between": 0,
+  "denied": 0
+ },
+ "byArch": {
+  "Primarist": {
+   "win": 1,
+   "n": 3,
+   "swaps": 0,
+   "winRate": 0.333,
+   "swapsPerGame": 0
+  },
+  "Secondist": {
+   "win": 1,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 1,
+   "swapsPerGame": 0
+  },
+  "Monochrome": {
+   "win": 0,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "MudRusher": {
+   "win": 0,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "Canvasser": {
+   "win": 0,
+   "n": 2,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "Capper": {
+   "win": 0,
+   "n": 0,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "Rimwalker": {
+   "win": 0,
+   "n": 0,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "Corehugger": {
+   "win": 0,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "Bridger": {
+   "win": 0.5,
+   "n": 2,
+   "swaps": 0,
+   "winRate": 0.25,
+   "swapsPerGame": 0
+  },
+  "Hoarder": {
+   "win": 1,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 1,
+   "swapsPerGame": 0
+  },
+  "Survivor": {
+   "win": 1,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 1,
+   "swapsPerGame": 0
+  },
+  "Dumper": {
+   "win": 0,
+   "n": 1,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  },
+  "LateSwapper": {
+   "win": 0.5,
+   "n": 1,
+   "swaps": 2,
+   "winRate": 0.5,
+   "swapsPerGame": 2
+  },
+  "EarlyShifter": {
+   "win": 0,
+   "n": 0,
+   "swaps": 0,
+   "winRate": 0,
+   "swapsPerGame": 0
+  }
+ },
+ "winnerTurns": [],
+ "avgTurns": 19.4,
+ "swapsPerGame": 0.4
+}

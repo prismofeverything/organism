@@ -144,43 +144,69 @@
 
 (defn- hand-bar [view]
   (let [you (:you view)
+        place? (= "place" (:phase view))
         sel (:selected-chit @app)
         allowed (set (allowed-chits you))]
     [:div {:style {:margin "12px 0"}}
      [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap" :align-items "center"}}
-      [:span {:style {:color (:dim C) :margin-right "4px" :font-size "12px"}} "YOUR HAND"]
+      [:span {:style {:color (:dim C) :margin-right "4px" :font-size "12px" :font-weight "700"}} "YOUR HAND"]
       (for [[i ch] (map-indexed vector (:hand you))]
         ^{:key i}
-        [chip view ch {:selected (= sel ch) :disabled (not (allowed ch))
-                       :big true :on-click #(swap! app assoc :selected-chit ch)}])
-      (when (:canPass you)
+        [chip view ch {:selected (and place? (= sel ch))
+                       :disabled (or (not place?) (not (allowed ch)))
+                       :big true
+                       :on-click (when place? #(swap! app assoc :selected-chit ch))}])
+      (when (and place? (:canPass you))
         [:button {:on-click send-pass! :style {:margin-left "8px"}} "Pass"])]
      [:div {:style {:color (:dim C) :font-size "12px" :margin-top "6px"}}
-      (cond sel (str "Place " (color-name view sel) " on a highlighted cell.")
-            (seq allowed) "Pick a chit, then click a glowing cell in your wedge."
-            :else "No legal placement — you may pass.")]]))
+      (cond
+        (not place?) "Placement locked in — resolve your swap below (or skip)."
+        sel (str "Place " (color-name view sel) " on a highlighted cell.")
+        (seq allowed) "Pick a chit, then click a glowing cell in your wedge."
+        :else "No legal placement — you may pass.")]]))
 
-(defn- swap-panel [view]
+;; Swap area is ALWAYS on screen alongside the hand. Its options stay visible at all
+;; times (so you can plan), but are only clickable during the swap step (:canSwap) —
+;; honouring place-then-swap sequencing. A mud turn upgrades it to the glowing SUPER
+;; SWAP (discard 1, gain 1, free).
+(defn- swap-area [view]
   (let [you (:you view)
+        can? (:canSwap you)
         mud (:madeMud you)
         swaps (:availableSwaps you)]
-    [:div {:style {:margin "12px 0" :padding "10px" :border-radius "8px"
-                   :border (str "1px solid " (if mud (:gold C) (:line C)))
-                   :background (if mud "#2a2614" "#23272f")}}
-     [:div {:style {:color (:dim C) :margin-bottom "8px" :font-size "12px"}}
-      (if mud "YOU MADE MUD — free 1-for-1 swap (discard 1, gain 1)"
-          "OPTIONAL SWAP — discard 2, gain 1 (costs one net chit). Resolved simultaneously.")]
+    [:div {:class (when mud "superswap")
+           :style {:margin "12px 0" :padding "10px" :border-radius "10px"
+                   :border (str "2px solid " (cond mud (:gold C) can? (:accent C) :else (:line C)))
+                   :background (cond mud "linear-gradient(135deg,#2e2810,#231f12)"
+                                     can? "#1b2226" :else "#16181d")
+                   :transition "border-color .2s, background .2s"}}
+     [:div {:style {:display "flex" :align-items "center" :gap "8px" :margin-bottom "8px" :flex-wrap "wrap"}}
+      (if mud
+        [:span {:style {:font-weight "800" :color (:gold C) :font-size "15px" :letter-spacing ".03em"}}
+         "⚡ SUPER SWAP"]
+        [:span {:style {:font-weight "700" :color (:dim C) :font-size "12px"}} "SWAP"])
+      [:span {:style {:color (if mud "#ecdca6" (:dim C)) :font-size "12px"}}
+       (cond
+         mud  "You made mud — discard 1, gain 1. Free, this turn only!"
+         can? "Discard 2, gain 1 (costs one net chit). Resolved simultaneously."
+         :else "Available after you place — sequence of play.")]]
      (if (seq swaps)
        [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap"}}
         (for [[i sw] (map-indexed vector swaps)]
           ^{:key i}
-          [:button {:disabled (not (:playable sw)) :on-click #(send-swap! sw)
-                    :title (if (:playable sw) "" "gained color is out of stock")
-                    :style {:opacity (if (:playable sw) 1 0.4)
-                            :border (str "1px solid " (if mud (:gold C) (:line C)))}}
+          [:button {:disabled (or (not can?) (not (:playable sw)))
+                    :on-click (when can? #(send-swap! sw))
+                    :title (cond (not can?) "resolve after placing"
+                                 (not (:playable sw)) "gained color is out of stock" :else "")
+                    :style {:opacity (if (and can? (:playable sw)) 1 0.4)
+                            :border (str "1px solid " (if mud (:gold C) (:line C)))
+                            :font-weight (if mud "700" "400")
+                            :color (when mud "#2a2410")
+                            :background (when mud (:gold C))}}
            (str (string/join "+" (:discards sw)) " → " (:get sw))])]
-       [:div {:style {:color (:dim C)}} "No swaps available."])
-     [:button {:on-click send-skip-swap! :style {:margin-top "10px"}} "Skip swap →"]]))
+       [:div {:style {:color (:dim C)}} "No swaps available from this hand."])
+     (when can?
+       [:button {:on-click send-skip-swap! :style {:margin-top "10px"}} "Skip swap →"])]))
 
 ;; ── cards ────────────────────────────────────────────────────────────────────
 
@@ -296,26 +322,60 @@
          (when (= bug-status :error)
            [:span {:style {:color "#e88"}} "Failed — try again."])]]])))
 
+(defn- score-breakdown
+  "Chips showing which colors this seat won + each value, then mud. * marks a tie
+   (scored the 2nd-largest region of that color)."
+  [view sc]
+  [:div {:style {:display "flex" :gap "10px" :flex-wrap "wrap" :align-items "center" :margin-top "5px"}}
+   (let [cols (filter #(> (:value %) 0) (get-in sc [:breakdown :colors]))]
+     (if (seq cols)
+       (for [[i cb] (map-indexed vector cols)]
+         ^{:key i}
+         [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}
+                 :title (str (color-name view (:color cb)) (when (:tie cb) " (tie → 2nd-largest)"))}
+          [:span {:style {:width "14px" :height "14px" :border-radius "3px"
+                          :background (chip-color view (:color cb))}}]
+          [:span {:style {:font-size "12px" :font-variant-numeric "tabular-nums"}}
+           (:value cb) (when (:tie cb) "*")]])
+       [:span {:style {:color (:dim C) :font-size "12px"}} "no colors"]))
+   (when (and (get-in sc [:breakdown :mud]) (pos? (get-in sc [:breakdown :mud :value])))
+     [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}
+             :title "mud — fewest chips in hand"}
+      [:span {:style {:width "14px" :height "14px" :border-radius "3px" :background "#3a322a"}}]
+      [:span {:style {:font-size "12px" :color "#c8b79a"}}
+       "mud " (get-in sc [:breakdown :mud :value]) (when (get-in sc [:breakdown :mud :tie]) "*")]])])
+
 (defn- game-over-overlay [view]
-  (when (:over view)
+  (when (and (:over view) (not (:results-hidden @app)))
     (let [scores (:scores view)
           seats (:seats view)
           winner (when (seq scores) (:seat (apply max-key #(:mult (nth scores (:seat %))) seats)))]
       [:div {:style {:position "fixed" :inset 0 :background "#0b0d11ee" :z-index 50
                      :display "flex" :align-items "center" :justify-content "center" :padding "16px"}}
        [:div {:style {:background (:panel C) :border (str "1px solid " (:line C))
-                      :border-radius "14px" :padding "22px" :max-width "480px" :width "100%"}}
-        [:h2 {:style {:margin "0 0 4px"}} "Game over"]
-        [:div {:style {:color (:dim C) :margin-bottom "12px"}} (str (:turn view) " turns")]
-        (for [[i s] (map-indexed vector seats)]
+                      :border-radius "14px" :padding "22px" :max-width "560px" :width "100%"
+                      :max-height "86vh" :overflow-y "auto"}}
+        [:h2 {:style {:margin "0 0 2px"}} "Game over"]
+        [:div {:style {:color (:dim C) :margin-bottom "12px" :font-size "13px"}}
+         (str (:turn view) " turns · op2b scoring — each color scores for its biggest holder")]
+        (for [[i s] (map-indexed vector seats)
+              :let [sc (nth scores (:seat s))
+                    win? (= (:seat s) winner)]]
           ^{:key i}
-          [:div {:style {:display "flex" :justify-content "space-between" :padding "8px 0"
-                         :border-bottom (str "1px solid " (:line C))
-                         :font-weight (if (= (:seat s) winner) "800" "400")}}
-           [:span (str (:name s) (when (= (:seat s) winner) "  👑"))]
-           [:span (str (:mult (nth scores (:seat s))) " pts")]])
-        [:div {:style {:margin-top "16px"}}
-         [:button {:class "on" :on-click #(send-create! (:new-palette @app))} "New game"]]]])))
+          [:div {:style {:padding "10px 0" :border-bottom (str "1px solid " (:line C))}}
+           [:div {:style {:display "flex" :justify-content "space-between" :align-items "baseline"}}
+            [:span {:style {:font-weight (if win? "800" "600")}}
+             (str (:name s) (when (:isBot s) " 🤖") (when win? "  👑"))]
+            [:span {:style {:font-weight "800" :font-size "18px"}} (str (:mult sc) " pts")]]
+           [score-breakdown view sc]
+           [:div {:style {:color (:dim C) :font-size "11px" :margin-top "4px"}}
+            (str "regions " (:regionScore sc)
+                 (when (pos? (:mudScore sc)) (str " + mud " (:mudScore sc))))]])
+        [:div {:style {:color (:dim C) :font-size "11px" :margin "10px 0 2px"}}
+         "* = tie for most chips → scored that color's 2nd-largest region."]
+        [:div {:style {:margin-top "14px" :display "flex" :gap "8px" :flex-wrap "wrap"}}
+         [:button {:class "on" :on-click #(send-create! (:new-palette @app))} "New game"]
+         [:button {:on-click #(swap! app assoc :results-hidden true)} "View board"]]]])))
 
 ;; ── header ───────────────────────────────────────────────────────────────────
 
@@ -347,11 +407,10 @@
    [:div {:style {:display "flex" :gap "16px" :flex-wrap "wrap" :align-items "flex-start"}}
     [:div {:style {:flex "2" :min-width "320px"}}
      [board-svg view]
-     (when (:you view)
-       (case (:phase view)
-         "place" [hand-bar view]
-         "swap"  [swap-panel view]
-         nil))
+     (when (and (:you view) (not (:over view)))
+       [:div
+        [hand-bar view]
+        [swap-area view]])
      (when (and (:you view) (:submitted (:you view)) (not (:over view)))
        [:div {:style {:color (:dim C) :margin "8px 0"}} "Waiting for other players…"])
      [log-card view]]
@@ -361,7 +420,15 @@
      [reference-table view]
      [bag-panel view]]]
    [bug-modal]
-   [game-over-overlay view]])
+   [game-over-overlay view]
+   ;; when results are dismissed to inspect the final board, offer a way back
+   (when (and (:over view) (:results-hidden @app))
+     [:button {:on-click #(swap! app assoc :results-hidden false)
+               :style {:position "fixed" :bottom "16px" :right "16px" :z-index 51
+                       :padding "10px 16px" :background (:accent C) :color "#06262a"
+                       :border "none" :border-radius "10px" :font-weight "700"
+                       :cursor "pointer" :box-shadow "0 4px 16px #0008"}}
+      "Show results ▸"])])
 
 (defn- new-game-page []
   [:div {:style {:text-align "center" :padding "48px"}}
@@ -384,6 +451,9 @@
     [:div {:style {:font-family "system-ui, Segoe UI, Roboto, sans-serif" :color (:ink C)
                    :background (:bg C) :min-height "100vh" :padding "14px"
                    :max-width "1100px" :margin "0 auto"}}
+     [:style "@keyframes chroma-pulse{0%,100%{box-shadow:0 0 5px #f4d03055}50%{box-shadow:0 0 20px #f4d030cc}}
+              .superswap{animation:chroma-pulse 1.15s ease-in-out infinite}
+              .superswap button:not(:disabled):hover{filter:brightness(1.12)}"]
      (cond
        (not connected) [:div {:style {:color (:dim C) :padding "40px" :text-align "center"}} "Connecting…"]
        no-game [new-game-page]
@@ -394,7 +464,9 @@
 
 (defn- handle-message [msg]
   (case (:type msg)
-    "game-state" (swap! app assoc :view msg :no-game false)
+    "game-state" (swap! app (fn [s] (cond-> (assoc s :view msg :no-game false)
+                                       ;; reopen the results panel for each new finish
+                                       (not (:over msg)) (assoc :results-hidden false))))
     "no-game"    (swap! app assoc :no-game true :view nil)
     nil))
 

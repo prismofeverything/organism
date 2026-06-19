@@ -1,0 +1,29 @@
+{
+ "_VOID": true,
+ "_supersedes": "2026-06-10_magnetic-tiles_PROVISIONAL-sample.json",
+ "_status": "RETRACTED — wrong object identified. Not a calibration sample. Closed direction.",
+ "_retraction_note": "The earlier automated pass (logged 2026-06-10 ~17:18) mis-identified the pieces in these photos as flat translucent 'magnetic building tiles' and processed them as a backlit chit calibration drop. That is WRONG. The pieces are actual Icehouse / Looney Pyramids: small translucent NESTING PYRAMIDS in three sizes, standing point-up. They are 3D, not flat chits. Muhammad caught the misread and confirmed the correction 2026-06-10.",
+ "_why_void_not_just_corrected": {
+  "form_factor": "Standing 3D pyramids read from above as a small bright point-up footprint, NOT a uniform flat color field. Chroma photo-scores flat regions from above, so the per-piece mean-RGB 'base' readings below do not represent what Chroma actually samples.",
+  "overlap_was_a_nesting": "id 1 ('yellow-over-orange OVERLAP') was NOT a flat partial overlap. It was two same-axis pyramids NESTED/stacked vertically. Chroma's subtractive blend depends on FLAT chits PARTIALLY overlapping so the overlap zone mixes. Vertical nesting does not produce that geometry, so this is not a valid mix data point.",
+  "calibration_invalid": "Because both the base geometry and the single 'mix' are wrong for Chroma, the whole thing cannot serve as a Chroma calibration sample. The numbers are not promoted, not interim, not held — they are void for Chroma."
+ },
+ "_decision": "Icehouse / Looney Pyramids: EVALUATED AND REJECTED as a Chroma chit. Reason: wrong form factor — standing 3D, vertical nesting, no flat partial-overlap blend. Not canon. Just a closed direction.",
+ "_what_carries_forward": "The translucency + subtractive color instinct is genuinely right. The real Chroma chit still wants FLAT, frameless, uniform translucent pieces that PARTIALLY OVERLAP to blend. That remains the component search direction. See [[project-chroma]].",
+ "_also": "An even earlier automated pass mis-read these same photos as a calibration drop with 'no red, two blues'. That palette read was an artifact of the same misidentification and is likewise void. Disregard.",
+ "_canon_untouched": "Design doc (chroma.md), draw-table, and all canonical game data were NOT modified by the bad pass and are NOT modified by this retraction. Nothing here ever reached canon.",
+ "_raw_pixel_readings_preserved_for_audit_only": {
+  "_note": "Retained ONLY as a record of what the bad pass measured. NOT a calibration sample. Do not use for Chroma color modeling — wrong object, wrong geometry.",
+  "source_photo": "voice-transcripts/2026-06-10/2026-06-10_170214_PXL_20260610_235929407.jpg",
+  "captured": "2026-06-10",
+  "pieces": [
+   {"id": 1, "described_as": "yellow-over-orange (claimed OVERLAP — actually a vertical pyramid nesting)", "mean_rgb": [156, 131, 60], "hex": "#9c833c"},
+   {"id": 2, "described_as": "green", "mean_rgb": [67, 127, 32], "hex": "#437f20"},
+   {"id": 3, "described_as": "light/sky blue", "mean_rgb": [88, 141, 181], "hex": "#588db5"},
+   {"id": 4, "described_as": "indigo/deeper blue", "mean_rgb": [82, 95, 169], "hex": "#525fa9"},
+   {"id": 5, "described_as": "purple/violet", "mean_rgb": [118, 80, 159], "hex": "#76509f"},
+   {"id": 6, "described_as": "orange", "mean_rgb": [180, 115, 41], "hex": "#b47329"},
+   {"id": 7, "described_as": "yellow", "mean_rgb": [167, 169, 39], "hex": "#a7a927"}
+  ]
+ }
+}

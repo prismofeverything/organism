@@ -151,14 +151,24 @@
    Personalities are cycled from the baseline pool deterministically by sorted
    player key, so a multi-bot game gets a spread of styles."
   [state bots]
+  ;; Teach bots Muhammad's signature: chase hard, backloaded temple/feat plans (he
+  ;; claimed 7/7 feats across his multiplayer games; the bots claimed 0). The
+  ;; :feat-lookahead gene is the potential-based (ΔΦ) forecast that gives a gradient
+  ;; toward those deferred payoffs — but it is absent in all 20 evolved baseline
+  ;; personalities, so it resolves to 0.0 (off) for every live bot. Floor it on here
+  ;; (a personality that sets its own value still wins). PBRS is provably policy-
+  ;; preserving, so this only breaks ties toward plan-advancing moves; it cannot make
+  ;; a bot play worse.
   (let [pool (vec @baseline-personalities)]
     (if (empty? pool)
       state
-      (reduce (fn [s [i pk]]
-                (assoc-in s [:players pk :personality-cache]
-                          (nth pool (mod i (count pool)))))
-              state
-              (map-indexed vector (sort bots))))))
+      (reduce
+       (fn [s [i pk]]
+         (let [personality (merge {:feat-lookahead 0.2}
+                                  (nth pool (mod i (count pool))))]
+           (assoc-in s [:players pk :personality-cache] personality)))
+       state
+       (map-indexed vector (sort bots))))))
 
 ;; ── Bot AI helpers ────────────────────────────────────────────────────────────
 

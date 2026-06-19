@@ -1,0 +1,48 @@
+=== Eridu play log (4-SEAT) — Claude drives P1-YOU ===
+[YOU pick 0] key=0 -> Selected die 5
+[YOU pick 0] key=0 -> Moved astronomer 1 from space 5 to space 3 (1 astronomers there)
+[auto/you] resolve-landing -> Alone on space 3 — taking 1 action + role increase
+[YOU pick 3] key=3 -> Selected action: 🏛 temple
+[YOU pick 1] key=:uruk -> Placed face-up temple in Uruk (magistrate city)
+[auto/you] choose-action -> Action complete — now choose role increase (alone on space)
+[YOU pick 2] key=:priest -> Increased priest to level 2
+[YOU pick 0] key=0 -> Selected die 4
+[YOU pick 0] key=0 -> Moved astronomer 1 from space 3 to space 7 (2 astronomers there)
+[auto/you] resolve-landing -> Takes First Player card (space 7); 2 astronomers on space 7 — taking 2 actions
+[YOU pick 3] key=3 -> Selected action: 🏛 temple
+[YOU pick 1] key=:nippur -> Placed face-up temple in Nippur (magistrate city)
+[YOU pick 2] key=2 -> Selected action: 👑 influence
+[YOU pick 1] key=[:babylon :samarra 2] -> Moved magistrate from Babylon to Samarra (2 spaces) (Leader lv2)
+[auto/you] choose-action -> 
+[YOU pick 0] key=0 -> Selected die 2
+[YOU pick 1] key=1 -> Moved astronomer 2 from space 5 to space 7 (3 astronomers there)
+[auto/you] resolve-landing -> Takes First Player card (space 7); 3 astronomers on space 7 — taking 3 actions
+[YOU pick 3] key=3 -> Selected action: 🏛 temple
+[YOU pick 2] key=2 -> Selected action: 👑 influence
+[YOU pick 1] key=[:nippur :eridu 2] -> Moved magistrate from Nippur to Eridu (2 spaces) (Leader lv2)
+[YOU pick 2] key=:done -> 
+[auto/you] choose-die -> Selected die 4
+[YOU pick 0] key=0 -> Moved astronomer 1 from space 7 to space 4 (1 astronomers there)
+[auto/you] resolve-landing -> Alone on space 4 — taking 1 action + role increase
+[YOU pick 0] key=0 -> Selected action: 🌾 take (pottery, tools)
+[auto/you] choose-action -> Action complete — now choose role increase (alone on space)
+[YOU pick 2] key=:priest -> Increased priest to level 3 (paid tools)
+[YOU pick 3] key=3 -> Selected die 6
+[YOU pick 1] key=1 -> Moved astronomer 2 from space 7 to space 6 (1 astronomers there)
+[auto/you] resolve-landing -> Alone on space 6 — taking 1 action + role increase
+[YOU pick 1] key=1 -> Selected action: 🏛 temple
+[auto/you] choose-action -> Action complete — now choose role increase (alone on space)
+[YOU pick 2] key=:priest -> Increased priest to level 4 (paid gems)
+[YOU pick 1] key=1 -> Selected die 4
+[YOU pick 0] key=0 -> Moved astronomer 1 from space 4 to space 1 (2 astronomers there)
+[auto/you] resolve-landing -> 2 astronomers on space 1 — taking 2 actions
+[YOU pick 0] key=0 -> Selected action: 🌾 take (gems, tools)
+[YOU pick 0] key=1 -> Selected action: ⚖ sell
+[YOU pick 1] key=:pottery -> Sold 🏺 pottery in Babylon → +2 Amity (Merchant lv1), +1 Glory (Leader lv2 magistrate bonus)
+[auto/you] choose-action -> 
+[YOU pick 1] key=1 -> Selected die 3
+[YOU pick 1] key=1 -> Moved astronomer 2 from space 6 to space 2 (4 astronomers there)
+[auto/you] resolve-landing -> 4 astronomers on space 2 — taking 4 actions
+[YOU pick 0] key=0 -> Selected action: 🌾 take (gold, pottery)
+[YOU pick 3] key=:done -> 
+[auto/you] choose-die -> Selected die 1

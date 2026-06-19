@@ -1,0 +1,303 @@
+{
+ "seed": 999,
+ "gamesPerCombo": 30,
+ "totalGames": 10920,
+ "table": [
+  {
+   "name": "EarlyShifter",
+   "winRate": 0.458,
+   "elo": 1504,
+   "games": 2340
+  },
+  {
+   "name": "Survivor",
+   "winRate": 0.453,
+   "elo": 1617,
+   "games": 2340
+  },
+  {
+   "name": "Canvasser",
+   "winRate": 0.414,
+   "elo": 1510,
+   "games": 2340
+  },
+  {
+   "name": "Rimwalker",
+   "winRate": 0.4,
+   "elo": 1529,
+   "games": 2340
+  },
+  {
+   "name": "LateSwapper",
+   "winRate": 0.373,
+   "elo": 1392,
+   "games": 2340
+  },
+  {
+   "name": "Secondist",
+   "winRate": 0.363,
+   "elo": 1551,
+   "games": 2340
+  },
+  {
+   "name": "Hoarder",
+   "winRate": 0.361,
+   "elo": 1663,
+   "games": 2340
+  },
+  {
+   "name": "Corehugger",
+   "winRate": 0.307,
+   "elo": 1547,
+   "games": 2340
+  },
+  {
+   "name": "Primarist",
+   "winRate": 0.304,
+   "elo": 1484,
+   "games": 2340
+  },
+  {
+   "name": "Bridger",
+   "winRate": 0.291,
+   "elo": 1472,
+   "games": 2340
+  },
+  {
+   "name": "Capper",
+   "winRate": 0.28,
+   "elo": 1570,
+   "games": 2340
+  },
+  {
+   "name": "Dumper",
+   "winRate": 0.278,
+   "elo": 1440,
+   "games": 2340
+  },
+  {
+   "name": "Monochrome",
+   "winRate": 0.219,
+   "elo": 1363,
+   "games": 2340
+  },
+  {
+   "name": "MudRusher",
+   "winRate": 0.165,
+   "elo": 1357,
+   "games": 2340
+  }
+ ],
+ "h2h": {
+  "Primarist": {
+   "Secondist": 0.31,
+   "Monochrome": 0.32,
+   "MudRusher": 0.39,
+   "Canvasser": 0.26,
+   "Capper": 0.32,
+   "Rimwalker": 0.32,
+   "Corehugger": 0.3,
+   "Bridger": 0.37,
+   "Hoarder": 0.29,
+   "Survivor": 0.28,
+   "Dumper": 0.32,
+   "LateSwapper": 0.27,
+   "EarlyShifter": 0.21
+  },
+  "Secondist": {
+   "Primarist": 0.37,
+   "Monochrome": 0.43,
+   "MudRusher": 0.34,
+   "Canvasser": 0.37,
+   "Capper": 0.36,
+   "Rimwalker": 0.35,
+   "Corehugger": 0.35,
+   "Bridger": 0.4,
+   "Hoarder": 0.34,
+   "Survivor": 0.27,
+   "Dumper": 0.4,
+   "LateSwapper": 0.38,
+   "EarlyShifter": 0.37
+  },
+  "Monochrome": {
+   "Primarist": 0.25,
+   "Secondist": 0.21,
+   "MudRusher": 0.33,
+   "Canvasser": 0.22,
+   "Capper": 0.21,
+   "Rimwalker": 0.19,
+   "Corehugger": 0.26,
+   "Bridger": 0.24,
+   "Hoarder": 0.16,
+   "Survivor": 0.17,
+   "Dumper": 0.27,
+   "LateSwapper": 0.2,
+   "EarlyShifter": 0.15
+  },
+  "MudRusher": {
+   "Secondist": 0.17,
+   "Primarist": 0.16,
+   "Monochrome": 0.2,
+   "Canvasser": 0.1,
+   "Capper": 0.19,
+   "Rimwalker": 0.18,
+   "Corehugger": 0.2,
+   "Bridger": 0.18,
+   "Hoarder": 0.21,
+   "Survivor": 0.19,
+   "Dumper": 0.14,
+   "LateSwapper": 0.12,
+   "EarlyShifter": 0.1
+  },
+  "Canvasser": {
+   "Primarist": 0.42,
+   "Secondist": 0.37,
+   "Monochrome": 0.44,
+   "MudRusher": 0.59,
+   "Capper": 0.48,
+   "Rimwalker": 0.33,
+   "Corehugger": 0.43,
+   "Bridger": 0.43,
+   "Hoarder": 0.39,
+   "Survivor": 0.38,
+   "Dumper": 0.44,
+   "LateSwapper": 0.36,
+   "EarlyShifter": 0.32
+  },
+  "Capper": {
+   "Secondist": 0.27,
+   "Primarist": 0.31,
+   "Monochrome": 0.32,
+   "MudRusher": 0.34,
+   "Canvasser": 0.22,
+   "Rimwalker": 0.22,
+   "Corehugger": 0.3,
+   "Bridger": 0.27,
+   "Hoarder": 0.28,
+   "Survivor": 0.25,
+   "Dumper": 0.31,
+   "LateSwapper": 0.28,
+   "EarlyShifter": 0.26
+  },
+  "Rimwalker": {
+   "Primarist": 0.42,
+   "Secondist": 0.41,
+   "Monochrome": 0.45,
+   "MudRusher": 0.38,
+   "Canvasser": 0.38,
+   "Capper": 0.48,
+   "Corehugger": 0.42,
+   "Bridger": 0.42,
+   "Hoarder": 0.39,
+   "Survivor": 0.34,
+   "Dumper": 0.39,
+   "LateSwapper": 0.38,
+   "EarlyShifter": 0.34
+  },
+  "Corehugger": {
+   "Primarist": 0.32,
+   "Secondist": 0.32,
+   "Monochrome": 0.35,
+   "MudRusher": 0.39,
+   "Canvasser": 0.26,
+   "Capper": 0.32,
+   "Rimwalker": 0.26,
+   "Bridger": 0.32,
+   "Hoarder": 0.31,
+   "Survivor": 0.25,
+   "Dumper": 0.33,
+   "LateSwapper": 0.29,
+   "EarlyShifter": 0.28
+  },
+  "Bridger": {
+   "Secondist": 0.26,
+   "Primarist": 0.3,
+   "Monochrome": 0.35,
+   "MudRusher": 0.35,
+   "Canvasser": 0.26,
+   "Capper": 0.35,
+   "Rimwalker": 0.27,
+   "Corehugger": 0.27,
+   "Hoarder": 0.26,
+   "Survivor": 0.26,
+   "Dumper": 0.34,
+   "LateSwapper": 0.28,
+   "EarlyShifter": 0.23
+  },
+  "Hoarder": {
+   "Secondist": 0.37,
+   "Primarist": 0.42,
+   "Monochrome": 0.43,
+   "MudRusher": 0.31,
+   "Canvasser": 0.33,
+   "Capper": 0.38,
+   "Rimwalker": 0.32,
+   "Corehugger": 0.38,
+   "Bridger": 0.36,
+   "Survivor": 0.32,
+   "Dumper": 0.36,
+   "LateSwapper": 0.38,
+   "EarlyShifter": 0.33
+  },
+  "Survivor": {
+   "Primarist": 0.43,
+   "Secondist": 0.49,
+   "Monochrome": 0.48,
+   "MudRusher": 0.38,
+   "Canvasser": 0.4,
+   "Capper": 0.45,
+   "Rimwalker": 0.45,
+   "Corehugger": 0.46,
+   "Bridger": 0.45,
+   "Hoarder": 0.47,
+   "Dumper": 0.52,
+   "LateSwapper": 0.49,
+   "EarlyShifter": 0.42
+  },
+  "Dumper": {
+   "Primarist": 0.3,
+   "Secondist": 0.25,
+   "Monochrome": 0.34,
+   "MudRusher": 0.5,
+   "Canvasser": 0.22,
+   "Capper": 0.27,
+   "Rimwalker": 0.25,
+   "Corehugger": 0.27,
+   "Bridger": 0.29,
+   "Hoarder": 0.25,
+   "Survivor": 0.21,
+   "LateSwapper": 0.24,
+   "EarlyShifter": 0.23
+  },
+  "LateSwapper": {
+   "Primarist": 0.38,
+   "Secondist": 0.34,
+   "Monochrome": 0.43,
+   "MudRusher": 0.56,
+   "Canvasser": 0.34,
+   "Capper": 0.42,
+   "Rimwalker": 0.33,
+   "Corehugger": 0.37,
+   "Bridger": 0.37,
+   "Hoarder": 0.36,
+   "Survivor": 0.27,
+   "Dumper": 0.4,
+   "EarlyShifter": 0.28
+  },
+  "EarlyShifter": {
+   "Primarist": 0.46,
+   "Secondist": 0.38,
+   "Monochrome": 0.53,
+   "MudRusher": 0.57,
+   "Canvasser": 0.43,
+   "Capper": 0.46,
+   "Rimwalker": 0.42,
+   "Corehugger": 0.48,
+   "Bridger": 0.5,
+   "Hoarder": 0.44,
+   "Survivor": 0.38,
+   "Dumper": 0.48,
+   "LateSwapper": 0.41
+  }
+ }
+}

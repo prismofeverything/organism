@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chroma op2b — feel mock (3p, vs smart bots)</title>
+<style>
+  :root { --bg:#15171c; --panel:#1e2128; --ink:#e7e9ee; --dim:#9aa0ab; --line:#333a45; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { display:flex; gap:18px; padding:16px; align-items:flex-start; flex-wrap:wrap; }
+  .board { background:#0e1014; border:1px solid var(--line); border-radius:14px; padding:8px; box-shadow:inset 0 0 60px #000; }
+  .side { display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+  .col { display:flex; flex-direction:column; flex:1 1 250px; min-width:230px; }
+  .col .card { margin-bottom:12px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:12px; margin:0 0 10px; max-width:660px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:0 0 8px; }
+  .hand { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { width:34px; height:34px; border-radius:8px; border:2px solid #0006; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:700; color:#0009; transition:transform .08s; }
+  .chip:hover { transform:translateY(-2px); }
+  .chip.sel { outline:3px solid #fff; outline-offset:2px; }
+  .mini { width:22px;height:22px;line-height:22px;text-align:center;border-radius:5px;font-weight:700;color:#0009;display:inline-block;margin:1px; }
+  .row { display:flex; justify-content:space-between; align-items:center; margin:3px 0; }
+  .sw { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:6px; border:1px solid #0006; }
+  button { background:#2b2f38; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px 11px; cursor:pointer; font-size:13px; }
+  button:hover { background:#343a44; } button.on { background:#37d0c4; color:#06262a; border-color:#37d0c4; font-weight:700; }
+  .log { height:120px; overflow:auto; font-size:12px; color:var(--dim); white-space:pre-wrap; background:#0e1014; border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .track { display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; }
+  .track .n { font-size:22px; font-weight:800; } .track .l { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+  .muted { color:var(--dim); font-size:12px; } .ok { color:#5fd07a; } .bad { color:#e06b6b; } .win { color:#f4d030; font-weight:800; }
+  polygon.legal { cursor:pointer; }
+  .leg { font-size:11px; color:var(--dim); margin-top:6px; max-width:660px; }
+  table.ref { border-collapse:collapse; font-size:11px; } table.ref td,table.ref th { border:1px solid #2c313a; width:26px; height:26px; text-align:center; padding:0; }
+  table.ref th { color:var(--dim); font-weight:600; }
+  .tie { color:#c8a24a; }
+  .badge { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#06262a; background:#37d0c4; border-radius:5px; padding:1px 6px; vertical-align:2px; margin-left:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <h1>Chroma <span class="badge">op2b</span> <span class="muted">— feel mock · 3 players · smart bots</span></h1>
+    <p class="sub">You = <b style="color:#37d0c4">P1</b> (solid black wedge). Two bots = dashed black wedges (labelled B1/B2).
+      Pick a chit, click a marked cell in your wedge. All three place simultaneously, draw the color their stack becomes,
+      then may swap (2 same→wheel opposite / 2 different→wheel between), then access rotates one wedge.
+      <b>op2b scoring:</b> each color scores only for whoever holds the <b>MOST chits</b> of it — the sole leader banks
+      that color's <b>full largest region</b>; on a chit-tie the tied players each bank the <b>2nd-largest region</b> instead.
+      Bots are now op2b-aware: they grow regions in colors they expect to lead and hoard the chits that win them.
+      Use the mixing table to plan. <i>Mixing PROVISIONAL.</i></p>
+    <div class="board"><svg id="svg" width="660" height="600"></svg></div>
+    <div class="leg">Wedge = <b>thick black</b> border (yours SOLID, bots DASHED, labelled). White dot = legal target for your selected chit. Grey center = neutral.</div>
+    <div class="card" style="width:660px;margin-top:12px"><h2>Log</h2><div class="log" id="log"></div></div>
+  </div>
+
+  <div class="side">
+    <div class="col">
+      <div class="card">
+        <h2>Mixing reference — space color (row) + chit you place (col) → result</h2>
+        <div id="ref"></div>
+        <div class="muted" style="margin-top:6px">Assumes a pure space; deep mixed stacks can differ slightly. · = mud (no draw).</div>
+      </div>
+      <div class="card">
+        <h2>Supply bag (no replacement)</h2>
+        <div id="bag"></div>
+      </div>
+      <div class="card"><h2>Draw verifier</h2><div id="verify" class="muted">—</div></div>
+      <div class="card">
+        <h2>Palette</h2>
+        <button id="palCMY" class="on">CMY + RGB</button> <button id="palRYB">RYB + OGP</button>
+        <div class="muted" id="palNote" style="margin-top:6px"></div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <div class="track">
+          <div><div class="n" id="tTurn">1</div><div class="l">Turn</div></div>
+          <div><div class="n" id="tRot">1</div><div class="l">Rotation</div></div>
+          <div><div class="n" id="tBag">—</div><div class="l">Bag</div></div>
+          <div><div class="n" id="tDry">—</div><div class="l">Dry plays /3</div></div>
+        </div>
+        <div class="muted" id="phase" style="margin-top:8px"></div>
+        <div style="margin-top:8px"><button id="passBtn">Pass</button> <button id="newBtn">New game</button> <button id="dlBtn">Download log</button></div>
+      </div>
+      <div class="card">
+        <h2>Your hand (P1)</h2>
+        <div class="hand" id="hand"></div>
+        <div id="swapPrompt" style="display:none;margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#23272f">
+          <div class="muted" style="margin-bottom:6px">Optional swap — discard 2, gain 1 (costs one net chit). Resolved simultaneously.</div>
+          <div id="swapOpts"></div>
+        </div>
+      </div>
+      <div class="card"><h2>Largest region / color <span class="muted">(2nd = scores on chit-tie)</span></h2><div id="regions"></div></div>
+      <div class="card">
+        <h2>Players</h2>
+        <div id="players"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- op2b core loaded READ-ONLY from the op2b branch dir; base chroma-core.js is untouched. -->
+<script src="chroma-branch-op2b/chroma-core.js"></script>
+<script>
+const C = window.Chroma, SVG = document.getElementById("svg"), NS = "http://www.w3.org/2000/svg";
+C.setDepth(3);
+const MUD_LIMIT = 3, START_HAND = 6, PER_COLOR = 30, N_PLAYERS = 3;
+const PNAME = ["You","B1","B2","B3","B4","B5"], PTEXT = ["#37d0c4","#ef8a2b","#d63cae","#7ad06a","#6aa8ff","#f4d030"];
+const colors=()=>C.PAL.order, cname=k=>C.PAL.name[k]||k, chip=k=>C.PAL.chip[k]||"#ccc";
+
+// layout
+const SCALE=33, MARGIN=30;
+let pts=C.cells.map(c=>{const p=C.axToPx(c[0],c[1]);return{c,x:p[0],y:p[1]};});
+let minx=Math.min(...pts.map(p=>p.x)),maxx=Math.max(...pts.map(p=>p.x)),miny=Math.min(...pts.map(p=>p.y)),maxy=Math.max(...pts.map(p=>p.y));
+const W=(maxx-minx)*SCALE+2*MARGIN,H=(maxy-miny)*SCALE+2*MARGIN;
+SVG.setAttribute("width",W);SVG.setAttribute("height",H);
+const sx=wx=>MARGIN+(wx-minx)*SCALE, sy=wy=>H-MARGIN-(wy-miny)*SCALE;
+function hexPoints(cx,cy,s){let o=[];for(let k=0;k<6;k++){const a=(90+60*k)*Math.PI/180;o.push((cx+s*Math.cos(a))+","+(cy-s*Math.sin(a)));}return o.join(" ");}
+// outer cell per wedge (for labels)
+let wedgeOuter={};
+for(let w=0;w<6;w++){ let best=null,br=-1; C.cells.forEach(c=>{ if(c[0]===0&&c[1]===0)return; if(C.sector(c[0],c[1])!==w)return; const rr=Math.max(Math.abs(c[0]),Math.abs(c[1]),Math.abs(-c[0]-c[1])); if(rr>br){br=rr;best=c;} }); wedgeOuter[w]=best; }
+
+// state
+let stacks, bag, players, turn, sel, over, vGood, vBad, ending, finalTurn;
+let gameSeed, rng, moves, saved;            // seeded RNG + per-game record (replayable logs)
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function bases(n){let b=[];for(let i=0;i<n;i++)b.push(Math.round(i*6/n)%6);return b;}
+function seedCount(){let m={};colors().forEach(c=>m[c]=0);Object.keys(C.seed).forEach(k=>{if(m[C.seed[k]]!==undefined)m[C.seed[k]]++;});return m;}
+function bagTotal(){let t=0;colors().forEach(c=>t+=bag[c]);return t;}
+function drawWeighted(){let t=bagTotal();if(t<=0)return null;let r=rng()*t;for(const c of colors()){r-=bag[c];if(r<0){bag[c]--;return c;}}return null;}
+function takeFromBag(c){if(bag[c]>0){bag[c]--;return true;}return false;}
+
+function newGame(){
+  gameSeed=Math.floor(Math.random()*1e9); rng=mulberry32(gameSeed); moves=[]; saved=false;
+  stacks={};C.cells.forEach(c=>{const k=C.key(c[0],c[1]);stacks[k]=C.seed[k]?[C.seed[k]]:[];});
+  const sc=seedCount();bag={};colors().forEach(c=>bag[c]=PER_COLOR-(sc[c]||0));
+  const bs=bases(N_PLAYERS);
+  players=[];for(let i=0;i<N_PLAYERS;i++)players.push({hand:[],mud:0,base:bs[i],isBot:i>0,target:null});
+  for(let n=0;n<START_HAND;n++)players.forEach(p=>{const d=drawWeighted();if(d)p.hand.push(d);});
+  players.forEach(p=>{if(p.isBot)p.target=majorityColor(p.hand);});
+  turn=0;sel=-1;over=false;vGood=0;vBad=0;ending=false;finalTurn=-1;
+  document.getElementById("log").textContent="";
+  log("New game (op2b) · "+N_PLAYERS+"p · palette "+C.palette+" · "+PER_COLOR+"/color · depth 3.");
+  log("op2b scoring: a color banks for the player holding the MOST chits of it — sole leader takes the full largest region; chit-tie splits to the 2nd-largest each.");
+  renderRef(); render();
+}
+function majorityColor(hand){let cnt={},best=colors()[0],bv=-1;colors().forEach(c=>cnt[c]=0);hand.forEach(c=>cnt[c]++);colors().forEach(c=>{if(cnt[c]>bv){bv=cnt[c];best=c;}});return best;}
+function ownCounts(hand){const c={};colors().forEach(x=>c[x]=0);hand.forEach(x=>{if(c[x]!==undefined)c[x]++;});return c;}
+const wedgeOf=i=>(players[i].base+turn)%6;
+const isCenter=c=>c[0]===0&&c[1]===0;
+function legalFor(w,c){const k=C.key(c[0],c[1]);return !isCenter(c)&&C.sector(c[0],c[1])===w&&stacks[k].length<C.capacity(k);}
+function legalCells(w){return C.cells.filter(c=>legalFor(w,c));}
+function labelOf(st){return st.length?labelRes(C.classify(C.mixStack(st))):"empty";}
+function labelRes(r){return r==="mud"?"mud":(r==="white"?"white":cname(r));}
+
+// ---- op2b scoring (mirrors scoreGame() in chroma-branch-op2b/chroma-sim.js) ----
+// A color scores ONLY for the player holding the most chits of it. Sole leader
+// banks the FULL largest region; on a chit-tie the tied players each bank the
+// SECOND-largest region instead. `claim[i]` records which colors player i banks
+// and at what value (for the per-player readout), `tie` flags the 2nd-largest case.
+function tier(n){return (n>=1?1:0)+(n>=4?1:0)+(n>=8?1:0)+(n>=12?1:0);}
+function op2bScores(){
+  const reg=C.largestRegions(stacks), two=C.largestTwo(stacks);
+  const ord=colors(), NP=players.length;
+  const cnts=players.map(p=>ownCounts(p.hand));
+  const mult=players.map(()=>0), add=players.map(()=>0), claim=players.map(()=>({}));
+  ord.forEach(color=>{
+    let mx=0; for(let i=0;i<NP;i++) if(cnts[i][color]>mx) mx=cnts[i][color];
+    if(mx<=0) return;                                   // nobody holds it -> region unclaimed
+    const holders=[]; for(let i=0;i<NP;i++) if(cnts[i][color]===mx) holders.push(i);
+    if(holders.length===1){ const i=holders[0]; mult[i]+=reg[color]; add[i]+=tier(reg[color]); claim[i][color]={v:reg[color],tie:false}; }
+    else holders.forEach(i=>{ const v=two.second[color]; mult[i]+=v; add[i]+=tier(Math.round(v)); claim[i][color]={v,tie:true}; });
+  });
+  return players.map((p,i)=>({mult:mult[i],add:add[i],claim:claim[i]}));
+}
+
+// Phase 1 of a simultaneous turn: lay the chit, compute the result, run the
+// REAL double-check (classify vs independent re-derivation). NO draw yet —
+// draws are resolved together in resolveDraws() so the shared bag can't be
+// raided by seat order.
+function applyPlacement(pi, c, color){
+  const k=C.key(c[0],c[1]), prev=labelOf(stacks[k]);
+  stacks[k].push(color);
+  const R=C.resultOf(stacks[k]);            // {rgb, color, check} — two code paths
+  if(R.color===R.check) vGood++;
+  else { vBad++; log("⚠ verifier mismatch at "+k+": "+R.color+" vs "+R.check+" (independent)"); }
+  return {pi,k,c,color,prev,res:R.color,drew:null,dry:null};
+}
+
+// Phase 2: resolve all draws for the turn at once. Muhammad's rule —
+// when several players' placements want to draw the SAME color but the bag
+// can't supply ALL of them, NO ONE gets that color (the chit stays in the bag,
+// available later when it can be picked up without conflict). Stacks are
+// visible, so a denied draw is never a surprise. A lone claimant draws iff the
+// pile has any left. Three dry sub-types now feed the one dry clock:
+//   mud      — placement blended to mud
+//   empty    — real color, but its pile is empty (uncontested, just exhausted)
+//   conflict — real color, but more claimants this turn than the bag can supply
+function resolveDraws(plc){
+  const demand={};
+  plc.forEach(p=>{ if(colors().indexOf(p.res)>=0)(demand[p.res]=demand[p.res]||[]).push(p); });
+  Object.keys(demand).forEach(col=>{
+    const claim=demand[col], avail=bag[col];
+    if(avail>=claim.length){ claim.forEach(p=>{ bag[col]--; players[p.pi].hand.push(col); p.drew=col; }); }
+    else { claim.forEach(p=>{ p.dry=(avail===0&&claim.length===1)?"empty":"conflict"; players[p.pi].mud++; }); }
+  });
+  plc.forEach(p=>{ if(p.res==="mud"){ p.dry="mud"; players[p.pi].mud++; } });
+}
+const dryWord={mud:"mud",empty:"pile empty",conflict:"draw conflict"};
+function placeLog(pi,p){
+  log(`${PNAME[pi]} played ${cname(p.color)} on a ${p.prev} space → ${labelRes(p.res)}`+
+      (p.drew?`, drew ${cname(p.drew)}.`:` — dry (${dryWord[p.dry]||"dry"}).`));
+}
+
+// ---- smart bot (op2b-aware) ---- (decide only; draws resolved by the turn loop)
+// op2b only banks a color for its MOST-chits holder, so growing a board region is
+// only worth it in colors the bot expects to LEAD. Opponent chit counts are HIDDEN
+// in the mock, so the bot reasons ONLY from its OWN holdings (no peeking — keeps the
+// mental-load test honest and the bots fair):
+//   • Colors it holds STRONGLY (== its own max) are the ones it expects to solely
+//     lead and bank at FULL largest-region — growing those is top value.
+//   • Colors it holds WEAKLY may end tied/behind (only 2nd-largest, or nothing), so
+//     board investment there is discounted to a hedge worth the 2nd-largest.
+//   • Colors it holds NONE of bank nothing for it — avoid spending board moves there.
+//   • It still hoards its target chits (those are what WIN it the color).
+function botDecide(pi){
+  const p=players[pi], w=wedgeOf(pi), opts=legalCells(w);
+  if(!opts.length||!p.hand.length) return null;
+  const cnt=ownCounts(p.hand);
+  p.target=majorityColor(p.hand);                 // the color it most expects to lead/bank
+  const myMax=Math.max(...colors().map(c=>cnt[c]));
+  const two=C.largestTwo(stacks);
+  const uniq=[...new Set(p.hand)];
+  let best=null, bestScore=-1e9;
+  opts.forEach(c=>{
+    const k=C.key(c[0],c[1]), st=stacks[k];
+    uniq.forEach(chit=>{
+      const R=C.classify(C.mixStack(st.concat([chit])));
+      let s;
+      if(R==="mud"){ s=-100; }
+      else {
+        const held=cnt[R]||0;
+        if(held<=0){
+          s=-3;                                   // banks nothing here — don't invest board moves
+        } else {
+          const leadish=held>=myMax;              // a color it expects to solely lead
+          s=leadish?8:3;                          // full-region growth >> contested/hedge growth
+          if(R===p.target) s+=2;                  // concentrate on the color it banks
+          if(st.length===0) s+=1;                 // claim blank canvas
+          if(!leadish && (two.second[R]||0)>0) s+=0.5;  // weak hold: worth only its 2nd-largest hedge
+          if(bag[R]<=0) s-=6;                     // scarce → may go dry / lose a draw conflict
+        }
+        if(chit===p.target) s-=4;                 // don't burn the chits that win it the color
+      }
+      s+=rng()*0.01;
+      if(s>bestScore){ bestScore=s; best={c,chit}; }
+    });
+  });
+  return {pi,c:best.c,chit:best.chit};
+}
+// ---- color-wheel hand swaps (Mohammad, 2026-06-08) ----
+// After place+draw, each player may OPTIONALLY swap: discard 2 same → its wheel
+// OPPOSITE, or 2 different → the color BETWEEN them. Discards leave play; the
+// gained chit is drawn from the bag (tiny extra depletion). A swap is worth it
+// when it covers a big region the bot doesn't yet hold. Resolved simultaneously
+// (shared-bag conflict denies all, same as draws). Drive rises late in the game.
+function coverageMock(hand,reg){let s=0;new Set(hand).forEach(c=>s+=reg[c]||0);return s;}
+function bestSwapMock(hand,reg,target){
+  const cnt={};colors().forEach(c=>cnt[c]=0);hand.forEach(c=>cnt[c]++);
+  let best=null;
+  const consider=(discards,get)=>{ if(!get||!(bag[get]>0)||cnt[get]>0)return;   // gain a NEW color only
+    const after=Object.assign({},cnt); for(const d of discards){if(!(after[d]>0))return;after[d]--;}
+    for(const d of discards)if(after[d]===0)return;                              // surplus only
+    const gain=(reg[get]||0)+(get===target?0.25:0);
+    if(gain>0&&(!best||gain>best.gain))best={type:discards[0]===discards[1]?"opposite":"between",discards,get,gain}; };
+  colors().forEach(X=>{ if(cnt[X]>=3)consider([X,X],C.wheelOpposite(X)); });
+  const held=colors().filter(c=>cnt[c]>0);
+  for(let i=0;i<held.length;i++)for(let j=i+1;j<held.length;j++)consider([held[i],held[j]],C.wheelBetween(held[i],held[j]));
+  return best;
+}
+function planSwap(pi,reg){
+  const p=players[pi]; if(p.hand.length<4)return null;
+  const drive=ending?1:Math.min(1,turn/20); if(drive<=0)return null;
+  const sw=bestSwapMock(p.hand,reg,p.target);
+  if(!sw||sw.gain<1||sw.gain*drive<2.0)return null;
+  return {pi,type:sw.type,discards:sw.discards,get:sw.get};
+}
+function resolveSwaps(plans){
+  const demand={}; plans.forEach(s=>(demand[s.get]=demand[s.get]||[]).push(s));
+  const granted=[];
+  Object.keys(demand).forEach(c=>{ const claim=demand[c];
+    if(bag[c]>=claim.length) claim.forEach(s=>{ const h=players[s.pi].hand;
+      for(const d of s.discards)h.splice(h.indexOf(d),1); bag[c]--; h.push(c); granted.push(s);
+      log(`${PNAME[s.pi]} swapped ${s.discards.map(cname).join("+")} → ${cname(s.get)} (${s.type}).`); });
+    else claim.forEach(s=>log(`${PNAME[s.pi]} swap for ${cname(c)} denied — bag short this turn.`)); });
+  return granted;
+}
+// Enumerate every LEGAL swap available to a hand: 2-same → wheel-opposite,
+// 2-different → wheel-between (only defined for the 2-apart case). Deduped.
+// The bag NO LONGER hides a swap — it only marks each one `playable` (target
+// still in stock) vs sold-out. Sold-out swaps are returned too so the human
+// SEES them greyed-out instead of vanishing; the prompt appears whenever any
+// legal swap exists. (Bots still use planSwap's coverage heuristic, and
+// resolveSwaps still gates what's actually received, so scarcity stays real.)
+function availableSwaps(hand){
+  const cnt={};colors().forEach(c=>cnt[c]=0);hand.forEach(c=>cnt[c]++);
+  const out=[],seen={};
+  const add=(type,discards,get)=>{ if(!get)return;
+    const key=discards.slice().sort().join("+")+">"+get; if(seen[key])return; seen[key]=1;
+    const reg=C.largestRegions(stacks); out.push({pi:0,type,discards,get,playable:bag[get]>0,gain:(reg[get]||0)+(cnt[get]?0:0.01)}); };
+  colors().forEach(X=>{ if(cnt[X]>=2)add("opposite",[X,X],C.wheelOpposite(X)); });
+  const held=colors().filter(c=>cnt[c]>0);
+  for(let i=0;i<held.length;i++)for(let j=i+1;j<held.length;j++)add("between",[held[i],held[j]],C.wheelBetween(held[i],held[j]));
+  // playable first, then by coverage gain — sold-out ones sink to the bottom.
+  out.sort((a,b)=>(b.playable-a.playable)||(b.gain-a.gain));
+  return out;
+}
+let awaitingSwap=false, pendingTurn=null;
+function runTurn(humanDecision){
+  const plc=[];
+  if(humanDecision) plc.push(applyPlacement(0,humanDecision.c,humanDecision.color));
+  for(let i=1;i<N_PLAYERS;i++){ const d=botDecide(i); if(d) plc.push(applyPlacement(d.pi,d.c,d.chit)); else log(`${PNAME[i]}: no legal move — passes.`); }
+  resolveDraws(plc);                              // simultaneous, seat-order-free
+  plc.forEach(p=>placeLog(p.pi,p));
+  // optional simultaneous swap phase. Human chooses (swap? / skip); bots auto-plan.
+  pendingTurn={plc};
+  const opts=players[0].isBot?[]:availableSwaps(players[0].hand);
+  if(opts.length===0){ finalizeSwaps(null); }   // no valid swap → auto-skip
+  else { promptSwap(opts); }
+}
+function promptSwap(opts){
+  awaitingSwap=true;
+  const box=document.getElementById("swapOpts");
+  box.innerHTML="";
+  opts.forEach(o=>{ const b=document.createElement("button");
+    if(o.playable){
+      b.textContent=`${o.discards.map(cname).join("+")} → ${cname(o.get)}`;
+      b.title=o.type+" · covers region "+(C.largestRegions(stacks)[o.get]||0);
+      b.onclick=()=>chooseSwap(o);
+    } else {
+      // sold out: still shown, but greyed-out and unclickable, reason inline.
+      b.textContent=`${o.discards.map(cname).join("+")} → ${cname(o.get)}   [none left in bag]`;
+      b.title=o.type+" · "+cname(o.get)+" is empty in the bag — can't receive it this turn";
+      b.disabled=true; b.style.opacity="0.45"; b.style.cursor="not-allowed";
+    }
+    box.appendChild(b); box.appendChild(document.createTextNode(" ")); });
+  const skip=document.createElement("button"); skip.textContent="Skip"; skip.className="on";
+  skip.onclick=()=>chooseSwap(null); box.appendChild(skip);
+  document.getElementById("swapPrompt").style.display="block";
+  render();
+}
+function chooseSwap(humanSwap){
+  if(!awaitingSwap)return;
+  awaitingSwap=false;
+  document.getElementById("swapPrompt").style.display="none";
+  if(!humanSwap) log("You skip the swap.");
+  finalizeSwaps(humanSwap);
+}
+function finalizeSwaps(humanSwap){
+  const plc=pendingTurn?pendingTurn.plc:[];
+  const reg=C.largestRegions(stacks);
+  const plans=[];
+  if(humanSwap) plans.push(humanSwap);
+  for(let i=1;i<N_PLAYERS;i++){ const s=planSwap(i,reg); if(s)plans.push(s); }
+  const swaps=plans.length?resolveSwaps(plans):[];
+  moves.push({turn,rot:Math.floor(turn/6),plays:plc.map(p=>({pi:p.pi,cell:p.k,placed:p.color,prev:p.prev,res:p.res,drew:p.drew,dry:p.dry})),swaps:swaps.map(s=>({pi:s.pi,type:s.type,discards:s.discards,get:s.get}))});
+  pendingTurn=null; turn++; sel=-1; endCheck(); render();
+}
+function humanMove(c){
+  if(over||awaitingSwap||sel<0||!legalFor(wedgeOf(0),c))return;
+  const color=players[0].hand[sel];players[0].hand.splice(sel,1);
+  runTurn({c,color});
+}
+function pass(){ if(over||awaitingSwap)return; log("You pass."); runTurn(null); }
+function endCheck(){
+  if(over)return;
+  if(ending && turn>finalTurn){ over=true; log("— Game over —"); saveGame(); return; }
+  const maxMud=Math.max(...players.map(p=>p.mud)), bt=bagTotal();
+  if(!ending && (maxMud>=MUD_LIMIT || bt===0)){ ending=true; finalTurn=turn; log(`⚠ end triggered (${bt===0?"bag empty":MUD_LIMIT+" dry plays"}) — ONE final simultaneous turn.`); }
+}
+function log(s){const el=document.getElementById("log");el.textContent+=(el.textContent?"\n":"")+s;el.scrollTop=el.scrollHeight;}
+
+// ---- play-by-play persistence (replayable: seed + palette + full move log) ----
+function gameRecord(){
+  const reg=C.largestRegions(stacks), two=C.largestTwo(stacks);
+  const scores=op2bScores();
+  return {
+    schema:"chroma-game/1", variant:"op2b", seed:gameSeed, palette:C.palette,
+    nPlayers:N_PLAYERS, depth:3, perColor:PER_COLOR, mudLimit:MUD_LIMIT,
+    bases:players.map(p=>p.base), turns:turn,
+    regions:reg, second:two.second, finalText:document.getElementById("log").textContent,
+    players:players.map((p,i)=>({name:PNAME[i],isBot:p.isBot,target:p.target,
+      dry:p.mud,hand:p.hand.slice(),mult:scores[i].mult,add:scores[i].add,claim:scores[i].claim})),
+    moves:moves
+  };
+}
+function saveGame(){
+  if(saved)return; saved=true;
+  const rec=gameRecord();
+  try{ const key="chroma-op2b-log-"+gameSeed; localStorage.setItem(key,JSON.stringify(rec));
+       localStorage.setItem("chroma-op2b-log-latest",key); }catch(e){}
+  // best-effort autosave to disk (works when served via serve_nocache.py)
+  fetch("/save-log",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(rec)})
+    .then(r=>r.json()).then(j=>log("✓ game saved to chroma-logs/"+j.saved))
+    .catch(()=>log("· game cached in browser (Download log to keep; run serve_nocache.py for disk autosave)."));
+}
+function downloadLog(){
+  const rec=gameRecord();
+  const blob=new Blob([JSON.stringify(rec,null,1)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="chroma-op2b-game-"+gameSeed+".json";a.click();URL.revokeObjectURL(a.href);
+}
+
+// ---- reference table ----
+function renderRef(){
+  const cs=colors(), box=document.getElementById("ref");
+  let h='<table class="ref"><tr><th>↓on \\ +→</th>';
+  cs.forEach(c=>h+=`<th><span class="sw" style="margin:0;background:${chip(c)}" title="${cname(c)}"></span></th>`);
+  h+="</tr>";
+  ["blank"].concat(cs).forEach(rowc=>{
+    h+=`<tr><th>${rowc==="blank"?'<span class="muted">blank</span>':`<span class="sw" style="margin:0;background:${chip(rowc)}"></span>`}</th>`;
+    cs.forEach(colc=>{
+      const stack=rowc==="blank"?[colc]:[rowc,colc];
+      const R=C.classify(C.mixStack(stack));
+      if(R==="mud") h+='<td style="background:#16181d;color:#555">·</td>';
+      else h+=`<td style="background:${chip(R)};color:#0009;font-weight:700" title="${cname(R)}">${R}</td>`;
+    });
+    h+="</tr>";
+  });
+  box.innerHTML=h+"</table>";
+}
+
+// ---- render board + side ----
+function render(){
+  while(SVG.firstChild)SVG.removeChild(SVG.firstChild);
+  const wmap={}; for(let i=0;i<N_PLAYERS;i++)wmap[wedgeOf(i)]=i;
+  pts.forEach(p=>{
+    const k=C.key(p.c[0],p.c[1]),st=stacks[k],rgb=C.displayRGB(st);
+    const poly=document.createElementNS(NS,"polygon");
+    poly.setAttribute("points",hexPoints(sx(p.x),sy(p.y),SCALE*0.92));
+    poly.setAttribute("fill",`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+    const sec=isCenter(p.c)?-1:C.sector(p.c[0],p.c[1]);
+    let stroke="#2a2a2a",sw=1,dash="";
+    if(isCenter(p.c)){stroke="#555";sw=2;}
+    else if(wmap[sec]!==undefined){ stroke="#000"; sw=4; if(wmap[sec]!==0) dash="4 3"; }
+    poly.setAttribute("stroke",stroke);poly.setAttribute("stroke-width",sw);if(dash)poly.setAttribute("stroke-dasharray",dash);
+    poly.addEventListener("click",()=>humanMove(p.c));
+    if(!over&&sel>=0&&legalFor(wedgeOf(0),p.c))poly.classList.add("legal");
+    SVG.appendChild(poly);
+    if(st.length){const t=document.createElementNS(NS,"text");t.setAttribute("x",sx(p.x));t.setAttribute("y",sy(p.y)+4);t.setAttribute("text-anchor","middle");t.setAttribute("font-size","10");t.setAttribute("pointer-events","none");t.setAttribute("fill",(0.299*rgb[0]+0.587*rgb[1]+0.114*rgb[2])>140?"#0007":"#fff8");t.textContent=st.length+"/"+C.capacity(k);SVG.appendChild(t);}
+    if(!over&&sel>=0&&legalFor(wedgeOf(0),p.c)){const d=document.createElementNS(NS,"circle");d.setAttribute("cx",sx(p.x));d.setAttribute("cy",sy(p.y));d.setAttribute("r",4.5);d.setAttribute("fill","#fff");d.setAttribute("stroke","#000");d.setAttribute("pointer-events","none");SVG.appendChild(d);}
+  });
+  // wedge labels
+  if(!over) for(let i=0;i<N_PLAYERS;i++){ const oc=wedgeOuter[wedgeOf(i)]; if(!oc)continue; const p=C.axToPx(oc[0],oc[1]);
+    const t=document.createElementNS(NS,"text");t.setAttribute("x",sx(p[0]));t.setAttribute("y",sy(p[1])-12);t.setAttribute("text-anchor","middle");
+    t.setAttribute("font-size","12");t.setAttribute("font-weight","800");t.setAttribute("fill",PTEXT[i]);t.setAttribute("stroke","#000");t.setAttribute("stroke-width","0.6");t.setAttribute("pointer-events","none");t.textContent=PNAME[i];SVG.appendChild(t);}
+  renderSide();
+}
+function renderSide(){
+  document.getElementById("tTurn").textContent=over?"—":(turn+1);
+  document.getElementById("tRot").textContent=Math.floor(turn/6)+(over?0:1);
+  document.getElementById("tBag").textContent=bagTotal();
+  document.getElementById("tDry").textContent=players.map((p,i)=>`${PNAME[i]} ${p.mud}`).join(" · ");
+  document.getElementById("phase").textContent=over?"Game over — results below.":(ending?"FINAL TURN — ends after this simultaneous turn.":"Your wedge has the SOLID black border.");
+  // hand
+  const hand=document.getElementById("hand");hand.innerHTML="";
+  players[0].hand.forEach((col,i)=>{const d=document.createElement("div");d.className="chip"+(i===sel?" sel":"");d.style.background=chip(col);d.textContent=col;d.onclick=()=>{sel=(sel===i?-1:i);render();};hand.appendChild(d);});
+  // players panel — op2b scores (most-chits holder banks; chit-tie → 2nd-largest)
+  const reg=C.largestRegions(stacks), two=C.largestTwo(stacks);
+  const scores=op2bScores();
+  const bestMult=Math.max(...scores.map(s=>s.mult));
+  const pb=document.getElementById("players");pb.innerHTML="";
+  players.forEach((p,i)=>{
+    const r=document.createElement("div");r.className="row";
+    let right;
+    if(over){ const chips=p.hand.length?p.hand.map(c=>`<span class="mini" style="background:${chip(c)}">${c}</span>`).join(""):'<span class="muted">(none)</span>';
+      right=`${chips} <b ${scores[i].mult===bestMult?'class="win"':''}>${scores[i].mult}</b>/<span class="muted">${scores[i].add}</span>`+(p.isBot?` <span class="muted">→${cname(p.target)}</span>`:""); }
+    else right=`${p.isBot?`${p.hand.length} hidden`:`${p.hand.length} in hand`} · banks <b>${scores[i].mult}</b> tier <b>${scores[i].add}</b>`;
+    r.innerHTML=`<span style="color:${PTEXT[i]}">${PNAME[i]}</span><span style="text-align:right">${right}</span>`;
+    pb.appendChild(r);
+  });
+  if(over){ const w=scores.map((s,i)=>[s.mult,i]).sort((a,b)=>b[0]-a[0]); log(`Winner: ${PNAME[w[0][1]]} with ${w[0][0]} (op2b: Σ region banked as the most-chits holder; chit-tie → 2nd-largest).`); }
+  // bag
+  const bg=document.getElementById("bag");bg.innerHTML="";
+  colors().forEach(c=>{const r=document.createElement("div");r.className="row";r.innerHTML=`<span><span class="sw" style="background:${chip(c)}"></span>${cname(c)}</span><span>${bag[c]}</span>`;bg.appendChild(r);});
+  // regions — largest, with 2nd-largest beside it (what scores on a chit-tie)
+  const rb=document.getElementById("regions");rb.innerHTML="";
+  colors().forEach(c=>{const r=document.createElement("div");r.className="row";
+    r.innerHTML=`<span><span class="sw" style="background:${chip(c)}"></span>${cname(c)}</span>`+
+      `<span><b>${reg[c]}</b> <span class="tie" title="banks to each player on a chit-tie">(2nd: ${two.second[c]||0})</span></span>`;
+    rb.appendChild(r);});
+  document.getElementById("verify").innerHTML=`Draws checked: <b>${vGood}</b> <span class="ok">✓</span>`+(vBad?` · <b class="bad">${vBad} mismatch</b>`:` · <span class="ok">0 mismatches</span>`);
+}
+
+function setPal(nm){
+  C.setPalette(nm);
+  document.getElementById("palCMY").classList.toggle("on",nm==="CMY");
+  document.getElementById("palRYB").classList.toggle("on",nm==="RYB");
+  document.getElementById("palNote").textContent=nm==="CMY"?"Cyan/Magenta/Yellow primaries → clean closure. Recommended.":"RYB artist wheel — intuitive names but provisional mixing is messy.";
+  newGame();
+}
+document.getElementById("palCMY").onclick=()=>setPal("CMY");
+document.getElementById("palRYB").onclick=()=>setPal("RYB");
+document.getElementById("passBtn").onclick=pass;
+document.getElementById("newBtn").onclick=newGame;
+document.getElementById("dlBtn").onclick=downloadLog;
+setPal("CMY");
+</script>
+</body>
+</html>

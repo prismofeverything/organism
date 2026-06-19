@@ -145,7 +145,12 @@
    ;; read off the SAME next-state a human sees. Potential-based reward shaping
    ;; (Ng/Harada/Russell 1999) gives the missing gradient toward distant feats
    ;; WITHOUT distorting the optimum. Generalizes across the whole feat layer.
-   :feat-lookahead         0.0
+   ;; Default 0.2 (2026-06-18): learned from Muhammad's play — he pursues hard,
+   ;; backloaded temple/feat plans (7/7 feats claimed vs bots' 0); this turns the
+   ;; forecast on so bots commit to those deferred payoffs too. (Live bots also get
+   ;; this floored in eridu_ws/assign-bot-personalities, since the evolved baseline
+   ;; personalities omit the gene; PBRS keeps it policy-safe.)
+   :feat-lookahead         0.2
    ;; ── Feat-chain planning (default = prior hardcoded chain-score weights, so
    ;;    behavior is unchanged at default and the GA tunes the trade-off) ──
    ;; Synergy: how much to favor a feat that SHARES setup with the partner feat

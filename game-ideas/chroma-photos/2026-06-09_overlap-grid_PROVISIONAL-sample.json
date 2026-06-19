@@ -1,0 +1,162 @@
+{
+ "_PROVISIONAL": true,
+ "_note": "Preliminary auto-sample vs CURRENT schema only. Unverified. Disc centers/means are best-effort segmentation, not lab-grade. Real calibration pending physical swatch (later this week). NO canonical changes applied.",
+ "_caveat_orange": "The center overlap blob is an ORANGE chit over light-blue, NOT red. The intended red+blue->purple test is INVALID in this shot; exclude that data point.",
+ "source": "chroma-photos/2026-06-09_overlap-grid_PXL_20260610_032012213.jpg",
+ "discs_found": 9,
+ "discs": [
+  {
+   "id": 1,
+   "pos": [
+    134,
+    272
+   ],
+   "mean_rgb": [
+    16,
+    133,
+    231
+   ],
+   "hex": "#1085e7",
+   "nearest_RYB": "Blue (B) \u039444.4",
+   "nearest_CMY": "Blue (B) \u039444.4",
+   "likely_overlap": false,
+   "hue_std": 0.004
+  },
+  {
+   "id": 2,
+   "pos": [
+    289,
+    252
+   ],
+   "mean_rgb": [
+    56,
+    70,
+    182
+   ],
+   "hex": "#3846b6",
+   "nearest_RYB": "Blue (B) \u039449.4",
+   "nearest_CMY": "Blue (B) \u039449.4",
+   "likely_overlap": false,
+   "hue_std": 0.035
+  },
+  {
+   "id": 3,
+   "pos": [
+    454,
+    231
+   ],
+   "mean_rgb": [
+    157,
+    110,
+    189
+   ],
+   "hex": "#9d6ebd",
+   "nearest_RYB": "Purple (P) \u039460.0",
+   "nearest_CMY": "Magenta (M) \u039477.3",
+   "likely_overlap": false,
+   "hue_std": 0.003
+  },
+  {
+   "id": 4,
+   "pos": [
+    127,
+    449
+   ],
+   "mean_rgb": [
+    13,
+    142,
+    159
+   ],
+   "hex": "#0d8e9f",
+   "nearest_RYB": "Blue (B) \u039467.2",
+   "nearest_CMY": "Blue (B) \u039467.2",
+   "likely_overlap": false,
+   "hue_std": 0.025
+  },
+  {
+   "id": 5,
+   "pos": [
+    441,
+    373
+   ],
+   "mean_rgb": [
+    155,
+    36,
+    77
+   ],
+   "hex": "#9b244d",
+   "nearest_RYB": "Red (R) \u039476.8",
+   "nearest_CMY": "Red (R) \u039476.8",
+   "likely_overlap": false,
+   "hue_std": 0.013
+  },
+  {
+   "id": 6,
+   "pos": [
+    220,
+    514
+   ],
+   "mean_rgb": [
+    70,
+    116,
+    145
+   ],
+   "hex": "#467491",
+   "nearest_RYB": "Blue (B) \u039467.3",
+   "nearest_CMY": "Blue (B) \u039467.3",
+   "likely_overlap": false,
+   "hue_std": 0.029
+  },
+  {
+   "id": 7,
+   "pos": [
+    134,
+    626
+   ],
+   "mean_rgb": [
+    26,
+    190,
+    149
+   ],
+   "hex": "#1abe95",
+   "nearest_RYB": "Green (G) \u039476.5",
+   "nearest_CMY": "Cyan (C) \u039465.7",
+   "likely_overlap": false,
+   "hue_std": 0.008
+  },
+  {
+   "id": 8,
+   "pos": [
+    314,
+    633
+   ],
+   "mean_rgb": [
+    102,
+    58,
+    68
+   ],
+   "hex": "#663a44",
+   "nearest_RYB": "Purple (P) \u0394109.9",
+   "nearest_CMY": "Green (G) \u0394123.4",
+   "likely_overlap": false,
+   "hue_std": 0.027
+  },
+  {
+   "id": 9,
+   "pos": [
+    483,
+    631
+   ],
+   "mean_rgb": [
+    208,
+    57,
+    80
+   ],
+   "hex": "#d03950",
+   "nearest_RYB": "Red (R) \u039427.7",
+   "nearest_CMY": "Red (R) \u039427.7",
+   "likely_overlap": false,
+   "hue_std": 0.002
+  }
+ ]
+}

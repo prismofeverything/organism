@@ -100,12 +100,43 @@
        (remove :over)
        (sort-by #(- (or (:updated %) 0)))))
 
+(defn archive-completed!
+  "Idempotently archive a finished game under its unique :game-id. The live
+   :chroma-games doc is keyed by player and gets overwritten by their next game, so
+   without this archive, completed-game history (and the leaderboard) would only ever
+   hold each player's most recent game. Upsert by :game-id makes repeated saves of the
+   same finished game a no-op."
+  [db server]
+  (when (and (:game-id server) (get-in server [:state :over]))
+    (db/index! db :chroma-completed [:game-id] {:unique true})
+    (db/merge!
+     db :chroma-completed
+     {:game-id (:game-id server)}
+     {:snapshot     (pr-str (dissoc server :channels :channel-players))
+      :game-type    "chroma"
+      :players      (pr-str (:players server))
+      :turns        (get-in server [:state :turn])
+      :completed-at (quot (System/currentTimeMillis) 1000)})))
+
 (defn completed-games
-  "All finished Chroma games, each as the full server snapshot (with :game-key and
-   :updated re-attached). Used to compute the leaderboard."
+  "All finished Chroma games (the accumulating archive), each as the full server
+   snapshot with :game-key + :updated re-attached. Used to compute the leaderboard.
+   Falls back to legacy finished :chroma-games rows for games archived before the
+   :chroma-completed archive existed."
   [db]
-  (->> (db/find-all db :chroma-games)
-       (filter :over)
-       (keep (fn [doc]
-               (when-let [s (:snapshot doc)]
-                 (assoc (read-string s) :game-key (:key doc) :updated (:updated doc)))))))
+  (let [archived (->> (db/find-all db :chroma-completed)
+                      (keep (fn [doc]
+                              (when-let [s (:snapshot doc)]
+                                (assoc (read-string s)
+                                       :game-key (:game-id doc)
+                                       :updated (:completed-at doc))))))
+        archived-ids (set (map :game-id archived))
+        legacy (->> (db/find-all db :chroma-games)
+                    (filter :over)
+                    (keep (fn [doc]
+                            (when-let [s (:snapshot doc)]
+                              (let [server (read-string s)]
+                                ;; skip live docs whose game is already archived
+                                (when-not (contains? archived-ids (:game-id server))
+                                  (assoc server :game-key (:key doc) :updated (:updated doc))))))))]
+    (concat archived legacy)))

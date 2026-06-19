@@ -121,8 +121,10 @@
      request
      "chroma/leaderboard.html"
      {:session-player (get-in request [:session :player])
-      :aggregate (:aggregate data)
-      :hall-of-fame (:hall-of-fame data)})))
+      ;; nil (not []) when empty so the template's {% if %} shows the empty state —
+      ;; selmer treats an empty vector as truthy.
+      :aggregate (seq (:aggregate data))
+      :hall-of-fame (seq (:hall-of-fame data))})))
 
 ;; ── bug log (mirrors eridu's JSONL bug-report) ───────────────────────────────
 
