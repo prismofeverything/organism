@@ -29,9 +29,9 @@
   :stop  ((or (:stop defaults) (fn []))))
 
 (def mongo-connection
-  {:host "localhost"
-   :port 27017
-   :database "organism"})
+  {:host     (or (System/getenv "MONGO_HOST") "localhost")
+   :port     (Integer/parseInt (or (System/getenv "MONGO_PORT") "27017"))
+   :database (or (System/getenv "MONGO_DB") "organism")})
 
 (mount/defstate app-routes
   :start
