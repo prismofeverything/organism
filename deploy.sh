@@ -27,11 +27,25 @@ REMOTE_DIR="~/organism"
 REMOTE_JAR="$REMOTE_DIR/organism.jar"
 LOCAL_JAR="target/uberjar/organism.jar"
 
+# Chroma is now a full server-authoritative game (engine in src/clj, ClojureScript
+# client built by shadow-cljs like the other games). The only staging step is the
+# rules doc: chroma.md is the design source of truth and /chroma/rules renders it
+# from the classpath, so copy it into resources/docs before the uberjar is built.
+# (The hand-written JS engine + the mock play page are retired.)
+chroma_assets() {
+  echo "=== Staging Chroma rules doc ==="
+  mkdir -p resources/docs
+  cp game-ideas/chroma.md resources/docs/chroma.md
+  echo "    chroma.md -> resources/docs/"
+}
+
 build() {
   [ -d node_modules ] || npm install
 
+  chroma_assets
+
   echo "=== Building ClojureScript (shadow-cljs release) ==="
-  npx shadow-cljs release organism journey journey-bots oroboros eridu future
+  npx shadow-cljs release organism journey journey-bots oroboros eridu future chroma
 
   echo "=== Building uberjar ==="
   lein uberjar

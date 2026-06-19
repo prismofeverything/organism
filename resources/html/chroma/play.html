@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html style="background-color:#101216">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{csrf-token}}">
+    <title>Chroma</title>
+  </head>
+  <body style="margin:0;background:#101216">
+    <div id="chroma"></div>
+
+    <script type="text/javascript">
+      var csrfToken = "{{csrf-token}}";
+      var playerKey = "{{player}}";
+      var playKey = "{{play}}";
+    </script>
+    <script src="/js/chroma.js?v={{timestamp}}" type="application/javascript"></script>
+  </body>
+</html>

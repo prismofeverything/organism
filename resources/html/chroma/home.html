@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html style="background-color:#111">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CHROMA</title>
+    <style>
+      body { background-color: #111; margin: 0; color:#ccc; font-family: system-ui,Segoe UI,Roboto,sans-serif; }
+      html, body { height: 100%; margin: 0; }
+      .home-layout { display: flex; flex-direction: row; height: 100vh; }
+      .cover-panel { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+      .nav-panel { width: 280px; min-width: 220px; padding: 3rem 2rem 2rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+      .nav-label { color: #555; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; margin: 1.25rem 0 0.25rem; }
+      .nav-link { display: block; color: #ccc; font-size: 1.1rem; padding: 0.4rem 0; text-decoration: none; border-bottom: 1px solid #222; transition: color 0.15s; }
+      .nav-link:hover { color: #fff; }
+      .nav-link.player-link { color: #adf; font-weight: bold; }
+      @media (max-width:760px){ .home-layout{ flex-direction:column; height:auto; } .cover-panel{ padding:2rem 0; } .nav-panel{ width:auto; } }
+    </style>
+  </head>
+  <body>
+    <div class="home-layout">
+      <div class="cover-panel">
+        <a href="/chroma" style="display:flex; align-items:center; justify-content:center;">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="height:60vh; width:auto;">
+            <!-- color wheel: six chits around a dark center -->
+            <circle cx="100" cy="100" r="86" fill="#0c0d10" stroke="#222" stroke-width="2"/>
+            <g>
+              <circle cx="100" cy="30"  r="20" fill="#22c3d6"/>
+              <circle cx="160" cy="65"  r="20" fill="#2f6fd0"/>
+              <circle cx="160" cy="135" r="20" fill="#d63cae"/>
+              <circle cx="100" cy="170" r="20" fill="#e23b3b"/>
+              <circle cx="40"  cy="135" r="20" fill="#f4d030"/>
+              <circle cx="40"  cy="65"  r="20" fill="#3fae54"/>
+            </g>
+            <circle cx="100" cy="100" r="16" fill="#15171c" stroke="#333" stroke-width="2"/>
+          </svg>
+        </a>
+      </div>
+      <nav class="nav-panel">
+        {% if session-player %}
+          <span class="nav-label">you</span>
+          <a class="nav-link player-link" href="/player/{{session-player}}">{{session-player}}</a>
+          <a class="nav-link" href="/chroma/play">play</a>
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/chroma/leaderboard">leaderboard</a>
+          <a class="nav-link" href="/chroma/rules">rules &amp; reference</a>
+          <span class="nav-label">feedback</span>
+          <a class="nav-link" href="/chroma/bug-report" style="color:#c66">report a bug</a>
+          <a class="nav-link" href="/chroma/bug-report/list" style="color:#666; font-size:0.85rem">bug reports</a>
+          <span class="nav-label" style="margin-top:2rem"></span>
+          <a class="nav-link" href="/logout" style="color:#666; font-size:0.9rem">log out</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">&larr; games</a>
+        {% else %}
+          <span class="nav-label">account</span>
+          <a class="nav-link" href="/login?redirect=/chroma">login / register</a>
+          <span class="nav-label">play</span>
+          <a class="nav-link" href="/chroma/play">play (vs bots)</a>
+          <span class="nav-label">explore</span>
+          <a class="nav-link" href="/chroma/leaderboard">leaderboard</a>
+          <a class="nav-link" href="/chroma/rules">rules &amp; reference</a>
+          <span class="nav-label">feedback</span>
+          <a class="nav-link" href="/chroma/bug-report" style="color:#c66">report a bug</a>
+          <a class="nav-link" href="/" style="color:#666; font-size:0.85rem">&larr; games</a>
+        {% endif %}
+      </nav>
+    </div>
+  </body>
+</html>

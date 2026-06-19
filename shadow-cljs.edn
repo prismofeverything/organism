@@ -48,4 +48,11 @@
   {:target :browser
    :output-dir "resources/public/js"
    :modules {:future {:init-fn future.play/init!}}
-   :devtools {:after-load future.play/mount-components}}}}
+   :devtools {:after-load future.play/mount-components}}
+
+  :chroma
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:chroma {:init-fn chroma.play/init!}}
+   :devtools {:after-load chroma.play/mount-components}}}}
