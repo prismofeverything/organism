@@ -24,6 +24,8 @@ try: sc.render.engine='BLENDER_EEVEE_NEXT'
 except Exception: sc.render.engine='BLENDER_EEVEE'
 try: sc.eevee.taa_render_samples=6
 except Exception: pass
+try: sc.view_settings.view_transform='Standard'   # match the clips/layout -- not AgX (the milky washed-out look)
+except Exception: pass
 sc.render.resolution_x=sc.render.resolution_y=600
 w=bpy.data.worlds.new("W"); sc.world=w; w.use_nodes=True; w.node_tree.nodes["Background"].inputs[0].default_value=(0.45,0.46,0.5,1)
 for nm,en,rot in [("S",4.2,(math.radians(52),math.radians(8),math.radians(30))),("S2",1.5,(math.radians(64),0,math.radians(-120)))]:
