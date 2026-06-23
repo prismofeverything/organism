@@ -38,7 +38,7 @@ still to `renders/clips/move/single_0070.png` (skip the full animation while you
 | 5 | `two_org`    | `storyboards.py → two_org`    | one player, two organisms — highlight each in turn |
 | 2 | `board`      | `storyboards.py → board`      | full real game state (`from_ogf: 144`), slow drift |
 | 12| `glow`       | `storyboards.py → glow`       | same board, one element highlighted (`glow_space`) |
-| 4 | `power`      | `build_power.py`              | power/score board: discs climb 0–5; 6 wraps (disc on 5 + on 1) |
+| 4 | `power`      | `build_power.py`              | score track: 3 tokens/player, score = SUM of ring positions; 4 staggered advances (orange 4→5, purple 4→5, green 0→1, purple 0→1) → green 4 / orange 5 / purple 6; each move carries a player-tinted plasma bell |
 | 1 | `box`        | `build_box.py`                | 3D box product shot (cover + hero pieces) → also `organism_title.png` |
 
 ## Editing a board clip (`storyboards.py`)
