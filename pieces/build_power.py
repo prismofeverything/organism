@@ -6,13 +6,15 @@ tokens' ring positions (rings 0..5 up the nested-arc pyramid, 0 wide purple base
 
 This clip opens mid-game -- green has one token up on ring 3; orange & purple each have
 one on ring 4 -- and plays four staggered advances:
-  1. orange  4 -> 5     (orange = 5)
-  2. purple  4 -> 5     (purple's lead token)
-  3. green   0 -> 1     (green peels a token off its zero-stack -> green = 4)
-  4. purple  0 -> 1     (purple peels a token -> purple = 6)        <- climax
-Final score: green 4, orange 5, purple 6.
+  1. orange  4 -> 5     (orange climbs to the LEFT of the gold apex -> orange = 5)
+  2. purple  4 -> 5     (purple climbs to the RIGHT of the apex; the two FLANK it, both visible)
+  3. green   3 -> 4     (green advances its ring-3 token into the vacated pink node -> green = 4)
+  4. purple  0 -> 1     (purple peels a token off its base stack -> purple = 6)   <- climax
+Final score: green 4, orange 5, purple 6.  An ascending trio; orange & purple flank the apex.
 
-Each token on a ring gets its OWN AREA (fanned across the node so they never overlap).
+Every token sits OFF its ring's centre node (phi != 0) so the printed VALUE-DOTS there stay
+visible; a player's idle reserve tokens are PILED into a leaned per-player coin-stack on the
+base ring. The orange|purple pair straddles its shared node (one each side) on rings 4 and 5.
 Every MOVING token carries the player-tinted PLASMA highlight: one smooth Bezier "bell"
 per move, bracketing it (peak at the move midpoint, PL_LEAD frames of lead-in/out), so the
 staggered moves read as overlapping curves of different lengths -- the same highlight
@@ -59,9 +61,12 @@ def colmat(name, rgb, rough=0.4):
     b = m.node_tree.nodes["Principled BSDF"]
     b.inputs["Base Color"].default_value = lin3(rgb); b.inputs["Roughness"].default_value = rough
     return m
-for nm, en, rot in [("S", 3.4, (math.radians(58), 0, math.radians(20))),
-                    ("S2", 1.2, (math.radians(64), 0, math.radians(-130)))]:
-    d = bpy.data.lights.new(nm, 'SUN'); d.energy = en; d.angle = math.radians(4)
+# 3-light rig so tokens read as 3D coins (top gradient + a grazing light that rakes the side/rim),
+# not flat colour circles. KEY upper-front-right, FILL opposite-soft, GRAZE low to catch the rims.
+for nm, en, rot in [("KEY",   4.6, (math.radians(48), 0, math.radians(38))),
+                    ("FILL",  1.4, (math.radians(62), 0, math.radians(-120))),
+                    ("GRAZE", 2.3, (math.radians(15), 0, math.radians(-32)))]:
+    d = bpy.data.lights.new(nm, 'SUN'); d.energy = en; d.angle = math.radians(5)
     o = bpy.data.objects.new(nm, d); C().objects.link(o); o.rotation_euler = rot
 
 # power board plane (shadeless, faithful printed colors)
@@ -79,12 +84,18 @@ nt.links.new(t.outputs["Color"], hsv.inputs["Color"]); nt.links.new(hsv.outputs[
 pb.inputs["Emission Strength"].default_value = 1.0; pb.inputs["Base Color"].default_value = (0, 0, 0, 1)
 me.materials.append(bm)
 
-# ---- ring nodes: normalised centreline y per ring (measured from the art) -> world (x,y) ----
-NY = {0: -0.80, 1: -0.507, 2: -0.193, 3: 0.127, 4: 0.45, 5: 0.76}
-DISC_Z = 3.2; DISC_R = 13.0; STACK_DZ = 5.6           # z-gap between piled tokens
-def node(v): return (0.0, NY[v]*(W/2))                # centreline node of ring v
-def slot(v, xoff=0.0, k=0):                           # a token's world pos: ring v, fanned by xoff, piled at k
-    x, y = node(v); return (x + xoff, y, DISC_Z + k*STACK_DZ)
+# ---- ring geometry: the score rings are CONCENTRIC ARCS about a centre near the board centre
+# (fitted from the art). Ring v is a band at radius RING_R[v]; rings 0/1/2 sit BELOW that centre,
+# 3/4/5 ABOVE. A token is placed by ANGLE phi (deg) along its ring's arc (phi=0 = the centreline
+# node), so several tokens spread along the whole length of the band instead of piling at the node.
+OARC = (0.0, -9.5)                                    # arc centre (world mm)
+RING_R   = {0: 134.5, 1: 81.8, 2: 25.2, 3: 32.4, 4: 90.5, 5: 146.3}   # band radius per ring (mm)
+RING_DOWN= {0: True, 1: True, 2: True, 3: False, 4: False, 5: False}  # node below(True)/above(False) the centre
+DISC_Z = 4.0; DISC_R = 13.0                           # coin radius + resting centre-height
+def slot(v, phi=0.0):                                 # world pos of a token on ring v at arc-angle phi (deg)
+    th = math.radians(phi); R = RING_R[v]
+    y = OARC[1] + (-R*math.cos(th) if RING_DOWN[v] else R*math.cos(th))
+    return (R*math.sin(th), y, DISC_Z)
 
 # ---------------- plasma pillar highlight (ported from build_clip.py) ----------------
 # transparent player-tinted "fire" on a short cylinder: 4D noise scrolling up + morphing,
@@ -181,16 +192,16 @@ def plasma_bell(aid, pcol, frm_xy, to_xy, t0, t1):
         po.scale = (1.0, 1.0, sv); po.keyframe_insert("scale", frame=int(round(f)))
 
 # ---------------- tokens ----------------
-def disc(name, rgb, emis=0.35):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=DISC_R, depth=5.0, location=(9000, 9000, 0))
-    o = bpy.context.active_object; o.name = name           # flat coin (no smooth -> crisp rim)
-    try: bpy.ops.object.shade_flat()
-    except Exception: pass
-    m = colmat(name + "_m", rgb)
-    if emis > 0:                                           # gentle self-glow so tokens pop on the dark board
-        b = m.node_tree.nodes["Principled BSDF"]
-        b.inputs["Emission Color"].default_value = lin3(rgb); b.inputs["Emission Strength"].default_value = emis
-    o.data.materials.append(m)
+DISC_H = 7.0                                               # chunky coin so the side/rim reads as 3D
+def disc(name, rgb):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=DISC_R, depth=DISC_H, location=(9000, 9000, 0))
+    o = bpy.context.active_object; o.name = name
+    bev = o.modifiers.new("bev", 'BEVEL'); bev.width = 1.1; bev.segments = 3   # rounded edge catches a highlight
+    try: bpy.ops.object.shade_auto_smooth()
+    except Exception:
+        try: bpy.ops.object.shade_smooth()
+        except Exception: pass
+    o.data.materials.append(colmat(name + "_m", rgb, rough=0.34))   # matte plastic, LIT (no self-emission) -> reads 3D
     return o
 def place(o, fr, xyz):
     o.location = xyz; o.keyframe_insert("location", frame=fr)
@@ -206,41 +217,53 @@ def moving_tok(name, pcol, p0, p1, t0, t1, hop=8.0):       # glides p0 -> p1 ove
     plasma_bell(name, rgb, (p0[0], p0[1]), (p1[0], p1[1]), t0, t1)
     return o
 
+# Several tokens on ONE node are PILED into a coin-stack: each coin lifted one coin-height and
+# nudged a hair sideways, so from the 3/4 camera you read distinct coins (a leaning pile), not one
+# fat disc. k=0 is the bottom coin; a moving token lands on the TOP of its destination stack.
+STACK_DZ   = DISC_H + 0.15                                 # vertical step (coins rest flush on each other)
+STACK_LEAN = (3.9, 2.3)                                    # per-level sideways nudge (~screen-horizontal) -> rims read
+def stack_pos(base, k):
+    return (base[0] + STACK_LEAN[0]*k, base[1] + STACK_LEAN[1]*k, base[2] + STACK_DZ*k)
+
 sc.frame_start = 0; sc.frame_end = LEN
 
 if os.environ.get("CHECK"):
     for v in range(6):
         static_tok(f"chk{v}", (1, 0.2, 0.2), slot(v))
 else:
-    # fan offsets: zero base spreads 3 player columns wide; shared upper rings use 2 slots
-    BL, BC, BR = -28.0, 0.0, 28.0            # zero-base columns: green / orange / purple
-    SL, SR = -17.0, 17.0                     # shared-ring slots: orange|green (left) / purple (right)
-    # staggered move spans (each its own step; bells overlap at the seams, different lengths)
-    M_O1 = (22, 52); M_P1 = (50, 82); M_G2 = (84, 120); M_P2 = (120, 158)
+    # PLACEMENT: every token sits OFF its ring's centre node (phi != 0) so the printed VALUE-DOTS at
+    # the node stay visible. Idle reserves are PILED in a leaned per-player coin-stack on the base ring
+    # (green left | purple just right of the node | orange right). The orange & purple climbers STRADDLE
+    # their shared node -- one each side -- on ring 4 (start) and ring 5 (apex), so they read as two and
+    # never overlap each other or the value. Small inner rings need a wider angle for the same gap (A3 >> A0).
+    A3, A1, A0 = 36.0, 18.0, 15.0          # lone-token offsets: ring 3 (green start) / ring 1 (purple peel) / ring 0 (purple reserve)
+    PAIR4, PAIR5 = 15.0, 9.0               # orange|purple half-split: ring 4 (pink node) / ring 5 (gold apex)
+    ZL, ZR = -34.0, 34.0                   # green / orange reserve stacks, wide on the base arc
+    zbase = {"green": slot(0, ZL), "purple": slot(0, A0), "orange": slot(0, ZR)}
+    # FOUR staggered advances (bells overlap, different lengths); green 3->4 lands BEFORE purple's 0->1 climax
+    M_O1 = (20, 52); M_P1 = (56, 88); M_G3 = (94, 126); M_P2 = (132, 170)
 
-    # GREEN -- one up on ring 3, a 2-token stack on the base; peels one up 0->1 (-> sum 4)
-    static_tok("g1", PCOL["green"], slot(3, 0.0))               # alone on ring 3
-    static_tok("g3", PCOL["green"], slot(0, BL, 0))            # base stack, bottom
-    moving_tok("g2", "green", slot(0, BL, 1), slot(1, SL), *M_G2)
+    # GREEN -- climbs ring 3 -> 4 (3rd move, into the now-vacated LEFT flank of the pink node); a 2-coin base reserve (score 4)
+    moving_tok("g1", "green", slot(3, -A3), slot(4, -PAIR4), *M_G3, hop=14)
+    static_tok("g2", PCOL["green"],  stack_pos(zbase["green"], 0))
+    static_tok("g3", PCOL["green"],  stack_pos(zbase["green"], 1))
+    # ORANGE -- a 2-coin base reserve; one token climbs ring 4 -> 5 to the LEFT of the gold apex (score 5)
+    static_tok("o2", PCOL["orange"], stack_pos(zbase["orange"], 0))
+    static_tok("o3", PCOL["orange"], stack_pos(zbase["orange"], 1))
+    moving_tok("o1", "orange", slot(4, -PAIR4), slot(5, -PAIR5), *M_O1, hop=14)
+    # PURPLE -- one base reserve; one token climbs 4 -> 5 to the RIGHT of the apex, one peels 0 -> 1 (score 6, climax)
+    static_tok("p3", PCOL["purple"], stack_pos(zbase["purple"], 0))
+    moving_tok("p1", "purple", slot(4, PAIR4), slot(5, PAIR5), *M_P1, hop=14)
+    moving_tok("p2", "purple", stack_pos(zbase["purple"], 1), slot(1, A1), *M_P2, hop=36)
 
-    # ORANGE -- one on ring 4 advances 4->5 (-> sum 5); a 2-token stack on the base
-    static_tok("o2", PCOL["orange"], slot(0, BC, 0))
-    static_tok("o3", PCOL["orange"], slot(0, BC, 1))
-    moving_tok("o1", "orange", slot(4, SL), slot(5, SL), *M_O1, hop=0.0)
-
-    # PURPLE -- one on ring 4 advances 4->5, then peels another 0->1 (-> sum 6, the climax)
-    static_tok("p3", PCOL["purple"], slot(0, BR, 0))           # base stack, bottom
-    moving_tok("p1", "purple", slot(4, SR), slot(5, SR), *M_P1, hop=0.0)
-    moving_tok("p2", "purple", slot(0, BR, 1), slot(1, SR), *M_P2)
-
-# camera: mostly top-down on the flat board, slight tilt + slow drift
-cam_d = bpy.data.cameras.new("Cam"); cam_d.lens = 50; cam_d.clip_end = 20000
+# camera: a 3/4 angle (off-centre, lower) so the board reads dimensional + the coins show their sides
+cam_d = bpy.data.cameras.new("Cam"); cam_d.lens = 52; cam_d.clip_end = 20000
 cam = bpy.data.objects.new("Cam", cam_d); C().objects.link(cam); sc.camera = cam
 cam.rotation_mode = 'QUATERNION'
 def smooth(u): return u*u*(3-2*u)
 for f in range(LEN+1):
     u = f/LEN
-    az = math.radians(-90 + smooth(u)*11); el = math.radians(65 - smooth(u)*2.5); dist = 520 - smooth(u)*16
+    az = math.radians(-62 + smooth(u)*9); el = math.radians(55 - smooth(u)*3); dist = 545 - smooth(u)*20
     loc = Vector((dist*math.cos(el)*math.cos(az), dist*math.cos(el)*math.sin(az), dist*math.sin(el)))
     cam.location = loc; cam.rotation_quaternion = (Vector((0, 0, 6)) - loc).to_track_quat('-Z', 'Y')
     cam.keyframe_insert("location", frame=f); cam.keyframe_insert("rotation_quaternion", frame=f)
