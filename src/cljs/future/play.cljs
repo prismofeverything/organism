@@ -1,6 +1,11 @@
 (ns future.play
-  "Frontend for the Future game: renders the Fibonacci ring board and handles
-   player interaction via WebSocket."
+  "Frontend for FUTURE. One bundle, four pages selected by JS globals set in
+   the HTML template:
+
+     js/playKey      → /play/:play   live game (WebSocket)
+     js/isCreate     → /create        new-game lobby
+     js/isObserve    → /observe       observer of an arbitrary play key
+     js/isGenerate   → /generate      local single-page bot simulator"
   (:require
    [clojure.string :as str]
    [cljs.reader :as reader]
@@ -12,622 +17,698 @@
    [future.board :as board]
    [future.game :as game]))
 
-;; ── State atoms ─────────────────────────────────────────────────────────────
+;; ── Atoms ──────────────────────────────────────────────────────────────────
 
-(defonce game-state (r/atom nil))
-(defonce player-key (r/atom nil))
-(defonce selected-space (r/atom nil))
+(defonce game-state         (r/atom nil))
+(defonce player-key         (r/atom nil))
+(defonce selected-space     (r/atom nil))
 (defonce legal-actions-atom (r/atom {}))
-(defonce connection-status (r/atom :disconnected))
+(defonce connection-status  (r/atom :disconnected))
+(defonce error-log          (r/atom []))
 
-;; ── Player colors ───────────────────────────────────────────────────────────
+;; ── Player colors (the wedge color is the player's identity) ──────────────
 
-(def player-display-colors
+(def player-fill
   {:silver "#cccccc"
-   :green  "#44dd44"
-   :blue   "#5599ff"
-   :purple "#bb66ee"
+   :green  "#3fbf4f"
+   :blue   "#3f7fdf"
+   :purple "#9f3fdf"
    :void   "#666666"})
 
-(def player-glow-colors
-  {:silver "#eeeeee"
-   :green  "#66ff66"
-   :blue   "#77bbff"
-   :purple "#dd88ff"
-   :void   "#888888"})
+(defn player-color [state pk]
+  (player-fill (get-in state [:players pk :wedge-color])))
 
-;; ── WebSocket communication ─────────────────────────────────────────────────
+;; ── WebSocket ──────────────────────────────────────────────────────────────
 
-(defn receive-message! [message]
-  (let [msg-type (get message "type")]
-    (case msg-type
+(defn- safe-read [s]
+  (try (reader/read-string s)
+       (catch :default e
+         (swap! error-log conj (str "parse error: " e))
+         nil)))
+
+(defn receive-message! [msg]
+  (let [type (get msg "type")]
+    (case type
       "initialize"
-      (do
-        (reset! connection-status :connected)
-        (when-let [state-str (get message "state")]
-          (let [state (reader/read-string state-str)]
-            (reset! game-state state)
-            (reset! legal-actions-atom (game/legal-actions state)))))
+      (do (reset! connection-status :connected)
+          (reset! player-key (get msg "player"))
+          (when-let [s (get msg "state")]
+            (let [st (safe-read s)]
+              (reset! game-state st)
+              (reset! legal-actions-atom (game/legal-actions st)))))
 
       "game-state"
-      (when-let [state-str (get message "state")]
-        (let [state (reader/read-string state-str)]
-          (reset! game-state state)
-          (reset! legal-actions-atom (game/legal-actions state))))
+      (when-let [s (get msg "state")]
+        (let [st (safe-read s)]
+          (reset! game-state st)
+          (reset! legal-actions-atom (game/legal-actions st))))
 
-      (println "Unknown message type:" msg-type))))
+      (println "future: unknown message type" type))))
 
-(defn connect-ws! [play-key]
-  (let [protocol (if (= "https:" (.-protocol js/location)) "wss:" "ws:")
-        host (.-host js/location)
-        url (str protocol "//" host "/ws/future/play/" play-key)]
+(defn connect-ws! [pk]
+  (let [proto (if (= "https:" (.-protocol js/location)) "wss:" "ws:")
+        host  (.-host js/location)
+        url   (str proto "//" host "/ws/future/play/" pk)]
     (ws/make-websocket! url receive-message!)))
-
-(defn send-create! [players]
-  (ws/send-transit-message!
-   {"type" "create"
-    "players" (pr-str players)}))
 
 (defn send-action! [action-key]
   (ws/send-transit-message!
-   {"type" "action"
-    "choice" (pr-str action-key)}))
+    {"type" "action"
+     "choice" (pr-str action-key)}))
 
-;; ── SVG Board Rendering ─────────────────────────────────────────────────────
+;; ── Helpers ────────────────────────────────────────────────────────────────
 
-(def view-size 800)
-(def center (/ view-size 2))
+(defn- safe-name [k] (cond (keyword? k) (name k) (string? k) k :else (str k)))
 
-(defn arc-path
-  "SVG arc path for a ring segment. start/end are fractions [0,1), r-inner/r-outer are radii."
-  [start end r-inner r-outer]
-  (let [;; Convert fractions to radians, 0 = north, clockwise
-        start-rad (* 2 Math/PI start)
-        end-rad   (* 2 Math/PI end)
-        ;; We need to subtract PI/2 to start from north
-        sa (- start-rad (/ Math/PI 2))
-        ea (- end-rad   (/ Math/PI 2))
-        ;; Outer arc points
-        ox1 (+ center (* r-outer (Math/cos sa)))
-        oy1 (+ center (* r-outer (Math/sin sa)))
-        ox2 (+ center (* r-outer (Math/cos ea)))
-        oy2 (+ center (* r-outer (Math/sin ea)))
-        ;; Inner arc points
-        ix1 (+ center (* r-inner (Math/cos ea)))
-        iy1 (+ center (* r-inner (Math/sin ea)))
-        ix2 (+ center (* r-inner (Math/cos sa)))
-        iy2 (+ center (* r-inner (Math/sin sa)))
-        ;; Large arc flag
-        large (if (> (- end start) 0.5) 1 0)]
-    (str "M " ox1 " " oy1
-         " A " r-outer " " r-outer " 0 " large " 1 " ox2 " " oy2
-         " L " ix1 " " iy1
-         " A " r-inner " " r-inner " 0 " large " 0 " ix2 " " iy2
-         " Z")))
+(defn- sid->str [sid]
+  (cond
+    (and (vector? sid) (= :orbit (first sid)))
+    (str (safe-name (second sid)) "·" (nth sid 2))
+    (and (vector? sid) (= :sun (first sid)))
+    (str "sun" (second sid))
+    :else (pr-str sid)))
 
-(defn space-component
-  "Render a single board space as an SVG path."
-  [space-id state selected _actions]
-  (let [[orbit idx] space-id
-        n (board/orbit-sizes orbit)
-        start (/ idx n)
-        end   (/ (inc idx) n)
-        [r-inner r-outer] (board/orbit-radii orbit)
-        path (arc-path start end r-inner r-outer)
-        base-color (board/orbit-colors orbit)
-        struct (get-in state [:structures space-id])
-        divs (get-in state [:sundivers space-id] [])
-        is-selected (= space-id selected)
-        planet-here (some (fn [[_orb sp]] (= sp space-id))
-                          (:planets state))
-        struct-owner-color (when struct
-                             (get player-display-colors (:owner struct)))
-        has-divers (seq divs)
-        fill (cond
-               struct-owner-color  struct-owner-color
-               is-selected         "#ffff44"
-               planet-here         "#ffffff"
-               has-divers          (get player-display-colors (:owner (first divs)) "#aaa")
-               :else               base-color)
-        stroke (if is-selected "#ffff00" "#000000")
-        stroke-width (if is-selected 2 0.5)]
-    [:path {:d path
+(defn- action-label [k]
+  (cond
+    (not (vector? k)) (pr-str k)
+    :else
+    (let [verb (first k)
+          rest-args (rest k)]
+      (case verb
+        :place-mothership (str "place mothership @ " (sid->str (first rest-args)))
+        :stay             "stay (no shift)"
+        :shift-in         "shift inward"
+        :shift-out        "shift outward"
+        :move             "MOVE (5 points)"
+        :activate         (str "ACTIVATE " (safe-name (first rest-args)))
+        :launch           (str "launch → " (sid->str (first rest-args)))
+        :fly              (str "fly " (sid->str (first rest-args)) " → " (sid->str (second rest-args)))
+        :link-travel      (str "travel via "
+                               (safe-name (nth rest-args 2))
+                               "'s links: "
+                               (sid->str (first rest-args))
+                               " → "
+                               (sid->str (second rest-args)))
+        :done-moving      "done moving"
+        :done-activating  "done activating"
+        :activate-sun-outer (str "sun-outer wedge " (first rest-args))
+        :activate-sun-inner (str "sun-inner wedge " (first rest-args))
+        :planet-buy       (str "buy " (safe-name (first rest-args)) " resource")
+        :planet-build-city (str "build " (safe-name (nth rest-args 2))
+                                " city in " (safe-name (first rest-args)))
+        :activate-city    (str "activate city @ " (sid->str (first rest-args)))
+        :link             (str "link " (sid->str (first rest-args))
+                               " → " (sid->str (second rest-args))
+                               " (" (safe-name (nth rest-args 2)) ")")
+        :skip-links       "skip remaining links"
+        (pr-str k)))))
+
+;; ── SVG board ──────────────────────────────────────────────────────────────
+
+(def view-size board/view-size)
+(def vcenter   board/center)
+
+(defn- background []
+  [:rect {:width view-size :height view-size :fill "#06070d"}])
+
+(defn- beam-line
+  "Yellow beam from the sun outward through index-0 of every ring (north)."
+  []
+  [:line {:x1 vcenter :y1 (- vcenter board/sun-inner-r)
+          :x2 vcenter :y2 (- vcenter (last (board/orbit-radii :void)))
+          :stroke board/beam-color :stroke-width 2 :opacity 0.55}])
+
+(defn- ring-divider [r]
+  [:circle {:cx vcenter :cy vcenter :r r
+            :fill "none" :stroke "#000" :stroke-width 1 :opacity 0.4}])
+
+(defn- orbital-space-component
+  [sid state selected actions]
+  (let [d        (board/orbit-space-path sid)
+        struct   (when (game/city-at state sid) {:piece :city :color (:color (game/city-at state sid))})
+        ms-owner (some (fn [[pk pd]] (when (= sid (:mothership pd)) pk)) (:players state))
+        planet?  (some (fn [[_ p]] (= p sid)) (:planets state))
+        divs     (game/sundivers-at state sid)
+        sel?     (= sid selected)
+        base     (board/orbit-colors (board/orbit-of sid))
+        fill     (cond
+                   ms-owner (player-color state ms-owner)
+                   (:color struct) (board/orbit-colors (:color struct))
+                   sel? "#ffe066"
+                   :else base)
+        clickable? (some (fn [[k _]]
+                           (and (vector? k) (some #(= sid %) k)))
+                         actions)]
+    [:path {:d d
             :fill fill
-            :stroke stroke
-            :stroke-width stroke-width
-            :opacity 0.85
-            :style {:cursor "pointer"}
-            :on-click #(reset! selected-space space-id)}]))
+            :fill-opacity (if struct 0.85 0.65)
+            :stroke (cond
+                      sel? "#ffe066"
+                      planet? "#ffffff"
+                      :else "#000")
+            :stroke-width (cond sel? 2 planet? 1.5 :else 0.5)
+            :style {:cursor (if clickable? "pointer" "default")}
+            :on-click #(reset! selected-space sid)}]))
 
-(defn sun-component
-  "Render the central Sun."
-  []
-  [:circle {:cx center :cy center :r 50
-            :fill board/sun-color
-            :stroke "#ff4444"
-            :stroke-width 2}])
+(defn- wedge-component
+  [sid state]
+  (let [k    (board/wedge-of sid)
+        col  (board/orbit-colors (board/wedge-color k))
+        inner-d (board/wedge-triangle-path k)
+        outer-d (board/wedge-outer-path k)
+        sn      (get-in state [:solar-network k] {:active {} :exhausted {}})
+        active-n   (apply + (vals (:active sn)))
+        exhaust-n  (apply + (vals (:exhausted sn)))
+        _divs   (game/sundivers-at state sid)
+        [cx cy] (board/space-center sid)]
+    [:g {:key (str "wedge-" k)}
+     [:path {:d outer-d :fill board/sun-outer-color :fill-opacity 0.95
+             :stroke "#000" :stroke-width 0.8
+             :on-click #(reset! selected-space sid)
+             :style {:cursor "pointer"}}]
+     [:path {:d inner-d :fill col :fill-opacity 0.95
+             :stroke "#000" :stroke-width 0.8
+             :on-click #(reset! selected-space sid)
+             :style {:cursor "pointer"}}]
+     ;; component counts on the wedge
+     [:text {:x cx :y (+ cy 2) :text-anchor "middle"
+             :font-size 9 :font-family "monospace" :fill "#000"
+             :style {:pointer-events "none"}}
+      (str active-n "/" (+ active-n exhaust-n))]]))
 
-(defn beam-component
-  "Render the beam (yellow line from sun center outward)."
-  [_state]
-  (let [;; Beam points north by default, could be rotated based on game state
-        angle-rad (- (/ Math/PI 2))]
-    [:line {:x1 center :y1 center
-            :x2 (+ center (* 380 (Math/cos angle-rad)))
-            :y2 (+ center (* 380 (Math/sin angle-rad)))
-            :stroke "#ffff00"
-            :stroke-width 2
-            :opacity 0.6}]))
+(defn- planet-marker
+  [orbit sid]
+  (let [[x y] (board/space-center sid)]
+    [:circle {:cx x :cy y :r 7
+              :fill (board/orbit-colors orbit)
+              :stroke "#ffffff" :stroke-width 1.5
+              :style {:pointer-events "none"}}]))
 
-(defn planet-component
-  "Render a planet marker on its current space."
-  [orbit space-id]
-  (let [[x y] (board/space-center-xy space-id)
-        color (board/orbit-colors orbit)]
-    [:circle {:cx x :cy y :r 8
-              :fill color
-              :stroke "#ffffff"
-              :stroke-width 1.5}]))
+(defn- city-marker
+  [sid c]
+  (let [[x y] (board/space-center sid)]
+    [:g {:style {:pointer-events "none"}}
+     [:rect {:x (- x 7) :y (- y 7) :width 14 :height 14
+             :fill (board/orbit-colors (:color c))
+             :stroke "#000" :stroke-width 1.2}]
+     [:text {:x x :y (+ y 3) :text-anchor "middle"
+             :font-size 9 :font-family "monospace" :fill "#000"} "C"]]))
 
-(defn structure-label
-  "Render a label for a structure on a space."
-  [space-id struct]
-  (let [[x y] (board/space-center-xy space-id)
-        ch (case (:piece struct)
-             :mothership  "M"
-             :energy-node "E"
-             :tower       "T"
-             :city        "C"
-             "?")]
-    [:text {:x x :y (+ y 4)
-            :text-anchor "middle"
-            :font-size 11 :font-weight "bold"
-            :font-family "monospace"
-            :fill "#ffffff"
-            :style {:pointer-events "none"}}
-     ch]))
+(defn- mothership-marker
+  [state pk sid]
+  (let [[x y] (board/space-center sid)
+        pc    (player-color state pk)]
+    [:g {:style {:pointer-events "none"}}
+     [:circle {:cx x :cy y :r 10 :fill pc :stroke "#fff" :stroke-width 1.5}]
+     [:text {:x x :y (+ y 3) :text-anchor "middle"
+             :font-size 9 :font-family "monospace" :fill "#000"} "M"]]))
 
-(defn sundiver-pips
-  "Render small dots for sundivers on a space."
-  [space-id divs]
-  (let [[cx cy] (board/space-center-xy space-id)
+(defn- sundiver-pips
+  [state sid divs]
+  (let [[cx cy] (board/space-center sid)
         n (count divs)]
-    [:g
-     (for [i (range n)]
-       (let [offset-x (* (- i (/ (dec n) 2.0)) 6)]
-         ^{:key (str "pip-" (pr-str space-id) "-" i)}
-         [:circle {:cx (+ cx offset-x) :cy (- cy 8) :r 2.5
-                   :fill (get player-display-colors
-                              (:owner (nth divs i)) "#aaa")}]))]))
+    (into [:g {:style {:pointer-events "none"}}]
+          (for [[i d] (map-indexed vector divs)]
+            (let [ox (* (- i (/ (dec n) 2.0)) 5)
+                  oy (- cy 11)]
+              [:g {:key (str "sd-" (pr-str sid) "-" i)}
+               [:circle {:cx (+ cx ox) :cy oy :r 2.2
+                         :fill (player-color state (:owner d))
+                         :stroke "#000" :stroke-width 0.3}]
+               (when (:resource d)
+                 [:circle {:cx (+ cx ox) :cy (- oy 4) :r 1.5
+                           :fill (board/orbit-colors (:resource d))
+                           :stroke "#000" :stroke-width 0.3}])])))))
 
-(defn board-svg
-  "Full board SVG component."
-  []
-  (let [state @game-state
-        selected @selected-space
-        actions @legal-actions-atom]
+(defn- flame-marker [sid]
+  (let [[x y] (board/space-center sid)]
+    [:g {:style {:pointer-events "none"}}
+     [:circle {:cx x :cy y :r 14 :fill "none"
+               :stroke board/flame-color :stroke-width 2 :opacity 0.9}]
+     [:text {:x x :y (+ y 4) :text-anchor "middle"
+             :font-size 11 :font-weight "bold"
+             :font-family "monospace" :fill board/flame-color} "♨"]]))
+
+(defn- link-line [_state {:keys [a b color]}]
+  (let [[ax ay] (board/space-center a)
+        [bx by] (board/space-center b)]
+    [:line {:x1 ax :y1 ay :x2 bx :y2 by
+            :stroke (board/orbit-colors color)
+            :stroke-width 2
+            :opacity 0.85
+            :style {:pointer-events "none"}}]))
+
+(defn board-svg []
+  (let [state    @game-state
+        sel      @selected-space
+        actions  @legal-actions-atom]
     (when state
-      [:svg {:viewBox (str "0 0 " view-size " " view-size)
-             :width "100%"
-             :height "100%"
-             :style {:max-width "800px" :max-height "800px"}}
-       ;; Background
-       [:rect {:width view-size :height view-size :fill "#000000"}]
-       ;; Beam (behind everything)
-       [beam-component state]
-       ;; Sun
-       [sun-component]
-       ;; Board spaces
-       (for [orbit (reverse board/orbits)
-             idx (range (board/orbit-sizes orbit))]
-         (let [sid (board/space-id orbit idx)]
-           ^{:key (pr-str sid)}
-           [space-component sid state selected actions]))
-       ;; Planets
-       (for [[orbit space-id] (:planets state)]
-         ^{:key (str "planet-" (name orbit))}
-         [planet-component orbit space-id])
-       ;; Links (lines between linked spaces)
-       (for [[i link] (map-indexed vector (:links state))]
-         (let [[ax ay] (board/space-center-xy (:a link))
-               [bx by] (board/space-center-xy (:b link))]
-           ^{:key (str "link-" i)}
-           [:line {:x1 ax :y1 ay :x2 bx :y2 by
-                   :stroke "#ffaa00" :stroke-width 1.5 :opacity 0.7}]))
-       ;; Flame marker
-       (when-let [fs (:flame-space state)]
-         (let [[fx fy] (board/space-center-xy fs)]
+      (do
+        [:svg {:viewBox (str "0 0 " view-size " " view-size)
+               :preserveAspectRatio "xMidYMid meet"
+               :style {:width "100%" :height "100%"
+                       :max-width "820px" :max-height "820px"}}
+         [background]
+         [beam-line]
+         ;; Ring outlines (visual aid)
+         (for [orbit board/orbits
+               :let [[ri ro] (board/orbit-radii orbit)]]
+           ^{:key (str "rd-" (name orbit))}
            [:g
-            [:circle {:cx fx :cy fy :r 12
-                      :fill "none" :stroke "#ff4400" :stroke-width 2}]
-            [:text {:x fx :y (+ fy 4)
-                    :text-anchor "middle" :font-size 12
-                    :font-family "monospace" :fill "#ff4400"
-                    :style {:pointer-events "none"}}
-             "F"]]))
-       ;; Structures
-       (for [[sid struct] (:structures state)
-             :when struct]
-         ^{:key (str "struct-" (pr-str sid))}
-         [structure-label sid struct])
-       ;; Sundivers
-       (for [[sid divs] (:sundivers state)
-             :when (seq divs)]
-         ^{:key (str "divs-" (pr-str sid))}
-         [sundiver-pips sid divs])])))
+            [ring-divider ri]
+            [ring-divider ro]])
+         ;; Orbital spaces
+         (for [orbit (reverse board/orbits)
+               i (range (board/orbit-sizes orbit))
+               :let [sid (board/orbit-space orbit i)]]
+           ^{:key (str "sp-" (name orbit) "-" i)}
+           [orbital-space-component sid state sel actions])
+         ;; Sun wedges
+         (for [k (range board/num-wedges)
+               :let [sid (board/sun-space k)]]
+           ^{:key (str "w-" k)}
+           [wedge-component sid state])
+         ;; Planets
+         (for [[orbit sid] (:planets state)]
+           ^{:key (str "pl-" (name orbit))}
+           [planet-marker orbit sid])
+         ;; Links
+         (for [[i link] (map-indexed vector (:links state))]
+           ^{:key (str "lk-" i)}
+           [link-line state link])
+         ;; Cities
+         (for [[sid c] (:cities state)]
+           ^{:key (str "ci-" (pr-str sid))}
+           [city-marker sid c])
+         ;; Motherships
+         (for [[pk pd] (:players state)
+               :when (and (:mothership pd) (not= :supply (:mothership pd)))]
+           ^{:key (str "ms-" pk)}
+           [mothership-marker state pk (:mothership pd)])
+         ;; Sundivers (pips above each space)
+         (for [[sid divs] (:sundivers state)
+               :when (seq divs)]
+           ^{:key (str "sd-" (pr-str sid))}
+           [sundiver-pips state sid divs])
+         ;; Flame
+         (when-let [fs (:flame-space state)]
+           ^{:key "flame"}
+           [flame-marker fs])]))))
 
-;; ── Info panels ─────────────────────────────────────────────────────────────
+;; ── Panels ────────────────────────────────────────────────────────────────
+
+(defn- panel-label [s]
+  [:div {:style {:color "#5a5a78" :font-size "0.72rem"
+                 :letter-spacing "0.1em" :margin "10px 0 4px 0"
+                 :text-transform "uppercase"}}
+   s])
+
+(defn- chip [bg fg text]
+  [:span {:style {:display "inline-block"
+                  :padding "2px 6px" :margin "1px 3px 1px 0"
+                  :background bg :color fg
+                  :border-radius "3px"
+                  :font-size "0.72rem"}}
+   text])
 
 (defn game-status []
   (let [state @game-state]
     (when state
-      [:div {:style {:margin-bottom "8px"}}
-       ;; Win/loss banner
+      [:div
        (when-let [w (:winner state)]
-         [:div {:style {:padding "8px" :margin-bottom "8px" :border-radius "4px"
-                        :background (if (= w :win) "#224422" "#442222")
-                        :color (if (= w :win) "#66ff66" "#ff6666")
-                        :font-size "1.2rem" :font-weight "bold"}}
-          (if (= w :win) "VICTORY!" "DEFEAT — 13th flare drawn")])
-       ;; Flame / turn
-       [:div {:style {:color "#ff8844" :font-size "1.2rem"}}
-        "Flame: " [:strong (:flame state)]
-        " (turn " (:turn state) ")"]
-       ;; Phase
-       [:div {:style {:color "#aa6633" :font-size "0.9rem"}}
-        "Phase: " (name (:phase state))
-        (when (:moves-left state)
-          (str " — moves left: " (:moves-left state)))
-        (when (:actions-left state)
-          (str " — actions left: " (:actions-left state)))]
-       ;; Flares
-       [:div {:style {:color "#cc4444" :font-size "0.85rem"}}
-        "Flares: " (:flares-drawn state 0) " / 13"]])))
+         [:div {:style {:padding "10px"
+                        :margin "0 0 10px 0"
+                        :border-radius "4px"
+                        :background (if (= :win (:result w)) "#1f3a1f" "#3a1f1f")
+                        :color      (if (= :win (:result w)) "#9fee9f" "#ee9f9f")
+                        :font-weight "bold"}}
+          (if (= :win (:result w))
+            (str "VICTORY — winners: " (str/join ", " (:winners w)))
+            (str "DEFEAT — " (name (:reason w))))])
+       [:div {:style {:color (player-fill (get-in state [:players (:flame state) :wedge-color]))
+                      :font-size "1.05rem" :font-weight "bold"}}
+        (str "▶ " (:flame state))]
+       [:div {:style {:color "#5a5a78" :font-size "0.78rem"}}
+        (str "phase: " (name (:phase state))
+             " · turn " (:turn state)
+             " · flares " (:flares-drawn state) "/" game/flares-to-end)]
+       (when (= :moving (:phase state))
+         [:div {:style {:color "#88ccff" :font-size "0.78rem"}}
+          (str "moves left: " (get-in state [:phase-data :moves-remaining]))])
+       (when (= :activating (:phase state))
+         [:div {:style {:color "#cc88ff" :font-size "0.78rem"}}
+          (str "activating " (name (get-in state [:phase-data :activate-type]))
+               " — draws queued: " (get-in state [:phase-data :cards-pending]))])
+       (when (= :placing-links (:phase state))
+         [:div {:style {:color "#ffcc44" :font-size "0.78rem"}}
+          (str "links remaining: " (get-in state [:phase-data :links-remaining])
+               " on " (sid->str (get-in state [:phase-data :city-being-activated])))])])))
 
-(defn resource-panel []
+(defn market-panel []
   (let [state @game-state]
     (when state
-      [:div {:style {:margin-bottom "12px"}}
-       [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}}
-        "RESOURCES"]
-       (for [orbit board/orbits]
-         ^{:key (str "res-" (name orbit))}
-         [:span {:style {:color (board/orbit-colors orbit)
-                         :margin-right "12px"}}
-          (name orbit) ": " (get-in state [:resources orbit] 0)])
-       [:div {:style {:color "#ffcc00" :margin-top "4px"}}
-        "Energy pool: " (:energy-pool state)]])))
+      [:div
+       [panel-label "MARKET"]
+       (for [c board/orbits]
+         ^{:key (str "mk-" (name c))}
+         [:div {:style {:font-size "0.78rem" :line-height "1.4"
+                        :color (board/orbit-colors c)}}
+          (name c) ": "
+          (chip "#2a1a1a" (board/orbit-colors c)
+                (str "R " (get-in state [:market-resources c] 0)))
+          (chip "#1a2a1a" (board/orbit-colors c)
+                (str "C " (get-in state [:market-cities c] 0)))])
+       [:div {:style {:color "#ffcc44" :font-size "0.78rem" :margin-top "6px"}}
+        "energy pool: " (:energy-pool state)]])))
 
-(defn city-panel []
-  (let [state @game-state]
+(defn players-panel []
+  (let [state @game-state
+        cur   (game/current-player state)]
     (when state
-      [:div {:style {:margin-bottom "12px"}}
-       [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}}
-        "CITIES"]
-       (for [orbit board/orbits]
-         ^{:key (str "city-" (name orbit))}
-         [:span {:style {:color (board/orbit-colors orbit)
-                         :margin-right "12px"}}
-          (name orbit) ": " (get-in state [:cities orbit] 0)])])))
+      [:div
+       [panel-label "PLAYERS"]
+       (for [pk (:turn-order state)
+             :let [pd (get-in state [:players pk])
+                   col (player-fill (:wedge-color pd))]]
+         ^{:key (str "pl-" pk)}
+         [:div {:style {:padding "4px 6px"
+                        :margin-bottom "3px"
+                        :background (if (= pk cur) "#1f1f33" "#0c0c14")
+                        :border-left (str "3px solid " col)}}
+          [:div {:style {:color col :font-size "0.85rem"
+                         :font-weight (if (= pk cur) "bold" "normal")}}
+           pk (when (= pk cur) " ◀")]
+          [:div {:style {:color "#5a5a78" :font-size "0.7rem"}}
+           (str "E:" (:energy pd) " H:" (:habitat pd)
+                " R:" (:reserve pd) " C:" (:components pd)
+                " CP:" (:city-platforms pd) " L:" (:links-supply pd))]])])))
 
-(defn solar-network-panel []
-  (let [state @game-state]
-    (when state
-      [:div {:style {:margin-bottom "12px"}}
-       [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}}
-        "SOLAR NETWORK"]
-       (for [orbit board/orbits
-             :let [section (get-in state [:solar-network orbit])]]
-         ^{:key (str "solar-" (name orbit))}
-         [:div {:style {:color (board/orbit-colors orbit) :font-size "0.85rem"}}
-          (name orbit) ": "
-          (str (count (:available section)) " avail, "
-               (count (:exhausted section)) " spent")])])))
+(defn supply-panel []
+  (let [state @game-state pk @player-key]
+    (when (and state pk)
+      (let [pd (get-in state [:players pk])]
+        (when pd
+          [:div
+           [panel-label (str "YOU — " (name (:wedge-color pd)))]
+           [:div {:style {:color "#8a8aae" :font-size "0.85rem" :line-height "1.6"}}
+            [:div "habitat: " (:habitat pd)]
+            [:div "reserve: " (:reserve pd)]
+            [:div "energy: " (:energy pd)]
+            [:div "components: " (:components pd)]
+            [:div "city platforms: " (:city-platforms pd)]
+            [:div "links: " (:links-supply pd)]
+            [:div "vaporized: " (:vaporized pd)]]])))))
 
 (defn hand-panel []
-  (let [state @game-state
-        player @player-key]
-    (when (and state player)
-      (let [hand (get-in state [:hands player])]
-        [:div {:style {:margin-bottom "12px"}}
-         [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}}
-          "YOUR HAND"]
-         (if (seq hand)
-           (for [[i card] (map-indexed vector hand)]
-             ^{:key (str "card-" i)}
+  (let [state @game-state pk @player-key]
+    (when (and state pk)
+      (let [hand (get-in state [:hands pk] [])]
+        [:div
+         [panel-label (str "HAND (" (count hand) ")")]
+         (if (empty? hand)
+           [:span {:style {:color "#444" :font-size "0.75rem"}} "—"]
+           (for [[i c] (map-indexed vector hand)
+                 :let [col (if (game/flare-card? c) "#ff8844"
+                              (board/orbit-colors (:suit c)))]]
+             ^{:key (str "h-" i)}
              [:span {:style {:display "inline-block"
-                             :padding "4px 8px"
-                             :margin "2px"
+                             :padding "2px 5px" :margin "1px 2px"
                              :background "#1a1a2a"
-                             :border (str "1px solid "
-                                          (get board/orbit-colors (:suit card) "#666"))
+                             :border (str "1px solid " col)
                              :border-radius "3px"
-                             :color (get board/orbit-colors (:suit card) "#ccc")
-                             :cursor "pointer"}}
-              (str (name (:suit card)) " " (:value card))])
-           [:span {:style {:color "#555"}} "No cards"])]))))
+                             :color col
+                             :font-size "0.7rem"}}
+              (str (name (:suit c)) " " (:value c))]))]))))
 
-(defn player-supply-panel []
-  (let [state @game-state
-        player @player-key]
-    (when (and state player)
-      (let [ps (get-in state [:players player])]
-        [:div {:style {:margin-bottom "12px"}}
-         [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}}
-          (str "SUPPLY (" (name (:color ps)) ")")]
-         [:div {:style {:color "#aaa" :font-size "0.85rem" :line-height "1.8"}}
-          [:div (str "Mothership: " (if (= :supply (:mothership ps)) "ready" "placed"))]
-          [:div (str "Habitat: " (:habitat ps) " sundivers")]
-          [:div (str "Reserve: " (:reserve ps) " sundivers")]
-          [:div (str "Energy nodes: " (:energy-nodes ps)
-                     " | Towers: " (:towers ps))]
-          [:div (str "Components: " (:components ps)
-                     " | Cities: " (:city-tokens ps))]
-          [:div (str "Links: " (:links ps)
-                     " | Energy: " (:energy ps))]]]))))
+(defn solar-panel []
+  (let [state @game-state]
+    (when state
+      [:div
+       [panel-label "SOLAR NETWORK"]
+       (for [k (range board/num-wedges)
+             :let [c     (board/wedge-color k)
+                   sn    (get-in state [:solar-network k])
+                   act   (apply + (vals (:active sn)))
+                   exh   (apply + (vals (:exhausted sn)))]]
+         ^{:key (str "sn-" k)}
+         [:div {:style {:font-size "0.78rem" :line-height "1.4"
+                        :color (board/orbit-colors c)}}
+          (str "wedge " k " (" (name c) "): "
+               act " active, " exh " spent")])])))
 
 (defn actions-panel []
-  (let [state @game-state
+  (let [state   @game-state
         actions @legal-actions-atom
-        player @player-key]
-    (when (and state (= player (game/current-player state)))
-      [:div {:style {:margin-top "12px"}}
-       [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}}
-        "ACTIONS"]
-       (for [[ak _] actions]
-         ^{:key (pr-str ak)}
-         [:button
-          {:style {:display "block"
-                   :padding "6px 12px"
-                   :margin "4px 0"
-                   :background "#2a2a3a"
-                   :border "1px solid #4a3a6a"
-                   :border-radius "3px"
-                   :color "#ccbbee"
-                   :cursor "pointer"
-                   :font-family "monospace"}
-           :on-click #(send-action! ak)}
-          (pr-str ak)])])))
+        pk      @player-key
+        cur     (game/current-player state)]
+    (when (and state (or (= pk cur)
+                         (= pk "--observer--")))
+      [:div
+       [panel-label (if (= pk cur) "YOUR TURN — CHOOSE"
+                                   (str "WAITING ON " (or cur "—")))]
+       (cond
+         (empty? actions)
+         [:div {:style {:color "#444" :font-size "0.75rem"}} "(no legal actions)"]
 
-;; ── Create game form ────────────────────────────────────────────────────────
-;; Delegates to the shared create lobby (organism.components/create-lobby).
+         :else
+         (for [[ak _] actions]
+           ^{:key (pr-str ak)}
+           [:button
+            {:style {:display "block" :width "100%"
+                     :padding "5px 8px" :margin "2px 0"
+                     :background "#1a1a2c" :color "#ccbbee"
+                     :border "1px solid #4a3a6a"
+                     :border-radius "3px"
+                     :font-family "monospace"
+                     :font-size "0.78rem"
+                     :text-align "left"
+                     :cursor "pointer"}
+             :disabled (not= pk cur)
+             :on-click #(send-action! ak)}
+            (action-label ak)]))])))
 
-(defn create-form []
+;; ── Game view ─────────────────────────────────────────────────────────────
+
+(defn game-view []
+  [:div {:style {:display "flex" :flex-direction "row" :height "100vh"
+                 :background "#06070d" :color "#ccbbee"
+                 :font-family "monospace"}}
+   [:div {:style {:flex 1 :display "flex" :justify-content "center"
+                  :align-items "center" :padding "12px"}}
+    [board-svg]]
+   [:div {:style {:width "340px" :padding "14px"
+                  :overflow-y "auto"
+                  :border-left "1px solid #161620"}}
+    [game-status]
+    [players-panel]
+    [market-panel]
+    [solar-panel]
+    [supply-panel]
+    [hand-panel]
+    [actions-panel]]])
+
+;; ── Create form ──────────────────────────────────────────────────────────
+
+(defn create-view []
   [components/create-lobby
    {:game-type      "future"
     :title          "FUTURE — New Game"
     :current-player (when (and (exists? js/playerKey)
-                               (not (str/blank? js/playerKey)))
+                               (not (str/blank? js/playerKey))
+                               (not= "--observer--" js/playerKey))
                       js/playerKey)
     :min-players    2
     :max-players    5
     :accent         "#ff8844"
-    :slot-bg        "#1a1a2a"
-    :background     "#04040E"}])
+    :slot-bg        "#1a1a2c"
+    :background     "#06070d"}])
 
-;; ── Observe page ────────────────────────────────────────────────────────────
+;; ── Observe view ─────────────────────────────────────────────────────────
 
 (defn observe-view []
-  [:div {:style {:padding "48px" :color "#aabbcc" :font-family "monospace"}}
-   [:h2 {:style {:color "#ff8844" :margin-bottom "24px"}} "OBSERVE FUTURE GAMES"]
-   [:p {:style {:color "#555"}} "Games in progress will appear here."]])
+  (let [raw (when (exists? js/observeGames) js/observeGames)
+        list (when raw (safe-read raw))]
+    [:div {:style {:padding "32px" :background "#06070d"
+                   :color "#ccbbee" :font-family "monospace" :min-height "100vh"}}
+     [:h2 {:style {:color "#ff8844" :margin-bottom "18px"}} "OBSERVE FUTURE GAMES"]
+     (if (seq list)
+       (for [g list]
+         ^{:key (str (:key g))}
+         [:a {:href (str "/future/play/" (:key g))
+              :style {:display "block" :padding "10px 14px" :margin "4px 0"
+                      :color "#ccbbee" :background "#1a1a2c"
+                      :border "1px solid #4a3a6a" :border-radius "3px"
+                      :text-decoration "none"}}
+          (str (:key g) " — players: " (str/join ", " (:players g)))])
+       [:div {:style {:color "#5a5a78"}} "(no live future games)"])]))
 
-;; ── Generate page (bot simulation) ─────────────────────────────────────────
+;; ── Generate (local bot simulator) ───────────────────────────────────────
 
-(def bot-players ["Void" "Purple" "Blue" "Green" "Silver"])
+(def bot-players ["Sola" "Vega" "Lyra" "Nova" "Pyre"])
 
-(defonce gen-running (r/atom false))
-(defonce gen-speed (r/atom 300))   ; ms between steps
-(defonce gen-timer (atom nil))
-(defonce gen-history (r/atom []))  ; [{:turn :player :action :phase}]
+(defonce gen-running    (r/atom false))
+(defonce gen-interval-ms (r/atom 300))
+(defonce gen-timer      (atom nil))
+(defonce gen-history    (r/atom []))
 
-(defn bot-pick-action
-  "Simple heuristic bot: prefer non-pass actions, pick randomly."
-  [actions]
-  (let [entries (vec actions)
-        non-pass (filterv (fn [[ak _]] (not= ak [:pass])) entries)]
-    (if (seq non-pass)
-      (rand-nth non-pass)
-      (rand-nth entries))))
+(defn- bot-pick [actions]
+  (let [es (vec actions)
+        ;; Mild preference: skip end-turn ends if real options exist
+        ends? (fn [[ak _]] (#{[:done-moving] [:done-activating] [:skip-links]} ak))
+        non-end (filterv #(not (ends? %)) es)
+        candidates (if (seq non-end) non-end es)]
+    (rand-nth candidates)))
 
-(defn gen-step!
-  "Advance the simulation by one action."
-  []
-  (when-let [state @game-state]
-    (when-not (:winner state)
+(defn- gen-step! []
+  (let [state @game-state]
+    (when (and state (not (:winner state)))
       (let [actions (game/legal-actions state)]
         (when (seq actions)
-          (let [[ak next-state] (bot-pick-action actions)
-                player (game/current-player state)]
+          (let [[ak next-state] (bot-pick actions)
+                p (game/current-player state)]
             (swap! gen-history conj
-                   {:turn (:turn state)
-                    :player player
-                    :phase (:phase state)
-                    :action (pr-str ak)})
+                   {:turn (:turn state) :player p
+                    :phase (:phase state) :action (action-label ak)})
             (reset! game-state next-state)
             (reset! legal-actions-atom (game/legal-actions next-state))))))))
 
-(defn gen-stop! []
+(defn- gen-stop! []
   (reset! gen-running false)
   (when-let [t @gen-timer]
     (js/clearInterval t)
     (reset! gen-timer nil)))
 
-(defn gen-start! []
+(defn- gen-start! []
   (gen-stop!)
   (reset! gen-running true)
   (reset! gen-timer
           (js/setInterval
-           (fn []
-             (if (or (:winner @game-state) (not @gen-running))
-               (gen-stop!)
-               (gen-step!)))
-           @gen-speed)))
+            (fn []
+              (if (or (not @gen-running) (:winner @game-state))
+                (gen-stop!)
+                (gen-step!)))
+            @gen-interval-ms)))
 
-(defn gen-new-game! []
+(defn- gen-new! []
   (gen-stop!)
-  (let [state (game/create-game bot-players)]
-    (reset! game-state state)
-    (reset! legal-actions-atom (game/legal-actions state))
-    (reset! gen-history [])))
+  (reset! gen-history [])
+  (let [st (game/create-game bot-players)]
+    (reset! game-state st)
+    (reset! legal-actions-atom (game/legal-actions st))
+    (reset! player-key (first bot-players))))
 
 (defn gen-controls []
-  (let [state @game-state
-        running @gen-running
-        done (and state (:winner state))]
-    [:div {:style {:margin-bottom "12px"}}
-     [:div {:style {:display "flex" :gap "6px" :margin-bottom "8px" :flex-wrap "wrap"}}
-      [:button
-       {:on-click gen-new-game!
-        :style {:padding "6px 12px" :background "#3a3a5a" :color "#ccbbee"
-                :border "1px solid #5a4a7a" :border-radius "3px"
-                :cursor "pointer" :font-family "monospace"}}
-       "New Game"]
-      (when (and state (not done))
-        [:button
-         {:on-click gen-step!
-          :disabled running
-          :style {:padding "6px 12px" :background "#2a4a3a" :color "#88ddaa"
-                  :border "1px solid #4a6a5a" :border-radius "3px"
-                  :cursor "pointer" :font-family "monospace"
-                  :opacity (if running 0.5 1)}}
-         "Step"])
-      (when (and state (not done))
-        (if running
-          [:button
-           {:on-click gen-stop!
-            :style {:padding "6px 12px" :background "#4a2a2a" :color "#ff8888"
-                    :border "1px solid #6a4a4a" :border-radius "3px"
-                    :cursor "pointer" :font-family "monospace"}}
-           "Stop"]
-          [:button
-           {:on-click gen-start!
-            :style {:padding "6px 12px" :background "#2a3a4a" :color "#88bbdd"
-                    :border "1px solid #4a5a6a" :border-radius "3px"
-                    :cursor "pointer" :font-family "monospace"}}
-           "Auto"]))]
-     ;; Speed slider
-     (when (and state (not done))
-       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-        [:span {:style {:color "#666" :font-size "0.8rem"}} "Speed:"]
-        [:input {:type "range" :min 50 :max 1000 :step 50
-                 :value @gen-speed
-                 :on-change (fn [e]
-                              (let [v (js/parseInt (-> e .-target .-value))]
-                                (reset! gen-speed v)
-                                (when running
-                                  (gen-start!))))
-                 :style {:width "120px"}}]
-        [:span {:style {:color "#666" :font-size "0.8rem"}}
-         (str @gen-speed "ms")]])]))
+  (let [st @game-state run? @gen-running done? (and st (:winner st))]
+    [:div
+     [:div {:style {:display "flex" :gap "6px" :flex-wrap "wrap"
+                    :margin-bottom "8px"}}
+      [:button {:on-click gen-new!
+                :style {:padding "6px 10px" :background "#2a2a44"
+                        :color "#ccbbee" :border "1px solid #4a3a6a"
+                        :border-radius "3px" :cursor "pointer"
+                        :font-family "monospace"}}
+       "New game"]
+      [:button {:on-click gen-step! :disabled (or run? done?)
+                :style {:padding "6px 10px" :background "#2a443a"
+                        :color "#88ddaa" :border "1px solid #4a6a5a"
+                        :border-radius "3px" :cursor "pointer"
+                        :font-family "monospace"
+                        :opacity (if (or run? done?) 0.4 1)}}
+       "Step"]
+      (if run?
+        [:button {:on-click gen-stop!
+                  :style {:padding "6px 10px" :background "#442a2a"
+                          :color "#ff9999" :border "1px solid #6a4a4a"
+                          :border-radius "3px" :cursor "pointer"
+                          :font-family "monospace"}}
+         "Stop"]
+        [:button {:on-click gen-start! :disabled (or done? (nil? st))
+                  :style {:padding "6px 10px" :background "#2a3a44"
+                          :color "#88bbdd" :border "1px solid #4a5a6a"
+                          :border-radius "3px" :cursor "pointer"
+                          :font-family "monospace"
+                          :opacity (if (or done? (nil? st)) 0.4 1)}}
+         "Auto"])]
+     [:div {:style {:display "flex" :align-items "center" :gap "6px"}}
+      [:span {:style {:color "#5a5a78" :font-size "0.75rem"}} "speed:"]
+      [:input {:type "range" :min 50 :max 1200 :step 50
+               :value @gen-interval-ms
+               :on-change (fn [e]
+                            (let [v (js/parseInt (-> e .-target .-value))]
+                              (reset! gen-interval-ms v)
+                              (when run? (gen-start!))))
+               :style {:width "120px"}}]
+      [:span {:style {:color "#5a5a78" :font-size "0.75rem"}}
+       (str @gen-interval-ms "ms")]]]))
 
 (defn gen-log []
   (let [history @gen-history
-        recent (vec (take-last 20 history))]
-    [:div {:style {:margin-top "8px" :max-height "200px" :overflow-y "auto"
-                   :font-size "0.75rem" :color "#667"}}
-     [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}} "LOG"]
-     (for [[i entry] (map-indexed vector (reverse recent))]
+        recent  (vec (take-last 30 history))]
+    [:div {:style {:margin-top "10px" :max-height "240px"
+                   :overflow-y "auto" :font-size "0.72rem"
+                   :color "#67678a"}}
+     [panel-label "LOG"]
+     (for [[i e] (map-indexed vector (reverse recent))]
        ^{:key (str "log-" (- (count history) i))}
-       [:div {:style {:border-bottom "1px solid #1a1a1a" :padding "2px 0"}}
-        [:span {:style {:color "#555"}} (str "T" (:turn entry) " ")]
-        [:span {:style {:color (get player-display-colors
-                                    (keyword (str/lower-case (or (:player entry) "")))
-                                    "#888")}}
-         (:player entry)]
-        [:span {:style {:color "#444"}} (str " [" (name (:phase entry)) "] ")]
-        [:span {:style {:color "#556"}} (:action entry)]])]))
-
-(defn all-players-panel []
-  (let [state @game-state]
-    (when state
-      [:div {:style {:margin-bottom "8px"}}
-       [:div {:style {:color "#888" :font-size "0.8rem" :margin-bottom "4px"}} "PLAYERS"]
-       (for [pk (:flame-order state)]
-         (let [ps (get-in state [:players pk])
-               color-kw (:color ps)
-               is-current (= pk (game/current-player state))]
-           ^{:key pk}
-           [:div {:style {:padding "3px 6px" :margin-bottom "3px" :font-size "0.8rem"
-                          :background (if is-current "#1a2a1a" "#111")
-                          :border-left (str "3px solid "
-                                            (get player-display-colors color-kw "#666"))}}
-            [:div {:style {:color (get player-display-colors color-kw "#aaa")
-                           :font-weight (if is-current "bold" "normal")}}
-             pk
-             (when is-current " ◀")]
-            [:div {:style {:color "#667" :font-size "0.7rem"}}
-             (str "E:" (:energy ps)
-                  " H:" (:habitat ps)
-                  " R:" (:reserve ps)
-                  " C:" (:components ps)
-                  " CT:" (:city-tokens ps)
-                  " L:" (:links ps))]]))])))
+       [:div {:style {:padding "2px 0" :border-bottom "1px solid #1a1a2c"}}
+        [:span {:style {:color "#444"}} (str "T" (:turn e) " ")]
+        [:span {:style {:color (player-fill
+                                 (get-in @game-state [:players (:player e) :wedge-color]))}}
+         (:player e)]
+        [:span {:style {:color "#444"}} (str " [" (name (or (:phase e) "")) "] ")]
+        [:span {:style {:color "#aabbcc"}} (:action e)]])]))
 
 (defn generate-view []
   [:div {:style {:display "flex" :flex-direction "row" :height "100vh"
-                 :background "#111" :color "#ccc" :font-family "monospace"}}
-   ;; Board
+                 :background "#06070d" :color "#ccbbee"
+                 :font-family "monospace"}}
    [:div {:style {:flex 1 :display "flex" :justify-content "center"
-                  :align-items "center" :padding "16px"}}
+                  :align-items "center" :padding "12px"}}
     [board-svg]]
-   ;; Sidebar
-   [:div {:style {:width "360px" :padding "12px" :overflow-y "auto"
-                  :border-left "1px solid #222"}}
-    [:h3 {:style {:color "#ff8844" :margin-bottom "8px"}} "GENERATE"]
+   [:div {:style {:width "340px" :padding "14px" :overflow-y "auto"
+                  :border-left "1px solid #161620"}}
+    [:h3 {:style {:color "#ff8844" :margin "0 0 8px 0"}} "GENERATE"]
     [gen-controls]
     (when @game-state
       [:div
        [game-status]
-       [all-players-panel]
-       [resource-panel]
-       [city-panel]
-       [solar-network-panel]
+       [players-panel]
+       [market-panel]
+       [solar-panel]
        [gen-log]])]])
 
-;; ── Main layout ─────────────────────────────────────────────────────────────
-
-(defn game-view []
-  [:div {:style {:display "flex" :flex-direction "row" :height "100vh"
-                 :background "#111" :color "#ccc" :font-family "monospace"}}
-   ;; Board panel
-   [:div {:style {:flex 1 :display "flex" :justify-content "center"
-                  :align-items "center" :padding "16px"}}
-    [board-svg]]
-   ;; Info sidebar
-   [:div {:style {:width "320px" :padding "16px" :overflow-y "auto"
-                  :border-left "1px solid #222"}}
-    [game-status]
-    [resource-panel]
-    [city-panel]
-    [solar-network-panel]
-    [hand-panel]
-    [player-supply-panel]
-    [actions-panel]]])
+;; ── Top-level dispatcher ─────────────────────────────────────────────────
 
 (defn page []
-  (let [play-key (when (exists? js/playKey) js/playKey)
-        is-create (and (exists? js/isCreate) js/isCreate)
-        is-observe (and (exists? js/isObserve) js/isObserve)
-        is-generate (and (exists? js/isGenerate) js/isGenerate)]
+  (let [pk          (when (exists? js/playKey) js/playKey)
+        is-create?  (and (exists? js/isCreate) js/isCreate)
+        is-observe? (and (exists? js/isObserve) js/isObserve)
+        is-gen?     (and (exists? js/isGenerate) js/isGenerate)]
     (cond
-      is-generate [generate-view]
-      is-create   [create-form]
-      is-observe  [observe-view]
-      play-key    [game-view]
-      :else       [:div {:style {:padding "48px" :color "#555"}}
-                    "Loading..."])))
+      is-gen?     [generate-view]
+      is-create?  [create-view]
+      is-observe? [observe-view]
+      (and pk (not (str/blank? pk))) [game-view]
+      :else
+      [:div {:style {:padding "48px" :color "#5a5a78"
+                     :font-family "monospace" :background "#06070d"
+                     :min-height "100vh"}}
+       "Loading future…"])))
 
-;; ── Mount / init ────────────────────────────────────────────────────────────
+;; ── Mount ────────────────────────────────────────────────────────────────
 
 (defn mount-components []
   (when-let [el (.getElementById js/document "future")]
     (rdom/render [page] el))
-  ;; Connect websocket if we have a play key
-  (when (and (exists? js/playKey) js/playKey
-             (not (str/blank? js/playKey)))
-    (reset! player-key (when (exists? js/playerKey) js/playerKey))
-    (connect-ws! js/playKey)))
+  (let [pk         (when (exists? js/playKey) js/playKey)
+        is-create? (and (exists? js/isCreate)   js/isCreate)
+        is-observe?(and (exists? js/isObserve)  js/isObserve)
+        is-gen?    (and (exists? js/isGenerate) js/isGenerate)]
+    (when (and pk (not (str/blank? pk))
+               (not is-create?) (not is-observe?) (not is-gen?))
+      (reset! player-key (when (exists? js/playerKey) js/playerKey))
+      (connect-ws! pk))
+    (when is-gen? (gen-new!))))
 
 (defn init! []
   (ajax/load-interceptors!)

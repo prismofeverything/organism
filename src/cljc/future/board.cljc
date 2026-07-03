@@ -1,259 +1,321 @@
 (ns future.board
-  "Board topology for Future: concentric Fibonacci rings around a central Sun.
+  "Topology and rendering geometry for FUTURE.
 
-   Orbits (inside → outside):
-     silver  5 spaces
-     green   8 spaces
-     blue   13 spaces
-     purple 21 spaces
-     void   34 spaces
-            ── total 81 spaces
+   The playing surface has two kinds of space:
 
-   Each ring's count is the sum of the two preceding rings (Fibonacci).
-   Adjacency: within a ring (circular neighbors) and between adjacent rings
-   (spaces whose angular extents overlap).
+   * 5 sun wedges       [:sun k]          k in 0..4
+   * 5 orbital rings    [:orbit color i]  i in 0..(size-1)
+     with Fibonacci sizes silver=5, green=8, blue=13, purple=21, void=34
+     for 81 orbital spaces total plus 5 sun wedges → 86 spaces.
 
-   The Sun sits at the center with a solar network of 5 sections (one per
-   orbit color), each having an 'available' and 'exhausted' zone for
-   components.
+   Indexing convention
+   -------------------
+   * Index 0 of every orbital ring lies on the BEAM (north).
+   * Indices increase clockwise in screen-space.
+   * Front  = counter-clockwise = decreasing index.
+   * Sun wedge 0 is at the top (on beam) and is the SILVER wedge.
+     Going CCW from wedge 0 the colors are silver → green → blue → purple → void,
+     so the wedge → color map in CW (index) order is
+       0 silver, 1 void, 2 purple, 3 blue, 4 green.
 
-   The Beam is a line from the sun outward, crossing space 0 of each orbit.
-   Front = counterclockwise (decreasing index).")
+   Adjacency
+   ---------
+   * Within a ring: i ↔ i±1 (mod n)
+   * Between adjacent rings: by angular overlap
+   * Between a sun wedge and silver: by angular overlap (1:1 since both have 5)
+   * Sun wedges are NOT adjacent to each other on the board — you move between
+     them only by re-entering from silver.")
 
-;; ── Constants ───────────────────────────────────────────────────────────────
+;; ── Orbits ──────────────────────────────────────────────────────────────────
 
 (def orbits
-  "Ordered from innermost to outermost."
+  "Inner-to-outer."
   [:silver :green :blue :purple :void])
 
-(def orbits-reversed
-  "Outermost to innermost (for setup order)."
-  [:void :purple :blue :green :silver])
-
 (def orbit-sizes
-  {:silver 5
-   :green  8
+  {:silver  5
+   :green   8
    :blue   13
    :purple 21
    :void   34})
 
+(def planet-colors orbits)
+
+(def num-wedges 5)
+
+;; ── Colors (rendering) ─────────────────────────────────────────────────────
+
 (def orbit-colors
-  {:silver "#999999"
-   :green  "#44cc44"
-   :blue   "#4488ee"
-   :purple "#9944cc"
-   :void   "#222222"})
+  {:silver "#bfbfbf"
+   :green  "#3fbf4f"
+   :blue   "#3f7fdf"
+   :purple "#9f3fdf"
+   :void   "#1f1f1f"})
 
-(def sun-color "#cc2222")
+(def planet-fill orbit-colors)
 
-;; ── Space identifiers ───────────────────────────────────────────────────────
+(def sun-outer-color "#cf2222")
+(def beam-color      "#ffe066")
+(def flame-color     "#ff8844")
 
-(defn space-id
-  "Canonical identifier for a board space, e.g. [:silver 0]."
-  [orbit index]
-  [orbit index])
+;; ── Wedges ─────────────────────────────────────────────────────────────────
+;; CW (visual / index) order — derived from the rule that placement is CCW.
 
-(defn space-orbit [sid] (first sid))
-(defn space-index [sid] (second sid))
+(def wedge-color
+  "Wedge index → color of its inner triangle."
+  {0 :silver, 1 :void, 2 :purple, 3 :blue, 4 :green})
 
-(defn orbit-spaces
-  "All space ids for a given orbit."
-  [orbit]
-  (let [n (orbit-sizes orbit)]
-    (mapv #(space-id orbit %) (range n))))
+(def color->wedge
+  (into {} (map (fn [[k v]] [v k]) wedge-color)))
 
-(defn all-spaces
-  "All 81 board spaces, inner to outer."
-  []
+(def wedge-placement-order
+  "Order in which the flame-holder and subsequent players seed components on
+   the sun (silver first, then CCW around)."
+  [:silver :green :blue :purple :void])
+
+;; ── Space identifiers ──────────────────────────────────────────────────────
+
+(defn orbit-space [orbit i] [:orbit orbit i])
+(defn sun-space   [k]       [:sun k])
+
+(defn space-type [sid] (first sid))
+(defn sun?       [sid] (= :sun   (space-type sid)))
+(defn orbital?   [sid] (= :orbit (space-type sid)))
+
+(defn orbit-of    [sid] (when (orbital? sid) (second sid)))
+(defn space-index [sid] (when (orbital? sid) (nth sid 2)))
+(defn wedge-of    [sid] (when (sun? sid) (second sid)))
+(defn space-color [sid]
+  (cond
+    (sun?     sid) (wedge-color (wedge-of sid))
+    (orbital? sid) (orbit-of sid)))
+
+(defn orbit-spaces [orbit]
+  (mapv #(orbit-space orbit %) (range (orbit-sizes orbit))))
+
+(defn sun-spaces []
+  (mapv sun-space (range num-wedges)))
+
+(defn all-orbital-spaces []
   (vec (mapcat orbit-spaces orbits)))
 
-;; ── Direction helpers ───────────────────────────────────────────────────────
-;; Front = counterclockwise = decreasing index.
+(defn all-spaces []
+  (vec (concat (sun-spaces) (all-orbital-spaces))))
 
-(defn front-space
-  "The space in front (counterclockwise) of the given space in the same ring."
-  [[orbit idx]]
-  (let [n (orbit-sizes orbit)]
-    [orbit (mod (dec idx) n)]))
+;; ── Direction (front = CCW = decreasing index) ─────────────────────────────
 
-(defn back-space
-  "The space behind (clockwise) of the given space in the same ring."
-  [[orbit idx]]
-  (let [n (orbit-sizes orbit)]
-    [orbit (mod (inc idx) n)]))
+(defn front-space [sid]
+  (cond
+    (orbital? sid)
+    (let [[_ o i] sid n (orbit-sizes o)]
+      [:orbit o (mod (dec i) n)])
 
-;; ── Beam ────────────────────────────────────────────────────────────────────
-;; The beam crosses space index 0 of every orbit.
+    (sun? sid)
+    (let [[_ k] sid]
+      [:sun (mod (dec k) num-wedges)])))
 
-(def beam-spaces
-  "One space per orbit where the beam crosses."
-  (mapv #(space-id % 0) orbits))
+(defn back-space [sid]
+  (cond
+    (orbital? sid)
+    (let [[_ o i] sid n (orbit-sizes o)]
+      [:orbit o (mod (inc i) n)])
 
-(defn beam-space
-  "The beam space for a given orbit."
-  [orbit]
-  (space-id orbit 0))
+    (sun? sid)
+    (let [[_ k] sid]
+      [:sun (mod (inc k) num-wedges)])))
 
-;; ── Angular geometry ────────────────────────────────────────────────────────
+;; ── Beam ───────────────────────────────────────────────────────────────────
 
-(defn- angular-range
-  "Returns [start end] as fractions of the full circle [0,1)."
-  [index ring-size]
-  [(/ index ring-size)
-   (/ (inc index) ring-size)])
+(defn beam-space-for-orbit [orbit] (orbit-space orbit 0))
 
-(defn angular-midpoint
-  "Midpoint angle as fraction of full circle."
-  [index ring-size]
-  (/ (+ index 0.5) ring-size))
+(def beam-orbital-spaces
+  (mapv beam-space-for-orbit orbits))
+
+(defn on-beam? [sid]
+  (and (orbital? sid) (zero? (space-index sid))))
+
+;; ── Angular geometry (fractions of the circle, CW from north) ─────────────
+
+(defn angular-range
+  "[start end) as fractions of full circle. CW from north."
+  [sid]
+  (cond
+    (orbital? sid)
+    (let [n (orbit-sizes (orbit-of sid))
+          i (space-index sid)]
+      [(/ i n) (/ (inc i) n)])
+
+    (sun? sid)
+    (let [k (wedge-of sid)]
+      [(/ k num-wedges) (/ (inc k) num-wedges)])))
 
 (defn- ranges-overlap?
-  "Do two angular ranges [a0,a1) and [b0,b1) overlap?"
   [[a0 a1] [b0 b1]]
   (and (< a0 b1) (< b0 a1)))
 
-;; ── Adjacency computation ───────────────────────────────────────────────────
+(defn angular-midpoint [sid]
+  (let [[s e] (angular-range sid)] (/ (+ s e) 2.0)))
 
-(defn- ring-adjacency
-  "Circular adjacency within a single ring."
-  [orbit]
+;; ── Adjacency ──────────────────────────────────────────────────────────────
+
+(defn- adj+ [adj a b]
+  (-> adj
+      (update a (fnil conj #{}) b)
+      (update b (fnil conj #{}) a)))
+
+(defn- ring-adjacency [orbit]
   (let [n (orbit-sizes orbit)]
-    (into {}
-      (for [i (range n)]
-        [(space-id orbit i)
-         #{(space-id orbit (mod (dec i) n))
-           (space-id orbit (mod (inc i) n))}]))))
+    (reduce (fn [a i]
+              (adj+ a
+                    (orbit-space orbit i)
+                    (orbit-space orbit (mod (inc i) n))))
+            {} (range n))))
 
-(defn- inter-ring-adjacency
-  "Adjacency between two adjacent rings based on angular overlap."
-  [inner-orbit outer-orbit]
-  (let [ni (orbit-sizes inner-orbit)
-        no (orbit-sizes outer-orbit)]
-    (reduce
-     (fn [adj i]
-       (let [ir (angular-range i ni)]
-         (reduce
-          (fn [adj j]
-            (if (ranges-overlap? ir (angular-range j no))
-              (-> adj
-                  (update (space-id inner-orbit i)
-                          (fnil conj #{}) (space-id outer-orbit j))
-                  (update (space-id outer-orbit j)
-                          (fnil conj #{}) (space-id inner-orbit i)))
-              adj))
-          adj (range no))))
-     {} (range ni))))
+(defn- inter-ring-adjacency [inner outer]
+  (reduce (fn [a [i j]]
+            (if (ranges-overlap?
+                  (angular-range (orbit-space inner i))
+                  (angular-range (orbit-space outer j)))
+              (adj+ a
+                    (orbit-space inner i)
+                    (orbit-space outer j))
+              a))
+          {}
+          (for [i (range (orbit-sizes inner))
+                j (range (orbit-sizes outer))] [i j])))
 
-(defn- merge-adjacency [a b]
-  (merge-with into a b))
+(defn- sun-silver-adjacency []
+  ;; Both rings have 5 spaces → 1:1 by index.
+  (reduce (fn [a k]
+            (adj+ a (sun-space k) (orbit-space :silver k)))
+          {} (range num-wedges)))
 
-(defn build-adjacency
-  "Full adjacency map: {space-id → #{neighbor-ids}}."
-  []
-  (let [ring-adj (reduce merge-adjacency {}
-                         (map ring-adjacency orbits))
-        pairs (partition 2 1 orbits)
-        inter-adj (reduce merge-adjacency {}
-                          (map (fn [[inner outer]]
-                                 (inter-ring-adjacency inner outer))
-                               pairs))]
-    (merge-adjacency ring-adj inter-adj)))
+(defn build-adjacency []
+  (let [adj (reduce (fn [acc o]
+                      (merge-with into acc (ring-adjacency o)))
+                    {} orbits)
+        adj (reduce (fn [acc [in out]]
+                      (merge-with into acc (inter-ring-adjacency in out)))
+                    adj (partition 2 1 orbits))]
+    (merge-with into adj (sun-silver-adjacency))))
 
-;; ── Orbit neighbor helpers ──────────────────────────────────────────────────
+;; ── Orbit-neighbor helpers ────────────────────────────────────────────────
 
-(def orbit-index
-  "Map orbit keyword → position in orbits vector."
-  (into {} (map-indexed (fn [i o] [o i]) orbits)))
+(def orbit-index (zipmap orbits (range)))
 
-(defn inner-orbit
-  "The orbit one ring closer to the sun, or nil."
-  [orbit]
+(defn inner-orbit [orbit]
   (let [i (orbit-index orbit)]
-    (when (pos? i)
-      (nth orbits (dec i)))))
+    (when (pos? i) (nth orbits (dec i)))))
 
-(defn outer-orbit
-  "The orbit one ring further from the sun, or nil."
-  [orbit]
+(defn outer-orbit [orbit]
   (let [i (orbit-index orbit)]
-    (when (< i (dec (count orbits)))
-      (nth orbits (inc i)))))
+    (when (< i (dec (count orbits))) (nth orbits (inc i)))))
 
-(defn adjacent-in-ring
-  "All neighbors of space-id that are in the specified target-orbit."
-  [adjacency space-id target-orbit]
-  (filter #(= (space-orbit %) target-orbit)
-          (get adjacency space-id #{})))
+(defn neighbors [adjacency sid]
+  (get adjacency sid #{}))
 
-(defn frontmost-adjacent-in-ring
-  "Among the neighbors of space-id in target-orbit, return the one that is
-   most counterclockwise (has the smallest angular distance CCW from space-id)."
+(defn neighbors-in-orbit
+  "Adjacent spaces of `sid` lying in target-orbit (only orbital rings)."
   [adjacency sid target-orbit]
-  (let [candidates (adjacent-in-ring adjacency sid target-orbit)]
+  (->> (neighbors adjacency sid)
+       (filterv #(and (orbital? %) (= target-orbit (orbit-of %))))))
+
+(defn frontmost-adjacent-in-orbit
+  "Of the neighbors of `sid` in `target-orbit`, the one most CCW from sid."
+  [adjacency sid target-orbit]
+  (let [candidates (neighbors-in-orbit adjacency sid target-orbit)]
     (when (seq candidates)
-      ;; Pick the candidate whose midpoint is most counterclockwise from sid's midpoint.
-      ;; 'Most counterclockwise' = largest negative angular delta (mod 1).
-      ;; Equivalently, we want the candidate with the greatest (mid_candidate - mid_src) mod 1
-      ;; when going in the CCW direction — but simpler: just pick the candidate with the
-      ;; smallest index, wrapping appropriately.
-      ;; For correctness: pick the candidate whose angular midpoint is closest to sid's
-      ;; midpoint in the CCW direction.
-      (let [[src-orbit src-idx] sid
-            src-mid (angular-midpoint src-idx (orbit-sizes src-orbit))
-            n-tgt (orbit-sizes target-orbit)]
-        (->> candidates
-             (sort-by (fn [[_ tidx]]
-                        ;; Angular distance going CCW (positive = more CCW)
-                        (let [tgt-mid (angular-midpoint tidx n-tgt)
-                              delta (- src-mid tgt-mid)]
-                          ;; Normalize to [0, 1) — smaller positive = more in front
-                          (mod delta 1.0))))
-             first)))))
+      (let [src-mid (angular-midpoint sid)]
+        (first
+          (sort-by
+            (fn [c] (mod (- src-mid (angular-midpoint c)) 1.0))
+            candidates))))))
 
-;; ── Board construction ──────────────────────────────────────────────────────
+;; ── Rendering ──────────────────────────────────────────────────────────────
 
-(defn build-board
-  "Returns the complete board map."
-  []
-  (let [spaces (all-spaces)
-        adjacency (build-adjacency)
-        orbit-map (into {} (map (fn [o] [o (orbit-spaces o)]) orbits))
-        orbit-of (into {}
-                       (for [o orbits
-                             s (orbit-spaces o)]
-                         [s o]))]
-    {:spaces    spaces
-     :adjacency adjacency
-     :orbits    orbit-map
-     :orbit-of  orbit-of}))
+(def view-size 800)
+(def center   (/ view-size 2.0))
 
-;; ── Geometry for rendering ──────────────────────────────────────────────────
+(def sun-inner-r 40.0)   ;; outer edge of inner-color pentagon
+(def sun-outer-r 70.0)   ;; outer edge of red ring
 
 (def orbit-radii
-  "Inner and outer radius for each orbit ring (for SVG rendering).
-   Sun occupies radius 0-50."
-  {:silver [55  95]
-   :green  [100 150]
-   :blue   [155 215]
-   :purple [220 290]
-   :void   [295 375]})
+  {:silver  [ 75 110]
+   :green   [115 155]
+   :blue    [160 215]
+   :purple  [220 290]
+   :void    [295 380]})
 
-(defn space-center-polar
-  "Returns [angle-degrees radius] for the center of a space."
-  [space-id]
-  (let [[orbit idx] space-id
-        n (orbit-sizes orbit)
-        angle (* 360.0 (/ (+ idx 0.5) n))
-        [r-inner r-outer] (orbit-radii orbit)
-        r (/ (+ r-inner r-outer) 2.0)]
-    [angle r]))
+(defn polar->xy [angle-rad radius]
+  [(+ center (* radius (Math/sin angle-rad)))
+   (- center (* radius (Math/cos angle-rad)))])
 
-(defn space-center-xy
-  "Returns [x y] for the center of a space in SVG coordinates.
-   Origin at (400, 400) for an 800x800 viewBox."
-  [space-id]
-  (let [[angle-deg radius] (space-center-polar space-id)
-        angle-rad (* (/ angle-deg 180.0) Math/PI)
-        x (+ 400.0 (* radius (Math/sin angle-rad)))
-        y (- 400.0 (* radius (Math/cos angle-rad)))]
-    [x y]))
+(defn space-center
+  "Cartesian [x y] for the centroid of a space."
+  [sid]
+  (let [mid (angular-midpoint sid)
+        a   (* 2.0 Math/PI mid)
+        r   (cond
+              (orbital? sid)
+              (let [[ri ro] (orbit-radii (orbit-of sid))]
+                (/ (+ ri ro) 2.0))
+
+              (sun? sid)
+              (/ (+ sun-inner-r sun-outer-r) 2.0))]
+    (polar->xy a r)))
+
+(defn arc-path
+  "SVG path for an annular sector. start/end as fractions of circle, radii px."
+  [start end r-inner r-outer]
+  (let [;; Convert fractions to radians from north, CW positive.
+        sa (- (* 2.0 Math/PI start) (/ Math/PI 2))
+        ea (- (* 2.0 Math/PI end)   (/ Math/PI 2))
+        ox1 (+ center (* r-outer (Math/cos sa)))
+        oy1 (+ center (* r-outer (Math/sin sa)))
+        ox2 (+ center (* r-outer (Math/cos ea)))
+        oy2 (+ center (* r-outer (Math/sin ea)))
+        ix1 (+ center (* r-inner (Math/cos ea)))
+        iy1 (+ center (* r-inner (Math/sin ea)))
+        ix2 (+ center (* r-inner (Math/cos sa)))
+        iy2 (+ center (* r-inner (Math/sin sa)))
+        large (if (> (- end start) 0.5) 1 0)]
+    (str "M " ox1 " " oy1
+         " A " r-outer " " r-outer " 0 " large " 1 " ox2 " " oy2
+         " L " ix1 " " iy1
+         " A " r-inner " " r-inner " 0 " large " 0 " ix2 " " iy2
+         " Z")))
+
+(defn wedge-triangle-path
+  "Triangle path for a sun wedge's inner colored region (from sun center)."
+  [k]
+  (let [start (/ k num-wedges)
+        end   (/ (inc k) num-wedges)
+        sa    (- (* 2.0 Math/PI start) (/ Math/PI 2))
+        ea    (- (* 2.0 Math/PI end)   (/ Math/PI 2))
+        x1    (+ center (* sun-inner-r (Math/cos sa)))
+        y1    (+ center (* sun-inner-r (Math/sin sa)))
+        x2    (+ center (* sun-inner-r (Math/cos ea)))
+        y2    (+ center (* sun-inner-r (Math/sin ea)))]
+    (str "M " center " " center
+         " L " x1 " " y1
+         " L " x2 " " y2
+         " Z")))
+
+(defn wedge-outer-path
+  "Annular sector path for a sun wedge's outer red region."
+  [k]
+  (arc-path (/ k num-wedges) (/ (inc k) num-wedges)
+            sun-inner-r sun-outer-r))
+
+(defn orbit-space-path [sid]
+  (let [[s e] (angular-range sid)
+        [ri ro] (orbit-radii (orbit-of sid))]
+    (arc-path s e ri ro)))
+
+;; ── Composite board record ────────────────────────────────────────────────
+
+(defn build-board []
+  {:adjacency (build-adjacency)
+   :spaces    (all-spaces)
+   :orbits    (into {} (map (juxt identity orbit-spaces) orbits))
+   :wedges    (sun-spaces)})
