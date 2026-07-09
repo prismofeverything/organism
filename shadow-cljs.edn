@@ -44,6 +44,13 @@
    :modules {:eridu {:init-fn eridu.play/init!}}
    :devtools {:after-load eridu.play/mount-components}}
 
+  :journeymen-e
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:journeymen-e {:init-fn journeymen-e.play/init!}}
+   :devtools {:after-load journeymen-e.play/mount-components}}
+
   :future
   {:target :browser
    :output-dir "resources/public/js"

@@ -13,6 +13,7 @@
    [organism.routes.oroboros-ws :refer [oroboros-ws-routes]]
    [organism.routes.eridu :refer [eridu-routes]]
    [organism.routes.eridu-ws :refer [eridu-ws-routes]]
+   [organism.routes.journeymen :refer [journeymen-routes]]
    [organism.routes.future :refer [future-routes]]
    [organism.routes.future-ws :refer [future-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
@@ -45,6 +46,7 @@
        (oroboros-routes db)
        
        (eridu-routes db)
+       (journeymen-routes db)
        (future-routes db)
        (websocket-routes db)
        (journey-ws-routes db)

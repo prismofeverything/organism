@@ -24,11 +24,20 @@ REMOTE_DIR="~/organism"
 REMOTE_JAR="$REMOTE_DIR/organism.jar"
 LOCAL_JAR="target/uberjar/organism.jar"
 
+journeymen_assets() {
+  # journeymen-e-rules.md is the rules source of truth; /journeymen/rules renders
+  # it from the classpath, so stage it into resources/docs before the uberjar is built.
+  echo "=== Staging Journeymen rules doc ==="
+  mkdir -p resources/docs
+  cp game-ideas/journeymen/journeymen-e-rules.md resources/docs/journeymen-e-rules.md
+}
+
 build() {
   [ -d node_modules ] || npm install
+  journeymen_assets
 
   echo "=== Building ClojureScript (shadow-cljs release) ==="
-  npx shadow-cljs release organism journey journey-bots oroboros eridu future
+  npx shadow-cljs release organism journey journey-bots oroboros eridu journeymen-e future
 
   echo "=== Building uberjar ==="
   lein uberjar

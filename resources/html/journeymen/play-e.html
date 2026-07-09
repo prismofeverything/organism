@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{csrf-token}}">
+    <title>Journeymen E</title>
+    <script>
+    // Error beacon — shares the base game's endpoint (/journeymen/beacon ->
+    // MongoDB :journeymen-bugs, flagged :beacon; page path distinguishes E).
+    (function () {
+      function beacon(kind, payload) {
+        try {
+          fetch("/journeymen/beacon", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(Object.assign({ beacon: kind, page: location.pathname, ua: navigator.userAgent, ts: new Date().toISOString() }, payload)),
+            keepalive: true
+          }).catch(function () {});
+        } catch (e) {}
+      }
+      window.addEventListener("error", function (e) {
+        beacon("onerror", { message: String(e.message), source: e.filename, line: e.lineno, col: e.colno, stack: e.error && e.error.stack ? String(e.error.stack) : null });
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        beacon("unhandledrejection", { message: r && r.message ? String(r.message) : String(r), stack: r && r.stack ? String(r.stack) : null });
+      });
+    })();
+    </script>
+  </head>
+  <body style="margin:0;background:#fafafa">
+    <div id="journeymen-e"></div>
+    <script src="/js/journeymen-e.js?v={{timestamp}}" type="application/javascript"></script>
+  </body>
+</html>
