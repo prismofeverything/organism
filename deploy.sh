@@ -24,11 +24,20 @@ REMOTE_DIR="~/organism"
 REMOTE_JAR="$REMOTE_DIR/organism.jar"
 LOCAL_JAR="target/uberjar/organism.jar"
 
+chroma_assets() {
+  # chroma.md is the design source of truth; /chroma/rules renders it from the
+  # classpath, so stage it into resources/docs before the uberjar is built.
+  echo "=== Staging Chroma rules doc ==="
+  mkdir -p resources/docs
+  cp game-ideas/chroma/chroma.md resources/docs/chroma.md
+}
+
 build() {
   [ -d node_modules ] || npm install
+  chroma_assets
 
   echo "=== Building ClojureScript (shadow-cljs release) ==="
-  npx shadow-cljs release organism journey journey-bots oroboros eridu future
+  npx shadow-cljs release organism journey journey-bots oroboros eridu chroma future
 
   echo "=== Building uberjar ==="
   lein uberjar

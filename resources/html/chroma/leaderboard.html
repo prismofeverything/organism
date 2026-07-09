@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html style="background-color:#15171c">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chroma — leaderboard</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background:#15171c; color:#c9ccd2; font-family: system-ui,Segoe UI,Roboto,sans-serif;
+             padding:32px; max-width:980px; margin:0 auto; }
+      h2 { color:#37d0c4; margin-bottom:4px; letter-spacing:.04em; }
+      h3 { color:#37d0c4; margin:32px 0 12px; font-size:1.05rem; border-bottom:1px solid #2a2f38; padding-bottom:6px; }
+      .meta { color:#7b828d; margin-bottom:24px; font-size:.9rem; }
+      table { width:100%; border-collapse:collapse; margin-bottom:24px; }
+      th, td { padding:8px 12px; text-align:left; border-bottom:1px solid #23272f; font-size:13px; }
+      th { color:#9aa0ab; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
+      tr:hover { background:#1b1e24; }
+      .rank { color:#5a6470; width:40px; }
+      .rank-1 { color:#f4d030; font-weight:bold; }
+      .rank-2 { color:#c0c6cf; }
+      .rank-3 { color:#cd7f32; }
+      .player { color:#8fd9e8; font-weight:bold; }
+      .num { text-align:right; font-variant-numeric:tabular-nums; }
+      .bot { color:#7b828d; font-weight:normal; }
+      .badge { display:inline-block; background:#23272f; color:#9aa0ab; padding:1px 6px;
+               border-radius:3px; font-size:10px; margin-left:6px; }
+      .empty { color:#5a6470; padding:18px; text-align:center; }
+      .nav-link { display:inline-block; color:#5a6470; font-size:.9rem; text-decoration:none; margin-top:24px; margin-right:16px; }
+      .nav-link:hover { color:#c9ccd2; }
+    </style>
+  </head>
+  <body>
+    <h2>CHROMA &mdash; leaderboard</h2>
+    <p class="meta">Per-player standings across finished games (op2b scoring). Bots are marked.</p>
+
+    <h3>All-time leaders <span style="color:#5a6470; font-size:.85rem">ranked by wins, then average points</span></h3>
+    {% if aggregate %}
+    <table>
+      <thead>
+        <tr>
+          <th class="rank">#</th>
+          <th>player</th>
+          <th class="num">games</th>
+          <th class="num">wins</th>
+          <th class="num">win %</th>
+          <th class="num">avg pts</th>
+          <th class="num">best</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in aggregate %}
+        <tr>
+          <td class="rank rank-{{forloop.counter}}">{{forloop.counter}}</td>
+          <td class="{% if row.bot %}bot{% else %}player{% endif %}">{{row.player}}{% if row.bot %}<span class="badge">bot</span>{% endif %}</td>
+          <td class="num">{{row.games}}</td>
+          <td class="num">{{row.wins}}</td>
+          <td class="num">{{row.win-rate|number-format:"%.0f"}}%</td>
+          <td class="num">{{row.avg-points|number-format:"%.1f"}}</td>
+          <td class="num">{{row.best}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No finished games yet — play one to the end and you'll show up here.</p>
+    {% endif %}
+
+    <h3>Hall of fame <span style="color:#5a6470; font-size:.85rem">top single-game scores</span></h3>
+    {% if hall-of-fame %}
+    <table>
+      <thead>
+        <tr>
+          <th class="rank">#</th>
+          <th>player</th>
+          <th class="num">points</th>
+          <th>game</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in hall-of-fame %}
+        <tr>
+          <td class="rank rank-{{forloop.counter}}">{{forloop.counter}}</td>
+          <td class="{% if row.bot %}bot{% else %}player{% endif %}">{{row.player}}{% if row.win %} 👑{% endif %}</td>
+          <td class="num">{{row.points}}</td>
+          <td style="color:#5a6470; font-size:11px">{{row.game-key-short}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No games recorded yet.</p>
+    {% endif %}
+
+    <a class="nav-link" href="/chroma">&larr; Chroma home</a>
+    <a class="nav-link" href="/chroma/play">play</a>
+  </body>
+</html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html style="background-color:#15171c">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CHROMA — bug reports ({{report-count}})</title>
+    <style>
+      * { box-sizing:border-box; margin:0; padding:0; }
+      body { background:#15171c; color:#cfd3da; font-family:monospace; padding:40px 20px; max-width:900px; margin:0 auto; }
+      h2 { color:#37d0c4; margin-bottom:6px; }
+      .meta { color:#667; font-size:0.85rem; margin-bottom:24px; }
+      .rep { background:#1e2128; border:1px solid #333a45; border-radius:8px; padding:14px 16px; margin-bottom:14px; }
+      .rep .hdr { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; color:#9aa0ab; font-size:0.8rem; margin-bottom:8px; }
+      .rep .who { color:#adf; } .rep .when { color:#778; }
+      .rep .text { white-space:pre-wrap; color:#e7e9ee; }
+      .rep .badge { color:#7ad06a; font-size:0.75rem; }
+      .nav-link { display:inline-block; color:#556677; font-size:0.9rem; text-decoration:none; margin-top:8px; }
+      .nav-link:hover { color:#cfd3da; }
+      .dump { color:#37d0c4; }
+      .empty { color:#667; }
+    </style>
+  </head>
+  <body>
+    <h2>CHROMA — bug reports</h2>
+    <div class="meta">{{report-count}} report(s) · <a class="dump" href="/chroma/bug-report/dump">download JSONL</a> · <a class="nav-link" href="/chroma" style="margin:0">chroma home</a></div>
+    {% for r in reports %}
+      <div class="rep">
+        <div class="hdr">
+          <span class="who">{{r.player|default:r.session-player|default:"(anon)"}}</span>
+          <span class="when">{{r.ts}}{% if r.received-at %} · {{r.received-at}}{% endif %}{% if r.state %} · <span class="badge">state attached</span>{% endif %}</span>
+        </div>
+        <div class="text">{{r.text}}</div>
+      </div>
+    {% empty %}
+      <p class="empty">No reports yet.</p>
+    {% endfor %}
+    <a class="nav-link" href="/chroma">&larr; chroma home</a>
+  </body>
+</html>

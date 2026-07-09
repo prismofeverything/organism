@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html style="background-color:#101216">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chroma — observe</title>
+    <style>
+      body { background:#15171c; color:#e7e9ee; margin:0;
+             font-family:system-ui,Segoe UI,Roboto,sans-serif; }
+      .wrap { max-width:880px; margin:0 auto; padding:24px 16px 48px; }
+      h1 { letter-spacing:.05em; margin:0 0 4px; }
+      .sub { color:#9aa0ab; font-size:13px; margin-bottom:22px; }
+      table { width:100%; border-collapse:collapse; }
+      th { text-align:left; color:#9aa0ab; font-size:11px; text-transform:uppercase;
+           letter-spacing:.06em; padding:6px 8px; border-bottom:1px solid #333a45; }
+      td { padding:9px 8px; border-bottom:1px solid #23272f; font-size:14px; }
+      tr:hover td { background:#1b1e24; }
+      a.gamelink { color:#37d0c4; text-decoration:none; font-weight:600; }
+      a.gamelink:hover { text-decoration:underline; }
+      .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px;
+              font-weight:700; background:#1d2f2c; color:#6fe0d3; }
+      .empty { color:#9aa0ab; font-size:14px; padding:14px 8px; }
+      .nav { margin-top:32px; font-size:13px; }
+      .nav a { color:#9aa0ab; text-decoration:none; margin-right:16px; }
+      .nav a:hover { color:#e7e9ee; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>CHROMA — observe</h1>
+      <div class="sub">Live games you can spectate. You'll watch the board update in real time without taking a seat.</div>
+
+      {% if open-games %}
+        <table>
+          <thead><tr><th>Game</th><th>Players</th><th>Turn</th><th>Phase</th><th></th></tr></thead>
+          <tbody>
+          {% for g in open-games %}
+            <tr>
+              <td><a class="gamelink" href="/chroma/play/{{g.key}}">{{g.key-short}}</a></td>
+              <td>{{g.players-str}}</td>
+              <td>{{g.turn}}</td>
+              <td><span class="pill">{{g.phase}}</span></td>
+              <td><a class="gamelink" href="/chroma/play/{{g.key}}">watch →</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">No active games to observe right now. <a class="gamelink" href="/chroma/new">Start one →</a></div>
+      {% endif %}
+
+      <div class="nav">
+        <a href="/chroma/lobby">← lobby</a>
+        <a href="/chroma">Chroma home</a>
+      </div>
+    </div>
+  </body>
+</html>

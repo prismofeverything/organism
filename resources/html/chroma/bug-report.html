@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html style="background-color:#15171c">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CHROMA — report a bug</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background:#15171c; color:#cfd3da; font-family: monospace; padding:48px 20px; max-width:720px; margin:0 auto; }
+      h2 { color:#37d0c4; margin-bottom:16px; }
+      p { color:#9aa0ab; margin-bottom:20px; line-height:1.6; }
+      label { display:block; color:#ccc; margin-bottom:6px; font-size:0.9rem; }
+      textarea { width:100%; min-height:200px; background:#0e1014; color:#e7e9ee; border:1px solid #333a45; border-radius:4px; padding:12px; font-family:monospace; font-size:14px; resize:vertical; }
+      textarea:focus { outline:none; border-color:#37d0c4; }
+      .actions { margin-top:16px; display:flex; gap:12px; align-items:center; }
+      button { background:#13302f; color:#37d0c4; border:1px solid #2a5a57; border-radius:4px; padding:10px 24px; cursor:pointer; font-family:monospace; font-size:14px; min-height:44px; }
+      button:hover { background:#184341; }
+      .nav-link { display:inline-block; color:#556677; font-size:0.9rem; text-decoration:none; margin-top:32px; }
+      .nav-link:hover { color:#cfd3da; }
+      .sent { background:#0A2A1A; border:1px solid #2A6A3A; color:#8FFF8F; padding:12px; border-radius:4px; margin-bottom:20px; }
+      .login-note { background:#2A1A1A; border:1px solid #6A2A2A; color:#FFAA88; padding:12px; border-radius:4px; margin-bottom:20px; }
+      .state-note { color:#7ad06a; font-size:0.8rem; margin-top:8px; display:none; }
+    </style>
+  </head>
+  <body>
+    <h2>CHROMA &mdash; report a bug</h2>
+    <p>Describe what went wrong (and what you expected). Reports are saved with your username and timestamp. If you came here from a game, the current game state is attached automatically.</p>
+
+    {% if sent? %}
+    <div class="sent">✓ Report sent. Thank you.</div>
+    {% endif %}
+
+    {% if session-player %}
+    <form method="POST" action="/chroma/bug-report/submit">
+      {% csrf-field %}
+      <input type="hidden" name="state" id="stateField" value="">
+      <label>What happened?</label>
+      <textarea name="text" placeholder="e.g. After a mud swap, B2's hand showed 7 chits." required></textarea>
+      <div class="state-note" id="stateNote">✓ current game state attached</div>
+      <div class="actions">
+        <button type="submit">Send</button>
+        <span style="color:#666; font-size:0.85rem;">posting as <strong style="color:#adf">{{session-player}}</strong></span>
+      </div>
+    </form>
+    {% else %}
+    <div class="login-note">
+      You need to <a href="/login?redirect=/chroma/bug-report" style="color:#FFD700">log in</a> before submitting a bug report.
+    </div>
+    {% endif %}
+
+    <a class="nav-link" href="/chroma">&larr; chroma home</a>
+
+    <script>
+      // The play page stashes the live game state into sessionStorage when you
+      // click "report a bug"; attach it to the report so triage can replay it.
+      try {
+        var s = sessionStorage.getItem("chroma-bug-state");
+        if (s) {
+          var f = document.getElementById("stateField");
+          if (f) { f.value = s; var n = document.getElementById("stateNote"); if (n) n.style.display = "block"; }
+          sessionStorage.removeItem("chroma-bug-state");
+        }
+      } catch (e) {}
+    </script>
+  </body>
+</html>

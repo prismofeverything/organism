@@ -44,6 +44,13 @@
    :modules {:eridu {:init-fn eridu.play/init!}}
    :devtools {:after-load eridu.play/mount-components}}
 
+  :chroma
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:chroma {:init-fn chroma.play/init!}}
+   :devtools {:after-load chroma.play/mount-components}}
+
   :future
   {:target :browser
    :output-dir "resources/public/js"

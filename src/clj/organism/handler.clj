@@ -13,6 +13,8 @@
    [organism.routes.oroboros-ws :refer [oroboros-ws-routes]]
    [organism.routes.eridu :refer [eridu-routes]]
    [organism.routes.eridu-ws :refer [eridu-ws-routes]]
+   [organism.routes.chroma :refer [chroma-routes]]
+   [organism.routes.chroma-ws :refer [chroma-ws-routes]]
    [organism.routes.future :refer [future-routes]]
    [organism.routes.future-ws :refer [future-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
@@ -45,11 +47,13 @@
        (oroboros-routes db)
        
        (eridu-routes db)
+       (chroma-routes db)
        (future-routes db)
        (websocket-routes db)
        (journey-ws-routes db)
        (oroboros-ws-routes)
        (eridu-ws-routes db)
+       (chroma-ws-routes db)
        (future-ws-routes)]))
    (ring/routes
     (ring/create-resource-handler

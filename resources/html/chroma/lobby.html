@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html style="background-color:#101216">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chroma — lobby</title>
+    <style>
+      body { background:#15171c; color:#e7e9ee; margin:0;
+             font-family:system-ui,Segoe UI,Roboto,sans-serif; }
+      .wrap { max-width:880px; margin:0 auto; padding:24px 16px 48px; }
+      h1 { letter-spacing:.05em; margin:0 0 4px; }
+      .sub { color:#9aa0ab; font-size:13px; margin-bottom:22px; }
+      .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:26px; }
+      .btn { display:inline-block; text-decoration:none; padding:10px 18px; border-radius:10px;
+             font-weight:700; font-size:15px; }
+      .btn.primary { background:#37d0c4; color:#06262a; }
+      .btn.ghost { background:#1e2128; color:#e7e9ee; border:1px solid #333a45; }
+      h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#9aa0ab;
+           margin:26px 0 10px; }
+      table { width:100%; border-collapse:collapse; }
+      th { text-align:left; color:#9aa0ab; font-size:11px; text-transform:uppercase;
+           letter-spacing:.06em; padding:6px 8px; border-bottom:1px solid #333a45; }
+      td { padding:9px 8px; border-bottom:1px solid #23272f; font-size:14px; }
+      tr:hover td { background:#1b1e24; }
+      a.gamelink { color:#37d0c4; text-decoration:none; font-weight:600; }
+      a.gamelink:hover { text-decoration:underline; }
+      .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px;
+              font-weight:700; }
+      .pill.active { background:#1d2f2c; color:#6fe0d3; }
+      .pill.complete { background:#2a2420; color:#c8b79a; }
+      .empty { color:#9aa0ab; font-size:14px; padding:14px 8px; }
+      .obs { color:#9aa0ab; text-decoration:none; }
+      .obs:hover { color:#e7e9ee; }
+      .nav { margin-top:32px; font-size:13px; }
+      .nav a { color:#9aa0ab; text-decoration:none; margin-right:16px; }
+      .nav a:hover { color:#e7e9ee; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>CHROMA</h1>
+      <div class="sub">
+        {% if session-player %}Signed in as {{session-player}}. {% endif %}
+        Host as many games as you like — each one is its own table.
+      </div>
+
+      <div class="bar">
+        <a class="btn primary" href="/chroma/new">+ New game</a>
+        <a class="btn ghost" href="/chroma/observe">Observe games</a>
+        <a class="btn ghost" href="/chroma/rules">Rules &amp; reference</a>
+      </div>
+
+      <h2>Your games</h2>
+      {% if my-games %}
+        <table>
+          <thead><tr><th>Game</th><th>Players</th><th>Turn</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for g in my-games %}
+            <tr>
+              <td><a class="gamelink" href="/chroma/play/{{g.key}}">{{g.key-short}}</a></td>
+              <td>{{g.players-str}}</td>
+              <td>{{g.turn}}</td>
+              <td>
+                {% if g.over %}<span class="pill complete">complete</span>
+                {% else %}<span class="pill active">{{g.phase}}</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">
+          {% if session-player %}You have no games yet. Start one above.
+          {% else %}<a class="gamelink" href="/login?redirect=/chroma/lobby">Log in</a> to keep a list of your games, or just start one above to play vs bots.{% endif %}
+        </div>
+      {% endif %}
+
+      <h2>Open games</h2>
+      {% if open-games %}
+        <table>
+          <thead><tr><th>Game</th><th>Players</th><th>Turn</th><th></th></tr></thead>
+          <tbody>
+          {% for g in open-games %}
+            <tr>
+              <td><a class="gamelink" href="/chroma/play/{{g.key}}">{{g.key-short}}</a></td>
+              <td>{{g.players-str}}</td>
+              <td>{{g.turn}}</td>
+              <td><a class="obs" href="/chroma/play/{{g.key}}">observe →</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">No open games right now.</div>
+      {% endif %}
+
+      <div class="nav">
+        <a href="/chroma">← Chroma home</a>
+        <a href="/chroma/leaderboard">leaderboard</a>
+        <a href="/">all games</a>
+      </div>
+    </div>
+  </body>
+</html>
