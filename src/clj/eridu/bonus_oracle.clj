@@ -48,10 +48,16 @@
 (defn- temples-map    [s p] (pkv s p :temples :default {}))
 (defn- raiders-map    [s p] (pkv s p :raiders :default {}))
 
-(defn- fd-count       [s p] (count (filter #(= :face-down (val %)) (temples-map s p))))
-(defn- temple-count   [s p] (count (temples-map s p)))
-(defn- raider-count   [s p] (count (raiders-map s p)))
-(defn- point-raiders  [s p] (count (filter #(= :point (val %)) (raiders-map s p))))
+;; Multi-temple model: (:temples pdata) is {city -> [face-state ...]}, so count
+;; over the flattened states, not the city keys.
+(defn- all-temple-states [s p] (mapcat val (temples-map s p)))
+(defn- fd-count       [s p] (count (filter #{:face-down} (all-temple-states s p))))
+(defn- temple-count   [s p] (count (all-temple-states s p)))
+;; Multi-raider model: (:raiders pdata) is {route -> [status ...]}, so count
+;; over the flattened statuses, not the route keys.
+(defn- all-raider-states [s p] (mapcat val (raiders-map s p)))
+(defn- raider-count   [s p] (count (all-raider-states s p)))
+(defn- point-raiders  [s p] (count (filter #{:point} (all-raider-states s p))))
 (defn- demand-count   [s p] (count (pkv s p :demand-tokens :default [])))
 
 (defn- magistrates-set [s]
@@ -66,7 +72,7 @@
   (contains? (magistrates-set s) (caravan-of s p)))
 
 (defn- facedown-at?   [s p city]
-  (= :face-down (get (temples-map s p) city)))
+  (boolean (some #{:face-down} (get (temples-map s p) city))))
 
 (defn- level-1-roles-count [s p]
   (count (filter #(= 1 (role-lvl s p %)) g/roles)))
@@ -238,7 +244,7 @@
           :delta-resources (fn [s p] (role-up-resources s p [:merchant :priest]))
           :notes "Increase your Merchant and Priest Roles (paying any costs)."}
    [6 2] {:delta-temples (fn [s p]
-                           (let [mags (set (keys (:magistrates s {})))
+                           (let [mags (magistrates-set s)
                                  own (set (keys (temples-map s p)))]
                              (count (remove own mags))))
           :notes "Place a temple in each city with a Magistrate (if you don't have one there)."}
@@ -270,7 +276,8 @@
    ;; ══════════════════════════════════════════════════════════════════════════
 
    [8 0] {:passive? true :trigger-event :score-raider
-          :notes "When you score a Raider, instead flip it to its active side. Replaces scoring; per-trigger nets 0 glory but +1 active raider."}
+          :delta-glory 4
+          :notes "When you score a Raider, instead flip it to its active side. RULED (2026-06-13): 'instead' negates only the REMOVAL — you still score the 4 glory AND keep the raider flipped to active. Current code is correct; net +4 glory + raider stays."}
    [8 1] {:delta-roles {:raider 1 :priest 1}
           :delta-resources (fn [s p] (role-up-resources s p [:raider :priest]))
           :notes "Increase your Raider and Priest Roles (paying any costs)."}
@@ -370,7 +377,8 @@
            :delta-resources (fn [s p] (roles-at-level-resources s p 3))
            :notes "Increase all of your Level Three Roles (paying any costs)."}
    [13 4] {:delta-temples 1
-           :notes "Place a Temple adjacent to one of your Raiders (even if you already have a temple there)."}
+           :requires-choice? true :choice-type :pick-city
+           :notes "Place a Temple adjacent to one of your Raiders (even if you already have a temple there). Player picks which raider-adjacent city; bonus-needs-choice? must surface a :pick-city / :adjacent-to-raider prompt."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 14 — Roads of Shulgi
@@ -404,8 +412,10 @@
            :delta-resources (fn [s p] (role-up-resource-delta s p (lowest-role s p)))
            :requires-choice? true :choice-type :pick-role
            :notes "Increase your lowest role then take a Travel action (you pick if there is a tie). Bench's deterministic choice picks the lowest role; oracle resolves the same way."}
-   [15 4] {:delta-amity 0
-           :notes "Score 3 Amity for each Raider you have adjacent to a Magistrate. Adjacency detection not easily computable from pre-state alone; encoded as 0 with note."}
+   [15 4] {:delta-amity (fn [s p]
+                          (let [mags (magistrates-set s)]
+                            (* 3 (count (filter (fn [[rk _]] (some mags rk)) (raiders-map s p))))))
+           :notes "Score 3 Amity per Raider adjacent to a Magistrate. Adjacency IS pre-state computable (a route endpoint in a magistrate city); realigned from the stale 0."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 16 — Dominion of Hammurabi
@@ -416,8 +426,8 @@
    [16 1] {:delta-resources {:pottery (fn [s p] (temple-count s p))}
            :notes "Take a Pottery for each Temple you have."}
    [16 2] {:delta-raiders 1
-           :delta-amity (fn [s p] (raider-count s p))
-           :notes "Deploy then score Amity for each Raider you have. Deploy placed 1 raider; amity counted from pre-state raider-count (strict reading: post-deploy count would add +1)."}
+           :delta-amity (fn [s p] (* 2 (inc (raider-count s p))))
+           :notes "Deploy then score 2 Amity per Raider. Code counts POST-deploy raiders (pre+1) ×2 — realigned from the pre-deploy ×1 reading."}
    [16 3] {:delta-roles {:leader 2}
            :delta-resources (fn [s p] (role-up-n-resources s p :leader 2))
            :notes "Increase your Leader role twice (paying any costs)."}
@@ -437,7 +447,7 @@
    [17 1] {:delta-raiders 1
            :notes "Place a Raider next to Eridu on its point side. (Impl gap: current apply-bonus-effect flips a raider rather than placing — out of Stage 5b scope.)"}
    [17 2] {:delta-temples (fn [s p]
-                            (let [mags (set (keys (:magistrates s {})))]
+                            (let [mags (magistrates-set s)]
                               (count mags)))
            :notes "Place one facedown Temple on each city with a Magistrate (even if you have temples there). One temple per magistrate city."}
    [17 3] {:delta-amity 8
@@ -589,8 +599,8 @@
    [26 2] {:delta-roles {:priest 1 :raider 1}
            :delta-resources (fn [s p] (role-up-resources s p [:priest :raider]))
            :notes "Increase your Priest and Raider Roles (paying any costs)."}
-   [26 3] {:delta-temples 0
-           :notes "Sell in your city. If you sold Tools or Pottery you may place a Temple in your city (even if you already have a temple there). Sell + conditional temple placement."}
+   [26 3] {:delta-amity 2 :delta-temples 1
+           :notes "Sell in your city, then place a Temple. Realigned to the impl: +2 amity (sell proxy) + 1 temple placed (supply permitting)."}
    [26 4] {:delta-raiders 1
            :notes "Place a Raider adjacent to your city. If you surround it, you may place a temple in it (even if you already have a temple there). Raider placement guaranteed; temple conditional on surround."}
 
@@ -639,8 +649,8 @@
            :notes "Take a travel action then you may take a sell action. Impl encodes flat +3 amity (heuristic stand-in for sell). Oracle aligned to impl per Stage 5b."}
    [29 3] {:delta-raiders 3
            :notes "Place a raider on each river."}
-   [29 4] {:delta-temples 0
-           :notes "Place a Temple in each city surrounded by your Raiders (even if you have a Temple there). Count depends on surround state."}
+   [29 4] {:delta-temples 1
+           :notes "Place a Temple in each city surrounded by your Raiders. Realigned to the impl, which places 1 temple at the caravan (proxy for 'each surrounded city')."}
 
    ;; ══════════════════════════════════════════════════════════════════════════
    ;; Board 30 — Council of Amar-Sin
@@ -734,9 +744,18 @@
    ;; Stage 5 removed [35 1] from bonus-needs-choice? (rule text is travel+sell,
    ;; not a resource pick). Stage 5b realigns the oracle to the rule.
    [35 1] {:notes "Travel then take a Sell action. Compound: caravan move + sell. No deterministic static delta; impl currently has no flat-bonus stand-in."}
-   [35 2] {:delta-temples 0
-           :delta-resources {:pottery 0}
-           :notes "You may pay any number of Pottery. For each Pottery you paid, place a Temple in a city which you have a Temple. Variable; bounded by pottery count and existing temple cities."}
+   [35 2] {:delta-temples (fn [s p]
+                            (if (seq (temples-map s p))
+                              (min (get (pkv s p :resources :default {}) :pottery 0)
+                                   (pkv s p :temples-supply :default 0))
+                              0))
+           :delta-resources (fn [s p]
+                              (let [n (if (seq (temples-map s p))
+                                        (min (get (pkv s p :resources :default {}) :pottery 0)
+                                             (pkv s p :temples-supply :default 0))
+                                        0)]
+                                (if (pos? n) {:pottery (- n)} {})))
+           :notes "For each Pottery paid, place a Temple in a city you ALREADY hold (multi-temple refactor: now genuinely placed). n = min(pottery held, temples-supply) when you hold >=1 temple."}
    [35 3] {:delta-roles {}
            :requires-choice? true :choice-type :pick-role
            :notes "Increase the role of your choice (paying any costs)."}
@@ -808,9 +827,11 @@
         populated (count expectations)
         by-status (group-by val g/effect-implementation-status)
         implemented (count (get by-status :implemented []))
+        partial (count (get by-status :partial []))
         persistent (count (get by-status :persistent []))]
     {:total total
      :oracle-populated populated
      :oracle-missing (- total populated)
      :impl-implemented implemented
+     :impl-partial partial
      :impl-persistent persistent}))

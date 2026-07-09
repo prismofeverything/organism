@@ -208,6 +208,172 @@
          (remove :game-over)
          (sort-by #(- (or (:updated %) 0))))))
 
+;; ── Game list / cleanup / leaderboard helpers ───────────────────────────────
+
+(defn- doc->summary
+  "Materialize a stored :eridu-games doc into the lightweight summary used by
+   game-list and leaderboard pages. Reads state once to avoid repeating the
+   pr-str/read-string cycle in callers."
+  [doc]
+  (let [state   (when (:state doc) (read-string (:state doc)))
+        players (when (:players doc) (read-string (:players doc)))
+        bots    (when (:bots doc) (read-string (:bots doc)))]
+    {:key            (:key doc)
+     :players        (or players [])
+     :bots           (or bots #{})
+     :current-player (when state (game/current-player state))
+     :round          (when state (:round state 0))
+     :game-over      (when state (:game-over state))
+     :updated        (:updated doc)
+     :state          state}))
+
+(defn load-player-game-summaries
+  "Return the player's games (active + completed) with last-move age and
+   whose-turn fields populated, suitable for rendering the games list."
+  [db player]
+  (let [pg-coll  (player-games-key player)
+        records  (db/find-all db pg-coll)
+        keys-set (set (keep :game records))
+        all-game-docs (db/query db :eridu-games {:key {"$in" (vec keys-set)}})
+        by-key   (into {} (map (juxt :key identity) all-game-docs))]
+    (->> records
+         (map (fn [pg]
+                (let [doc (get by-key (:game pg))
+                      summary (when doc (doc->summary doc))]
+                  (when summary
+                    (assoc summary
+                           :last-move-at (:last-move-at pg)
+                           :status       (:status pg))))))
+         (remove nil?)
+         (sort-by #(- (or (:last-move-at %) (:updated %) 0))))))
+
+(defn- stale-where
+  [cutoff-seconds]
+  ;; Doc has no game-over (= active) AND updated < cutoff (or missing).
+  {"$and" [{"$or" [{:state {"$exists" true}}
+                   {:state nil}]}
+           {"$or" [{:updated {"$lt" cutoff-seconds}}
+                   {:updated {"$exists" false}}]}]})
+
+(defn stale-games
+  "Return summaries of active games whose `updated` timestamp (seconds) is
+   older than `cutoff-seconds`. Used for the cleanup preview."
+  [db cutoff-seconds]
+  (->> (db/query db :eridu-games (stale-where cutoff-seconds))
+       (map doc->summary)
+       (remove :game-over)
+       (sort-by :updated)))
+
+(defn delete-stale-games!
+  "Hard-delete stale active games (and the per-player references). Returns
+   the number deleted. Completed games are left alone — those are kept for
+   the leaderboard."
+  [db cutoff-seconds]
+  (let [victims (stale-games db cutoff-seconds)]
+    (doseq [{:keys [key players]} victims]
+      (doseq [player players]
+        (db/delete! db (player-games-key player) {:game key}))
+      (db/delete! db :eridu-games {:key key}))
+    (count victims)))
+
+(defn delete-game!
+  "Delete a specific game by key (active or complete), including per-player
+   references. Returns true if anything was removed."
+  [db game-key]
+  (when-let [doc (db/one db :eridu-games {:key game-key})]
+    (let [players (when (:players doc) (read-string (:players doc)))]
+      (doseq [player (or players [])]
+        (db/delete! db (player-games-key player) {:game game-key}))
+      (db/delete! db :eridu-games {:key game-key})
+      true)))
+
+(defn- player-final-scores
+  "Pull final reputation scores per player from a finished game's state."
+  [state]
+  (when (:game-over state)
+    (into {}
+          (for [[pk pdata] (:players state)
+                :let [amity (:amity pdata 0)
+                      glory (:glory pdata 0)]]
+            [pk {:amity amity :glory glory
+                 :reputation (min amity glory)}]))))
+
+(defn leaderboard-data
+  "Compute per-player aggregates and a hall-of-fame of top single-game
+   reputation scores. Reads both multiplayer (:eridu-games) and offline
+   (:eridu-offline-games) collections. Limit hall-of-fame to top 50 by score."
+  [db]
+  (let [mp-docs      (db/find-all db :eridu-games)
+        mp-summaries (map doc->summary mp-docs)
+        completed-mp (filter :game-over mp-summaries)
+        offline-docs (db/find-all db :eridu-offline-games)
+        ;; Per-player aggregator
+        agg (atom {})
+        bump! (fn [pk delta]
+                (swap! agg update pk (fnil (partial merge-with +) {})
+                       delta))
+        hall (atom [])]
+    ;; Multiplayer completed games
+    (doseq [{:keys [key players state game-over updated] :as g} completed-mp
+            :let [scores (player-final-scores state)
+                  winner (:winner game-over)]]
+      (doseq [pk players
+              :let [s (get scores pk)]
+              :when s]
+        (bump! pk {:games 1
+                   :wins (if (= pk winner) 1 0)
+                   :reputation-sum (:reputation s)
+                   :amity-sum (:amity s)
+                   :glory-sum (:glory s)})
+        (swap! hall conj {:player pk
+                          :game-key key
+                          :game-type "multiplayer"
+                          :reputation (:reputation s)
+                          :amity (:amity s)
+                          :glory (:glory s)
+                          :winner? (= pk winner)
+                          :at updated})))
+    ;; Offline-vs-AI completed games — `:scores` is a pr-str'd map
+    (doseq [doc offline-docs
+            :let [scores (when (:scores doc) (read-string (:scores doc)))
+                  winner (:winner doc)
+                  human  (:human doc)
+                  at     (or (:completed-at doc)
+                             (when-let [c (:completed-at doc)] c))]]
+      (doseq [[pk s] (or scores {})
+              :let [reputation (:reputation s)]
+              :when reputation]
+        (bump! pk {:games 1
+                   :wins (if (= pk winner) 1 0)
+                   :reputation-sum reputation
+                   :amity-sum (:amity s 0)
+                   :glory-sum (:glory s 0)})
+        (swap! hall conj {:player pk
+                          :game-key (:game-key doc)
+                          :game-type (if (= pk human) "solo (human)" "solo (AI)")
+                          :reputation reputation
+                          :amity (:amity s 0)
+                          :glory (:glory s 0)
+                          :winner? (= pk winner)
+                          :at at})))
+    {:aggregate (->> @agg
+                     (map (fn [[pk stats]]
+                            (let [games (max 1 (:games stats 0))]
+                              (merge {:player pk
+                                      :games (:games stats 0)
+                                      :wins (:wins stats 0)
+                                      :win-rate (double (* 100 (/ (:wins stats 0) games)))
+                                      :avg-reputation (double (/ (:reputation-sum stats 0) games))
+                                      :avg-amity (double (/ (:amity-sum stats 0) games))
+                                      :avg-glory (double (/ (:glory-sum stats 0) games))}))))
+                     (sort-by (juxt #(- (:wins %))
+                                    #(- (:avg-reputation %))))
+                     vec)
+     :hall-of-fame (->> @hall
+                        (sort-by #(- (:reputation %)))
+                        (take 50)
+                        vec)}))
+
 (defn load-game
   "Load an eridu game from the database."
   [db game-key]

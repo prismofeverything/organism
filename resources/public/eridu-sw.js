@@ -3,10 +3,16 @@
 // are passed through to the network so the existing localStorage queue
 // in play.cljs handles offline-vs-online state itself.
 
-const CACHE_VERSION = 'v1';
+// v2: scope the SW to Eridu's OWN assets only. Previously this handler cached
+// ANY same-origin GET on demand at scope "/", so it hijacked the whole origin
+// (Journeymen, Chroma, Journey, …) and served those apps STALE bundles
+// stale-while-revalidate — bypassing the server's no-store headers. That made
+// the phone load an old Journeymen bundle forever while headless (no SW) saw
+// the fresh one. Bumping the version also purges the old over-broad cache.
+const CACHE_VERSION = 'v2';
 const CACHE_NAME    = `eridu-${CACHE_VERSION}`;
 
-// Best-effort precache. The fetch handler caches anything else on demand.
+// Best-effort precache. The fetch handler caches Eridu-owned assets on demand.
 const PRECACHE_URLS = [
   '/eridu/offline',
   '/js/eridu.js',
@@ -52,6 +58,21 @@ self.addEventListener('fetch', (event) => {
 
   // Sync endpoint: always network. The cljs queue handles failures.
   if (url.pathname.startsWith('/eridu/offline/log')) return;
+
+  // Scope guard: this SW is registered at "/" (so it can control the Eridu PWA
+  // start_url) but it must ONLY cache/serve Eridu's own offline assets. Any
+  // other app's request — notably the Journeymen / Chroma / Journey JS bundles
+  // — passes straight through to the network so those apps always get the live,
+  // freshly-built file. Without this, stale-while-revalidate served the phone an
+  // old Journeymen bundle indefinitely.
+  const p = url.pathname;
+  const isEriduAsset =
+    p.startsWith('/eridu') ||
+    p === '/js/eridu.js' ||
+    PRECACHE_URLS.indexOf(p) !== -1 ||
+    p.startsWith('/assets/') ||      // shared bulma/material-icons (eridu offline css)
+    p === '/css/screen.css';
+  if (!isEriduAsset) return;         // network-only for everything non-Eridu
 
   // Stale-while-revalidate: serve cached if present, refresh in background.
   // ignoreSearch so /js/eridu.js?v=N matches /js/eridu.js?v=M from cache.

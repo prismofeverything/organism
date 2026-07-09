@@ -1,13 +1,43 @@
 (ns organism.routes.eridu-ws
   (:require
    [clojure.edn :as edn]
+   [clojure.java.io :as io]
    [clojure.tools.logging :as log]
+   [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
-   [organism.game-ws :as gws :refer [read-json send! send-channels!]]
    [eridu.game :as game]
    [eridu.choice :as choice]
+   [eridu.decision :as decision]
+   [eridu.personality :as personality]
    [organism.persist :as persist]
-   [organism.persist-eridu :as persist-e]))
+   [organism.persist-eridu :as persist-e])
+  (:import
+   [java.io ByteArrayOutputStream]))
+
+;; ── Transit helpers ───────────────────────────────────────────────────────────
+
+(defn- ->stream [input]
+  (cond (string? input) (io/input-stream (.getBytes input))
+        :else input))
+
+(defn read-json [input]
+  (with-open [ins (->stream input)]
+    (-> ins (transit/reader :json) transit/read)))
+
+(defn write-json [output]
+  (let [out (ByteArrayOutputStream. 4096)
+        w   (transit/writer out :json)
+        _   (transit/write w output)
+        ret (.toString out)]
+    (.reset out)
+    ret))
+
+(defn send! [channel message]
+  (hk/send! channel (write-json message)))
+
+(defn send-channels! [channels message]
+  (doseq [ch channels]
+    (send! ch message)))
 
 ;; ── Games atom ────────────────────────────────────────────────────────────────
 
@@ -63,21 +93,32 @@
    :chat     []
    :channels #{channel}})
 
+(defn append-channel! [play-key channel]
+  (swap! games update-in [:games play-key :channels] conj channel))
+
 (defn load-game! [db play-key channel]
   (if-let [saved (persist-e/load-game db play-key)]
-    {:key           play-key
-     :state         (:state saved)
-     :initial-state (:initial-state saved)
-     :history       []
-     :bots          (set (:bots saved))
-     :players       (:players saved)
-     :saved-history (:history saved)
-     :chat          []
-     :channels      #{channel}}
-    (empty-game play-key channel)))
+    (let [g {:key           play-key
+             :state         (:state saved)
+             :initial-state (:initial-state saved)
+             :history       []
+             :bots          (set (:bots saved))
+             :players       (:players saved)
+             :saved-history (:history saved)
+             :chat          []
+             :channels      #{channel}}]
+      (swap! games assoc-in [:games play-key] g)
+      g)
+    (let [g (empty-game play-key channel)]
+      (swap! games assoc-in [:games play-key] g)
+      g)))
 
 (defn find-game! [db play-key channel]
-  (gws/find-game! games play-key channel (fn [pk ch] (load-game! db pk ch))))
+  (let [existing (get-in @games [:games play-key])]
+    (if (empty? existing)
+      (load-game! db play-key channel)
+      (do (append-channel! play-key channel)
+          (update existing :channels conj channel)))))
 
 ;; ── Bot AI ───────────────────────────────────────────────────────────────────
 
@@ -89,6 +130,45 @@
   "Advance state through trivial single-choice phases."
   [state]
   (choice/advance-through-trivial state bot-protected-phases))
+
+(def ^:private baseline-personalities
+  "Smart evolved personalities for live bots, loaded once from the committed
+   baseline. Falls back to the hand-built archetypes if the resource is missing."
+  (delay
+    (or (try
+          (->> (slurp (io/resource "eridu/evolved-baseline.edn"))
+               (edn/read-string {:default (fn [_ v] v)})
+               :organisms
+               (keep :personality)
+               vec
+               seq)
+          (catch Throwable _ nil))
+        (vec personality/archetypes))))
+
+(defn assign-bot-personalities
+  "Cache a smart personality on every bot player. We cache the FULL weight map
+   (not a subset) so both decide and the engine-side chain-score see every gene.
+   Personalities are cycled from the baseline pool deterministically by sorted
+   player key, so a multi-bot game gets a spread of styles."
+  [state bots]
+  ;; Teach bots Muhammad's signature: chase hard, backloaded temple/feat plans (he
+  ;; claimed 7/7 feats across his multiplayer games; the bots claimed 0). The
+  ;; :feat-lookahead gene is the potential-based (ΔΦ) forecast that gives a gradient
+  ;; toward those deferred payoffs — but it is absent in all 20 evolved baseline
+  ;; personalities, so it resolves to 0.0 (off) for every live bot. Floor it on here
+  ;; (a personality that sets its own value still wins). PBRS is provably policy-
+  ;; preserving, so this only breaks ties toward plan-advancing moves; it cannot make
+  ;; a bot play worse.
+  (let [pool (vec @baseline-personalities)]
+    (if (empty? pool)
+      state
+      (reduce
+       (fn [s [i pk]]
+         (let [personality (merge {:feat-lookahead 0.2}
+                                  (nth pool (mod i (count pool))))]
+           (assoc-in s [:players pk :personality-cache] personality)))
+       state
+       (map-indexed vector (sort bots))))))
 
 ;; ── Bot AI helpers ────────────────────────────────────────────────────────────
 
@@ -106,33 +186,9 @@
   [state space-id]
   (<= (count (game/astronomers-on-space state space-id)) 1))
 
-(defn- space-action-types
-  "Return set of action types available on a space."
-  [space-id]
-  (set (map :type (:actions (get game/action-spaces space-id)))))
-
-(defn- space-gives-resources
-  "Return the resources a take action on this space would give."
-  [space-id]
-  (some :resources (:actions (get game/action-spaces space-id))))
-
-(defn- has-resource-excess?
-  "True if player has >2 of any resource in the given set."
-  [pdata resources]
-  (some #(> (get-in pdata [:resources %] 0) 2) resources))
-
-(defn- city-has-own-face-up-temple?
-  "True if player has a face-up temple in the given city."
-  [pdata city]
-  (= :face-up (get-in pdata [:temples city])))
-
-(defn- city-has-sellable-demand?
-  "True if the city has a demand the player can currently fulfill."
-  [state player city]
-  (let [pdata (game/player-data state player)
-        demands (get-in state [:city-demands city] [])
-        resources (:resources pdata)]
-    (some #(pos? (get resources % 0)) demands)))
+;; (Five state-query helpers that lived here previously now live in
+;;  eridu.game — see space-action-types, space-gives-resources,
+;;  has-resource-excess?, city-has-sellable-demand?, city-has-own-face-up-temple?.)
 
 (defn- cities-with-demands-for
   "Cities that have demands matching the player's resources."
@@ -146,7 +202,7 @@
 (defn- own-raiders-on-routes
   "Returns route-keys where player has a raider in :point state (flippable via influence)."
   [pdata]
-  (for [[rk rs] (:raiders pdata) :when (= rs :point)] rk))
+  (for [[rk rs] (:raiders pdata) :when (some #{:point} rs)] rk))
 
 (defn- influence-can-flip-own-raider?
   "True if any influence choice would move a magistrate to a city adjacent to a :point raider."
@@ -168,9 +224,9 @@
   "Score a destination space for how well it serves a strategic goal.
    Considers both the immediate die and what remaining dice could chain into."
   [state player pdata dest-space remaining-dice lower-track]
-  (let [types (space-action-types dest-space)
+  (let [types (game/space-action-types dest-space)
         caravan-city (:caravan pdata)
-        can-sell-here (city-has-sellable-demand? state player caravan-city)
+        can-sell-here (game/city-has-sellable-demand? state player caravan-city)
 
         ;; Direct value of this space for current needs
         action-score
@@ -191,7 +247,7 @@
                 (for [other-die remaining-dice
                       other-pos other-astro-positions
                       :let [other-dest (game/move-astronomer-clockwise other-pos other-die)
-                            other-types (space-action-types other-dest)
+                            other-types (game/space-action-types other-dest)
                             ;; Complementary actions: if we sell here, travel there sets up next sell
                             ;; If we deploy here, influence there chains
                             combo-score
@@ -254,9 +310,9 @@
                                       :let [dest (game/move-astronomer-clockwise astro-pos die-val)
                                             on-space (count (game/astronomers-on-space state dest))
                                             will-be-alone (= on-space 0)
-                                            space-resources (space-gives-resources dest)
+                                            space-resources (game/space-gives-resources dest)
                                             resource-penalty (if (and space-resources
-                                                                      (has-resource-excess? pdata space-resources))
+                                                                      (game/has-resource-excess? pdata space-resources))
                                                                -3 0)
                                             ;; Chain score: how well does this die + remaining dice
                                             ;; serve our strategic goals?
@@ -288,7 +344,7 @@
                                 dest (game/move-astronomer-clockwise pos die-val)
                                 on-space (count (game/astronomers-on-space state dest))
                                 will-be-alone (= on-space 0)
-                                types (space-action-types dest)
+                                types (game/space-action-types dest)
                                 ;; Prefer spaces with actions matching our needs
                                 need-amity (= lower-track :amity)
                                 action-bonus (cond
@@ -297,9 +353,9 @@
                                                (and (not need-amity) (contains? types :influence)) 3
                                                (and (not need-amity) (contains? types :deploy)) 2
                                                :else 0)
-                                space-resources (space-gives-resources dest)
+                                space-resources (game/space-gives-resources dest)
                                 resource-penalty (if (and space-resources
-                                                          (has-resource-excess? pdata space-resources))
+                                                          (game/has-resource-excess? pdata space-resources))
                                                    -3 0)]]
                       [(+ resource-penalty action-bonus
                           (if (< progress 0.4)
@@ -351,8 +407,8 @@
                 :done
                 (let [space (get-in state [:player-turn :space])
                       caravan-city (:caravan pdata)
-                      can-sell-here (city-has-sellable-demand? state player caravan-city)
-                      has-face-up-temple (city-has-own-face-up-temple? pdata caravan-city)
+                      can-sell-here (game/city-has-sellable-demand? state player caravan-city)
+                      has-face-up-temple (game/city-has-own-face-up-temple? pdata caravan-city)
                       nearby-sellable (seq (cities-with-demands-for state player))
 
                       ;; Can we actually deploy? (have raiders in supply)
@@ -389,13 +445,17 @@
 
                       action-choices (dissoc choices :done)
                       scored (for [[idx _] action-choices
+                                   ;; skip non-numeric choice keys (e.g. board-14
+                                   ;; [:uruk-move dest], board-6 :free-travel) — they
+                                   ;; aren't action-space indices. Matches personality.cljc.
+                                   :when (number? idx)
                                    :let [action (nth (:actions (get game/action-spaces space)) idx)
                                          atype (:type action)
                                          base-pri (get action-priority atype 99)
                                          ;; Bonus: de-prioritize take if resources >2
                                          resource-penalty
                                          (if (and (= atype :take)
-                                                  (has-resource-excess? pdata (:resources action)))
+                                                  (game/has-resource-excess? pdata (:resources action)))
                                            10 0)]]
                                [(+ base-pri resource-penalty) idx])]
                   (if (seq scored)
@@ -464,16 +524,16 @@
                   (let [scored
                         (for [dest (keys non-skip)
                               :let [;; Can we flip our own temple there?
-                                    has-temple (city-has-own-face-up-temple? pdata dest)
+                                    has-temple (game/city-has-own-face-up-temple? pdata dest)
                                     ;; Can we sell there now or soon?
-                                    can-sell (city-has-sellable-demand? state player dest)
+                                    can-sell (game/city-has-sellable-demand? state player dest)
                                     ;; Does it have demands we might fulfill later?
                                     has-demands (seq (get-in state [:city-demands dest] []))
                                     ;; Is there a magistrate (glory bonus)?
                                     has-magistrate (game/magistrate-in-city? state dest)
                                     ;; Do we have own point raider on this route? (score glory)
                                     rk (game/route-key caravan-city dest)
-                                    own-point-raider (= :point (get-in pdata [:raiders rk]))]]
+                                    own-point-raider (some #{:point} (game/raiders-on (:raiders pdata) rk))]]
                           [(+ (if has-temple 10 0)
                               (if can-sell 8 0)
                               (if own-point-raider 7 0)
@@ -503,8 +563,8 @@
                                         next-city (:caravan next-pdata)
                                         neighbors (get-in next-s [:city-graph next-city])]
                                     (some (fn [dest]
-                                            (or (city-has-own-face-up-temple? pdata dest)
-                                                (city-has-sellable-demand? state player dest)))
+                                            (or (game/city-has-own-face-up-temple? pdata dest)
+                                                (game/city-has-sellable-demand? state player dest)))
                                           neighbors))))
                               (keys non-skip))]
                     (if worth-it? :done :done))
@@ -525,7 +585,7 @@
                                     (when dest
                                       (some #(or (= dest (first %)) (= dest (second %)))
                                             (for [[rk rs] (:raiders pdata)
-                                                  :when (= rs :point)]
+                                                  :when (some #{:point} rs)]
                                               rk)))
                                     ;; Is there our temple in destination?
                                     has-own-temple (and dest
@@ -571,7 +631,10 @@
               (when (and current-state
                          (not (:game-over current-state))
                          (contains? bots (choice-player current-state)))
-                (let [step-result (or (agent-step current-state)
+                (let [weights (or (get-in current-state
+                                           [:players (choice-player current-state) :personality-cache])
+                                  personality/default-weights)
+                      step-result (or (personality/personality-step current-state weights)
                                       (let [[_ cs] (choice/find-state-raw current-state)]
                                         (when (seq cs)
                                           [(first (keys cs)) (first (vals cs))])))]
@@ -594,8 +657,8 @@
 
 (defn handle-create! [db play-key {:keys [players bots]}]
   (when (seq players)
-    (let [state    (game/initial-state (vec players))
-          bot-set  (set (or bots []))]
+    (let [bot-set  (set (or bots []))
+          state    (assign-bot-personalities (game/initial-state (vec players)) bot-set)]
       (swap! games
              (fn [gs]
                (-> gs
@@ -753,56 +816,48 @@
             effect-text (get (:effects board) chosen-slot "—")
             contest-name (:name contest "")
             raw-needs-choice (game/bonus-needs-choice? board-id chosen-slot)
-            ;; For multi-pick effects with dynamic eligibility, compute the
-            ;; eligible target set up front. If the set is empty, treat as a
-            ;; no-op rather than entering an unresolvable pending state.
             multi? (:multi raw-needs-choice)
-            eligible-cities (when (and multi?
-                                       (= :magistrate-and-my-temple
-                                          (:filter raw-needs-choice)))
-                              (game/magistrate-and-my-temple-cities state player-key))
+            ;; FIX 3: every :pick-city filter's legal target set is computed
+            ;; server-side (game/eligible-cities-for-filter) so the UI gets a
+            ;; concrete city list for ALL filters — and an empty set uniformly
+            ;; turns into a no-op rather than an unresolvable/absent picker.
+            eligible-cities (when (= :pick-city (:type raw-needs-choice))
+                              (game/eligible-cities-for-filter
+                               state player-key (:filter raw-needs-choice)))
+            computed-targets? (some? eligible-cities)
             needs-choice (cond
                            (not raw-needs-choice) nil
-                           (and multi? (empty? eligible-cities)) nil
+                           (and computed-targets? (empty? eligible-cities)) nil
                            :else raw-needs-choice)
-            ;; Base state: claim feat + uncover slot + wild points + log
-            base-state (-> state
-                           (update-in [:contest-claims contest-id] (fnil conj []) player-key)
-                           (assoc-in [:players player-key :bonus-board chosen-slot] :uncovered)
-                           (update-in [:players player-key :wild-points] (fnil + 0) wild-points)
-                           (update :log conj
-                                   {:type :feat-claim
-                                    :player player-key
-                                    :round (:round state 1)
-                                    :turn (:turn-in-round state 1)
-                                    :message (str "Claimed feat " (name contest-id)
-                                                  " (" contest-name ") → +"
-                                                  wild-points " wild points")}))
-            ;; If effect needs choice, defer; otherwise apply now
-            new-state (cond
-                        needs-choice
-                        (update base-state :log conj
-                                {:type :bonus-effect :player player-key
-                                 :round (:round state 1) :turn (:turn-in-round state 1)
-                                 :message (str "Bonus #" chosen-slot " uncovered: "
-                                               effect-text " — choose below")})
-
-                        (and multi? (empty? eligible-cities))
-                        (update base-state :log conj
-                                {:type :bonus-effect :player player-key
-                                 :round (:round state 1) :turn (:turn-in-round state 1)
-                                 :message (str "Bonus #" chosen-slot " uncovered: "
-                                               effect-text
-                                               " — no qualifying cities, no effect")})
-
-                        :else
-                        (-> base-state
-                            (game/apply-bonus-effect player-key board-id chosen-slot)
-                            (update :log conj
-                                    {:type :bonus-effect :player player-key
-                                     :round (:round state 1) :turn (:turn-in-round state 1)
-                                     :message (str "Bonus #" chosen-slot
-                                                   " uncovered: " effect-text)})))]
+            no-target? (and computed-targets? (empty? eligible-cities))
+            ;; Resolve the uncovered slot's bonus through the SHARED primitive
+            ;; game/apply-feat-claim! (same one the bot uses), so claim + wild +
+            ;; :feat-claimed passive can never drift between paths. The human
+            ;; defers an interactive pick to pending-bonus (bonus-fn = identity)
+            ;; and applies a non-interactive effect immediately.
+            bonus-fn (cond
+                       ;; interactive WITH a real target → defer to pending-bonus
+                       needs-choice identity
+                       ;; no eligible target (or non-interactive) → fire the arm
+                       ;; once: a choice-independent rider still happens, the
+                       ;; choice-dependent part no-ops via (or choice default).
+                       :else (fn [s] (game/apply-bonus-effect s player-key board-id chosen-slot)))
+            claimed (game/apply-feat-claim! state player-key contest-id chosen-slot
+                                            wild-points bonus-fn)
+            new-state (-> claimed
+                          (update :log conj
+                                  {:type :feat-claim :player player-key
+                                   :round (:round state 1) :turn (:turn-in-round state 1)
+                                   :message (str "Claimed feat " (name contest-id)
+                                                 " (" contest-name ") → +"
+                                                 wild-points " wild points")})
+                          (update :log conj
+                                  {:type :bonus-effect :player player-key
+                                   :round (:round state 1) :turn (:turn-in-round state 1)
+                                   :message (str "Bonus #" chosen-slot " uncovered: " effect-text
+                                                 (cond needs-choice " — choose below"
+                                                       no-target?   " — no qualifying cities, no effect"
+                                                       :else        ""))}))]
         (swap! games
                (fn [gs]
                  (-> gs
@@ -964,6 +1019,39 @@
         (broadcast-state! play-key)
         (save-state! db play-key)))))
 
+(defn handle-resign! [db play-key player-key]
+  ;; Mark the game over with :resigned-by + a winner = the other live player
+  ;; (or nil in solo). Player must be in the game; can't resign someone else's.
+  (let [game-data (get-in @games [:games play-key])
+        state     (:state game-data)]
+    (when (and state
+               (contains? (set (:turn-order state)) player-key)
+               (not (:game-over state)))
+      (let [others (remove #{player-key} (:turn-order state))
+            ;; Pick a winner by current reputation among remaining players
+            winner (when (seq others)
+                     (apply max-key
+                            (fn [pk]
+                              (let [pd (get-in state [:players pk])]
+                                (min (:amity pd 0) (:glory pd 0))))
+                            others))
+            new-state (-> state
+                          (assoc :game-over {:reason :resigned
+                                             :resigned-by player-key
+                                             :winner winner})
+                          (update :log (fnil conj [])
+                                  {:type :resign
+                                   :player player-key
+                                   :round (:round state 1)
+                                   :turn (:turn-in-round state 1)
+                                   :message (str (name player-key) " resigned"
+                                                 (when winner
+                                                   (str " — " (name winner) " wins")))}))]
+        (swap! games assoc-in [:games play-key :state] new-state)
+        (log/info "Resign" play-key player-key "winner:" winner)
+        (broadcast-state! play-key)
+        (save-state! db play-key)))))
+
 (defn handle-chat! [db play-key player-key {:keys [message]}]
   (let [msg {:type    "chat"
              :player  player-key
@@ -1001,7 +1089,13 @@
 
 (defn disconnect! [{:keys [play-key player]} channel status]
   (log/info "Eridu DISCONNECT" player status)
-  (gws/remove-channel! games play-key channel))
+  (swap! games
+         (fn [gs]
+           (let [remaining (remove #{channel}
+                                   (get-in gs [:games play-key :channels]))]
+             (if (empty? remaining)
+               (update-in gs [:games] dissoc play-key)
+               (assoc-in gs [:games play-key :channels] (set remaining)))))))
 
 (defn notify-clients! [{:keys [db play-key player]} _channel raw]
   (let [{:keys [type] :as message} (read-json raw)]
@@ -1010,6 +1104,7 @@
       "create"        (handle-create! db play-key message)
       "action"        (handle-action! db play-key player message)
       "undo"          (handle-undo! db play-key player)
+      "resign"        (handle-resign! db play-key player)
       "claim-feat"    (handle-claim-feat! db play-key player message)
       "resolve-bonus" (handle-resolve-bonus! db play-key player message)
       "use-passive"   (handle-use-passive! db play-key player message)
@@ -1019,8 +1114,10 @@
 ;; ── Route wiring ─────────────────────────────────────────────────────────────
 
 (defn websocket-callbacks [db player play-key]
-  (gws/make-callbacks {:db db :player player :play-key play-key}
-                      {:on-open connect! :on-close disconnect! :on-receive notify-clients!}))
+  (let [cfg {:db db :player player :play-key play-key}]
+    {:on-open    (partial connect!         cfg)
+     :on-close   (partial disconnect!      cfg)
+     :on-receive (partial notify-clients!  cfg)}))
 
 (defn ws-handler [db {:keys [path-params session] :as request}]
   (let [play   (:play path-params)

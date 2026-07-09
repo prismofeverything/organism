@@ -80,8 +80,11 @@
                                             ")")))
                                 (str "action " k)))
                             (str k)))
-    (vector? k)         (str (name (first k)) " → " (name (second k))
-                              (when (= 3 (count k)) (str " (" (nth k 2) ")")))
+    (vector? k)         (let [b (second k)]
+                          ;; second element may be a keyword (e.g. [:uruk-move :kish])
+                          ;; OR an integer space (e.g. [:alt-take 3]); name throws on ints.
+                          (str (name (first k)) " → " (if (keyword? b) (name b) (str b))
+                               (when (= 3 (count k)) (str " (" (nth k 2) ")"))))
     :else               (pr-str k)))
 
 ;; ── Offline / solo-vs-AI mode ─────────────────────────────────────────────────
@@ -183,25 +186,50 @@
         (when-not already
           (write-pending-queue! (conj queue record)))))))
 
-(defn flush-pending-games!
-  "POST each queued game to /eridu/offline/log. On success, drop it from
-   the queue. On network failure, leave it for next attempt. Fire-and-
-   forget — does not block UI."
+(defn- logged-in?
+  "The offline-log endpoint is auth-gated, so only attempt a sync when a player is
+   signed in. When logged out, the queue simply waits in localStorage until the
+   next page load after sign-in."
   []
-  (let [queue (read-pending-queue)]
-    (doseq [record queue]
-      (POST offline-log-endpoint
-            {:params record
-             :format :transit
-             :response-format :transit
-             :handler (fn [_]
-                        (let [remaining (vec (remove #(= (:game-key %)
-                                                         (:game-key record))
-                                                     (read-pending-queue)))]
-                          (write-pending-queue! remaining)))
-             :error-handler (fn [_]
-                              ;; Silent — leave in queue, retry next time
-                              nil)}))))
+  (and (exists? js/playerKey) (string? js/playerKey) (seq js/playerKey)))
+
+(defn flush-pending-games!
+  "POST each queued game to /eridu/offline/log. On success, drop it from the queue;
+   on failure (network/auth) leave it for the next attempt. Skips entirely when not
+   logged in. Fire-and-forget — does not block UI. The server upserts by game-key,
+   so overlapping flushes (load + online + visibility) are harmless."
+  []
+  (when (logged-in?)
+    (let [queue (read-pending-queue)]
+      (doseq [record queue]
+        (POST offline-log-endpoint
+              {:params record
+               :format :transit
+               :response-format :transit
+               :handler (fn [_]
+                          (let [remaining (vec (remove #(= (:game-key %)
+                                                           (:game-key record))
+                                                       (read-pending-queue)))]
+                            (write-pending-queue! remaining)))
+               :error-handler (fn [_]
+                                ;; Silent — leave in queue, retry on the next trigger
+                                nil)})))))
+
+(defonce ^:private offline-sync-listeners-installed? (atom false))
+
+(defn- setup-offline-sync!
+  "Give the pending-sync queue reliable chances to reach the server beyond the
+   game-over moment (when the network or session may be flaky): retry when the
+   network comes back online, when the tab is shown/hidden, and on bfcache restore.
+   Idempotent — listeners are installed once."
+  []
+  (when (and (exists? js/window) (not @offline-sync-listeners-installed?))
+    (reset! offline-sync-listeners-installed? true)
+    (.addEventListener js/window "online"   (fn [_] (flush-pending-games!)))
+    (.addEventListener js/window "pageshow"  (fn [_] (flush-pending-games!)))
+    (when (exists? js/document)
+      (.addEventListener js/document "visibilitychange"
+                         (fn [_] (flush-pending-games!))))))
 
 (defn apply-choice-locally!
   "Apply a player choice to local game state, then run AI turns until a
@@ -221,14 +249,12 @@
           (flush-pending-games!))))))
 
 (defn- cache-personalities-on-state
-  "Mirror simulate.clj: stash decision-relevant weights on each bot player so
-   downstream feat/bonus heuristics can read them from state."
+  "Mirror simulate.clj: stash the FULL weight map on each bot player so every
+   downstream feat/bonus heuristic (chain-score reads :feat-synergy and
+   :bonus-foresight, etc.) sees the real gene values, not a 5-key subset."
   [state pmap]
   (reduce (fn [s [pk weights]]
-            (assoc-in s [:players pk :personality-cache]
-                      (select-keys weights [:tempo :feat-awareness
-                                            :prefer-onetime-bonus
-                                            :feat-sequence :feat-closure-urgency])))
+            (assoc-in s [:players pk :personality-cache] weights))
           state pmap))
 
 (defn- offline-human-name
@@ -325,6 +351,11 @@
   (if @offline?-cursor
     (js/console.warn "undo is not yet supported in offline mode")
     (ws/send-transit-message! {:type "undo"})))
+
+(defn send-resign! []
+  (if @offline?-cursor
+    (js/console.warn "resign is not yet supported in offline mode")
+    (ws/send-transit-message! {:type "resign"})))
 
 (defn send-claim-feat!
   ([feat-id] (send-claim-feat! feat-id nil))
@@ -697,7 +728,8 @@
      ;; Raiders on routes (offset when multiple on same route)
      (let [route-counts (atom {})]
        (for [[pk pdata] (:players state)
-             [rk raider-state] (:raiders pdata)
+             [rk statuses] (:raiders pdata)
+             [stack-idx raider-state] (map-indexed vector statuses)
              :let [[c1 c2] rk
                    {x1 :x y1 :y} (get city-positions c1)
                    {x2 :x y2 :y} (get city-positions c2)
@@ -714,7 +746,7 @@
                    rx (+ mx ox) ry (+ my oy)
                    p-color (game/player-color state pk)
                    is-raiding (= raider-state :raiding)]]
-         ^{:key (str "raider-" pk "-" (name c1) "-" (name c2))}
+         ^{:key (str "raider-" pk "-" (name c1) "-" (name c2) "-" stack-idx)}
          [:g
           (if is-raiding
             [:g
@@ -783,18 +815,18 @@
            [:text {:x (+ (- x 24) (* idx 22))
                    :y (+ y 24) :text-anchor "middle" :fill "#fff" :font-size 14}
             (get game/resource-icons token "?")]])
-        ;; Temples (per player, with player color, offset to avoid overlap)
-        (let [temple-players (vec (for [[pk pd] (:players state)
-                                        :when (get-in pd [:temples city])]
-                                    pk))]
-          (for [[ti pk] (map-indexed vector temple-players)
-                :let [pdata (game/player-data state pk)
-                      temple-state (get-in pdata [:temples city])
-                      p-color (game/player-color state pk)
-                      is-face-up (= temple-state :face-up)
+        ;; Temples (per player, with player color, offset to avoid overlap).
+        ;; Multi-temple model: a city may hold a VECTOR of temples per player, so
+        ;; render one glyph per temple state.
+        (let [temple-glyphs (vec (for [[pk pd] (:players state)
+                                       [si face] (map-indexed vector (game/temples-at pd city))]
+                                   [pk si face]))]
+          (for [[ti [pk si face]] (map-indexed vector temple-glyphs)
+                :let [p-color (game/player-color state pk)
+                      is-face-up (= face :face-up)
                       tx (+ x 24 (* ti 18))
                       ty (- y 6)]]
-            ^{:key (str "temple-" pk "-" (name city))}
+            ^{:key (str "temple-" pk "-" (name city) "-" si)}
             [:g (tip (str pk "'s temple (" (if is-face-up "face-up" "face-down") ")"))
              ;; Player color indicator dot
              [:circle {:cx tx :cy (- ty 10) :r 4
@@ -1363,7 +1395,19 @@
                  :padding "10px 16px" :cursor "pointer" :font-size 13
                  :min-height 44 :min-width 44
                  :touch-action "manipulation"}}
-        "↩ undo"])]))
+        "↩ undo"])
+     ;; Resign — only when the game isn't already over
+     (when (and (not (:game-over state)) (not @offline?-cursor))
+       [:button
+        {:on-click #(when (js/confirm "Resign this game? This will end the game and cannot be undone.")
+                      (send-resign!))
+         :style {:background "#1a0a0a" :color "#c66"
+                 :border "1px solid #844" :border-radius 6
+                 :padding "10px 16px" :cursor "pointer" :font-size 13
+                 :min-height 44 :min-width 44
+                 :margin-left "auto"
+                 :touch-action "manipulation"}}
+        "⚑ resign"])]))
 
 ;; ── Create game form ──────────────────────────────────────────────────────────
 
@@ -1683,16 +1727,12 @@
                             :touch-action "manipulation"}}
                    (str (get game/resource-icons r "") " " (name r))])]
                ;; City picker
+               ;; FIX 3: the server now computes the legal target set for EVERY
+               ;; :pick-city filter (game/eligible-cities-for-filter) and sends it
+               ;; as :eligible-cities, so the client just reads it instead of
+               ;; re-deriving (and previously mis-deriving) it per filter.
                :pick-city
-               (let [my-pdata (game/player-data state my-player)
-                     cities (or (:eligible-cities bonus)
-                                (case (:filter bonus)
-                                  :magistrate-and-my-temple
-                                  (filter (set (vals (:magistrates state)))
-                                          (keys (:temples my-pdata)))
-                                  :magistrate (distinct (vals (:magistrates state)))
-                                  :adjacent (get-in state [:city-graph (:caravan my-pdata)])
-                                  (keys (:city-graph state))))]
+               (let [cities (:eligible-cities bonus)]
                  [:div {:style {:display "flex" :gap 8 :flex-wrap "wrap"}}
                   (for [city cities]
                     ^{:key (str "bonus-city-" (name city))}
@@ -1928,9 +1968,13 @@
       (reset! observe-games (reader/read-string js/observeGames))
       (catch :default _ nil)))
   (mount-components)
+  ;; offline-game sync: install retry triggers (online/visibility/pageshow) and
+  ;; flush any games queued from a prior failed sync. Runs on EVERY eridu page now
+  ;; (not just the offline page), so a game queued while offline / logged out gets
+  ;; pushed the next time any eridu page loads (e.g. after reconnecting or signing in).
+  (setup-offline-sync!)
+  (flush-pending-games!)
   (cond
-    (url-param "offline")  (do
-                             (or (resume-offline-game!)
-                                 (start-offline-game! (or (url-param "ai") "default")))
-                             (flush-pending-games!))
+    (url-param "offline")  (or (resume-offline-game!)
+                               (start-offline-game! (or (url-param "ai") "default")))
     :else                  (connect-ws!)))

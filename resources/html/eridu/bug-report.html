@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html style="background-color:#04040E">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ERIDU - report a bug</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #04040E; color: #AABBCC; font-family: monospace; padding: 48px; max-width: 720px; margin: 0 auto; }
+      h2 { color: #BB9944; margin-bottom: 16px; }
+      p { color: #889; margin-bottom: 20px; line-height: 1.6; }
+      label { display: block; color: #ccc; margin-bottom: 6px; font-size: 0.9rem; }
+      textarea {
+        width: 100%; min-height: 200px;
+        background: #0A0E1C; color: #fcc;
+        border: 1px solid #5A4A20; border-radius: 4px;
+        padding: 12px; font-family: monospace; font-size: 14px;
+        resize: vertical;
+      }
+      textarea:focus { outline: none; border-color: #BB9944; }
+      .actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+      button {
+        background: #2A1A0A; color: #BB9944;
+        border: 1px solid #5A4A20; border-radius: 4px;
+        padding: 10px 24px; cursor: pointer;
+        font-family: monospace; font-size: 14px;
+        min-height: 44px;
+      }
+      button:hover { background: #3A2A1A; }
+      .nav-link { display: inline-block; color: #556677; font-size: 0.9rem; text-decoration: none; margin-top: 32px; }
+      .nav-link:hover { color: #AABBCC; }
+      .sent { background: #0A2A1A; border: 1px solid #2A6A3A; color: #8FFF8F; padding: 12px; border-radius: 4px; margin-bottom: 20px; }
+      .login-note { background: #2A1A1A; border: 1px solid #6A2A2A; color: #FFAA88; padding: 12px; border-radius: 4px; margin-bottom: 20px; }
+    </style>
+  </head>
+  <body>
+    <h2>ERIDU &mdash; report a bug</h2>
+    <p>Describe what went wrong (and what you expected). Reports are saved with your username and timestamp.</p>
+
+    {% if sent? %}
+    <div class="sent">✓ Report sent. Thank you.</div>
+    {% endif %}
+
+    {% if session-player %}
+    <form method="POST" action="/eridu/bug-report/submit">
+      {% csrf-field %}
+      <label>What happened?</label>
+      <textarea name="text" placeholder="e.g. Board 34 slot 4 didn't ask me to choose a city to sell in, just gave amity." required></textarea>
+      <div class="actions">
+        <button type="submit">Send</button>
+        <span style="color:#666; font-size:0.85rem;">posting as <strong style="color:#adf">{{session-player}}</strong></span>
+      </div>
+    </form>
+    {% else %}
+    <div class="login-note">
+      You need to <a href="/login?redirect=/eridu/bug-report" style="color:#FFD700">log in</a> before submitting a bug report.
+    </div>
+    {% endif %}
+
+    <a class="nav-link" href="/eridu">&larr; eridu home</a>
+  </body>
+</html>

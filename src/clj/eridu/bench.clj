@@ -13,8 +13,11 @@
    [eridu.simulate :as sim]
    [eridu.personality :as pers]))
 
-(def output-dir "output/bench")
-(def population-path "output/bench/evolved-population.edn")
+;; Output dir is run_id-namespaced when ERIDU_BENCH_OUTPUT_DIR is set by the
+;; launcher, so parallel/sequential runs never overwrite each other's CSVs the
+;; way the 0427 deepdive ate the 0419 run's data. Unset → legacy shared dir.
+(def output-dir (or (System/getenv "ERIDU_BENCH_OUTPUT_DIR") "output/bench"))
+(def population-path (str output-dir "/evolved-population.edn"))
 
 (defn ensure-output-dir! []
   (.mkdirs (io/file output-dir)))
@@ -31,6 +34,10 @@
    ;; Inter-run shifts — keep most of the population, inject few fresh
    :inter-mutation-rate 0.2
    :inter-fresh-fraction 0.15
+   ;; Frozen adversarial reference panel — external fitness gradient that
+   ;; breaks self-play monoculture collapse (see evolve/attach-panel-scores).
+   :reference-panel?     true
+   :panel-games-per-org  4
    ;; Weight snapshot interval
    :weight-snapshot-every 50})
 
@@ -56,6 +63,14 @@
           :player-counts       [1 2 3 4]}))
 
 (def config-default config-all)
+
+(def config-smoke
+  "Tiny end-to-end run for verifying wiring (esp. the live auditor). Seconds, not hours."
+  (merge base-config
+         {:pop-size            6
+          :gens-per-run        3
+          :total-runs          1
+          :player-counts       [2 3]}))
 
 ;; =============================================================================
 ;; Population persistence
@@ -169,6 +184,66 @@
    :elapsed-seconds])
 
 ;; =============================================================================
+;; Live board-effect auditor
+;; =============================================================================
+;; Runs in parallel with the GA bench: every game played by the evolving bots
+;; is traced (eridu.simulate/*audit?*), and each bonus board-effect application
+;; is folded — per [board-id slot-idx] — into a running attempts/failures tally.
+;; The play-by-play is discarded after each game; only the tally rolls up.
+;;
+;; "Fails to launch" uses Muhammad's stated default: a triggered effect that
+;; produces no board change at all (every delta zero/empty). Attempts are
+;; counted alongside failures so a position with few attempts reads as UNTESTED
+;; (low coverage), not as a healthy "0% failure" — that's the discrepancy fix.
+
+(def ^:private untested-attempt-threshold
+  "Below this many attempts a position is flagged UNTESTED rather than trusted."
+  5)
+
+(defn- trace-failed?
+  "Default audit definition: the triggered board effect produced no board
+   change (all deltas zero/empty)."
+  [t]
+  (and (zero? (:delta-amity t 0))
+       (zero? (:delta-glory t 0))
+       (zero? (:delta-temples t 0))
+       (zero? (:delta-raiders t 0))
+       (every? zero? (vals (:delta-roles t {})))
+       (every? zero? (vals (:delta-resources t {})))))
+
+(defn- fold-traces
+  "Fold one game's coverage traces into the per-[board-id slot-idx] tally atom."
+  [tally traces]
+  (doseq [t traces]
+    (let [k [(:board-id t) (:slot-idx t)]
+          failed? (trace-failed? t)]
+      (swap! tally update k
+             (fn [m]
+               {:attempts    (inc (:attempts m 0))
+                :failures    (+ (:failures m 0) (if failed? 1 0))
+                :impl-status (or (:impl-status m) (:impl-status t))})))))
+
+(def coverage-columns
+  [:board-id :slot-idx :attempts :failures :failure-rate :coverage-flag :impl-status])
+
+(defn- coverage-rows
+  "Materialize the tally into sorted CSV rows."
+  [tally]
+  (for [[[board-id slot-idx] m] (sort-by key @tally)
+        :let [att (:attempts m 0)
+              fail (:failures m 0)]]
+    {:board-id      board-id
+     :slot-idx      slot-idx
+     :attempts      att
+     :failures      fail
+     :failure-rate  (if (pos? att) (double (/ fail att)) 0.0)
+     :coverage-flag (cond
+                      (< att untested-attempt-threshold) "UNTESTED"
+                      (pos? fail)                         "FAILING"
+                      :else                               "ok")
+     :impl-status   (:impl-status m :unknown)}))
+
+;; =============================================================================
 ;; Tournament with full data capture
 ;; =============================================================================
 
@@ -209,7 +284,8 @@
                         :player-count pc
                         :configs configs
                         :summary summary
-                        :snapshots (:snapshots result)}))
+                        :snapshots (:snapshots result)
+                        :coverage-traces (:coverage-traces result)}))
 
             (swap! game-count inc)))))
 
@@ -311,7 +387,11 @@
 
 (defn run-bench! [config & {:keys [fresh?]}]
   (ensure-output-dir!)
-  (let [{:keys [pop-size gens-per-run total-runs mutation-rate elite-count
+  ;; Merge over base-config so every field consumed by run-bench!/the banner has a
+  ;; default — a hand-built or REPL config that omits e.g. :inter-fresh-fraction can
+  ;; never produce a nil that crashes arithmetic/printing downstream.
+  (let [config (merge base-config config)
+        {:keys [pop-size gens-per-run total-runs mutation-rate elite-count
                 player-counts games-per-matchup weight-snapshot-every]} config
         start-time (System/currentTimeMillis)
         ;; Load or create initial population
@@ -321,12 +401,18 @@
                       (let [n (count saved-pop)]
                         (cond
                           (= n pop-size) saved-pop
-                          (> n pop-size) (vec (take pop-size
-                                                   (sort-by #(- (:elo %)) saved-pop)))
-                          :else (into (vec saved-pop)
-                                      (repeatedly (- pop-size n)
-                                                  #(evolve/make-organism
-                                                    (pers/random-personality))))))
+                          (> n pop-size)
+                          (do (println (format "  !! Saved population (%d) > pop-size (%d); keeping top %d by Elo."
+                                               n pop-size pop-size))
+                              (vec (take pop-size (sort-by #(- (:elo %)) saved-pop))))
+                          :else
+                          (do (println (format "  !! Saved population (%d) < pop-size (%d); injecting %d FRESH random organisms."
+                                               n pop-size (- pop-size n)))
+                              (println "     A large top-up dilutes the evolved basin with random weights — prefer a fresh run if this gap is big.")
+                              (into (vec saved-pop)
+                                    (repeatedly (- pop-size n)
+                                                #(evolve/make-organism
+                                                  (pers/random-personality)))))))
                       (evolve/initial-population pop-size))
         pc-label (str/join "+" (map str player-counts))]
 
@@ -353,8 +439,13 @@
           snap-w (open-csv-writer! (str output-dir "/snapshots" suffix ".csv") snapshot-columns)
           wgt-w (open-csv-writer! (str output-dir "/population-weights" suffix ".csv") weight-columns)
           run-w (open-csv-writer! (str output-dir "/run-summaries" suffix ".csv") run-summary-columns)
+          ;; Live board auditor (only when ERIDU_AUDIT enabled it via -main)
+          audit? sim/*audit?*
+          cov-tally (atom {})
           cumulative-games (atom 0)
           final-population (atom nil)]
+      (when audit?
+        (println "  Live board auditor: ON (per-position attempts/failures tally)"))
 
       (try
         (loop [run-idx 1
@@ -379,7 +470,7 @@
 
                         ;; One generation
                         (let [on-game
-                              (fn [{:keys [game-id player-count summary snapshots]}]
+                              (fn [{:keys [game-id player-count summary snapshots coverage-traces]}]
                                 ;; Write game summaries
                                 (append-rows! game-w game-summary-columns
                                               (map #(assoc %
@@ -397,15 +488,30 @@
                                                              :game-id game-id
                                                              :player-count player-count)
                                                      snapshots)))
+                                ;; Live audit: fold this game's traces into the
+                                ;; per-position tally, then drop the play-by-play.
+                                (when (and audit? (seq coverage-traces))
+                                  (fold-traces cov-tally coverage-traces))
                                 (swap! run-games inc)
                                 (swap! cumulative-games inc))
 
-                              {:keys [organisms total-games]}
+                              {organisms-raw :organisms total-games :total-games}
                               (run-tournament-with-capture
                                pop
                                {:games-per-matchup games-per-matchup
                                 :player-counts player-counts
                                 :on-game on-game})
+
+                              ;; Attach the external reference-panel gradient so
+                              ;; evolve-generation selects on real skill, not on
+                              ;; intra-monoculture Elo.
+                              organisms
+                              (if (:reference-panel? config)
+                                (evolve/attach-panel-scores
+                                 organisms-raw
+                                 {:panel-games-per-org (:panel-games-per-org config)
+                                  :player-counts player-counts})
+                                organisms-raw)
 
                               best (first (sort-by #(- (:elo %)) organisms))
                               avg-elo (/ (reduce + (map :elo organisms))
@@ -436,10 +542,31 @@
 
                           ;; Progress
                           (when (zero? (mod gen 20))
-                            (println (format "    Gen %d/%d: best=%s elo=%.0f avg=%.0f spread=%.0f regions=%d games=%d"
+                            (println (format "    Gen %d/%d: best=%s elo=%.0f avg=%.0f spread=%.0f regions=%d panelWR=%.2f games=%d"
                                              gen gens-per-run (:name best) (:elo best)
                                              avg-elo (:elo-spread gen-row)
-                                             (:unique-regions gen-row) @cumulative-games)))
+                                             (:unique-regions gen-row)
+                                             (double (/ (reduce + (map #(:panel-winrate % 0.0) organisms))
+                                                        (max 1 (count organisms))))
+                                             @cumulative-games)))
+
+                          ;; Monoculture / runaway guard — the bench used to be
+                          ;; unable to detect the collapse it logged symptoms of.
+                          (when (zero? (mod gen 20))
+                            (let [regions (:unique-regions gen-row)
+                                  oob (->> organisms
+                                           (mapcat (fn [o]
+                                                     (for [[k v] (:personality o)
+                                                           :let [[_ hi] (get pers/weight-bounds k)]
+                                                           :when (and hi (number? v) (> v (+ hi 0.01)))]
+                                                       k)))
+                                           distinct vec)]
+                              (when (<= regions 2)
+                                (println (format "    !! DIVERSITY WARNING gen %d: only %d unique region(s) — monoculture risk"
+                                                 gen regions)))
+                              (when (seq oob)
+                                (println (format "    !! RUNAWAY WARNING gen %d: weights past upper bound: %s"
+                                                 gen oob)))))
 
                           ;; Evolve
                           (let [next-pop (evolve/evolve-generation
@@ -488,6 +615,20 @@
                     (recur (inc run-idx) next-pop)))))))
 
         (finally
+          ;; Flush + close the live audit summary (always, even on early exit so
+          ;; a partial run still leaves an honest per-position table).
+          (when audit?
+            (let [rows (coverage-rows cov-tally)
+                  cov-w (open-csv-writer! (str output-dir "/board-coverage-summary.csv")
+                                          coverage-columns)]
+              (append-rows! cov-w coverage-columns rows)
+              (.close cov-w)
+              (let [positions (count rows)
+                    attempts (reduce + (map :attempts rows))
+                    failures (reduce + (map :failures rows))
+                    untested (count (filter #(= "UNTESTED" (:coverage-flag %)) rows))]
+                (println (format "  >> Board audit: %d positions seen, %d attempts, %d failures, %d UNTESTED"
+                                 positions attempts failures untested)))))
           ;; Close all writers
           (.close gen-w)
           (.close game-w)
@@ -501,6 +642,8 @@
     (println (str "  snapshots-" pc-label "p.csv"))
     (println (str "  population-weights-" pc-label "p.csv"))
     (println (str "  run-summaries-" pc-label "p.csv"))
+    (when sim/*audit?*
+      (println "  board-coverage-summary.csv  — live per-position attempts/failures"))
     (println "  evolved-population.edn  — carry forward to next run")))
 
 ;; =============================================================================
@@ -510,10 +653,15 @@
 (defn -main [& args]
   (let [mode (first args)
         fresh? (some #{"fresh"} args)
+        ;; Live board auditor on when ERIDU_AUDIT is set or "audit" passed.
+        audit? (or (some #{"audit"} args)
+                   (#{"1" "true" "yes" "on"} (str (System/getenv "ERIDU_AUDIT"))))
         config (case mode
                  "5p"    config-5p
                  "4p"    config-4p
                  "all"   config-all
+                 "smoke" config-smoke
                  config-default)]
-    (run-bench! config :fresh? fresh?)
+    (binding [sim/*audit?* (boolean audit?)]
+      (run-bench! config :fresh? fresh?))
     (shutdown-agents)))
