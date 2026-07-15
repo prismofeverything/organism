@@ -5,14 +5,7 @@
    [organism.layout :as layout]
    [organism.persist :as persist]
    [organism.middleware :as middleware]
-   [ring.util.response :as response]))
-
-(defn require-auth
-  [handler]
-  (fn [request]
-    (if (get-in request [:session :player])
-      (handler request)
-      (response/redirect (str "/login?redirect=" (:uri request))))))
+   [organism.routes.shared :as shared]))
 
 (defn home-page
   [request]
@@ -104,11 +97,11 @@
                  middleware/wrap-formats]}
    ["" {:get home-page}]
    ["/create" {:get create-page
-               :middleware [require-auth]}]
+               :middleware [shared/require-auth]}]
    ["/rules" {:get rules-page}]
    ["/lineages" {:get lineages-page}]
    ["/play" {:get (partial play-list-page db)
-             :middleware [require-auth]}]
+             :middleware [shared/require-auth]}]
    ["/play/:play" {:get play-page}]
    ["/play/:play/" {:get play-page}]
    ["/observe" {:get (partial observe-page db)}]

@@ -1,0 +1,39 @@
+# Python side of the Organism repo: the standalone mesh-generation stack for the
+# game-piece generator (pieces/meshlib + pieces/*.py). Managed with uv.
+#
+#   uv sync                                   # create/update .venv from uv.lock
+#   uv run python pieces/meshlib/build.py EAT # run the core pipeline (no Blender)
+#
+# The CORE pipeline (silhouette -> 2D quality mesh -> height field -> closed
+# manifold -> invariant validation) runs with these deps ALONE — NO Blender.
+# Blender 5.1.x stays optional, only for rendering / sculpting / connector graft
+# (pass BLENDER=~/Downloads/blender-5.1.1-linux-x64/blender to the Makefile).
+[project]
+name = "organism-pieces"
+version = "0.1.0"
+description = "Generative mesh pipeline for the Organism game pieces (FOOD + EAT/MOVE/GROW + universal connector)."
+requires-python = ">=3.10"
+dependencies = [
+    # core numerics
+    "numpy>=1.21",
+    "scipy>=1.8",
+    # silhouette parsing: SVG path (beziers/arcs) -> polyline
+    "svgelements>=1.9",
+    # 2D quality meshing: Delaunay refinement w/ guaranteed min angle (Shewchuk's Triangle)
+    "triangle>=20230923",
+    # 2D polygon ops: area, point-in-polygon, inward offset/erosion
+    "shapely>=2.0",
+    # mesh I/O (OBJ/STL/GLB) + ray casting for silhouette/draft invariants (replaces Blender BVHTree)
+    "trimesh>=4.0",
+    "networkx>=2.6",          # trimesh graph ops: winding repair, face adjacency
+    # isotropic explicit remeshing (stage 6, remesh.py): uniform near-equilateral,
+    # feature-preserving triangles. Used by the asymmetric build path + MOVE.
+    "pymeshlab>=2023.12",
+    # diagnostics / explanatory diagrams
+    "matplotlib>=3.5",
+    # raster medial-axis / skeleton: MOVE spiral centerline ("spine")
+    "scikit-image>=0.21",
+]
+
+[tool.uv]
+package = false   # virtual project: manage deps in .venv, don't build/install this repo as a package

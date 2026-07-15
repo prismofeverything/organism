@@ -119,6 +119,19 @@
 ;; Separate hover for an individual destination (so we can brighten it)
 (defonce dest-hover (r/atom nil))
 
+;; Persistent "space under the pointer" ({:space ... :kind :element|:food}).
+;; Unlike action-hover/from-hover this is set on mouseenter and cleared only on
+;; a real mouseleave (debounced) — never on click or state update. Each action
+;; phase falls back to it so that after committing a choice the element still
+;; under the cursor immediately offers its next options (no move-out-and-back-in).
+(defonce pointer-space (r/atom nil))
+
+;; In-progress grow payment, or nil. Food is a shared pool across all growers,
+;; so the player spends the cost one coin at a time by clicking growers; when the
+;; cost is fully paid we commit the matching precomputed variant.
+;;   {:dest <space> :cost N :spent {grower-space amount} :variants [{:spent :state} ...]}
+(defonce grow-pay (r/atom nil))
+
 ;; Pending timeout id for delayed clearing of from-hover on mouseleave
 (defonce from-hover-timeout (atom nil))
 
@@ -718,6 +731,7 @@
              (reset! from-hover nil)
              (reset! dest-hover nil)
              (reset! intro-hover nil)
+             (reset! pointer-space nil)
              (reset! from-hover-timeout nil))
            150)))
 
@@ -1463,7 +1477,15 @@
                      (get organisms first-org-id)
                      [])
         by-type (group-by :type elements)
-        hover @action-hover
+        hover (or @action-hover
+                  ;; Fallback: right after committing the previous action the
+                  ;; cursor hasn't moved but action-hover was cleared — re-derive
+                  ;; from pointer-space so the element under the pointer stays
+                  ;; immediately actionable.
+                  (when-let [hs @pointer-space]
+                    (when-let [el (first (filter #(= (:space hs) (:space %)) elements))]
+                      (let [[x y] (get locations (:space el))]
+                        {:type (:type el) :x x :y y}))))
         hover-type (:type hover)
 
         ;; A click-target halo per element. Hovered type → brighter halo.
@@ -1486,8 +1508,12 @@
                :fill-opacity fill-op
                :style {:cursor "pointer"}
                :on-mouse-enter (fn [_e]
-                                 (reset! action-hover {:type type :x x :y y}))
-               :on-mouse-leave (fn [_e] (reset! action-hover nil))
+                                 (cancel-from-hover-clear!)
+                                 (reset! action-hover {:type type :x x :y y})
+                                 (reset! pointer-space {:space space :kind :element}))
+               :on-mouse-leave (fn [_e]
+                                 (reset! action-hover nil)
+                                 (schedule-from-hover-clear!))
                :on-click (fn [_e]
                            (reset! action-hover nil)
                            (send-choice! choices type true))}]))
@@ -1676,6 +1702,53 @@
          {} (keys type-choices))))
     (catch :default _ {})))
 
+(defn- grow-spent-food
+  "Map of {grower-space amount} for elements whose food decreases from
+   current-state to next-state — i.e. how much food each space spends for a
+   given grow option."
+  [current-state next-state]
+  (let [nxt (:elements next-state)]
+    (into {}
+     (keep
+      (fn [[space el]]
+        (let [spent (- (or (:food el) 0) (or (:food (get nxt space)) 0))]
+          (when (pos? spent) [space spent])))
+      (:elements current-state)))))
+
+(defn- grow-dest-options
+  "All grow variants for `dest-space`, pooled across every grower and grouped by
+   element type: {type [{:spent {grower-space amount} :state next-state} ...]}.
+   Food is a shared pool, so variants that resolve to the same committed state
+   (listed under different growers) are deduped."
+  [grow-options current-state dest-space]
+  (let [variants (distinct
+                  (mapcat #(get-in grow-options [% dest-space])
+                          (keys grow-options)))]
+    (reduce
+     (fn [acc {:keys [type next-state]}]
+       (update acc type (fnil conj [])
+               {:spent (grow-spent-food current-state next-state)
+                :state next-state}))
+     {}
+     variants)))
+
+(defn- grow-pay-click!
+  "Spend one food coin from grower `space` toward the in-progress grow payment.
+   Commits the variant matching the chosen distribution once the cost is paid."
+  [game space]
+  (when-let [{:keys [cost spent variants]} @grow-pay]
+    (let [cur (or (:food (get-in game [:state :elements space])) 0)]
+      (when (< (get spent space 0) cur)
+        (let [spent' (update spent space (fnil inc 0))]
+          (if (>= (reduce + 0 (vals spent')) cost)
+            (let [variant (first (filter #(= (:spent %) spent') variants))]
+              (reset! grow-pay nil)
+              (cancel-from-hover-clear!)
+              (reset! from-hover nil)
+              (reset! dest-hover nil)
+              (when variant (send-state! (:state variant) true)))
+            (swap! grow-pay assoc :spent spent')))))))
+
 (defn choose-action-highlights
   "During :choose-action, the chosen action type drives one set of clickable
    ELEMENT halos (move/eat/grow targets), and a separate set of FOOD halos
@@ -1713,10 +1786,11 @@
         circ-from-map (when circ-game
                         (compute-from-spaces-and-options circ-game "CIRCULATE"))
 
-        hover @from-hover  ;; {:space [...] :kind :element|:food}
+        hover (or @from-hover @pointer-space)  ;; {:space [...] :kind :element|:food}
         popup @action-popup
         d-hover @dest-hover
         hovered-grow-type @intro-hover
+        paying @grow-pay
 
         ;; ── Element halo click ──────────────────────────────────────────
         opt->button
@@ -1801,37 +1875,47 @@
                :on-mouse-enter (fn [_e]
                                  (cancel-from-hover-clear!)
                                  (reset! dest-hover nil)
-                                 (reset! from-hover {:space space :kind :element}))
+                                 (reset! from-hover {:space space :kind :element})
+                                 (reset! pointer-space {:space space :kind :element}))
                :on-mouse-leave (fn [_e] (schedule-from-hover-clear!))
                :on-click (fn [_e] (click-element space))}]))
-         (keys action-from-map))
+         (if paying [] (keys action-from-map)))
 
         ;; ── Food halos (every element with food → circulate sources) ───
-        ;; Food on the element is rendered at (x, y - radius*0.3) by board/render-food
+        ;; One marker per food coin, at the same radial layout board/render-food
+        ;; uses, so every coin on an element is highlighted identically — no coin
+        ;; is singled out. Hovering any coin lights the whole element's food.
         food-halos
-        (mapv
-         (fn [space]
-           (let [[x y] (get locations space)
-                 fx x
-                 fy (- y (* radius 0.3))
-                 hovered? (and (= :food (:kind hover))
-                               (= space (:space hover)))]
-             ^{:key (str "food-" space)}
-             [:circle
-              {:cx fx :cy fy
-               :r (* radius (if hovered? 0.34 0.28))
-               :fill "#FFD030"
-               :stroke (board/brighten color 0.4)
-               :stroke-width 2.5
-               :fill-opacity (if hovered? 0.95 0.85)
-               :style {:cursor "pointer"}
-               :on-mouse-enter (fn [_e]
-                                 (cancel-from-hover-clear!)
-                                 (reset! dest-hover nil)
-                                 (reset! from-hover {:space space :kind :food}))
-               :on-mouse-leave (fn [_e] (schedule-from-hover-clear!))
-               :on-click (fn [_e] (click-food space))}]))
-         (keys circ-from-map))
+        (let [food-beam (* element-radius 0.3)]
+          (vec
+           (mapcat
+            (fn [space]
+              (let [[x y] (get locations space)
+                    food (or (:food (get-in game [:state :elements space])) 0)
+                    hovered? (and (= :food (:kind hover))
+                                  (= space (:space hover)))
+                    enter (fn [_e]
+                            (cancel-from-hover-clear!)
+                            (reset! dest-hover nil)
+                            (reset! from-hover {:space space :kind :food})
+                            (reset! pointer-space {:space space :kind :food}))
+                    leave (fn [_e] (schedule-from-hover-clear!))
+                    click (fn [_e] (click-food space))]
+                (for [i (range food)
+                      :let [[ox oy] (board/radial-axis food food-beam (* board/tau -0.25) i)]]
+                  ^{:key (str "food-" space "-" i)}
+                  [:circle
+                   {:cx (+ x ox) :cy (+ y oy)
+                    :r (* element-radius (if hovered? 0.26 0.22))
+                    :fill "#FFD030"
+                    :stroke (board/brighten color 0.4)
+                    :stroke-width 2.5
+                    :fill-opacity (if hovered? 0.95 0.85)
+                    :style {:cursor "pointer"}
+                    :on-mouse-enter enter
+                    :on-mouse-leave leave
+                    :on-click click}])))
+            (if paying [] (keys circ-from-map)))))
 
         ;; ── Destination halos when hovering ────────────────────────────
         ;; Element hover → action's destinations
@@ -1850,7 +1934,9 @@
                      seq))
               (and (= :element kind) (= action-type :grow))
               (when grow-options
-                (seq (keys (get grow-options space))))
+                ;; Food is pooled, so every growable destination is reachable no
+                ;; matter which grower is hovered — show them all.
+                (seq (distinct (mapcat keys (vals grow-options)))))
               (and (= :element kind) (= action-type :move))
               (when move-options
                 (seq (keys (get move-options space))))
@@ -1861,7 +1947,7 @@
                      distinct
                      seq)))))
         dest-halos
-        (when (seq hover-dests)
+        (when (and (not paying) (seq hover-dests))
           (let [hovering-mover? (and (= action-type :move)
                                      (= :element (:kind hover)))
                 mover-space (when hovering-mover? (:space hover))]
@@ -1925,21 +2011,33 @@
         ;; a preview rendered inside the dest; click a type to commit.
         grow-inline-popup
         (when (and (= action-type :grow)
+                   (not paying)
                    (= :element (:kind hover))
                    d-hover
                    grow-options)
-          (let [grower-space (:space hover)
-                dest-space   d-hover
-                type-opts    (get-in grow-options [grower-space dest-space])]
-            (when (seq type-opts)
+          (let [dest-space d-hover
+                by-type    (grow-dest-options grow-options (:state game) dest-space)
+                types      (vec (sort-by name (keys by-type)))]
+            (when (seq types)
               (let [[dx dy] (get locations dest-space)
                     popup-radius (* (:radius board) 0.45)
-                    n (count type-opts)
+                    n (count types)
                     spread (* popup-radius 2.4)
                     start-x (- dx (* spread (/ (dec n) 2.0)))
                     offset-y (- dy (* (:radius board) 1.6))]
                 ^{:key (str "grow-popup-" dest-space)}
                 [:g
+                 ;; Invisible "bridge" spanning the destination up through the
+                 ;; whole option row, so the cursor never crosses a dead gap on
+                 ;; its way to a corner option — otherwise the hover-clear timer
+                 ;; fires mid-reach and the popup blinks away before you can pick.
+                 [:rect {:x (- start-x popup-radius)
+                         :y (- offset-y popup-radius)
+                         :width (+ (* spread (dec n)) (* 2 popup-radius))
+                         :height (+ (* (:radius board) 1.6) radius popup-radius)
+                         :fill "transparent"
+                         :on-mouse-enter (fn [_e] (cancel-from-hover-clear!))
+                         :on-mouse-leave (fn [_e] (schedule-from-hover-clear!))}]
                  ;; Preview the hovered type rendered at the destination
                  (when hovered-grow-type
                    ^{:key (str "grow-prev-" dest-space "-" hovered-grow-type)}
@@ -1950,9 +2048,10 @@
                      [dx dy]
                      element-radius
                      {:type hovered-grow-type :food 0})])
-                 (for [[i opt] (map-indexed vector type-opts)
+                 (for [[i type] (map-indexed vector types)
                        :let [px (+ start-x (* i spread))
-                             type (:type opt)
+                             variants (get by-type type)
+                             cost (reduce + 0 (vals (:spent (first variants))))
                              hovered? (= hovered-grow-type type)
                              bg-fill (if hovered?
                                        (board/brighten color 0.25)
@@ -1966,15 +2065,22 @@
                              opt-radius (if hovered?
                                           (* popup-radius 1.08)
                                           popup-radius)
-                             commit! (fn [e]
+                             ;; One way to pay → commit immediately. Several ways
+                             ;; (food is pooled) → enter coin-by-coin pay mode.
+                             choose! (fn [e]
                                        (.stopPropagation e)
                                        (cancel-from-hover-clear!)
                                        (reset! intro-hover nil)
-                                       (reset! from-hover nil)
-                                       (reset! dest-hover nil)
-                                       (send-state! (:next-state opt) true))]]
+                                       (if (or (zero? cost) (= 1 (count variants)))
+                                         (do (reset! from-hover nil)
+                                             (reset! dest-hover nil)
+                                             (send-state! (:state (first variants)) true))
+                                         (reset! grow-pay {:dest dest-space
+                                                           :cost cost
+                                                           :spent {}
+                                                           :variants variants})))]]
                    ^{:key (str "grow-popup-opt-" i "-" type)}
-                   [:g {:on-click commit!
+                   [:g {:on-click choose!
                         :on-mouse-enter (fn [_e]
                                           (cancel-from-hover-clear!)
                                           (reset! intro-hover type))
@@ -1987,7 +2093,58 @@
                               :stroke-width bg-stroke-w}]
                     (render-element
                      type px offset-y (* opt-radius 0.8) color food-color
-                     commit!)])]))))
+                     choose!)
+                    ;; cost shown above the icon as that many food tokens
+                    [:g {:style {:pointer-events "none"}}
+                     (board/render-food
+                      [px (- offset-y (* popup-radius 1.9))]
+                      (* popup-radius 0.45) (* popup-radius 0.3)
+                      food-color cost)]])]))))
+
+        ;; ── Grow payment overlay (coin-by-coin from the shared grower pool) ─
+        ;; Click growers to spend their food one coin at a time; once the cost is
+        ;; covered we commit the matching variant. Click empty space to cancel.
+        pay-overlay
+        (when paying
+          (let [{:keys [spent variants]} paying
+                growers (distinct (mapcat (comp keys :spent) variants))
+                food-beam (* element-radius 0.3)
+                food-rad  (* element-radius 0.2)]
+            ^{:key "grow-pay"}
+            [:g
+             ;; click empty space to cancel the grow
+             [:rect {:x -10000 :y -10000 :width 20000 :height 20000
+                     :fill "transparent"
+                     :on-click (fn [_e] (reset! grow-pay nil))}]
+             (into
+              [:g]
+              (for [g growers
+                    :let [[ex ey] (get locations g)
+                          cur (or (:food (get-in game [:state :elements g])) 0)
+                          sp  (get spent g 0)
+                          payable? (< sp cur)]]
+                ^{:key (str "pay-" g)}
+                [:g
+                 ;; obvious highlight on growers that still have a coin to spend;
+                 ;; maxed growers get an invisible click-catcher (so clicking a
+                 ;; fully-spent grower doesn't fall through and cancel).
+                 [:circle (cond-> {:cx ex :cy ey :r (* element-radius 1.15)
+                                   :fill "#FFD030"
+                                   :fill-opacity (if payable? 0.14 0.0)
+                                   :stroke (if payable? "#FFD030" "none")
+                                   :stroke-width (* 0.18 element-radius)}
+                            payable? (assoc :style {:cursor "pointer"}
+                                            :on-click (fn [e]
+                                                        (.stopPropagation e)
+                                                        (grow-pay-click! game g))))]
+                 (into
+                  [:g {:style {:pointer-events "none"}}]
+                  (for [i (range sp)
+                        :let [[ox oy] (board/radial-axis cur food-beam (* board/tau -0.25) i)]]
+                    ^{:key (str "payspent-" g "-" i)}
+                    [:circle {:cx (+ ex ox) :cy (+ ey oy) :r (* food-rad 1.7)
+                              :fill "none" :stroke "#FFD030"
+                              :stroke-width (* food-rad 0.5)}]))]))]))
 
         ;; ── Popup (grow element-type selection) ─────────────────────────
         ;; If every option carries an :type (element-type keyword), render
@@ -2095,6 +2252,7 @@
                  (or dest-halos [])
                  (when move-preview [move-preview])
                  (when grow-inline-popup [grow-inline-popup])
+                 (when pay-overlay [pay-overlay])
                  (when popup-render [popup-render])))))
 
 (defn choose-space-highlights

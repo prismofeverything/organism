@@ -570,7 +570,6 @@
   [state player station-type target]
   (let [level     (get-in state [:board target :station :level] 0)
         {:keys [base bonus]} (station-action-counts level)
-        same?     true ;; player always owns the station they just converted
         feasible? (case station-type
                     :matrix
                     (let [positions (count (matrix-beacon-positions state player))
@@ -591,15 +590,16 @@
                       (assoc-in [:player-turn :action :beacons-joined] 0)
                       (assoc-in [:player-turn :action :owner-actions] 0)
                       (assoc-in [:player-turn :action :free-activation?] true)
+                      ;; The converted station is activated on creation — record it
+                      ;; so the follow-on :choose-activate-station cannot offer it
+                      ;; again (each station activates at most once per turn).
+                      (update-in [:player-turn :action :activated-stations] (fnil conj #{}) target)
                       (assoc-in [:player-turn :choice-player] nil))]
-        ;; Own station with bonus: ask how many bonus actions to take first
-        (if (and same? (pos? bonus))
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (begin-actor-actions :activator))))
+        ;; Do the base actions first; the bonus is offered afterward
+        ;; (advance-after-actions :activator).
+        (-> state
+            (assoc-in [:player-turn :action :activator-actions] base)
+            (begin-actor-actions :activator)))
       (assoc-in state [:player-turn :phase] :draw-cards))))
 
 ;; --- activate action ---
@@ -900,25 +900,41 @@
         state))))
 
 (defn advance-after-actions
-  "After current actor finishes:
-   - Activator done → offer owner their bonus (if other's station with bonus), else next station.
-   - Owner done → return sundiver from station to habitat, then next station."
+  "After an actor finishes an action run:
+   - Activator just finished base actions and a bonus remains → offer it. Own
+     station: the activator decides (:choose-activate-self-bonus). Another's
+     station: the owner decides first (:choose-activate-owner-bonus); only if they
+     decline does it fall back to the activator.
+   - Bonus already resolved (bonus-total 0) or none → next station.
+   - Owner finished → return the activator's sundiver, then next station."
   [state actor]
   (if (= actor :activator)
     (let [bonus-total (get-in state [:player-turn :action :bonus-total] 0)
           owner       (get-in state [:player-turn :action :current-owner])
           player      (current-player state)]
-      (if (and (pos? bonus-total) (not= player owner))
+      (cond
+        (not (pos? bonus-total))
+        (-> state return-sundiver-from-station begin-next-station)
+
+        (= player owner)
+        ;; Own station: the activator chooses whether to take the bonus.
+        (assoc-in state [:player-turn :phase] :choose-activate-self-bonus)
+
+        :else
+        ;; Another's station: the owner decides first.
         (-> state
             (assoc-in [:player-turn :choice-player] owner)
-            (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
-        (-> state return-sundiver-from-station begin-next-station)))
+            (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))))
     (-> state return-sundiver-from-station begin-next-station)))
 
 (defn begin-next-station
-  "Pop the next station from the queue and set it up, or return to station selection."
+  "Pop the next station from the queue and set it up, or return to station selection.
+   Always resets choice-player to nil: control returns to the activator here — for the
+   next station's base actions or to re-select a station — including after an owner took
+   the previous station's bonus (which held choice-player = owner for its whole span)."
   [state]
-  (let [player       (current-player state)
+  (let [state        (assoc-in state [:player-turn :choice-player] nil)
+        player       (current-player state)
         queue        (get-in state [:player-turn :action :stations-queue] [])
         station-type (get-in state [:player-turn :action :station-type])]
     (if (empty? queue)
@@ -938,17 +954,12 @@
                          (assoc-in [:player-turn :action :bonus-total] bonus)
                          (assoc-in [:player-turn :action :beacons-joined] 0)
                          (update-in [:player-turn :action :cards-to-draw] (fnil + 0) level))]
-        (if (pos? bonus)
-          ;; Station has bonus: ask activator how many bonus actions to take
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (assoc-in [:player-turn :action :owner-actions] 0)
-              (assoc-in [:player-turn :phase] :choose-activate-self-bonus))
-          ;; No bonus: activator does base actions only
-          (-> state
-              (assoc-in [:player-turn :action :activator-actions] base)
-              (assoc-in [:player-turn :action :owner-actions] 0)
-              (begin-actor-actions :activator)))))))
+        ;; Always do the base actions first; the bonus (if any) is offered after,
+        ;; via advance-after-actions :activator.
+        (-> state
+            (assoc-in [:player-turn :action :activator-actions] base)
+            (assoc-in [:player-turn :action :owner-actions] 0)
+            (begin-actor-actions :activator))))))
 
 (defn start-activate
   "Initialize the activate action for the chosen station type.
@@ -1076,12 +1087,39 @@
         next-idx (mod (inc idx) (count order))
         next-p   (order next-idx)
         round    (if (zero? next-idx) (inc (:round state)) (:round state))]
+    (let [state (-> state
+                    (assoc :round round)
+                    (update :pending-cipher (constantly []))
+                    (assoc :player-turn {:player                  next-p
+                                         :phase                   :choose-action-type
+                                         :captain-beacons-joined  0}))]
+      ;; Stuck with no usable sundivers (none on the board or in the habitat) but
+      ;; still holding a station → must deconvert one to recover.
+      (if (and (zero? (total-spendable-sundivers state next-p))
+               (seq (get-in state [:players next-p :stations])))
+        (assoc-in state [:player-turn :phase] :choose-deconvert)
+        state))))
+
+(defn deconvert
+  "Remove the player's station at pos, moving its sundivers from the RESERVE back
+   to the habitat (3 for a tower, 2 for matrix/foundry) and the station piece to
+   reserve. The sundivers come from the reserve — where `convert` parked them when
+   the station was built — never minted from nothing, so the player's total sundiver
+   count is conserved. Runs automatically at the start of a turn when the player has
+   no usable sundivers; afterward they take a normal turn with the reclaimed sundivers."
+  [state player pos]
+  (let [stype (get-in state [:board pos :station :type])
+        n     (if (= stype :tower) 3 2)
+        ;; Reserve always holds these at a forced deconvert (the player is stuck with
+        ;; board+habitat = 0, so all their sundivers are in reserve); min is a guard.
+        moved (min n (get-in state [:players player :reserve :sundivers] 0))]
     (-> state
-        (assoc :round round)
-        (update :pending-cipher (constantly []))
-        (assoc :player-turn {:player                  next-p
-                             :phase                   :choose-action-type
-                             :captain-beacons-joined  0}))))
+        (assoc-in [:board pos :station] nil)
+        (update-in [:players player :stations] dissoc pos)
+        (update-in [:players player :reserve :sundivers] - moved)
+        (update-in [:players player :habitat :sundivers] (fnil + 0) moved)
+        (update-in [:players player :reserve (station-reserve-key stype)] (fnil inc 0))
+        (assoc-in [:player-turn :phase] :choose-action-type))))
 
 ;; --- movement points ---
 

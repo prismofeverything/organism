@@ -2,27 +2,45 @@
 the bed (min z = 0) and arranged in a grid, exported as ONE STL for slicing. Light (import +
 place + export, no render). See FOOD.md.
 
+Pieces: prefers the SCULPT grafts (out/*_sculpt_graft.obj — artist-finished Blender
+sculpts with the connector grafted on by build_sculpt_graft.py). Falls back to the
+parametric grafts (out/*_graft.obj) if the sculpt isn't present, or if USE_SCULPT=false.
+
 Run:  blender --background --python build_print_plate.py
-Env:  PLATE_OUT (stl path), PLATE_CELL (grid spacing mm)
+Env:  PLATE_OUT (stl path), PLATE_CELL (grid spacing mm), USE_SCULPT (true/false)
 """
 import bpy, os, bmesh
 HERE = os.path.dirname(os.path.abspath(__file__))
 FOOD = os.path.join(HERE, "renders", "food")
 OUT  = os.environ.get("PLATE_OUT", os.path.join(FOOD, "print_plate.stl"))
 CELL = float(os.environ.get("PLATE_CELL", "42.0"))
+USE_SCULPT = os.environ.get("USE_SCULPT", "true").lower() in ("true", "1", "yes")
 
-# (label, path, kind). kind 'obj' = up=Y export (the pieces); 'stl' = Z-up (the food).
+def piece_path(name):
+    """Sculpt graft if present, else fall back to parametric graft."""
+    sculpt = f"{HERE}/out/{name}_sculpt_graft.obj"
+    parametric = f"{HERE}/out/{name}_graft.obj"
+    if USE_SCULPT and os.path.exists(sculpt):
+        return sculpt
+    return parametric
+
+# (label, path, kind). Pieces are GRAFT obj (body + universal connector, Z-up); food are
+# revolved STL (Z-up). 3x3 grid: pieces back, slip food middle, snap food front.
 items = [
-    ("EAT",     f"{HERE}/EAT_connected.obj",  "obj"),
-    ("MOVE",    f"{HERE}/MOVE_connected.obj", "obj"),
-    ("GROW",    f"{HERE}/GROW_connected.obj", "obj"),
-    ("slip-1",  f"{FOOD}/FOOD_nosnap.stl",    "stl"),
-    ("slip-2",  f"{FOOD}/FOOD_nosnap.stl",    "stl"),
-    ("slip-3",  f"{FOOD}/FOOD_nosnap.stl",    "stl"),
-    ("snap-1",  f"{FOOD}/FOOD_snap.stl",      "stl"),
-    ("snap-2",  f"{FOOD}/FOOD_snap.stl",      "stl"),
-    ("snap-3",  f"{FOOD}/FOOD_snap.stl",      "stl"),
+    ("EAT",     piece_path("EAT"),                  "obj"),
+    ("MOVE",    piece_path("MOVE"),                 "obj"),
+    ("GROW",    piece_path("GROW"),                 "obj"),
+    ("slip-1",  f"{FOOD}/FOOD_nosnap.stl",         "stl"),
+    ("slip-2",  f"{FOOD}/FOOD_nosnap.stl",         "stl"),
+    ("slip-3",  f"{FOOD}/FOOD_nosnap.stl",         "stl"),
+    ("snap-1",  f"{FOOD}/FOOD_snap.stl",           "stl"),
+    ("snap-2",  f"{FOOD}/FOOD_snap.stl",           "stl"),
+    ("snap-3",  f"{FOOD}/FOOD_snap.stl",           "stl"),
 ]
+print(f"using sculpt grafts: {USE_SCULPT} (fall back to parametric if sculpt missing)")
+for label, path, _ in items[:3]:
+    flavor = "SCULPT" if "sculpt" in path else "PARAMETRIC"
+    print(f"  {label}: {flavor}  {os.path.basename(path)}")
 cells = [(c, r) for r in (2, 1, 0) for c in (0, 1, 2)]   # pieces back row, slip mid, snap front
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -30,7 +48,7 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 def import_one(path, kind):
     before = set(bpy.data.objects)
     if kind == "obj":
-        bpy.ops.wm.obj_import(filepath=path, forward_axis='NEGATIVE_Z', up_axis='Y')
+        bpy.ops.wm.obj_import(filepath=path, forward_axis='Y', up_axis='Z')
     else:
         try: bpy.ops.wm.stl_import(filepath=path)
         except Exception: bpy.ops.import_mesh.stl(filepath=path)

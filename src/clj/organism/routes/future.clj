@@ -4,14 +4,22 @@
    [organism.layout :as layout]
    [organism.persist :as persist]
    [organism.middleware :as middleware]
-   [ring.util.response :as response]))
+   [organism.routes.shared :as shared]
+   [organism.routes.future-ws :as future-ws]
+   [future.game :as game]))
 
-(defn require-auth
-  [handler]
-  (fn [request]
-    (if (get-in request [:session :player])
-      (handler request)
-      (response/redirect (str "/login?redirect=" (:uri request))))))
+(defn create-game!
+  "POST handler: create a Future game and boot into it."
+  [db request]
+  (shared/create-game!
+   {:games-atom  future-ws/games
+    :make-state  (fn [players _params] (game/create-game players))
+    :max-players 5
+    :after!      (fn [_db play-key state]
+                   (let [bots (:bots (get-in @future-ws/games [:games play-key]))]
+                     (when (contains? bots (game/current-player state))
+                       (future-ws/run-bot-turns! play-key))))}
+   db request))
 
 (defn home-page
   [request]
@@ -89,12 +97,13 @@
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
    ["" {:get home-page}]
-   ["/create" {:get create-page
-               :middleware [require-auth]}]
+   ["/create" {:get  create-page
+               :post (partial create-game! db)
+               :middleware [shared/require-auth]}]
    ["/rules" {:get rules-page}]
    ["/generate" {:get generate-page}]
    ["/play" {:get (partial play-list-page db)
-             :middleware [require-auth]}]
+             :middleware [shared/require-auth]}]
    ["/play/:play" {:get play-page}]
    ["/play/:play/" {:get play-page}]
    ["/observe" {:get (partial observe-page db)}]

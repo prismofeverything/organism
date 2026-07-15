@@ -20,6 +20,44 @@
       (handler request)
       (response/redirect (str "/login?redirect=" (:uri request))))))
 
+;; ── Create handler ─────────────────────────────────────────────────────────
+
+(defn create-game!
+  "Generic POST create handler shared by player-list games (future/journey/…).
+
+   Spec keys:
+     :games-atom  — the game's ws `games` atom (required)
+     :make-state  — (fn [players params] → initial game-state) (required)
+     :max-players — cap on player count (optional)
+     :persist!    — (fn [db play-name players bot-set state]) side effect (optional)
+     :after!      — (fn [db play-name state]) e.g. kick off bot turns (optional)
+
+   Reads :play-name/:players/:bots from the request, validates, stores a
+   standard game record in the atom, persists, fires the after-hook, and
+   responds with {:play-key play-name}."
+  [{:keys [games-atom make-state max-players persist! after!]} db request]
+  (let [params    (or (:body-params request) (:params request))
+        play-name (get params :play-name (get params "play-name"))
+        players   (vec (get params :players (get params "players")))
+        bots      (get params :bots (get params "bots" []))
+        players   (if max-players (vec (take max-players players)) players)]
+    (if (and (seq play-name) (seq players))
+      (let [state   (make-state players params)
+            bot-set (set bots)]
+        (swap! games-atom assoc-in [:games play-name]
+               {:key           play-name
+                :state         state
+                :initial-state state
+                :history       []
+                :bots          bot-set
+                :players       players
+                :chat          []
+                :channels      #{}})
+        (when persist! (persist! db play-name players bot-set state))
+        (when after!   (after! db play-name state))
+        (response/response {:play-key play-name}))
+      (response/bad-request {:error "play-name and players required"}))))
+
 ;; ── Common data loaders ──────────────────────────────────────────────────
 
 (defn load-open-games-for

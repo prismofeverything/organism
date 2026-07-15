@@ -146,6 +146,215 @@
       (is (some? drawn))
       (is (= (dec game/num-worlds-per-color) (get bag2 drawn))))))
 
+(deftest activate-bonus-routing-test
+  ;; Foundry: base 1, bonus 1 at level 1. Foundry base actions always feasible,
+  ;; so begin-next-station runs the activator's base action immediately.
+  (testing "activating ANOTHER player's station offers the bonus to the owner, not the activator"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "bob" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+                    game/begin-next-station)]
+      ;; The turn still belongs to alice (the activator)…
+      (is (= "alice" (game/current-player state)))
+      ;; …but she is NOT offered the self bonus on bob's station.
+      (is (not= :choose-activate-self-bonus (game/current-phase state))
+          "activator must not be offered the bonus on another player's station")
+      ;; After her base action, bob (the owner) is offered the bonus.
+      (is (= :choose-activate-owner-bonus (game/current-phase state))
+          "owner is offered the bonus after the activator's base actions")
+      (is (= "bob" (get-in state [:player-turn :choice-player]))
+          "the bonus choice is handed to the station owner")))
+
+  (testing "activating your OWN station still offers the bonus to you (the activator)"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "alice" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+                    game/begin-next-station)]
+      (is (= :choose-activate-self-bonus (game/current-phase state))
+          "owner activating their own station chooses the bonus themselves"))))
+
+(deftest activate-bonus-order-and-fallback-test
+  (testing "base actions run BEFORE the bonus is offered (own station)"
+    (let [start (-> (game/initial-state ["alice"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "alice" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]]))
+          hab0  (get-in start [:players "alice" :habitat :sundivers] 0)
+          state (game/begin-next-station start)]
+      ;; The base foundry action already executed (sundivers moved to habitat)…
+      (is (> (get-in state [:players "alice" :habitat :sundivers] 0) hab0)
+          "base action executed before any bonus prompt")
+      ;; …and only then is the activator offered the bonus.
+      (is (= :choose-activate-self-bonus (game/current-phase state)))))
+
+  (testing "owner declines the bonus on their station → the activator gets the option"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :foundry "bob" 1)
+                                  (assoc-in [:sundivers "alice"] 1)))
+                    (assoc-in [:player-turn :action :station-type] :foundry)
+                    (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+                    game/begin-next-station)]
+      ;; After base, the owner (bob) decides first.
+      (is (= :choose-activate-owner-bonus (game/current-phase state)))
+      (is (= "bob" (get-in state [:player-turn :choice-player])))
+      ;; Bob declines (choice 0) → alice (the activator) is offered the bonus.
+      (let [declined (get (choice/choose-activate-owner-bonus-choices state) 0)]
+        (is (= :choose-activate-self-bonus (game/current-phase declined))
+            "declining hands the option to the activator")
+        (is (nil? (get-in declined [:player-turn :choice-player]))
+            "control returns to the activator")))))
+
+(deftest owner-bonus-control-handoff-test
+  ;; Regression: when the owner TAKES the bonus on another player's station, the
+  ;; owner — not the activator — must make EVERY choice for the bonus actions
+  ;; (where the beacon goes, how to pay), and control must return to the activator
+  ;; once the bonus is spent. Previously the activator made the owner's choices.
+  (testing "owner taking a matrix bonus controls every sub-choice, then hands back"
+    (let [base (-> (game/initial-state ["alice" "bob"])
+                   ;; bob's matrix station; alice's sundiver is the activating one.
+                   (assoc-in [:board [2 0]]
+                             (-> (game/make-tile :blue)
+                                 (game/add-station :matrix "bob" 1)
+                                 (assoc-in [:sundivers "alice"] 1)))
+                   ;; bob can pay (habitat sundivers) and has beacons (default 21).
+                   (assoc-in [:players "bob" :habitat :sundivers] 3)
+                   ;; Park at the owner-bonus decision: alice's base action is done,
+                   ;; one bonus action remains, and the owner (bob) decides first.
+                   (assoc-in [:player-turn :action :station-type] :matrix)
+                   (assoc-in [:player-turn :action :current-station] [2 0])
+                   (assoc-in [:player-turn :action :current-owner] "bob")
+                   (assoc-in [:player-turn :action :bonus-total] 1)
+                   (assoc-in [:player-turn :action :owner-actions] 0)
+                   (assoc-in [:player-turn :action :activator-actions] 0)
+                   (assoc-in [:player-turn :choice-player] "bob")
+                   (assoc-in [:player-turn :phase] :choose-activate-owner-bonus))
+          ;; bob takes the full bonus (max-feasible = 1).
+          taken (get (choice/choose-activate-owner-bonus-choices base) 1)]
+      (is (some? taken) "the owner can take the bonus")
+      (is (= "alice" (game/current-player taken))
+          "it is still the activator's turn")
+      (is (= "bob" (get-in taken [:player-turn :choice-player]))
+          "but the OWNER controls the bonus actions")
+      (is (= :owner (get-in taken [:player-turn :action :current-actor]))
+          "the bonus actions run as the owner")
+      (is (= :choose-activate-matrix-beacon (game/current-phase taken))
+          "the owner is placing the bonus beacon")
+      ;; Placing the beacon: it is the OWNER's beacon, and control stays with bob.
+      (let [beacon-pos (first (game/matrix-beacon-positions taken "bob"))
+            beacons0   (get-in taken [:players "bob" :reserve :beacons])
+            placed     (get (choice/choose-activate-matrix-beacon-choices taken) beacon-pos)]
+        (is (= "bob" (get-in placed [:player-turn :choice-player]))
+            "owner still controls the payment step")
+        (is (= "bob" (get-in placed [:board beacon-pos :beacon]))
+            "the beacon placed belongs to the owner")
+        (is (= (dec beacons0) (get-in placed [:players "bob" :reserve :beacons]))
+            "the beacon came from the owner's reserve")
+        ;; Paying from bob's habitat (nil = habitat) finishes the only bonus action.
+        (let [done (get (choice/choose-activate-matrix-spend-choices placed) nil)]
+          (is (some? done) "owner pays from their own pool")
+          (is (= 2 (get-in done [:players "bob" :habitat :sundivers]))
+              "the sundiver was spent from the OWNER's habitat")
+          (is (nil? (get-in done [:player-turn :choice-player]))
+              "control returns to the activator once the bonus is done")
+          (is (= :choose-activate-station (game/current-phase done))
+              "back to the activator's station selection"))))))
+
+(deftest convert-not-reactivatable-test
+  (testing "a station converted (and auto-activated) this turn cannot be activated again"
+    ;; Foundry pattern: sundivers at [3 0] and [2 -1] convert to a station at [2 0].
+    ;; Put an extra alice sundiver ON the target so the new station would otherwise
+    ;; reappear in the follow-on station-selection (it has a sundiver on its tile).
+    (let [state (-> (game/initial-state ["alice"])
+                    (place-tile [2 0] :blue)
+                    (place-sundiver "alice" [3 0])
+                    (place-sundiver "alice" [2 -1])
+                    (place-sundiver "alice" [2 0]))
+          after (game/convert state "alice" :foundry [2 0] [[3 0] [2 -1]])]
+      ;; Recorded as activated on creation, and the target still holds alice's
+      ;; sundiver (so without the guard it would be offered for activation again).
+      (is (contains? (get-in after [:player-turn :action :activated-stations]) [2 0])
+          "converted station is marked activated on creation")
+      (is (pos? (get-in after [:board [2 0] :sundivers "alice"] 0)))
+      (is (= :choose-activate-self-bonus (game/current-phase after)))
+      ;; Decline the automatic activation's bonus to reach station selection…
+      (let [at-station (get (choice/choose-activate-self-bonus-choices after) 0)]
+        (is (= :choose-activate-station (game/current-phase at-station)))
+        ;; …and confirm the just-converted station is not offered again.
+        (let [[_ choices] (choice/find-state-raw at-station)]
+          (is (not (contains? choices [2 0]))
+              "the just-converted station must not be activatable again this turn"))))))
+
+(deftest deconvert-when-stuck-test
+  (testing "starting a turn with no usable sundivers but a station forces a deconvert"
+    (let [state (-> (game/initial-state ["alice" "bob"])
+                    ;; Bob: no sundivers on the board or in his habitat, but owns a tower.
+                    (assoc-in [:players "bob" :habitat :sundivers] 0)
+                    (assoc-in [:board [2 0]]
+                              (-> (game/make-tile :blue)
+                                  (game/add-station :tower "bob" 1)))
+                    (assoc-in [:players "bob" :stations [2 0]] {:type :tower :level 1})
+                    ;; Make it alice's turn so begin-next-player-turn advances to bob.
+                    (assoc-in [:player-turn :player] "alice"))
+          after (game/begin-next-player-turn state)]
+      (is (= "bob" (game/current-player after)))
+      (is (zero? (game/total-spendable-sundivers after "bob")))
+      (is (= :choose-deconvert (game/current-phase after))
+          "bob is forced to deconvert")
+      ;; Deconverting the tower moves 3 sundivers FROM bob's reserve to his habitat
+      ;; (not minted) and returns the tower piece to reserve.
+      (let [res-before    (get-in after [:players "bob" :reserve :sundivers])
+            hab-before    (get-in after [:players "bob" :habitat :sundivers])
+            towers-before (get-in after [:players "bob" :reserve :towers])
+            done          (get (choice/choose-deconvert-choices after) [2 0])]
+        (is (nil? (get-in done [:board [2 0] :station])) "station removed from the board")
+        (is (not (contains? (get-in done [:players "bob" :stations]) [2 0]))
+            "station removed from bob's stations")
+        (is (= 3 (get-in done [:players "bob" :habitat :sundivers]))
+            "3 sundivers reclaimed for a tower")
+        (is (= (- res-before 3) (get-in done [:players "bob" :reserve :sundivers]))
+            "the 3 sundivers came FROM the reserve, not minted from nothing")
+        (is (= (+ res-before hab-before)
+               (+ (get-in done [:players "bob" :reserve :sundivers])
+                  (get-in done [:players "bob" :habitat :sundivers])))
+            "deconvert conserves the player's total sundivers")
+        (is (= (inc towers-before) (get-in done [:players "bob" :reserve :towers]))
+            "the tower piece is returned to reserve")
+        (is (= :choose-action-type (game/current-phase done))
+            "then the player takes a normal turn with the reclaimed sundivers")))))
+
+(deftest keep-card-held-is-an-option-test
+  (testing "the held card is offered as an equal keep option alongside drawn cards"
+    (let [held    (game/make-card 0 5)
+          drawn   [(game/make-card 1 3) (game/make-card 2 7)]
+          state   (-> (game/initial-state ["alice"])
+                      (assoc-in [:players "alice" :held-card] held)
+                      (assoc-in [:player-turn :action :drawn-cards] drawn)
+                      (assoc-in [:player-turn :phase] :keep-card))
+          choices (choice/choose-keep-card-choices state)]
+      ;; All three cards (held + 2 drawn) are options, keyed by the card itself —
+      ;; no separate :keep-held option.
+      (is (= 3 (count choices)))
+      (is (contains? choices held) "the held card is a keep option")
+      (is (every? #(contains? choices %) drawn) "the drawn cards are options")
+      (is (not (contains? choices :keep-held)) "no separate held/keep option")
+      ;; Keeping the held card discards the two drawn cards.
+      (let [done (get choices held)]
+        (is (= held (get-in done [:players "alice" :held-card])))
+        (is (= (set drawn) (set (:discard done))) "the unchosen cards are discarded")))))
+
 ;; ─── extended simulation ──────────────────────────────────────────────────────
 
 (defn- try-if-choices
@@ -165,13 +374,45 @@
         [_ mc]     (when move-state (choice/find-state move-state))]
     (or (contains? mc :launch) (contains? mc :fly))))
 
+(def ^:private walker-protected-phases
+  "Phases the walker must always decide explicitly — mirrors choice/find-state's
+   no-auto-advance set, so auto-advance stops at real decision points."
+  #{:choose-action-type :choose-move :choose-convert :choose-activate
+    :choose-activate-self-bonus :choose-activate-owner-bonus :choose-land})
+
+(defn- auto-advance-state
+  "Follow single-choice, non-protected phases and return the resulting STATE.
+   Mirrors choice/find-state's auto-advance but yields the state, so a game-over
+   reached this way (e.g. the draw that triggers the 13-flare loss) is observable
+   instead of looking like a dead-end."
+  [state]
+  (loop [s state]
+    (let [[phase choices] (choice/find-state-raw s)
+          nxt             (first (vals choices))]
+      (if (and (= 1 (count choices))
+               (not (contains? walker-protected-phases phase))
+               nxt
+               (not= phase :game-over))
+        (recur nxt)
+        s))))
+
 (defn- simulate-step
-  "Pick one smart choice and return the next state. Throws on dead-end."
+  "Pick one smart choice and return the next state. Throws on a genuine dead-end."
   [state]
   (let [[phase choices] (choice/find-state state)]
-    (when (empty? choices)
-      (throw (ex-info "Dead end" {:phase phase})))
-    (case phase
+    (cond
+      ;; The game ended during auto-advance (e.g. drawing the 13th flare → loss,
+      ;; which find-state advances straight into). Surface the game-over state
+      ;; instead of treating its empty choice set as a dead-end.
+      (= phase :game-over)
+      (auto-advance-state state)
+
+      (empty? choices)
+      (throw (ex-info "Dead end" {:phase phase}))
+
+      :else
+      (or
+       (case phase
       ;; Action type: prefer activate (own stations) → convert → move with real
       ;; sub-choices. Skip move if its only sub-choice would be :done.
       :choose-action-type
@@ -198,16 +439,18 @@
       :flare-beacon-join   (:join choices (:skip choices))
       :captain-beacon-join (:join choices (:skip choices))
 
-      ;; Ark advance wrap: always go direct
-      :choose-ark-advance        (:direct choices)
-      :choose-flare-advance      (:direct choices)
-      :choose-drift-flare-advance (:direct choices)
+      ;; Ark advance (flare/drift-flare are now keyed by destination hex):
+      ;; just take the first option (straight ahead).
+      :choose-ark-advance        (first (vals choices))
+      :choose-flare-advance      (first (vals choices))
+      :choose-drift-flare-advance (first (vals choices))
 
       ;; Drift card: auto-draw
       :draw-drift-card (:draw choices)
 
-      ;; Captain drift: no turn (straight ahead)
-      :choose-captain-drift (:none choices)
+      ;; Captain drift: choices are keyed by destination hex (like tower headings),
+      ;; not :none/:left/:right — take the first available heading.
+      :choose-captain-drift (first (vals choices))
 
       ;; Never land during the simulation — let all 5 rounds complete
       :choose-land (:continue choices)
@@ -221,7 +464,11 @@
         (get choices (if (seq no-station) (first no-station) (first (keys choices)))))
 
       ;; Everything else: first available
-      (first (vals choices)))))
+      (first (vals choices)))
+     ;; Safety net: a case returning nil (e.g. a choice key the walker no longer
+     ;; matches, like a renamed phase) must never cause a recur on nil — fall
+     ;; back to any valid choice so the simulation keeps progressing.
+     (first (vals choices))))))
 
 (defn- play-one-player-turn
   "Step from the current player's :choose-action-type until the next player's.
@@ -234,7 +481,7 @@
         [s phases]
 
         (and (seq phases)
-             (= :choose-action-type (game/current-phase s))
+             (contains? #{:choose-action-type :choose-deconvert} (game/current-phase s))
              (not= (game/current-player s) start-player))
         [s phases]
 

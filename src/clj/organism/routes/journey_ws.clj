@@ -1,44 +1,16 @@
 (ns organism.routes.journey-ws
   (:require
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.string :as str]
    [clojure.tools.logging :as log]
-   [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
+   [organism.game-ws :as gws :refer [read-json send! send-channels!]]
    [journey.game :as game]
    [journey.choice :as choice]
    [journey.bot-flow :as bot-flow]
    [organism.persist :as persist]
    [organism.persist-journey :as persist-j]
-   [organism.persist-journey-bots :as bots-db])
-  (:import
-   [java.io ByteArrayOutputStream]))
-
-;; ── Transit helpers ───────────────────────────────────────────────────────────
-
-(defn- ->stream [input]
-  (cond (string? input) (io/input-stream (.getBytes input))
-        :else input))
-
-(defn read-json [input]
-  (with-open [ins (->stream input)]
-    (-> ins (transit/reader :json) transit/read)))
-
-(defn write-json [output]
-  (let [out (ByteArrayOutputStream. 4096)
-        w   (transit/writer out :json)
-        _   (transit/write w output)
-        ret (.toString out)]
-    (.reset out)
-    ret))
-
-(defn send! [channel message]
-  (hk/send! channel (write-json message)))
-
-(defn send-channels! [channels message]
-  (doseq [ch channels]
-    (send! ch message)))
+   [organism.persist-journey-bots :as bots-db]))
 
 ;; ── Games atom ────────────────────────────────────────────────────────────────
 ;; {:games {play-key → {:key      play-key
@@ -58,6 +30,15 @@
   [state]
   (or (get-in state [:player-turn :choice-player])
       (game/current-player state)))
+
+(defn- turn-advanced?
+  "True only when a step moved play to a different turn-player — the real turn
+   boundary (begin-next-player-turn). The choice-player can change *within* a turn
+   (owner bonus, cipher beacon placement, flare/captain joins) without advancing
+   the turn; those steps must stay on the undo stack, so they are NOT turn changes."
+  [prev-state next-state]
+  (not= (game/current-player prev-state)
+        (game/current-player next-state)))
 
 ;; ── Persistence helper ──────────────────────────────────────────────────────
 
@@ -101,33 +82,22 @@
    :chat     []
    :channels #{channel}})
 
-(defn append-channel! [play-key channel]
-  (swap! games update-in [:games play-key :channels] conj channel))
-
 (defn load-game! [db play-key channel]
   ;; Try loading from MongoDB first
   (if-let [saved (persist-j/load-game db play-key)]
-    (let [g {:key           play-key
-             :state         (:state saved)
-             :initial-state (:initial-state saved)
-             :history       []
-             :bots          (set (:bots saved))
-             :players       (:players saved)
-             :saved-history (:history saved)
-             :chat          []
-             :channels      #{channel}}]
-      (swap! games assoc-in [:games play-key] g)
-      g)
-    (let [g (empty-game play-key channel)]
-      (swap! games assoc-in [:games play-key] g)
-      g)))
+    {:key           play-key
+     :state         (:state saved)
+     :initial-state (:initial-state saved)
+     :history       []
+     :bots          (set (:bots saved))
+     :players       (:players saved)
+     :saved-history (:history saved)
+     :chat          []
+     :channels      #{channel}}
+    (empty-game play-key channel)))
 
 (defn find-game! [db play-key channel]
-  (let [existing (get-in @games [:games play-key])]
-    (if (empty? existing)
-      (load-game! db play-key channel)
-      (do (append-channel! play-key channel)
-          (update existing :channels conj channel)))))
+  (gws/find-game! games play-key channel (fn [pk ch] (load-game! db pk ch))))
 
 ;; ── Bot turns ───────────────────────────────────────────────────────────────
 
@@ -152,8 +122,7 @@
 
 (def ^:private bot-protected-phases
   "Phases where bot should stop, broadcast, and make a visible decision."
-  #{:choose-action-type :choose-move :choose-convert :choose-activate
-    :choose-activate-station :choose-activate-self-bonus :choose-activate-owner-bonus
+  #{:choose-action-type :choose-deconvert :choose-move :choose-convert :choose-activate
     :choose-activate-matrix-beacon :choose-activate-tower-heading
     :choose-land :game-over})
 
@@ -212,7 +181,18 @@
                            (fn [gs]
                              (-> gs
                                  (assoc-in [:games play-key :state] effective)
-                                 (assoc-in [:games play-key :history] []))))
+                                 ;; Keep the undo stack threaded through the turn.
+                                 ;; Clear only when this move ends a turn, or is part
+                                 ;; of the bot's *own* turn (bot turns aren't undoable).
+                                 ;; When a bot resolves a sub-decision inside a human's
+                                 ;; turn (e.g. the owner bonus on the bot's station),
+                                 ;; leave history intact so the human can still undo
+                                 ;; their action — the bot's response folds into it.
+                                 (assoc-in [:games play-key :history]
+                                           (if (or (contains? bots (game/current-player effective))
+                                                   (turn-advanced? current-state effective))
+                                             []
+                                             (:history (get-in gs [:games play-key])))))))
                     (broadcast-state! play-key)
                     (save-state! db play-key ck)
                     (recur)))))))))
@@ -252,10 +232,9 @@
           (if next-state
             ;; Auto-advance through single-choice non-protected phases.
             ;; Implemented entirely in .clj — no dependency on .cljc auto-advance.
-            (let [protected-phases #{:choose-action-type :choose-move :choose-convert
-                                     :choose-activate :choose-activate-station
-                                     :choose-activate-self-bonus
-                                     :choose-activate-owner-bonus :choose-land
+            (let [protected-phases #{:choose-action-type :choose-deconvert
+                                     :choose-move :choose-convert
+                                     :choose-activate :choose-land
                                      :game-over}
                   effective (loop [s next-state]
                               (let [p  (game/current-phase s)
@@ -266,9 +245,8 @@
                                          (not (contains? protected-phases p)))
                                   (recur (first (vals cs)))
                                   s)))
-                  old-player    (choice-player state)
                   new-player    (choice-player effective)
-                  turn-changed? (not= old-player new-player)
+                  turn-changed? (turn-advanced? state effective)
                   bots          (:bots game-data)]
               (swap! games
                      (fn [gs]
@@ -337,13 +315,7 @@
 
 (defn disconnect! [{:keys [play-key player]} channel status]
   (log/info "Journey DISCONNECT" player status)
-  (swap! games
-         (fn [gs]
-           (let [remaining (remove #{channel}
-                                   (get-in gs [:games play-key :channels]))]
-             (if (empty? remaining)
-               (update-in gs [:games] dissoc play-key)
-               (assoc-in gs [:games play-key :channels] (set remaining)))))))
+  (gws/remove-channel! games play-key channel))
 
 (defn handle-replay-state! [db play-key _channel {:keys [step]}]
   (let [game-data (get-in @games [:games play-key])
@@ -371,10 +343,8 @@
 ;; ── Route wiring ─────────────────────────────────────────────────────────────
 
 (defn websocket-callbacks [db player play-key]
-  (let [cfg {:db db :player player :play-key play-key}]
-    {:on-open    (partial connect!         cfg)
-     :on-close   (partial disconnect!      cfg)
-     :on-receive (partial notify-clients!  cfg)}))
+  (gws/make-callbacks {:db db :player player :play-key play-key}
+                      {:on-open connect! :on-close disconnect! :on-receive notify-clients!}))
 
 (defn ws-handler [db {:keys [path-params session] :as request}]
   (let [play   (:play path-params)

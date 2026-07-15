@@ -25,7 +25,17 @@ output/
 run*.sh
 auto.save
 /pieces/renders/
-/pieces/out/
+# pieces/out/ is regenerable build output (make blanks/grafts/food) EXCEPT the
+# hand-sculpt exports below: irreplaceable source art that can't be rebuilt
+# without the Blender sculpt. Track those so other machines can render/iterate.
+# (Exclude the *contents*, not the dir itself, or the negations can't re-include.)
+/pieces/out/*
+!/pieces/out/EAT_sculpt.obj
+!/pieces/out/MOVE_sculpt.obj
+!/pieces/out/GROW_sculpt.obj
+!/pieces/out/EAT_sculpt_graft.obj
+!/pieces/out/MOVE_sculpt_graft.obj
+!/pieces/out/GROW_sculpt_graft.obj
 bonus-coverage/
 *.mp4
 .nix-mongo/

@@ -30,6 +30,9 @@ class Spec:
     wall_frac: float = 0.0
     target_edge: float = 1.0
     fold: int = 1                      # rotational symmetry order (1 = none)
+    profile_match: bool = True         # inv_profile severity: True->FAIL on deviation,
+                                       # False->WARN (piece opts out of SoR-envelope match,
+                                       # e.g. MOVE's spiral whose identity isn't a dome).
 
 
 @dataclass
@@ -62,8 +65,7 @@ def _near_boundary(mids_xy, region, band=2.5):
     """True for creases within `band` mm of the silhouette boundary — the rim /
     shoulder / arm-edge / corner region, where surface sharpness reflects the
     SVG's edge features (intended) rather than a body defect. The wide body
-    interior stays checked. (Boundary is finely resampled, so nearest-vertex
-    distance approximates distance-to-outline.)"""
+    interior stays checked."""
     from scipy.spatial import cKDTree
     pts = np.vstack(list(region.all_rings))
     return cKDTree(pts).query(np.asarray(mids_xy))[0] < band
@@ -144,11 +146,20 @@ def inv_no_long_edges(mesh, region, spec):
                   f"{n}/{len(L)} edges > {limit:.1f}mm (worst {L.max():.2f}mm)")
 
 
-def inv_smooth(mesh, region, spec, min_radius=0.5):
+def inv_smooth(mesh, region, spec, min_radius=0.5, connector_band=5.0):
     """A 'crease' is a fold sharper than `min_radius` mm, measured as the local
     radius of curvature = (shared-edge length) / (dihedral angle). This is
     resolution-independent and distinguishes intended organic curvature (large
-    radius) from construction seams (tiny radius). Rim and apex are exempt."""
+    radius) from construction seams (tiny radius).
+
+    Exempt zones: the rim, the connector at the top (an absolute `connector_band`
+    mm — the universal peg dome + ridge has intended sharp shoulders), CREST /
+    SPINE folds (convex-up — a ridge crest, generalized apex), and the
+    silhouette-extrusion ridges on the body wall (near-boundary AND vertically
+    aligned edges only — horizontal tangent breaks in a cap or collar that sit
+    on the boundary are NOT exempted). `connector_band` defaults to 5mm so the
+    universal connector's 4.3mm dome + ridge margin is fully covered regardless
+    of piece height."""
     z = mesh.vertices[:, 2]
     zmin, zmax = z.min(), z.max(); span = zmax - zmin + 1e-9
     ev = mesh.face_adjacency_edges
@@ -156,11 +167,8 @@ def inv_smooth(mesh, region, spec, min_radius=0.5):
     elen = np.linalg.norm(mesh.vertices[ev[:, 0]] - mesh.vertices[ev[:, 1]], axis=1)
     radius = elen / (mesh.face_adjacency_angles + 1e-9)
     ez = z[ev]
-    # exempt the rim, the apex, and CREST/SPINE folds. A convex-up fold (both
-    # opposite verts below the shared edge) is a ridge crest — the spiral's
-    # apex generalized from a point to a curve; allowed to be sharp like a peak.
     is_rim = (ez.max(1) - zmin) < 0.05 * span
-    is_apex = (zmax - ez.min(1)) < 0.03 * span
+    is_apex = (zmax - ez.min(1)) < max(connector_band, 0.03 * span)
     is_crest = z[ov].max(1) < ez.max(1)
     is_edge = _near_boundary(mesh.vertices[ev].mean(1)[:, :2], region)
     body = ~is_rim & ~is_apex & ~is_crest & ~is_edge
@@ -198,6 +206,66 @@ def inv_additive(mesh, region, spec, ideal=None, tol=1.0):
                   f"{n} verts carved >{tol}mm below the spec profile (worst {worst:.2f}mm)")
 
 
+def inv_profile(mesh, region, spec, tol=0.4):
+    """Strict SoR-envelope match: the upper hull of the surface in (r, z) must equal
+    z_target(r) = wall + (zmax-wall)*transfer(1-(r/Rmax)^2, shape), within `tol`.
+
+    Implemented PER-VERTEX (not per-bin) so binning never biases the result:
+      (1) over: no vertex sits above z_target(r_vertex) by more than `tol`
+            -- the dome doesn't bulge up past the target curve.
+      (2) under: for each r-bin, the max-z vertex's z should be within `tol` of
+            z_target(r_at_that_vertex)  -- the SoR envelope reaches the target.
+
+    Per-vert z_target(r_vert) (not z_target(bin_center)) eliminates the bin-bias
+    artifact: when the dome is steep, the max-z vert sits at the bin's low-r edge
+    where z_target is HIGHER than at the center -- the previous bin-center comparison
+    flagged that as 'overshoot' even when the vert was exactly on z_target.
+
+    Wall vertices (z << z_target on the silhouette extrude) don't fail (1) because
+    they're below target, and don't fail (2) because the *max-z* vert at their r is
+    the dome surface, not the wall.
+
+    For PROFILE_MATCH=False (e.g. MOVE), the same check runs but severity is WARN.
+    The other 8 invariants constrain silhouette/topology/quality; this one is the
+    SHAPE constraint that was previously underspecified (inv_additive only checked
+    >= floor)."""
+    from profile import transfer
+    V = mesh.vertices
+    R_max = float(np.hypot(region.outer[:, 0], region.outer[:, 1]).max())
+    wall_z = spec.wall_frac * spec.z_max
+    r = np.hypot(V[:, 0], V[:, 1])
+    above_base = V[:, 2] > 0.5                              # skip literal base
+    # per-vertex z_target at the vertex's OWN r
+    u_v = np.clip(1.0 - (r / R_max) ** 2, 0.0, 1.0)
+    z_target_v = wall_z + (spec.z_max - wall_z) * transfer(u_v, spec.shape)
+    over_err = V[:, 2] - z_target_v                         # + means above target
+    # (1) no vert above target by > tol
+    over_mask = above_base & (over_err > tol)
+    n_over = int(over_mask.sum())
+    worst_over = float(over_err[over_mask].max()) if n_over else 0.0
+    # (2) for each r-bin, the *max-z vert*'s deviation from ITS OWN z_target
+    nb = 60
+    bins = np.linspace(0, R_max, nb + 1)
+    n_under = 0; worst_under = 0.0; valid_bins = 0
+    for i in range(nb):
+        m_bin = above_base & (r >= bins[i]) & (r < bins[i + 1])
+        if not m_bin.any(): continue
+        valid_bins += 1
+        idx = np.where(m_bin)[0]
+        j = idx[np.argmax(V[idx, 2])]
+        diff = V[j, 2] - z_target_v[j]                       # signed
+        if diff < -tol:
+            n_under += 1
+            worst_under = min(worst_under, float(diff))
+    bad = (n_over > 0) or (n_under > 0)
+    severity = "FAIL" if getattr(spec, "profile_match", True) else "WARN"
+    detail = (f"{n_over} verts above z_target(r) by >{tol}mm  (worst +{worst_over:.2f}mm); "
+              f"{n_under}/{valid_bins} r-bin envelopes below target  (worst {worst_under:+.2f}mm)")
+    if severity == "WARN":
+        detail = "[profile_match=False: WARN-only] " + detail
+    return Result("profile", not bad, detail, severity=severity)
+
+
 def inv_symmetry(mesh, region, spec, tol=0.3):
     """Full N-fold symmetry of the TRIANGULATION: rotating the mesh by 2*pi/fold
     must map its vertex set onto itself (every rotated vertex lands on a vertex).
@@ -219,7 +287,7 @@ def inv_symmetry(mesh, region, spec, tol=0.3):
 
 
 INVARIANTS = [inv_manifold, inv_silhouette, inv_no_overhang, inv_uniform_tris,
-              inv_no_long_edges, inv_smooth, inv_additive, inv_symmetry]
+              inv_no_long_edges, inv_smooth, inv_additive, inv_symmetry, inv_profile]
 
 
 def validate(mesh, region, spec, ideal=None, verbose=True):

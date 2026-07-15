@@ -214,15 +214,39 @@
                  [conversion (game/convert state player type target sundivers)])
                (game/find-conversions state player)))))
 
+;; --- deconvert (forced recovery) ---
+
+(defn choose-deconvert-choices
+  "Forced when a player starts a turn with no sundivers on the board or in their
+   habitat: pick one of their stations to remove and reclaim its sundivers."
+  [state]
+  (let [player   (game/current-player state)
+        stations (get-in state [:players player :stations])]
+    (into {}
+          (map (fn [[pos _]] [pos (game/deconvert state player pos)]) stations))))
+
 ;; --- activate ---
 
 (defn choose-activate-choices
-  "Choose which station type to activate."
+  "Pick any station the player can activate, across all station types — they are
+   highlighted on the board. Selecting one sets that station's type and begins
+   activating it; further same-type activations are then offered via
+   :choose-activate-station."
   [state]
-  (let [player (game/current-player state)]
-    (partial-map
-     (fn [stype] (game/start-activate state stype))
-     (game/activatable-station-types state player))))
+  (let [player    (game/current-player state)
+        positions (mapcat (fn [stype]
+                            (game/stations-of-type-with-sundiver state player stype))
+                          (game/activatable-station-types state player))]
+    (into {}
+          (map (fn [pos]
+                 (let [stype (get-in state [:board pos :station :type])]
+                   [pos (-> state
+                            (assoc-in [:player-turn :action :station-type] stype)
+                            (assoc-in [:player-turn :action :activated-stations] #{pos})
+                            (assoc-in [:player-turn :action :stations-queue] [pos])
+                            (assoc-in [:player-turn :action :free-activation?] false)
+                            game/begin-next-station)]))
+               positions))))
 
 (defn choose-activate-station-choices
   "Player picks which station of the chosen type to activate next.
@@ -245,8 +269,9 @@
                  available)))))
 
 (defn choose-activate-owner-bonus-choices
-  "After activator finishes base actions, owner decides to decline (0) or take full bonus.
-   No partial bonus — all or nothing."
+  "After the activator's base actions on another player's station, the owner
+   decides: decline (0) — which passes the option to the activator — or take the
+   full bonus. All-or-nothing; feasibility is the owner's resources."
   [state]
   (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
         owner        (get-in state [:player-turn :action :current-owner])
@@ -260,32 +285,40 @@
                        :tower
                        (min bonus-total (game/total-spendable-sundivers state owner))
                        bonus-total)
-        options (if (pos? max-feasible) [0 max-feasible] [0])]
-    (into {}
-          (map
-           (fn [n]
-             [n (-> state
-                    (assoc-in [:player-turn :action :owner-actions] n)
-                    (assoc-in [:player-turn :choice-player] nil)
-                    (game/begin-actor-actions :owner))])
-           options))))
+        ;; Decline → hand the option to the activator (fall back to self-bonus).
+        decline      (-> state
+                         (assoc-in [:player-turn :choice-player] nil)
+                         (assoc-in [:player-turn :phase] :choose-activate-self-bonus))]
+    (cond-> {0 decline}
+      (pos? max-feasible)
+      (assoc max-feasible
+             (-> state
+                 (assoc-in [:player-turn :action :owner-actions] max-feasible)
+                 (assoc-in [:player-turn :action :bonus-total] 0)
+                 ;; Hand control to the owner for the WHOLE bonus: they make every
+                 ;; sub-choice (matrix beacon + payment; tower heading, join, payment,
+                 ;; landing). begin-next-station resets choice-player back to the
+                 ;; activator once the owner's actions finish.
+                 (assoc-in [:player-turn :choice-player] owner)
+                 (game/begin-actor-actions :owner))))))
 
 (defn choose-activate-self-bonus-choices
-  "Activating their own station: choose to decline (0) or take full bonus.
-   No partial bonus — it's all or nothing."
+  "After base actions, the activator chooses to decline (0) or take the full bonus.
+   Used for their own station, and as the fallback when the owner of another
+   station declines. All-or-nothing; feasibility is the activator's current
+   (post-base) resources, and the bonus is consumed once resolved."
   [state]
   (let [bonus-total  (get-in state [:player-turn :action :bonus-total] 0)
-        base         (get-in state [:player-turn :action :activator-actions] 0)
         player       (game/current-player state)
         station-type (get-in state [:player-turn :action :station-type])
         max-feasible (case station-type
                        :matrix
-                       (let [positions (count (game/matrix-beacon-positions state player))
-                             spendable (game/total-spendable-sundivers state player)
-                             beacons   (get-in state [:players player :reserve :beacons] 0)]
-                         (max 0 (min bonus-total (- positions base) (- spendable base) (- beacons base))))
+                       (min bonus-total
+                            (count (game/matrix-beacon-positions state player))
+                            (game/total-spendable-sundivers state player)
+                            (get-in state [:players player :reserve :beacons] 0))
                        :tower
-                       (max 0 (min bonus-total (- (game/total-spendable-sundivers state player) base)))
+                       (min bonus-total (game/total-spendable-sundivers state player))
                        bonus-total)
         ;; Only offer 0 (decline) and max-feasible (take full bonus)
         options (if (pos? max-feasible)
@@ -295,7 +328,9 @@
           (map
            (fn [n]
              [n (-> state
-                    (assoc-in [:player-turn :action :activator-actions] (+ base n))
+                    (assoc-in [:player-turn :action :activator-actions] n)
+                    (assoc-in [:player-turn :action :bonus-total] 0)
+                    (assoc-in [:player-turn :choice-player] nil)
                     (game/begin-actor-actions :activator))])
            options))))
 
@@ -574,29 +609,23 @@
       (enter-cipher-phase state))))
 
 (defn choose-keep-card-choices
-  "Player picks one drawn card to hold; previously held card and others are discarded.
-   If no cards were drawn, auto-advances (single :continue choice)."
+  "Keep one card — the previously held card and any freshly drawn cards are all
+   equal options, each keyed by the card; the rest are discarded. Auto-advances
+   (single :continue) when there are no cards at all."
   [state]
-  (let [player  (game/current-player state)
-        drawn   (get-in state [:player-turn :action :drawn-cards] [])
-        held    (get-in state [:players player :held-card])]
-    (if (empty? drawn)
+  (let [player (game/current-player state)
+        drawn  (get-in state [:player-turn :action :drawn-cards] [])
+        held   (get-in state [:players player :held-card])
+        pool   (if held (cons held drawn) drawn)]
+    (if (empty? pool)
       {:continue (advance-to-captain-or-cipher state)}
-      (cond-> {}
-        ;; Keep each drawn card as an option
-        true
-        (into (map (fn [card]
-                     [card (-> state
-                               (assoc-in [:players player :held-card] card)
-                               (update :discard into (remove #{card} drawn))
-                               (cond-> held (update :discard conj held))
-                               advance-to-captain-or-cipher)])
-                   drawn))
-        ;; Keep previously held card (discard all drawn)
-        held
-        (assoc :keep-held (-> state
-                              (update :discard into drawn)
-                              advance-to-captain-or-cipher))))))
+      (into {}
+            (map (fn [keep-card]
+                   [keep-card (-> state
+                                  (assoc-in [:players player :held-card] keep-card)
+                                  (update :discard into (remove #{keep-card} pool))
+                                  advance-to-captain-or-cipher)])
+                 pool)))))
 
 ;; --- cipher helpers ---
 
@@ -754,9 +783,11 @@
         has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
                                       (> (game/hex-distance from-pos %) 1))
                                 (keys (:board state)))]
-    (cond-> {:direct (process-drift-flare-advance state next-pos)}
+    ;; Key by destination hex so the client shows clickable board spaces
+    ;; (straight-ahead and wrap), not :direct/:wrap buttons at the top.
+    (cond-> {next-pos (process-drift-flare-advance state next-pos)}
       (not has-tiles-beyond?)
-      (assoc :wrap (process-drift-flare-advance state wrap-pos)))))
+      (assoc wrap-pos (process-drift-flare-advance state wrap-pos)))))
 
 (defn choose-draw-drift-card-choices
   "Auto-choice to draw one drift card after captain drift.
@@ -890,9 +921,11 @@
         has-tiles-beyond? (some #(and (game/on-ray? from-pos dir %)
                                       (> (game/hex-distance from-pos %) 1))
                                 (keys (:board state)))]
-    (cond-> {:direct (game/advance-flare-ark-to state next-pos)}
+    ;; Key by destination hex so the client shows clickable board spaces
+    ;; (straight-ahead and wrap), not :direct/:wrap buttons at the top.
+    (cond-> {next-pos (game/advance-flare-ark-to state next-pos)}
       (not has-tiles-beyond?)
-      (assoc :wrap (game/advance-flare-ark-to state wrap-pos)))))
+      (assoc wrap-pos (game/advance-flare-ark-to state wrap-pos)))))
 
 ;; --- action type ---
 
@@ -926,6 +959,7 @@
     (let [phase   (game/current-phase state)
           choices (case phase
                   :choose-action-type        (choose-action-type-choices state)
+                  :choose-deconvert          (choose-deconvert-choices state)
                   :choose-move               (choose-move-choices state)
                   :choose-launch-destination (choose-launch-destination-choices state)
                   :choose-fly-from           (choose-fly-from-choices state)
@@ -960,10 +994,11 @@
       ;; Auto-advance: if exactly 1 choice, skip this phase entirely.
       ;; Never auto-advance these phases — the player must always choose explicitly.
       ;; Also never auto-advance choose-convert (player should see what they're building).
+      ;; The bonus phases ARE auto-advanced when they hold only the decline option
+      ;; (the player can't afford any bonus), so there's no redundant prompt.
       (if (and (= 1 (count choices))
-               (not (#{:choose-action-type :choose-move :choose-convert
-                       :choose-activate :choose-activate-self-bonus
-                       :choose-activate-owner-bonus :choose-land} phase)))
+               (not (#{:choose-action-type :choose-deconvert :choose-move :choose-convert
+                       :choose-activate :choose-land} phase)))
         (let [next-state (first (vals choices))]
           (if (and next-state (not= phase :game-over))
             (recur next-state)
@@ -978,6 +1013,7 @@
     [phase
      (case phase
        :choose-action-type        (choose-action-type-choices state)
+       :choose-deconvert          (choose-deconvert-choices state)
        :choose-move               (choose-move-choices state)
        :choose-launch-destination (choose-launch-destination-choices state)
        :choose-fly-from           (choose-fly-from-choices state)

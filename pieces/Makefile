@@ -1,32 +1,86 @@
-# Round-parts pipeline (FOOD + universal connector). See FOOD.md.
-# Override paths if needed:  make food BLENDER=/path/to/blender
-BLENDER ?= $(HOME)/Downloads/blender-5.1.2-linux-x64/blender
+# Organism piece pipeline: SVG silhouettes -> blank bodies -> connector-grafted
+# pieces -> combined print plate STL.  See FOOD.md and GRAFTING.md.
+#
+# One-shot:  make print
+# Per stage: make blanks | grafts | food | plate
+# Override:  make print BLENDER=/path/to/blender  (also read by meshlib/build.py)
+
+# auto-detect the newest installed blender-5.1.* (machines differ: 5.1.1 here, 5.1.2 elsewhere);
+# override explicitly with `make <target> BLENDER=/path/to/blender`.
+BLENDER_AUTO := $(shell ls -d $(HOME)/Downloads/blender-5.1.*/blender 2>/dev/null | sort -V | tail -1)
+BLENDER ?= $(or $(BLENDER_AUTO),$(HOME)/Downloads/blender-5.1.2-linux-x64/blender)
 PY      ?= ../.venv/bin/python
+UV      ?= uv
 BFLAGS  := --background --threads 4 --python
-OUT     := $(CURDIR)/renders/food
 
-food:        ## build both fits -> OBJ + STL (print) + .profile.json (metric)
-	FOOD_GAP=0.15  FOOD_OUT=$(OUT)/FOOD_nosnap.obj $(BLENDER) $(BFLAGS) build_food.py
-	FOOD_GAP=-0.10 FOOD_OUT=$(OUT)/FOOD_snap.obj   $(BLENDER) $(BFLAGS) build_food.py
+ROOT    := $(CURDIR)
+OUT     := $(ROOT)/out
+FOOD    := $(ROOT)/renders/food
 
-stl: food    ## (alias: the STL falls out of `make food`)
+BLANKS    := $(OUT)/EAT.obj $(OUT)/MOVE.obj $(OUT)/GROW.obj
+GRAFTS    := $(OUT)/EAT_graft.obj $(OUT)/MOVE_graft.obj $(OUT)/GROW_graft.obj
+FOOD_STLS := $(FOOD)/FOOD_nosnap.stl $(FOOD)/FOOD_snap.stl
+PLATE_STL := $(FOOD)/print_plate.stl
 
-measure:     ## nesting % (mesh-accurate)
-	$(PY) stack_food.py $(OUT)/FOOD_nosnap.profile.json
+help:                       ## list targets (default)
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-preview:     ## CPU 3D + cross-section render of the built food
-	$(PY) render_food.py $(OUT)/FOOD_nosnap.obj
+print: $(PLATE_STL)         ## end-to-end -> slicer-ready print_plate.stl
+	@echo ""
+	@echo "Slicer input ready: $(PLATE_STL)"
 
-plate:       ## lay out a print plate: 3 slip + 3 snap food + 1 each piece -> one watertight STL
+blanks: $(BLANKS)           ## 3 sculpt-ready blank bodies in out/
+grafts: $(GRAFTS)           ## 3 connector-grafted pieces in out/ (needs blanks)
+food:   $(FOOD_STLS)        ## slip + snap FOOD STLs in renders/food/
+plate:  $(PLATE_STL)        ## combined print plate STL (needs grafts + food)
+all:    blanks grafts food plate   ## rebuild everything (skips video)
+
+$(BLANKS): meshlib/build.py meshlib/graft_lib.py
+	BLENDER=$(BLENDER) $(UV) run python meshlib/build.py
+
+$(GRAFTS): $(BLANKS) meshlib/build.py meshlib/graft_lib.py meshlib/connector_field.py
+	BLENDER=$(BLENDER) $(UV) run python meshlib/build.py graft EAT GROW MOVE
+
+$(FOOD)/FOOD_nosnap.stl: build_food.py sor.py
+	FOOD_GAP=0.15  FOOD_OUT=$(FOOD)/FOOD_nosnap.obj $(BLENDER) $(BFLAGS) build_food.py
+	$(PY) render_food.py $(FOOD)/FOOD_nosnap.obj
+
+$(FOOD)/FOOD_snap.stl: build_food.py sor.py
+	FOOD_GAP=-0.10 FOOD_OUT=$(FOOD)/FOOD_snap.obj   $(BLENDER) $(BFLAGS) build_food.py
+	$(PY) render_food.py $(FOOD)/FOOD_snap.obj
+
+$(PLATE_STL): $(GRAFTS) $(FOOD_STLS) build_print_plate.py
 	$(BLENDER) $(BFLAGS) build_print_plate.py
 	$(PY) preview_plate.py
 
-video:       ## full gameplay animation -> scene/*.mp4 (gentle: nice + 2 threads; slow but won't freeze)
-	rm -f /tmp/play4/f*.png
-	TURN_LIMIT=0 nice -n 19 $(BLENDER) --background --threads 2 --python build_play_real.py
-	nice -n 19 ffmpeg -y -framerate 24 -i /tmp/play4/f%04d.png -c:v libx264 -pix_fmt yuv420p \
-		scene/zach-dan-ryan-play-newfood.mp4
+measure: $(FOOD_STLS)       ## FOOD nesting % measurement
+	$(PY) stack_food.py $(FOOD)/FOOD_nosnap.profile.json
 
-all: food measure preview   ## everything except the video
+preview: $(FOOD_STLS)       ## CPU 3D + cross-section render of FOOD
+	$(PY) render_food.py $(FOOD)/FOOD_nosnap.obj
 
-.PHONY: food stl measure preview plate video all
+# gameplay video: configurable per game. Defaults reproduce the canonical render.
+#   make video                              # default: zach-dan-ryan.json
+#   make video OGF=/path/to/other.json      # any OGF
+#   make video FPT=12 SEED=42               # slower playback, different camera
+OGF       ?= $(ROOT)/../ogf/zach-dan-ryan.json
+OGF_NAME  := $(basename $(notdir $(OGF)))
+# frames -> pieces/renders/play (gitignored); override FR=/path for a scratch disk.
+# NB: no inline comment here — Make keeps trailing whitespace, which breaks $(FR)/f*.png.
+FR        ?= $(ROOT)/renders/play
+FPT       ?= 8                                         # frames per game turn (8 = 0.33s at 24fps)
+SEED      ?= 1234                                      # camera RNG seed
+VIDEO_OUT ?= $(ROOT)/scene/$(OGF_NAME)-play.mp4
+
+video:                      ## gameplay animation -> scene/<game>-play.mp4 (slow; nice + 2 threads)
+	mkdir -p $(FR) && rm -f $(FR)/f*.png
+	OGF=$(OGF) FR=$(FR) FPT=$(FPT) SEED=$(SEED) TURN_LIMIT=0 \
+		nice -n 19 $(BLENDER) --background --threads 2 --python build_play_real.py
+	nice -n 19 ffmpeg -y -framerate 24 -i $(FR)/f%04d.png -c:v libx264 -pix_fmt yuv420p $(VIDEO_OUT)
+	@echo "wrote $(VIDEO_OUT)"
+
+clean:                      ## nuke out/ blanks+grafts and print_plate.stl (food STLs preserved)
+	rm -f $(BLANKS) $(GRAFTS) $(PLATE_STL)
+
+.PHONY: help print blanks grafts food plate all measure preview video clean
+.DEFAULT_GOAL := help

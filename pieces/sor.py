@@ -105,6 +105,13 @@ def _dome(r_base, height, z_base, n=22):
     return [(r_base * (1 - i / n), z_base + height * (1 - (1 - i / n) ** 2)) for i in range(n + 1)]
 
 
+def _cone(r_base, apex_h, z_base=0.0, n=18):
+    """Straight cone meridian: apex (0, z_base+apex_h) -> base (r_base, z_base). A POINTED
+    apex (no horizontal roof) makes it self-supporting as a downward-facing socket-cavity
+    ceiling; its walls are steeper than the parabolic dome's, so it prints support-free."""
+    return [(r_base * i / n, z_base + apex_h * (1 - i / n)) for i in range(n + 1)]
+
+
 def _ridge(ir, orr, height, peak_w, z_base, n=26):
     """Peaked annular ridge meridian: (ir, z_base) -> flat peak -> (orr, z_base)."""
     cf = peak_w / (2 * (orr - ir)) if orr > ir else 0.0
@@ -118,21 +125,26 @@ def _ridge(ir, orr, height, peak_w, z_base, n=26):
 
 
 def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
-         ridge_ir=4.15, ridge_or=6.4, ridge_h=2.75, peak_w=2.0, seat_pad=0.6, nb=48):
+         ridge_ir=4.15, ridge_or=6.4, ridge_h=2.75, peak_w=2.0, seat_pad=0.0, nb=48):
     """The whole FOOD as ONE meridian: socket cavity -> seat -> underside -> rim -> top ->
     peg ridge -> peg dome. A single revolve of this is watertight (no booleans). The socket
     is the connector oversized by `gap` (+ slip / - snap). Returns (points, meta)."""
-    socket_ceiling = dome_h + gap                          # socket cavity depth (from z=0)
+    s_dr, s_dh = dome_r + gap, dome_h + gap                # oversized peg-dome (clearance target)
+    s_ir, s_or, s_rh = ridge_ir - gap, ridge_or + gap, ridge_h + gap   # socket ridge cavity
+    # PARABOLIC dome cavity: exact mirror of the peg dome, oversized by `gap` so the food
+    # nestles snugly onto a piece's peg. The cavity ceiling has a flat-apex (dz/dr=0 at the
+    # axis) which is a 90deg overhang when printed socket-DOWN; handle by painting a SUPPORT
+    # BLOCKER in the slicer over the cavity region (PrusaSlicer: paint-on supports / Bambu /
+    # Cura per-object setting). A 2mm-wide flat apex bridges cleanly with PETG.
+    socket_ceiling = s_dh                                  # cavity apex at z=s_dh
     floor_z = socket_ceiling + wall                        # solid floor under the peg
     peg_tip = floor_z + dome_h
     R_seat = ridge_or + gap + seat_pad
     z_top = lambda r: floor_z + flare_up * ((r - ridge_or) / (R - ridge_or)) ** 2
     rim_b = z_top(R) - wall
     z_bot = lambda r: rim_b * ((r - R_seat) / (R - R_seat)) ** 2
-    s_dr, s_dh = dome_r + gap, dome_h + gap                # socket dome cavity
-    s_ir, s_or, s_rh = ridge_ir - gap, ridge_or + gap, ridge_h + gap   # socket ridge cavity
 
-    P = _dome(s_dr, s_dh, 0.0)[::-1]                        # socket dome: apex -> mouth
+    P = _dome(s_dr, s_dh, 0.0)[::-1]                       # socket dome cavity: apex (0, s_dh) -> base (s_dr, 0)
     P.append((s_ir, 0.0))                                   # flat -> socket ridge inner
     P += _ridge(s_ir, s_or, s_rh, peak_w, 0.0)[1:]         # socket ridge cavity
     P.append((R_seat, 0.0))                                 # flat seat
@@ -194,6 +206,7 @@ def revolve(prof, name="part", seg=120):
     for a, b in zip(vs, vs[1:]): bm.edges.new((a, b))
     me = bpy.data.meshes.new(name); bm.to_mesh(me); bm.free()
     o = bpy.data.objects.new(name, me); bpy.context.collection.objects.link(o)
+    bpy.ops.object.select_all(action='DESELECT')    # else Edit-mode spin hits other meshes (multi-object edit)
     bpy.context.view_layer.objects.active = o; o.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.spin(steps=seg, angle=_m.radians(360), axis=(0, 0, 1), center=(0, 0, 0))

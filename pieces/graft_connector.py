@@ -26,6 +26,7 @@ from math import pi, cos, sin
 from pathlib import Path
 
 HERE = Path(__file__).parent
+sys.path.insert(0, str(HERE))     # so `import sor` resolves under Blender's bundled Python
 
 # Same spec as pieces_v2.py — keep in sync.
 DOME_DIA       = 3.8
@@ -57,6 +58,10 @@ def parse_args():
     p.add_argument("--fuse", action="store_true",
                    help="seat on a flat plateau + fillet the junction (grown-in look)")
     p.add_argument("--voxel", type=float, default=0.30, help="fuse remesh voxel size (mm)")
+    p.add_argument("--seamless", action="store_true",
+                   help="domed crown (no flat shelf): grow the peg out of the body via a revolved sor meridian")
+    p.add_argument("--height", type=float, default=None,
+                   help="target final piece height (mm); connector base z = height - DOME_HEIGHT")
     return p.parse_args(argv)
 
 
@@ -208,6 +213,54 @@ def fillet_junction(body, z_plat, voxel):
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def _bake(obj):
+    bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+
+def _radius_at(obj, z0, half=0.6):
+    """Max body radius within +-half of height z0 (Blender Z-up; bake first)."""
+    co = np.array([(v.co.x, v.co.y, v.co.z) for v in obj.data.vertices])
+    r = np.hypot(co[:, 0], co[:, 1]); z = co[:, 2]
+    sel = np.abs(z - z0) <= half
+    return float(r[sel].max()) if sel.any() else float(r.max())
+
+
+def add_seamless_crown(body, floor_z):
+    """No flat shelf: cut the body just under the connector, then UNION a domed crown -- a
+    revolved sor meridian that leaves the body wall tangentially and domes up to the ridge
+    base at floor_z. For a narrow apex (MOVE's spike) the cut drops until the body is wide
+    enough, so the crown FLARES the spike out instead of perching on it."""
+    import sor
+    plateau_r = RIDGE_OD / 2 + SEAT_MARGIN
+    _bake(body)
+    # Cut at the HIGHEST height where the body is still >= plateau_r, so the crown spans only a
+    # small radius band and the body's OWN rounding becomes the crown. For a narrow apex (MOVE's
+    # spike) that height is low, so the crown instead FLARES the spike out up to the connector.
+    co = np.array([(v.co.x, v.co.y, v.co.z) for v in body.data.vertices])
+    rr = np.hypot(co[:, 0], co[:, 1]); zz = co[:, 2]
+    hi = zz[rr >= plateau_r]
+    z_plat = min(float(hi.max()) if len(hi) else float(zz.max()), floor_z - 0.8)
+    R_blend = max(_radius_at(body, z_plat), plateau_r)
+    R_lo    = max(_radius_at(body, z_plat - 2.0), R_blend + 0.5)
+    slope   = 2.0 / (R_blend - R_lo)                   # body wall dz/dr (negative)
+    flatten_plateau(body, plateau_r, z_plat)           # cut top off; flat cap becomes internal
+    md = sor.Meridian(R_blend, z_plat)
+    md.hermite_to(RIDGE_OD / 2, floor_z, m0=slope, m1=0.0, n=40)
+    prof = [(0.0, z_plat - 0.8), (R_blend, z_plat - 0.8)] + md.pts + [(0.0, floor_z)]
+    crown = sor.revolve(prof, "Crown", seg=2 * DOME_SEGS)
+    bpy.ops.object.select_all(action='DESELECT'); body.select_set(True)
+    bpy.context.view_layer.objects.active = body
+    mod = body.modifiers.new("U_Crown", 'BOOLEAN')
+    mod.operation = 'UNION'; mod.object = crown; mod.solver = 'EXACT'
+    bpy.ops.object.modifier_apply(modifier="U_Crown")
+    bpy.data.objects.remove(crown, do_unlink=True)
+    print("  seamless crown: base O%.1f @z%.1f -> ridge base z%.1f (rise %.1f, slope %.2f)"
+          % (2 * R_blend, z_plat, floor_z, floor_z - z_plat, slope))
+    return z_plat
+
+
 def main():
     args = parse_args()
     in_path = Path(args.input).resolve()
@@ -225,7 +278,16 @@ def main():
     body = bpy.context.view_layer.objects.active
     body.name = args.piece
 
-    if args.fuse:
+    if args.seamless:
+        # Domed crown grown out of the body -- no flat shelf, no sharp rim.
+        floor_z = (args.height - DOME_HEIGHT) if args.height is not None \
+            else (max(v.co.z for v in body.data.vertices) - 1.5)
+        z_plat = add_seamless_crown(body, floor_z)
+        add_peg(body, floor_z)
+        if args.piece != "EAT":
+            add_socket(body); print("  socket carved at z = 0")
+        fillet_junction(body, z_plat, args.voxel)   # voxel remesh LAST: blends crown + re-knits socket
+    elif args.fuse:
         # Seat the connector on a flat plateau and fillet it in (grown-in look).
         plateau_r = max(RIDGE_OD / 2 + 2.0, 8.0)
         z_plat = flatten_plateau(body, plateau_r, args.z)

@@ -6,6 +6,7 @@
    [organism.persist-eridu :as persist-e]
    [organism.middleware :as middleware]
    [organism.routes.eridu-ws :as eridu-ws]
+   [organism.routes.shared :as shared]
    [ring.util.response :as response]
    [eridu.game :as game]
    [eridu.personality :as pers]
@@ -18,13 +19,6 @@
    request
    "eridu/home.html"
    {:session-player (get-in request [:session :player])}))
-
-(defn require-auth
-  [handler]
-  (fn [request]
-    (if (get-in request [:session :player])
-      (handler request)
-      (response/redirect (str "/login?redirect=" (:uri request))))))
 
 (defn create-page
   [db request]
@@ -499,13 +493,13 @@
    ["" {:get home-page}]
    ["/create" {:get  (partial create-page db)
                :post (partial create-game! db)
-               :middleware [require-auth]}]
+               :middleware [shared/require-auth]}]
    ["/play" {:get (partial play-list-page db)
-             :middleware [require-auth]}]
+             :middleware [shared/require-auth]}]
    ["/play/:play" {:get (partial play-page db)}]
    ["/play/:play/" {:get (partial play-page db)}]
    ["/offline" {:get (partial offline-page db)
-                :middleware [require-auth]}]
+                :middleware [shared/require-auth]}]
    ["/observe" {:get (partial observe-page db)}]
    ["/generate" {:get (partial generate-page db)}]
    ["/stats" {:get (partial stats-page db)}]
@@ -524,18 +518,18 @@
    ["/evolve/status" {:get (partial evolution-status-endpoint db)}]
    ["/evolve/top" {:get (partial top-personalities-endpoint db)}]
    ["/offline/log" {:post (partial log-offline-game! db)
-                    :middleware [require-auth]}]
+                    :middleware [shared/require-auth]}]
    ["/bug-report" {:get  (partial bug-report-page db)
                    :post (partial report-bug! db)}]
    ["/bug-report/submit" {:post (partial submit-bug-form! db)
-                          :middleware [require-auth]}]
+                          :middleware [shared/require-auth]}]
    ["/bug-report/list" {:get (partial bug-report-list-page db)
-                        :middleware [require-auth]}]
+                        :middleware [shared/require-auth]}]
    ["/bug-report/state/:idx" {:get (partial bug-report-state-download db)
-                              :middleware [require-auth]}]
+                              :middleware [shared/require-auth]}]
    ["/bug-report/dump" {:get (partial dump-bug-reports db)
-                        :middleware [require-auth]}]
+                        :middleware [shared/require-auth]}]
    ["/cleanup" {:get  (partial cleanup-preview db)
                 :post (partial cleanup-execute! db)
-                :middleware [require-auth]}]
+                :middleware [shared/require-auth]}]
    ["/leaderboard" {:get (partial leaderboard-page db)}]])

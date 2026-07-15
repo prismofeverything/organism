@@ -26,7 +26,8 @@ recreate-from-scratch + how-to-print guide.
 ## The FOOD shape (current)
 
 A shallow parabola flaring **up** out of the connector to a rounded rim — a meniscus. Nests
-**on the connector** (the flares clear): ~38% per piece. Ø28.1 × 11.3 mm. Knobs in `build_food.py`:
+**on the connector** (the flares clear): ~38% per piece. Ø28.0 × 11.6 mm (socket dome cavity is a
+self-supporting cone — prints support-free; see Printing). Knobs in `build_food.py`:
 `FOOD_R` (shoulder radius), `FOOD_FLAREUP` (rim rise), `FOOD_WALL` (invariant IM wall, 2.5 mm),
 `FOOD_GAP` (connector fit), `FOOD_OUT` (output path).
 
@@ -46,7 +47,7 @@ A shallow parabola flaring **up** out of the connector to a rounded rim — a me
 In the repo (git has the scripts), you also need these **external** pieces:
 
 1. **Blender 5.1.x** (portable build ok). Set `BLENDER=...` for the Makefile.
-2. **The venv** (CPU side): `python -m venv .venv && .venv/bin/pip install -r pieces/requirements.txt`
+2. **The venv** (CPU side, managed with uv): `uv sync` at the repo root (reads `pyproject.toml` + `uv.lock`, creates `.venv`). The Makefile's `PY=../.venv/bin/python` then points at it.
 3. **ffmpeg** (video encode): system package.
 4. **Prototype art folder** for the video — `~/Downloads/organism/prototype` (the `ART` path in
    `build_play_real.py`) + `pieces/board_hex_2000.png`. **This is the stuff that gets lost** —
@@ -68,8 +69,15 @@ make stl       # print-ready STL export + manifold report
 `make food` writes `renders/food/FOOD_{nosnap,snap}.stl` (units = **mm**), now **watertight
 (0 non-manifold, euler 2)** — slice directly, no repair needed.
 - Slice in Cura/PrusaSlicer (FDM) or Lychee/Chitubox (resin).
-- Orient **peg up / socket down**; support the flared rim overhang. Print **both** fits and feel
-  the snap vs slip — the −0.10 mm interference is a starting guess, confirm by hand.
+- Orient **peg up / socket down**. The socket now prints **support-free by design**: the dome cavity
+  is a **self-supporting CONE** (`sor._cone`, walls ≥52° from horizontal — replaced the old parabolic
+  cavity whose flat apex was a 90° overhang), and the cone doubles as a peg lead-in. The cone is also
+  the reason FOOD grew ~0.3 mm taller (a pointed tip sits a touch deeper than the flat-apex dome). The
+  **only** remaining overhang is the ~1 mm flat at the top of the **ridge groove** — forced by the
+  universal peg's flat-topped ridge (changing it would change every piece's mate), and it bridges
+  trivially. So you generally **don't** need to block supports; if your slicer still adds any, block
+  just that little groove. Still support the **flared rim** overhang from the build plate. Print
+  **both** fits and feel the snap vs slip — the −0.10 mm interference is a starting guess, confirm by hand.
 - Snap material wants a little give (PETG / tough resin).
 
 ### Full test plate (`make plate`)

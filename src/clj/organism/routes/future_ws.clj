@@ -2,42 +2,16 @@
   "WebSocket handler for Future game play."
   (:require
    [clojure.edn :as edn]
-   [clojure.java.io :as io]
    [clojure.tools.logging :as log]
-   [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
-   [future.game :as game])
-  (:import
-   [java.io ByteArrayOutputStream]))
-
-;; ── Transit helpers ─────────────────────────────────────────────────────────
-
-(defn- ->stream [input]
-  (cond (string? input) (io/input-stream (.getBytes ^String input))
-        :else input))
-
-(defn read-json [input]
-  (with-open [ins (->stream input)]
-    (-> ins (transit/reader :json) transit/read)))
-
-(defn write-json [output]
-  (let [out (ByteArrayOutputStream. 4096)
-        w   (transit/writer out :json)
-        _   (transit/write w output)
-        ret (.toString out)]
-    (.reset out)
-    ret))
-
-(defn send! [channel message]
-  (hk/send! channel (write-json message)))
-
-(defn send-channels! [channels message]
-  (doseq [ch channels]
-    (send! ch message)))
+   [organism.game-ws :as gws :refer [read-json send! send-channels!]]
+   [future.game :as game]))
 
 ;; ── Games atom ──────────────────────────────────────────────────────────────
 ;; {:games {play-key → {:key play-key
 ;;                       :state    game-state
+;;                       :bots     #{bot-name ...}
+;;                       :players  [player-name ...]
 ;;                       :channels #{channel ...}}}}
 
 (defonce games (atom {:games {}}))
@@ -56,43 +30,86 @@
                  "state" (pr-str state)}
           action-key (assoc "action" (pr-str action-key))))))))
 
+;; ── Bot policy ──────────────────────────────────────────────────────────────
+
+(def ^:private end-choices
+  #{[:done-moving] [:done-activating] [:skip-links]})
+
+(defn- bot-pick
+  "Random legal action, with a mild preference for non-terminal choices —
+   mirrors the client-side bot in future/play.cljs."
+  [actions]
+  (let [entries (vec actions)
+        non-end (filterv (fn [[ak _]] (not (contains? end-choices ak))) entries)
+        pool    (if (seq non-end) non-end entries)]
+    (rand-nth pool)))
+
+(def ^:private bot-delay-ms 500)
+
+(defn run-bot-turns!
+  "Spawn a future that auto-plays bot turns for play-key until a human's turn
+   (or game over)."
+  [play-key]
+  (future
+    (try
+      (loop []
+        (let [game-data (get-in @games [:games play-key])
+              state     (:state game-data)
+              bots      (:bots game-data)
+              cur       (game/current-player state)]
+          (when (and state cur (contains? bots cur))
+            (Thread/sleep bot-delay-ms)
+            (let [current-state (:state (get-in @games [:games play-key]))
+                  cur2          (game/current-player current-state)]
+              (when (and current-state cur2 (contains? bots cur2))
+                (let [actions (game/legal-actions current-state)]
+                  (when (seq actions)
+                    (let [[ak next-state] (bot-pick actions)]
+                      (swap! games assoc-in [:games play-key :state] next-state)
+                      (log/info "Future bot action" play-key cur2 (pr-str ak))
+                      (broadcast-state! play-key ak)
+                      (recur)))))))))
+      (catch Exception e
+        (log/error "Future bot loop error" play-key (.getMessage e))))))
+
 ;; ── Game management ─────────────────────────────────────────────────────────
 
 (defn empty-game [play-key channel]
   {:key play-key
    :state nil
+   :bots #{}
+   :players []
    :channels #{channel}})
 
-(defn append-channel! [play-key channel]
-  (swap! games update-in [:games play-key :channels] conj channel))
-
-(defn load-game! [play-key channel]
-  (let [g (empty-game play-key channel)]
-    (swap! games assoc-in [:games play-key] g)
-    g))
-
 (defn find-game! [play-key channel]
-  (let [existing (get-in @games [:games play-key])]
-    (if (empty? existing)
-      (load-game! play-key channel)
-      (do (append-channel! play-key channel)
-          (update existing :channels conj channel)))))
+  (gws/find-game! games play-key channel empty-game))
 
 ;; ── Message handlers ────────────────────────────────────────────────────────
 
 (defn handle-create! [play-key message]
   (let [players-raw (or (get message "players") (get message :players))
-        players (if (string? players-raw) (edn/read-string players-raw) players-raw)]
+        players     (if (string? players-raw) (edn/read-string players-raw) players-raw)
+        bots-raw    (or (get message "bots") (get message :bots))
+        bots        (if (string? bots-raw) (edn/read-string bots-raw) bots-raw)
+        bot-set     (set (or bots []))]
     (when players
       (let [state (game/create-game players)]
-        (swap! games assoc-in [:games play-key :state] state)
-        (log/info "Created future game" play-key "with players" players)
-        (broadcast-state! play-key)))))
+        (swap! games update-in [:games play-key]
+               (fn [g] (-> (or g {:key play-key :channels #{}})
+                           (assoc :state state
+                                  :bots bot-set
+                                  :players (vec players)))))
+        (log/info "Created future game" play-key
+                  "players:" players "bots:" bots)
+        (broadcast-state! play-key)
+        (when (contains? bot-set (game/current-player state))
+          (run-bot-turns! play-key))))))
 
 (defn handle-action! [play-key player-key message]
   (let [choice (or (get message "choice") (get message :choice))
         game-data (get-in @games [:games play-key])
-        state (:state game-data)]
+        state (:state game-data)
+        bots  (:bots game-data)]
     (when (and choice state)
       (try
         (let [action-key (if (string? choice) (edn/read-string choice) choice)
@@ -102,7 +119,9 @@
             (do
               (swap! games assoc-in [:games play-key :state] next-state)
               (log/info "Future action" play-key player-key (pr-str action-key))
-              (broadcast-state! play-key action-key))
+              (broadcast-state! play-key action-key)
+              (when (contains? bots (game/current-player next-state))
+                (run-bot-turns! play-key)))
             (log/warn "Unknown future action" play-key player-key (pr-str action-key))))
         (catch Exception e
           (log/error "Failed to apply future action" play-key player-key
@@ -123,13 +142,7 @@
 
 (defn disconnect! [{:keys [play-key player]} channel status]
   (log/info "Future DISCONNECT" player status)
-  (swap! games
-         (fn [gs]
-           (let [remaining (remove #{channel}
-                                   (get-in gs [:games play-key :channels]))]
-             (if (empty? remaining)
-               (update-in gs [:games] dissoc play-key)
-               (assoc-in gs [:games play-key :channels] (set remaining)))))))
+  (gws/remove-channel! games play-key channel))
 
 (defn notify-clients! [{:keys [play-key player]} _channel raw]
   (let [message (read-json raw)
@@ -143,10 +156,8 @@
 ;; ── Route wiring ────────────────────────────────────────────────────────────
 
 (defn websocket-callbacks [player play-key]
-  (let [cfg {:player player :play-key play-key}]
-    {:on-open    (partial connect!        cfg)
-     :on-close   (partial disconnect!     cfg)
-     :on-receive (partial notify-clients! cfg)}))
+  (gws/make-callbacks {:player player :play-key play-key}
+                      {:on-open connect! :on-close disconnect! :on-receive notify-clients!}))
 
 (defn ws-handler [{:keys [path-params session] :as request}]
   (let [play   (:play path-params)

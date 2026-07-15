@@ -342,7 +342,10 @@
    with a background fill that erases the hex gap."
   [state player-order player-colors]
   (let [board (:board state)]
-    [:g
+    ;; pointer-events none: gate ovals straddle the edge between two tiles and are
+    ;; drawn on top of them; without this they swallow clicks on either tile near
+    ;; that edge. Gates are never click targets.
+    [:g {:style {:pointer-events "none"}}
      (for [[pos _]  board
            :let     [[cx cy] (hex->pixel pos)]
            player   player-order
@@ -389,7 +392,11 @@
 ;; Two such rings from adjacent tiles form a complete annulus around the gate.
 (defn cipher-match-dots [state pos color-key]
   (when (game/cipher-color-active? state [0 0] color-key)
-    [:g
+    ;; pointer-events none: these arcs bulge past the tile edge over neighboring
+    ;; tiles. Without this they intercept clicks meant for those neighbors (the
+    ;; "highlighted but unclickable space" bug), since this arc belongs to a
+    ;; different tile's group.
+    [:g {:style {:pointer-events "none"}}
      (for [dir   game/hex-directions
              :let  [neighbor-color (get-in state [:board (game/add-hex pos dir) :color])]
              :when (and neighbor-color (game/cipher-color-active? state dir neighbor-color))
@@ -594,22 +601,57 @@
      ;; Ghost station icons for each conversion option, clickable
      ;; When pending-convert is set, show sundiver arrangement options instead
      (if pending
-       ;; Show each sundiver arrangement as clickable highlighted sundivers
-       (let [{:keys [target options]} pending
-             [px py] (hex->pixel target)]
-         (for [[i {:keys [choice-key sundivers]}] (map-indexed vector options)]
-           [:g {:key (str "conv-opt" i)
+       ;; Show each arrangement as one clickable shape connecting its sundivers:
+       ;; foundries get a curved arc between the pair (bowed per option, since
+       ;; foundry options share sundivers); matrices a straight line (they don't
+       ;; overlap); towers a loop through their three.
+       (let [{:keys [target type options]} pending
+             [px py] (hex->pixel target)
+             palette ["#FFD030" "#30C8FF" "#FF6090" "#90E060" "#C080FF" "#FF9040"]]
+         (for [[i {:keys [choice-key sundivers]}] (map-indexed vector options)
+               :let [color (nth palette (mod i (count palette)))
+                     pts   (mapv hex->pixel sundivers)]]
+           [:g {:key      (str "conv-opt" i)
                 :on-click (when on-hex-click #(on-hex-click choice-key))
-                :style {:cursor "pointer"}}
-            ;; Draw lines from each sundiver to the target to show the pattern
-            (for [[j sv-pos] (map-indexed vector sundivers)
-                  :let [[sx sy] (hex->pixel sv-pos)]]
-              [:line {:key (str "line" j)
-                      :x1 sx :y1 sy :x2 px :y2 py
-                      :stroke (nth ["#FFD030" "#30C8FF" "#FF6090"] (mod i 3))
-                      :stroke-width 2.5
-                      :opacity 0.5
-                      :stroke-dasharray "4,4"}])]))
+                :style    {:cursor "pointer"}}
+            (cond
+              ;; Foundry: one curved arc between the pair, bowed per option so
+              ;; arrangements that share a sundiver pull apart and stay clickable.
+              (and (= type :foundry) (= 2 (count pts)))
+              (let [[[sx sy] [ex ey]] pts
+                    mx    (/ (+ sx ex) 2.0) my (/ (+ sy ey) 2.0)
+                    ;; bow the arc outward, away from the target, so each foundry
+                    ;; pair becomes a distinct petal around the build site
+                    tx    (- mx px) ty (- my py)
+                    tlen  (Math/sqrt (+ (* tx tx) (* ty ty)))
+                    ox    (if (pos? tlen) (/ tx tlen) 0.0)
+                    oy    (if (pos? tlen) (/ ty tlen) 1.0)
+                    bulge 26
+                    cx    (+ mx (* ox bulge)) cy (+ my (* oy bulge))
+                    ax    (+ mx (* ox bulge 0.5)) ay (+ my (* oy bulge 0.5))
+                    d     (str "M " sx "," sy " Q " cx "," cy " " ex "," ey)]
+                [:g
+                 [:path {:d d :fill "none" :stroke "transparent" :stroke-width 16 :stroke-linecap "round"}]
+                 [:path {:d d :fill "none" :stroke color :stroke-width 3
+                         :opacity 0.85 :stroke-dasharray "5,5" :stroke-linecap "round"}]
+                 [:circle {:cx ax :cy ay :r 5.5 :fill color
+                           :stroke "#1A1A28" :stroke-width 1 :opacity 0.95}]])
+
+              ;; Matrix: straight line between the pair (these don't overlap).
+              (and (= type :matrix) (= 2 (count pts)))
+              (let [[[sx sy] [ex ey]] pts]
+                [:g
+                 [:line {:x1 sx :y1 sy :x2 ex :y2 ey :stroke "transparent" :stroke-width 16 :stroke-linecap "round"}]
+                 [:line {:x1 sx :y1 sy :x2 ex :y2 ey :stroke color :stroke-width 3
+                         :opacity 0.85 :stroke-dasharray "5,5" :stroke-linecap "round"}]])
+
+              ;; Tower (3 sundivers) or fallback: connect the sundivers in a loop.
+              :else
+              (let [poly (str/join " " (map (fn [[x y]] (str x "," y)) pts))]
+                [:g
+                 [:polygon {:points poly :fill "none" :stroke "transparent" :stroke-width 14 :stroke-linejoin "round"}]
+                 [:polygon {:points poly :fill "none" :stroke color :stroke-width 3
+                            :opacity 0.85 :stroke-dasharray "5,5" :stroke-linejoin "round"}]]))]))
        ;; Normal: show one ghost station per (target, type) group
        (let [by-target (group-by (fn [[[t _] _]] t) conv-g)]
          (for [[target entries] by-target
@@ -1183,7 +1225,8 @@
                       (choice/pending-cipher-queue pending)))]
         (when (seq items)
           (let [is-pending? (empty? cipher-queue)]
-            [:g {:transform "translate(0,110)"}
+            ;; Below the cipher (which extends to ~y=150 at scale 2.0), not over it.
+            [:g {:transform "translate(0,190)"}
              [:text {:x 0 :y -16
                      :text-anchor "middle"
                      :fill (if is-pending? "#554433" "#445566")
@@ -1202,11 +1245,14 @@
                          pck (get player-colors player :sun)
                          first? (and (not is-pending?) (zero? i))]]
                [:g {:key i :transform (str "translate(" x ",8)")}
-                [:circle {:cx 0 :cy 0 :r 18
-                          :fill wc :stroke (if first? "#FFD030" "#333") :stroke-width (if first? 2.5 1)}]
-                [:circle {:cx 0 :cy 0 :r 12 :fill ic}]
-                [:g {:transform "translate(0,-1)"}
-                 [beacon-shape pck]]])])))]
+                ;; Player-colored pentagon on the outside…
+                [:polygon {:points       (poly-pts 0 0 18 5 (- (/ Math/PI 2)))
+                           :fill         (pwo pck)
+                           :stroke       (if first? "#FFD030" (pwi pck))
+                           :stroke-width (if first? 2.5 1.4)}]
+                ;; …planet-colored circle on the inside
+                [:circle {:cx 0 :cy 0 :r 10 :fill wc}]
+                [:circle {:cx 0 :cy 0 :r 6 :fill ic}]])])))]
 
      ;; ── Player panels (left side, wraps to second column if needed)
      (let [max-h    (- vh 20)
