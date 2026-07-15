@@ -1,3 +1,10 @@
+(ns future.game-test-legacy)
+
+;; ─── LEGACY: original implementation, preserved as reference ───
+;; ─── Inert: all forms below live inside (comment ...).            ───
+
+(comment
+
 (ns future.game-test
   (:require
    [clojure.test :refer :all]
@@ -65,3 +72,5 @@
           :else
           (let [[_ next-s] (rand-nth (vec acts))]
             (recur next-s (inc i))))))))
+
+) ;; end (comment ...)
