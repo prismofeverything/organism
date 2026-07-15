@@ -28,3 +28,4 @@ auto.save
 /pieces/out/
 bonus-coverage/
 *.mp4
+.nix-mongo/
