@@ -5,21 +5,25 @@
 #   ./deploy.sh              — build JS + uberjar locally
 #   ./deploy.sh build        — same as above
 #   ./deploy.sh clean        — clean everything first, then build
-#   ./deploy.sh ship         — build + upload jar + restart server
+#   ./deploy.sh ship         — build + upload jar + restart systemd service
 #   ./deploy.sh push         — skip build, just upload + restart
-#   ./deploy.sh tail         — tail the remote log file (Ctrl-C to quit)
-#   ./deploy.sh log [N]      — print last N lines of remote log (default 100)
-#   ./deploy.sh status       — show whether the remote server is running
+#   ./deploy.sh tail         — follow the remote journal (Ctrl-C to quit)
+#   ./deploy.sh log [N]      — print last N journal lines (default 100)
+#   ./deploy.sh status       — systemctl status of the remote service
 #   ./deploy.sh sync-bot --game journey --owner prismofeverything --name OBO
 #                            — push a bot from local MongoDB to remote
 #
+# Deploy target from $DEPLOY_HOST (default ryan@elephantlaboratories.com).
 # The server only needs Java — all Node/ClojureScript compilation
 # happens locally.
 
 set -e
 cd "$(dirname "$0")"
 
-REMOTE_HOST="ryan@elephantlaboratories.com"
+# Deploy target. Defaults to the domain (correct once DNS points at the new box);
+# override for the pre-cutover droplet:  DEPLOY_HOST=ryan@NEW_IP ./deploy.sh ship
+REMOTE_HOST="${DEPLOY_HOST:-ryan@elephantlaboratories.com}"
+SERVICE="organism"          # systemd unit: HTTP + WebSocket on :11551
 REMOTE_DIR="~/organism"
 REMOTE_JAR="$REMOTE_DIR/organism.jar"
 LOCAL_JAR="target/uberjar/organism.jar"
@@ -41,22 +45,17 @@ ship() {
   echo "=== Uploading jar to $REMOTE_HOST ==="
   scp "$LOCAL_JAR" "$REMOTE_HOST:$REMOTE_JAR"
 
-  echo "=== Restarting server ==="
+  echo "=== Restarting $SERVICE via systemd ==="
+  # systemd owns the process now (unit installed by the migration's 02 script);
+  # NOPASSWD sudoers (also from 02) lets this restart run non-interactively.
   ssh "$REMOTE_HOST" "bash -lc '
-    cd $REMOTE_DIR
-    if [ -f organism.pid ]; then
-      kill \$(cat organism.pid) 2>/dev/null || true
-      rm -f organism.pid
-      sleep 2
-    fi
-    nohup java -jar organism.jar > organism.log 2>&1 &
-    echo \$! > organism.pid
-    sleep 3
-    if kill -0 \$(cat organism.pid) 2>/dev/null; then
-      echo \"Server started (pid \$(cat organism.pid)), port 11551\"
+    sudo systemctl restart $SERVICE
+    sleep 2
+    if systemctl is-active --quiet $SERVICE; then
+      echo \"$SERVICE is active (port 11551)\"
     else
-      echo \"ERROR: server failed to start. Check organism.log\"
-      tail -20 organism.log
+      echo \"ERROR: $SERVICE failed to start — recent logs:\"
+      journalctl -u $SERVICE -n 30 --no-pager
       exit 1
     fi
   '"
@@ -140,22 +139,15 @@ case "${1:-build}" in
     ship
     ;;
   tail)
-    echo "=== Tailing $REMOTE_HOST:$REMOTE_DIR/organism.log (Ctrl-C to quit) ==="
-    ssh -t "$REMOTE_HOST" "tail -f $REMOTE_DIR/organism.log"
+    echo "=== Following journal for $SERVICE on $REMOTE_HOST (Ctrl-C to quit) ==="
+    ssh -t "$REMOTE_HOST" "journalctl -u $SERVICE -f"
     ;;
   log)
     lines="${2:-100}"
-    ssh "$REMOTE_HOST" "tail -n $lines $REMOTE_DIR/organism.log"
+    ssh "$REMOTE_HOST" "journalctl -u $SERVICE -n $lines --no-pager"
     ;;
   status)
-    ssh "$REMOTE_HOST" "bash -lc '
-      cd $REMOTE_DIR
-      if [ -f organism.pid ] && kill -0 \$(cat organism.pid) 2>/dev/null; then
-        echo \"running (pid \$(cat organism.pid))\"
-      else
-        echo \"not running\"
-      fi
-    '"
+    ssh "$REMOTE_HOST" "systemctl status $SERVICE --no-pager || true"
     ;;
   sync-bot)
     sync_bot "$@"

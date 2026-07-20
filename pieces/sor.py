@@ -124,8 +124,53 @@ def _ridge(ir, orr, height, peak_w, z_base, n=26):
     return out
 
 
+def _socket_ss(dome_r, dome_h, ridge_ir, ridge_or, ridge_h, peak_w, gap,
+               z0=0.0, ss_deg=40.0, clr=0.3):
+    """Self-supporting SOCKET meridian: (0, apex) -> dome base -> flat -> ridge groove -> (s_or, z0).
+    The flat-apex dome cavity becomes a POINTED cap and the flat-topped ridge groove a TENTED roof,
+    so every downward-facing ceiling face is <= ss_deg from vertical -> prints support-free (socket
+    down). The mating FLANKS stay the gap-offset mirror of the peg, so fit/grip is UNCHANGED; only the
+    near-horizontal roofs (pure clearance above the peg) are steepened. Returns (points, apex_z)."""
+    t = math.tan(math.radians(ss_deg)); cot = 1.0 / t
+    # dome cavity: parabola flank (gap-mirror) up to the ss transition, then a straight cap to a
+    # point that clears the peg tip -> the flat 90deg apex is gone.
+    s_dr, s_dh = dome_r + gap, dome_h + gap
+    r_tr = min(s_dr * s_dr / (2 * s_dh * t), 0.98 * s_dr)          # radius where parabola hits ss_deg
+    z_tr = z0 + s_dh * (1 - (r_tr / s_dr) ** 2)
+    apex_z = max(z0 + s_dh, z0 + dome_h + clr, z_tr + r_tr * cot)  # clear peg tip; cap <= ss_deg
+    dome = []
+    for i in range(25):
+        r = s_dr * (1 - i / 24)
+        if r <= r_tr: break
+        dome.append((r, z0 + s_dh * (1 - (r / s_dr) ** 2)))
+    dome += [(r_tr, z_tr), (0.0, apex_z)]
+    dome = dome[::-1]                                              # (0, apex_z) -> (s_dr, z0)
+    # ridge groove: gap-offset peg flanks (the grip) up to the ss transition, then a tented roof that
+    # clears the peg's flat top -> the flat 90deg groove ceiling is gone.
+    peg = _ridge(ridge_ir, ridge_or, ridge_h, peak_w, z0)
+    top = z0 + ridge_h
+    flat = [i for i, (r, z) in enumerate(peg) if abs(z - top) < 1e-9]
+    def keep(flank, off):                                         # flank base(z0)->top; keep steep part
+        pts = [(r + off, z) for (r, z) in flank]; k = len(pts) - 1
+        for j in range(1, len(pts)):
+            dr = abs(pts[j][0] - pts[j-1][0]); dz = abs(pts[j][1] - pts[j-1][1])
+            if (math.degrees(math.atan2(dr, dz)) if dz > 1e-12 else 90.0) > ss_deg: k = j - 1; break
+        return pts[:k + 1]
+    inner = keep(peg[:flat[0] + 1], -gap)                         # (s_ir, z0) -> (r_ti, z_ti)
+    outer = keep(peg[flat[-1]:][::-1], gap)                       # (s_or, z0) -> (r_to, z_to)
+    r_ti = inner[-1][0]; r_to = outer[-1][0]
+    z_sh = max(inner[-1][1], outer[-1][1], top + clr)             # shoulder height clears the peg flat top
+    if inner[-1][1] < z_sh: inner.append((r_ti, z_sh))            # short vertical riser (0deg, self-supporting)
+    if outer[-1][1] < z_sh: outer.append((r_to, z_sh))
+    r_mid = 0.5 * (r_ti + r_to)
+    z_pk = z_sh + (r_mid - r_ti) * cot                            # tent apex; both ramps at ss_deg
+    ridge = inner + [(r_mid, z_pk)] + outer[::-1]                 # (s_ir, z0) -> peak -> (s_or, z0)
+    return dome + ridge, apex_z
+
+
 def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
-         ridge_ir=4.15, ridge_or=6.4, ridge_h=2.75, peak_w=2.0, seat_pad=0.0, nb=48):
+         ridge_ir=4.15, ridge_or=6.4, ridge_h=2.75, peak_w=2.0, seat_pad=0.0, nb=48,
+         self_support=False, ss_deg=30.0, ss_clr=0.3):
     """The whole FOOD as ONE meridian: socket cavity -> seat -> underside -> rim -> top ->
     peg ridge -> peg dome. A single revolve of this is watertight (no booleans). The socket
     is the connector oversized by `gap` (+ slip / - snap). Returns (points, meta)."""
@@ -136,7 +181,11 @@ def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
     # axis) which is a 90deg overhang when printed socket-DOWN; handle by painting a SUPPORT
     # BLOCKER in the slicer over the cavity region (PrusaSlicer: paint-on supports / Bambu /
     # Cura per-object setting). A 2mm-wide flat apex bridges cleanly with PETG.
-    socket_ceiling = s_dh                                  # cavity apex at z=s_dh
+    if self_support:                                       # pointed dome cap + tented ridge roof (support-free)
+        _socket_P, socket_ceiling = _socket_ss(dome_r, dome_h, ridge_ir, ridge_or, ridge_h,
+                                               peak_w, gap, 0.0, ss_deg, ss_clr)
+    else:
+        socket_ceiling = s_dh                              # cavity apex at z=s_dh
     floor_z = socket_ceiling + wall                        # solid floor under the peg
     peg_tip = floor_z + dome_h
     R_seat = ridge_or + gap + seat_pad
@@ -144,9 +193,12 @@ def food(R=13.0, flare_up=2.5, wall=2.5, gap=0.2, dome_r=1.9, dome_h=4.3,
     rim_b = z_top(R) - wall
     z_bot = lambda r: rim_b * ((r - R_seat) / (R - R_seat)) ** 2
 
-    P = _dome(s_dr, s_dh, 0.0)[::-1]                       # socket dome cavity: apex (0, s_dh) -> base (s_dr, 0)
-    P.append((s_ir, 0.0))                                   # flat -> socket ridge inner
-    P += _ridge(s_ir, s_or, s_rh, peak_w, 0.0)[1:]         # socket ridge cavity
+    if self_support:
+        P = list(_socket_P)                                # self-supporting socket (pointed cap + tented roof)
+    else:
+        P = _dome(s_dr, s_dh, 0.0)[::-1]                   # socket dome cavity: apex (0, s_dh) -> base (s_dr, 0)
+        P.append((s_ir, 0.0))                              # flat -> socket ridge inner
+        P += _ridge(s_ir, s_or, s_rh, peak_w, 0.0)[1:]     # socket ridge cavity
     P.append((R_seat, 0.0))                                 # flat seat
     P += [(R_seat + (R - R_seat) * i / nb, z_bot(R_seat + (R - R_seat) * i / nb)) for i in range(1, nb + 1)]
     rim = Meridian(); rim.pts = [P[-1]]                     # rounded rim, tangent to both surfaces
