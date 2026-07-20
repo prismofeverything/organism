@@ -14,7 +14,11 @@
   (shared/create-game!
    {:games-atom  future-ws/games
     :make-state  (fn [players _params] (game/create-game players))
-    :max-players 5}
+    :max-players 5
+    :after!      (fn [_db play-key state]
+                   (let [bots (:bots (get-in @future-ws/games [:games play-key]))]
+                     (when (contains? bots (game/current-player state))
+                       (future-ws/run-bot-turns! play-key))))}
    db request))
 
 (defn home-page
