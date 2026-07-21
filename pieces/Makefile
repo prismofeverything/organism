@@ -21,6 +21,7 @@ BLANKS    := $(OUT)/EAT.obj $(OUT)/MOVE.obj $(OUT)/GROW.obj
 GRAFTS    := $(OUT)/EAT_graft.obj $(OUT)/MOVE_graft.obj $(OUT)/GROW_graft.obj
 FOOD_STLS := $(FOOD)/FOOD_nosnap.stl $(FOOD)/FOOD_snap.stl
 PLATE_STL := $(FOOD)/print_plate.stl
+PIECES_PLATE_STL := $(FOOD)/pieces_plate.stl
 
 help:                       ## list targets (default)
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -33,6 +34,7 @@ blanks: $(BLANKS)           ## 3 sculpt-ready blank bodies in out/
 grafts: $(GRAFTS)           ## 3 connector-grafted pieces in out/ (needs blanks)
 food:   $(FOOD_STLS)        ## slip + snap FOOD STLs in renders/food/
 plate:  $(PLATE_STL)        ## combined print plate STL (needs grafts + food)
+pieceplate: $(PIECES_PLATE_STL) ## pieces-only plate STL (EAT/MOVE/GROW, no food -> separate colour)
 all:    blanks grafts food plate   ## rebuild everything (skips video)
 
 $(BLANKS): meshlib/build.py meshlib/graft_lib.py
@@ -49,9 +51,16 @@ $(FOOD)/FOOD_snap.stl: build_food.py sor.py
 	FOOD_GAP=-0.10 FOOD_OUT=$(FOOD)/FOOD_snap.obj   $(BLENDER) $(BFLAGS) build_food.py
 	$(PY) render_food.py $(FOOD)/FOOD_snap.obj
 
-$(PLATE_STL): $(GRAFTS) $(FOOD_STLS) build_print_plate.py
+$(PLATE_STL): $(GRAFTS) $(FOOD_STLS) build_print_plate.py strip_slivers.py
 	$(BLENDER) $(BFLAGS) build_print_plate.py
+	$(PY) strip_slivers.py $(PLATE_STL)
 	$(PY) preview_plate.py
+
+# pieces-only plate: EAT/MOVE/GROW in one row, no food (food is a different filament colour).
+$(PIECES_PLATE_STL): $(GRAFTS) build_print_plate.py strip_slivers.py
+	PIECES_ONLY=true $(BLENDER) $(BFLAGS) build_print_plate.py
+	$(PY) strip_slivers.py $(PIECES_PLATE_STL)
+	PIECES_ONLY=true $(PY) preview_plate.py
 
 measure: $(FOOD_STLS)       ## FOOD nesting % measurement
 	$(PY) stack_food.py $(FOOD)/FOOD_nosnap.profile.json
@@ -79,8 +88,8 @@ video:                      ## gameplay animation -> scene/<game>-play.mp4 (slow
 	nice -n 19 ffmpeg -y -framerate 24 -i $(FR)/f%04d.png -c:v libx264 -pix_fmt yuv420p $(VIDEO_OUT)
 	@echo "wrote $(VIDEO_OUT)"
 
-clean:                      ## nuke out/ blanks+grafts and print_plate.stl (food STLs preserved)
-	rm -f $(BLANKS) $(GRAFTS) $(PLATE_STL)
+clean:                      ## nuke out/ blanks+grafts and plate STLs (food STLs preserved)
+	rm -f $(BLANKS) $(GRAFTS) $(PLATE_STL) $(PIECES_PLATE_STL)
 
-.PHONY: help print blanks grafts food plate all measure preview video clean
+.PHONY: help print blanks grafts food plate pieceplate all measure preview video clean
 .DEFAULT_GOAL := help

@@ -21,7 +21,7 @@
    :play-path        "/organism/play"
    :ws-prefix        "/ws/organism/play/"
    :load-observe     persist/load-observe-games
-   :load-player-stats persist/load-player-stats})
+   :load-player-stats #(persist/load-player-stats % "organism")})
 
 ;; ── Page handlers ─────────────────────────────────────────────────────────
 

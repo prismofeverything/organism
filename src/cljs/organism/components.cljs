@@ -306,6 +306,15 @@
 
 ;; ── Active games (observe) display ──────────────────────────────────────────
 
+(defn- format-last-move
+  "Epoch-seconds → concise local date/time, e.g. \"Jul 14, 2026, 3:45 PM\"."
+  [secs]
+  (when secs
+    (.toLocaleString (js/Date. (* secs 1000))
+                     js/undefined
+                     #js {:month "short" :day "numeric" :year "numeric"
+                          :hour "numeric" :minute "2-digit"})))
+
 (defn active-game-card
   "Render a single active/observed game card. Props:
    :game-key       — the game key
@@ -317,7 +326,7 @@
    :player-link-prefix — URL prefix for player links (e.g. \"/organism/player/\")
    :font-family    — optional font"
   [{:keys [game-key invocation round current-player colors link-prefix
-           player-link-prefix font-family]
+           player-link-prefix font-family last-move-time]
     :or {font-family "monospace"}}]
   (let [{:keys [players description]} invocation
         player-colors (into {} (map vector players (or colors (repeat "#444"))))
@@ -341,6 +350,9 @@
      (when round
        [:span {:style {:margin "0px 20px" :color "#aaa"}}
         (str " round " (inc (or round 0)))])
+     (when-let [when-str (format-last-move last-move-time)]
+       [:span {:style {:margin "0px 20px" :color "#888" :font-size "0.85em"}}
+        when-str])
      (for [game-player players
            :let [color (get player-colors game-player)]]
        ^{:key game-player}
@@ -378,30 +390,48 @@
   [{:keys [title games link-prefix player-link-prefix colors-fn home-path
            font-family title-bg]
     :or {title "observe" title-bg "#333"}}]
-  [:div {:style {:padding "20px" :color "#eee"}}
-   [:div {:style {:color "#fff"
-                  :border-radius "50px"
-                  :letter-spacing "8px"
-                  :font-family (or font-family "monospace")
-                  :margin "0px 20px"
-                  :padding "25px 60px"
-                  :background title-bg}}
-    [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
-              :href (or home-path "/")} title]]]
-   (if (empty? games)
-     [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
-     [:div {:style {:margin "20px 40px"}}
-      (for [{:keys [key invocation round current-player]} games
-            :let [colors (when colors-fn (colors-fn invocation))]]
-        ^{:key key}
-        [active-game-card {:game-key key
-                           :invocation invocation
-                           :round round
-                           :current-player current-player
-                           :colors colors
-                           :link-prefix link-prefix
-                           :player-link-prefix player-link-prefix
-                           :font-family font-family}])])])
+  ;; Active games (no winner) split by recency: moved in the last week → ACTIVE,
+  ;; otherwise → INACTIVE. Games with a winner → COMPLETE. Highlight pill = whose
+  ;; turn it is for open games, the winner for completed ones (like the play page).
+  (let [week-ago  (- (quot (.now js/Date) 1000) (* 7 24 60 60))
+        recent?   (fn [g] (>= (or (:last-move-time g) 0) week-ago))
+        completed (filter :winner games)
+        open      (remove :winner games)
+        active    (filter recent? open)
+        inactive  (remove recent? open)
+        game-card (fn [{:keys [key invocation round last-move-time]} highlight]
+                    [active-game-card {:game-key key
+                                       :invocation invocation
+                                       :round round
+                                       :current-player highlight
+                                       :last-move-time last-move-time
+                                       :colors (when colors-fn (colors-fn invocation))
+                                       :link-prefix link-prefix
+                                       :player-link-prefix player-link-prefix
+                                       :font-family font-family}])
+        section   (fn [label tip items highlight-fn]
+                    (when (seq items)
+                      [:div {:style {:margin "20px 40px"}}
+                       [:h2 (if tip [:span {:title tip} label] label)]
+                       (for [{:keys [key] :as g} items]
+                         ^{:key key}
+                         [game-card g (highlight-fn g)])]))]
+    [:div {:style {:padding "20px" :color "#eee"}}
+     [:div {:style {:color "#fff"
+                    :border-radius "50px"
+                    :letter-spacing "8px"
+                    :font-family (or font-family "monospace")
+                    :margin "0px 20px"
+                    :padding "25px 60px"
+                    :background title-bg}}
+      [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
+                :href (or home-path "/")} title]]]
+     (if (empty? games)
+       [:p {:style {:margin "30px 40px" :color "#888"}} "no games yet"]
+       [:div
+        (section "ACTIVE"   "A solid color row shows whose turn it is." active   :current-player)
+        (section "INACTIVE" "No move in over a week."                   inactive :current-player)
+        (section "COMPLETE" nil                                         completed :winner)])]))
 
 ;; ── Player stats page ──────────────────────────────────────────────────────
 
@@ -417,16 +447,16 @@
   [label value color]
   [:span
    {:style {:display "inline-flex"
-            :flex-direction "column"
-            :align-items "center"
+            :flex-direction "row"
+            :align-items "baseline"
             :color "#fff"
-            :border-radius "20px"
+            :border-radius "15px"
             :background color
-            :padding "7px 20px"
+            :padding "6px 16px"
             :margin "0px 10px"}}
    [:span {:style {:font-size "1.1em"}} value]
    [:span {:style {:font-size "0.6em" :letter-spacing "2px"
-                   :opacity "0.7" :margin-top "2px"}} label]])
+                   :opacity "0.7" :margin-left "8px"}} label]])
 
 (defn players-page
   "Complete players/stats page renderer. Props:
