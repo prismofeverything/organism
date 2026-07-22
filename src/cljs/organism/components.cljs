@@ -315,6 +315,21 @@
                      #js {:month "short" :day "numeric" :year "numeric"
                           :hour "numeric" :minute "2-digit"})))
 
+(defn- relative-time
+  "Epoch-millis → coarse \"N units ago\" phrase (e.g. \"3 days ago\")."
+  [ms]
+  (when (and ms (pos? ms))
+    (let [secs (quot (- (.now js/Date) ms) 1000)
+          ago  (fn [n unit] (str n " " unit (when (> n 1) "s") " ago"))]
+      (cond
+        (< secs 60)       "just now"
+        (< secs 3600)     (ago (quot secs 60) "minute")
+        (< secs 86400)    (ago (quot secs 3600) "hour")
+        (< secs 604800)   (ago (quot secs 86400) "day")
+        (< secs 2592000)  (ago (quot secs 604800) "week")
+        (< secs 31536000) (ago (quot secs 2592000) "month")
+        :else             (ago (quot secs 31536000) "year")))))
+
 (defn active-game-card
   "Render a single active/observed game card. Props:
    :game-key       — the game key
@@ -328,9 +343,26 @@
   [{:keys [game-key invocation round current-player colors link-prefix
            player-link-prefix font-family last-move-time]
     :or {font-family "monospace"}}]
-  (let [{:keys [players description]} invocation
+  (let [{:keys [players description created]} invocation
         player-colors (into {} (map vector players (or colors (repeat "#444"))))
-        current-color (or (get player-colors current-player) (first colors) "#445")]
+        current-color (or (get player-colors current-player) (first colors) "#445")
+        ;; the player up after the current one (turn order = roster order, cycling)
+        next-player   (let [idx (->> players
+                                     (keep-indexed (fn [i p] (when (= p current-player) i)))
+                                     first)]
+                        (when (and idx (seq players))
+                          (nth players (mod (inc idx) (count players)))))
+        next-color    (or (get player-colors next-player) current-color)
+        created-ago (relative-time created)
+        last-ago    (relative-time (when last-move-time (* last-move-time 1000)))
+        time-parts  (cond-> []
+                      created-ago (conj [[:b "created"] (str " " created-ago)])
+                      last-ago    (conj [[:b "last move"] (str " " last-ago)]))
+        time-title  (string/join
+                     " - "
+                     (cond-> []
+                       created        (conj (str "created " (format-last-move (quot created 1000))))
+                       last-move-time (conj (str "last move " (format-last-move last-move-time)))))]
     [:div {:style {:margin "10px 20px" :padding "10px 0px"}}
      [:span
       [:a {:href (str link-prefix game-key)
@@ -348,11 +380,21 @@
                        :font-style "italic"}}
         description])
      (when round
-       [:span {:style {:margin "0px 20px" :color "#aaa"}}
-        (str " round " (inc (or round 0)))])
-     (when-let [when-str (format-last-move last-move-time)]
-       [:span {:style {:margin "0px 20px" :color "#888" :font-size "0.85em"}}
-        when-str])
+       [:span {:style {:color "#fff"
+                       :border-radius "20px"
+                       :background next-color
+                       :padding "7px 20px"
+                       :margin "0px 10px"
+                       :vertical-align "middle"
+                       :font-family font-family}}
+        (str "round " (inc (or round 0)))])
+     (when (seq time-parts)
+       (into [:span {:style {:display "inline-block" :vertical-align "middle"
+                             :margin "0px 20px" :color "#888" :font-size "0.85em"
+                             :line-height "1.35"}
+                     :title time-title}]
+             (map (fn [part] (into [:span {:style {:display "block"}}] part))
+                  time-parts)))
      (for [game-player players
            :let [color (get player-colors game-player)]]
        ^{:key game-player}

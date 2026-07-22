@@ -21,7 +21,7 @@ ASSETS = f"{P}/clip_assets"; LA = f"{P}/layout_assets"
 FR = os.environ.get("FR", "/mnt/data/archive/organism-renders/unbox"); os.makedirs(FR, exist_ok=True)
 SAMPLES = int(os.environ.get("SAMPLES", "24"))
 RESX = int(os.environ.get("RESX", "1280")); RESY = int(os.environ.get("RESY", "720"))
-LAST = int(os.environ.get("LAST", "310"))
+LAST = int(os.environ.get("LAST", "335"))
 
 def _l(c): return c/12.92 if c <= 0.04045 else ((c+0.055)/1.055)**2.4
 def lin3(c): return (_l(c[0]), _l(c[1]), _l(c[2]), 1.0)
@@ -95,6 +95,7 @@ def load(path, zup=True):
     if not o.data.materials: o.data.materials.append(colmat(o.name+"_b", (0.5,0.5,0.5)))
     o.hide_render = True; o.location = (9000, 9000, 0); return o
 TPL = {t: load(f"{P}/out/{m}_sculpt_graft.obj") for t, m in [("eat","EAT"),("move","MOVE"),("grow","GROW")]}
+MINDISK = {t: load(f"{P}/out/{m}_mindisk.obj") for t, m in [("eat","EAT"),("move","MOVE"),("grow","GROW")]}
 FOODT = load(f"{P}/renders/food/FOOD_slip.obj", zup=False)
 GOLD = colmat("gold", FOOD_RGB, rough=0.5)
 
@@ -185,6 +186,10 @@ for deg, what in ARC:
         wx, wy, prot = ppos(-2.7, 0)
         register(disc_art(f"{pl}_plat_{k}", f"{LA}/plats/{pl}.png", (wx, wy, 1.0+k*2.4), SPACE_R,
                           rotz=prot, h=2.2, crop=0.8, shadeless=False), pl)
+    for di, dtype in enumerate(["eat", "move", "grow"]):     # 3 minimal-disk stacks (4 nested) BEHIND the set
+        wx, wy, prot = ppos((di - 1) * 1.35, 94)
+        for k in range(4):
+            register(dup(MINDISK[dtype], f"{pl}_min_{dtype}_{k}", pmat, (wx, wy, ELEV + k*10.5), prot, PSCALE), pl)
 
 # mutation tokens fanned up top
 mcards = sorted(glob.glob(f"{LA}/cards/card_*.png"))
@@ -193,17 +198,17 @@ ring_arc("mut0", mcards[:t3],     42, 2.7, 34, radius=RDIAG - 54, crop=0.9, wave
 ring_arc("mut1", mcards[t3:2*t3], 42, 2.7, 34, radius=RDIAG,      crop=0.9, wave="mut")
 ring_arc("mut2", mcards[2*t3:],   42, 2.9, 34, radius=RDIAG + 54, crop=0.9, wave="mut")
 
-# ================= THE BOX (tray + lid) =================
-TY = -540.0; BW = 300.0; TH = 46.0; hw = BW/2   # box in the clear foreground, in front of the board
-tray_dark = colmat("tray", (0.10, 0.16, 0.18), 0.6)
+# ================= THE BOX (big tray the components are laid out IN + lid) =================
+BX, BY = 0.0, 90.0; BW = 940.0; TH = 70.0; hw = BW/2      # sized to hold the full-scale packed layout
+tray_dark = colmat("tray", (0.09, 0.13, 0.15), 0.6)
 tv = [(-hw,-hw,0),(hw,-hw,0),(hw,hw,0),(-hw,hw,0),(-hw,-hw,TH),(hw,-hw,TH),(hw,hw,TH),(-hw,hw,TH)]
 tf = [(0,1,2,3),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7)]   # bottom + 4 walls, open top
 tm = bpy.data.meshes.new("tray"); tray = bpy.data.objects.new("tray", tm); C().objects.link(tray)
 tm.from_pydata(tv, [], tf); tm.update(); tm.materials.append(tray_dark)
 for poly in tm.polygons: poly.use_smooth = False
-tray.location = (0, TY, 0)
+tray.location = (BX, BY, 0)
 
-BWL = BW + 8; LH = 16.0; hl = BWL/2
+BWL = BW + 12; LH = 22.0; hl = BWL/2
 lv = [(-hl,-hl,0),(hl,-hl,0),(hl,hl,0),(-hl,hl,0),(-hl,-hl,LH),(hl,-hl,LH),(hl,hl,LH),(-hl,hl,LH)]
 lf = [(4,5,6,7),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7)]   # top plate (cover) + 4 skirt walls
 lm = bpy.data.meshes.new("lid"); lid = bpy.data.objects.new("lid", lm); C().objects.link(lid)
@@ -215,44 +220,59 @@ for li in lm.polygons[0].loop_indices:
     vi = lm.loops[li].vertex_index; uv.data[li].uv = {4:(0,0),5:(1,0),6:(1,1),7:(0,1)}[vi]
 for poly in lm.polygons: poly.use_smooth = False
 
-# ================= ANIMATION =================
-MOUTH = Vector((0, TY, TH + 8))
-WAVE_START = {"board":30, "aid":214, "green":60, "red":82, "yellow":104, "blue":126,
-              "purple":148, "food":170, "mut":206, "rule":232, "power":240, "ptok":248}
-STAG = {"food":0.7, "mut":0.8, "ptok":0.7}
-DUR  = {"board":48, "food":22, "mut":20}
+# ================= ANIMATION: laid out IN the tray -> lifted OUT in waves (no scaling) =================
+# frame 0: every component sits in the tray at FULL scale. big flats (board/power/rulebook) lie on the
+# tray floor; everything else is arranged in a neat grid on top. At its wave each lifts up-and-out to
+# the hero position. Nothing grows from nothing -- it is all physically there, then removed.
+COLS = 15; CELL = 54.0
+BIGSPOT = {"board": Vector((BX, BY, 3)), "power": Vector((BX + 300, BY + 30, 7)),
+           "rule": Vector((BX - 300, BY + 30, 9))}
+grid = [p for p in PLACED if p["wave"] not in BIGSPOT]
+NR = (len(grid) + COLS - 1) // COLS
+for gi, p in enumerate(grid):
+    gx, gy = gi % COLS, gi // COLS
+    p["_start"] = Vector((BX + (gx - (COLS-1)/2)*CELL, BY + (gy - (NR-1)/2)*CELL, 24.0))
+for p in PLACED:
+    if p["wave"] in BIGSPOT: p["_start"] = BIGSPOT[p["wave"]]
+
+WAVE_START = {"board":42, "green":72, "red":95, "yellow":118, "blue":141, "purple":164,
+              "food":188, "mut":226, "aid":238, "rule":248, "power":254, "ptok":260}
+STAG = {"food":0.7, "mut":0.8, "ptok":0.7, "green":0.9, "red":0.9, "yellow":0.9, "blue":0.9, "purple":0.9}
+DUR  = {"board":54, "food":26, "mut":22}
 
 def key_loc(o, v, f): o.location = v; o.keyframe_insert("location", frame=f)
 def key_rot(o, rz, f): o.rotation_euler = (0, 0, rz); o.keyframe_insert("rotation_euler", frame=f)
-def key_scl(o, s, f): o.scale = (s, s, s); o.keyframe_insert("scale", frame=f)
 
 for p in PLACED:
-    o = p["obj"]; L = p["loc"]; R = p["rotz"]; S = p["scale"]; wv = p["wave"]
+    o = p["obj"]; L = p["loc"]; R = p["rotz"]; wv = p["wave"]; start = p["_start"]
+    o.scale = (p["scale"],) * 3                              # full scale, held constant (no scaling)
     t0 = WAVE_START[wv] + p["idx"] * STAG.get(wv, 0.9)
-    dur = DUR.get(wv, 26); tm_ = t0 + dur*0.45; t1 = t0 + dur
-    apex = (MOUTH + L)*0.5 + Vector((0, 0, 120 + 0.12*(L - MOUTH).length))
-    key_loc(o, MOUTH, 0);            key_scl(o, 0.0, 0);      key_rot(o, R - 0.5, 0)
-    key_loc(o, MOUTH, t0);           key_scl(o, 0.0, t0);     key_rot(o, R - 0.5, t0)
-    key_loc(o, apex, tm_);           key_scl(o, S*0.92, tm_)
-    key_loc(o, L, t1);               key_scl(o, S, t1);       key_rot(o, R, t1)
+    dur = DUR.get(wv, 28); tm_ = t0 + dur*0.42; t1 = t0 + dur
+    apex = (start + L)*0.5 + Vector((0, 0, 95 + 0.09*(L - start).length))
+    key_loc(o, start, 0);  key_rot(o, R, 0)                  # laid out in the tray
+    key_loc(o, start, t0)                                    # ...waits its turn...
+    key_loc(o, apex, tm_)                                    # lifts up and over
+    key_loc(o, L, t1);     key_rot(o, R, t1)                 # lands in the hero layout
 
-# lid: lift straight up, then swing back and stand upright at the back (cover -> hero title)
-lid.location = (0, TY, TH - 8)
-key_loc(lid, (0, TY, TH - 8), 0);   key_rot(lid, 0, 0)
-key_loc(lid, (0, TY, TH + 150), 10); key_rot(lid, 0, 10)
-key_loc(lid, (0, 500, hl + 2), 40); lid.rotation_euler = (math.radians(90), 0, 0); lid.keyframe_insert("rotation_euler", frame=40)
-# tray: holds as the box things pour out of, then sinks away once empty -> clean hero final frame
-key_loc(tray, (0, TY, 0), 0); key_loc(tray, (0, TY, 0), 284); key_loc(tray, (0, TY, -170), 306)
+# lid: lift straight up off the tray, recede + stand at the back, shrinking to a title-card cover
+lid.location = (BX, BY, TH - 6); lid.scale = (1, 1, 1); lid.rotation_euler = (0, 0, 0)
+for attr in ("location", "rotation_euler", "scale"): lid.keyframe_insert(attr, frame=0)
+lid.location = (BX, BY, TH + 300); [lid.keyframe_insert(a, frame=18) for a in ("location", "scale")]
+lid.location = (0, 780, 175); lid.rotation_euler = (math.radians(90), 0, 0); lid.scale = (0.42, 0.42, 0.42)
+for attr in ("location", "rotation_euler", "scale"): lid.keyframe_insert(attr, frame=54)
+# tray: holds the laid-out components, then sinks away once empty -> clean hero final frame
+key_loc(tray, (BX, BY, 0), 0); key_loc(tray, (BX, BY, 0), 300); key_loc(tray, (BX, BY, -260), 326)
 
 # ================= CAMERA =================
-cam_d = bpy.data.cameras.new("Cam"); cam_d.lens = 46; cam_d.clip_end = 14000
+cam_d = bpy.data.cameras.new("Cam"); cam_d.lens = 42; cam_d.clip_end = 16000
 cam = bpy.data.objects.new("Cam", cam_d); C().objects.link(cam); sc.camera = cam
 aim = bpy.data.objects.new("aim", None); C().objects.link(aim)
 tcon = cam.constraints.new('TRACK_TO'); tcon.target = aim; tcon.track_axis = 'TRACK_NEGATIVE_Z'; tcon.up_axis = 'UP_Y'
 CAMK = [   # (frame, cam_loc, aim_loc)
-    (0,   (0, -980, 250),  (0, -540, 45)),    # tight on the closed box (foreground)
-    (150, (0, -1200, 450), (0, -120, 58)),    # pull back + rise as things emerge
-    (300, (0, -1560, 520), (0, 140, 74)),     # settle on the hero spread
+    (0,   (0, -1180, 760), (0, 90, 10)),      # look down on the closed box, then the open tray of parts
+    (70,  (0, -1300, 600), (0, 80, 40)),      # lid off -> components laid out, start lifting
+    (200, (0, -1480, 560), (0, 110, 64)),
+    (335, (0, -1660, 570), (0, 150, 82)),     # settle on the hero spread
 ]
 for fr, cl, al in CAMK:
     cam.location = cl; cam.keyframe_insert("location", frame=fr)

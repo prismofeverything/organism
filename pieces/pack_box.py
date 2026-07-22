@@ -32,9 +32,8 @@ COMPONENTS = {
     "GROW": dict(kind="stand", w=37.0, d=37.0, h=37.0, color="#8a6bb0", shape="blob"),
     # 3D food nests deeply: base 11.25, each extra adds 6.92 (slip fit, measured).
     "FOOD": dict(kind="stack", dia=28.1, h=11.25, pitch=6.92, color="#d99a3a", shape="disc"),
-    # minimal set
-    "DISC": dict(kind="stack", dia=37.0, h=9.0,  pitch=9.0,  color="#c8b48a", shape="disc"),
-    "CUBE": dict(kind="cubeblk", side=8.0,       color="#7a8a5a", shape="square"),
+    # minimal set: silhouette disks are "basically food" (food-style peg/socket) -> they NEST.
+    "DISC": dict(kind="stack", dia=37.0, h=9.0,  pitch=7.0,  color="#c8b48a", shape="disc"),
     # 5 players x 3 power tokens = 15, small coins (Ø30 x 5) -> short nested stacks.
     "PTOK": dict(kind="stack", dia=30.0, h=5.0, pitch=5.0, color="#b9b9c2", shape="disc"),
     # player platforms + mutation cards are small ROUND tokens punched from print sheets (NOT big
@@ -54,11 +53,12 @@ FLAT_GOODS = {
 
 BOMS = {
     # maximal "big box": full 3D game + the complete minimal set + tokens/platforms/mutations.
+    # 8mm food cubes struck: the minimal disks are food-style, so real food nests on them.
     # PLAT=5 assumes 1 platform/player; if 5/player it's 25 (still a few tiny stacks -> negligible).
-    "maximal": {"EAT": 20, "MOVE": 20, "GROW": 20, "FOOD": 60, "DISC": 60, "CUBE": 60,
+    "maximal": {"EAT": 20, "MOVE": 20, "GROW": 20, "FOOD": 60, "DISC": 60,
                 "PTOK": 15, "PLAT": 5, "MUT": 26},
-    # minimal alone (figured out separately, next).
-    "minimal": {"DISC": 60, "CUBE": 60},
+    # minimal alone (figured out separately, next): silhouette disks + real food, no cubes.
+    "minimal": {"DISC": 60},
 }
 
 def columns_for(comp, count, z_use):
