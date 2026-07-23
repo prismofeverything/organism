@@ -3755,6 +3755,86 @@
         {:width "30%"}}
        [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state [] nil @chat]]])))
 
+(defn play-player-banner
+  "Current-player box for the play page. The player name shrinks/wraps to fit
+   the column (never grows the layout), and the phase shows a smaller subphase /
+   current choice beside it."
+  [player color turn subphase href]
+  [:div
+   {:style
+    {:color "#fff"
+     :border-radius "40px"
+     :background color
+     :font-family font-choice
+     :margin "20px 0px"
+     :padding "18px 30px"
+     :overflow "hidden"}}
+   [:a
+    {:href href
+     :style
+     {:color "#fff"
+      :display "block"
+      :font-size "1.6em"
+      :font-weight "bold"
+      :letter-spacing "4px"
+      :overflow-wrap "anywhere"
+      :line-height "1.1"}}
+    player]
+   (when turn
+     [:div
+      {:style
+       {:margin "10px 0px 0px 0px"
+        :display "flex"
+        :align-items "baseline"
+        :gap "10px"
+        :flex-wrap "wrap"}}
+      [:span {:style {:font-size "1.15em" :letter-spacing "3px"}}
+       (string/join " " (string/split (name turn) #"-"))]
+      (when (and subphase (not= subphase turn))
+        [:span {:style {:font-size "0.8em" :letter-spacing "2px" :opacity "0.7"}}
+         (string/join " " (string/split (name subphase) #"-"))])])])
+
+(defn game-info-panel
+  "Merged single info column for the play page: game name + round, current
+   player + phase/subphase, description, action/turn controls + clear/undo,
+   then score / history / help / discussion. The element controls are gone —
+   every action now happens on the board itself."
+  [game board turn choices history cursor
+   description turn-order organism-victory colors player-colors
+   player-captures mutations state chat]
+  (let [organism-turn (game/get-organism-turn game)
+        action-type (:choice organism-turn)
+        current-player (game/current-player game)
+        current-color (or (get player-colors current-player) (first colors) "#445")
+        board-colors (into {} (:colors board))]
+    [:div
+     {:style {:margin "20px"}}
+     ;; game name + round
+     [round-banner current-color (:round state)]
+     ;; current player + phase + subphase
+     (when current-player
+       [play-player-banner current-player current-color turn action-type
+        (str js/playerPath "/" js/playerKey)])
+     [:div
+      {:style {:margin "10px 10px"}}
+      ;; description (moved over from the old right column)
+      [description-panel current-color description]
+      ;; action / turn controls + clear / undo  (element controls removed)
+      (when current-player
+        [:div
+         (when-not (= turn :choose-organism)
+           [action-controls board-colors turn choices current-color organism-turn])
+         (when-not (-> game :state :winner)
+           [undo-control turn choices (:state game)])])
+      ;; score / history / help / discussion
+      [scoreboard turn-order organism-victory colors player-captures mutations state]
+      [history-controls history cursor]
+      [help-panel current-color]
+      [:h3 "discussion"]
+      [chat-list player-colors chat]
+      [:br]
+      [chat-input]]]))
+
 (defn game-page
   []
   (let [invocation @board-invocation
@@ -3770,15 +3850,13 @@
      [:main
       (flex-grow "row" 1)
       [:aside
-       {:style
-        {:width "30%"}}
-       [organism-controls game board turn choices history]]
+       {:style {:width "34%" :min-width "340px"}}
+       [game-info-panel game board turn choices history cursor
+        description turn-order organism-victory invocation-colors player-colors
+        player-captures mutations state @chat]]
       [:article
        {:style {:flex-grow 1}}
-       [organism-board game board invocation-colors turn choices]]
-      [:nav
-       {:style {:width "30%"}}
-       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state history cursor @chat]]])))
+       [organism-board game board invocation-colors turn choices]]])))
 
 
 (defn open-games-section
