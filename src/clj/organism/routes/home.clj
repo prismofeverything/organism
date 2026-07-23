@@ -35,6 +35,13 @@
   [request]
   (layout/render request "home.html" {}))
 
+(defn root-redirect
+  "Root goes straight to the ORGANISM landing page. The multi-game catalog is
+   no longer surfaced in the frontend; the other games remain reachable by
+   direct URL (e.g. /journey)."
+  [_request]
+  (response/redirect "/organism"))
+
 (defn organism-home-page
   [request]
   (layout/render
@@ -187,7 +194,7 @@
   [""
    {:middleware [middleware/wrap-csrf
                  middleware/wrap-formats]}
-   ["/" {:get catalog-page}]
+   ["/" {:get root-redirect}]
    ["/api/search-players" {:get (partial shared/search-players db)}]
    ["/organism" {:get organism-home-page}]
    ["/eternal" {:get eternal-page}]

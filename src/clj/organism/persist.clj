@@ -1,6 +1,8 @@
 (ns organism.persist
   (:require
+   [clojure.string :as str]
    [clojure.walk :as walk]
+   [organism.bots :as bots]
    [organism.board :as board]
    [organism.mongo :as db]))
 
@@ -290,16 +292,23 @@
   color)
 
 (defn load-player-stats
-  [db]
+  "Per-player stats scoped to a single game-type (e.g. \"organism\").
+   Players with no games of that type are omitted so the page isn't padded
+   with all-zero rows for people who only play other games."
+  [db game-type]
   (let [players (load-players db)]
     (->> players
          (map
           (fn [{:keys [key color]}]
-            (let [games (db/query db (player-games-key key) {})
+            (let [games (db/query db (player-games-key key) {:game-type game-type})
                   active (count (filter #(= "active" (:status %)) games))
                   complete (count (filter #(= "complete" (:status %)) games))
                   wins (count (filter #(= key (:winner %)) games))
-                  created (db/number db :games {:created-by key})
+                  ;; Games this player created *and* is a participant in — excludes
+                  ;; all-bot /generate games (created-by the clicker, roster is bots).
+                  created (db/number db :games {:created-by key
+                                                :game-type game-type
+                                                :invocation.players key})
                   last-move-at (->> games
                                     (map :last-move-at)
                                     (filter some?)
@@ -312,12 +321,35 @@
                :wins wins
                :created created
                :last-move-at last-move-at})))
+         (filter (fn [{:keys [active complete created]}]
+                   (pos? (+ active complete created))))
          (sort-by :last-move-at >))))
 
+(defn observe-worthy?
+  "Keep only games a spectator would want to see: at least one human player,
+   and not an auto-generated all-bot game. Bots are identified by the game's
+   stored :bots set, the shared bot registry, or the \"generate-\" key prefix
+   that every /generate showcase game carries (some legacy ones predate the
+   :bots field, so the prefix is the reliable catch-all)."
+  [game]
+  (let [players (get-in game [:invocation :players])
+        bot-set (set (:bots game))
+        generated? (str/starts-with? (str (:key game)) "generate-")]
+    (and (not generated?)
+         (boolean
+          (some (fn [p]
+                  (and p
+                       (not (contains? bot-set p))
+                       (not (bots/bot? "organism" p))))
+                players)))))
+
 (defn load-observe-games
+  "All human organism games, active and completed (the caller/UI splits them
+   by :winner). Completed games carry the winner from their final history state."
   [db]
   (let [all-games (filter-ids (db/find-all db :games))]
     (->> all-games
+         (filter observe-worthy?)
          (map (fn [game]
                 (let [last-entry (db/find-last db (history-key (:key game)) {})
                       last-time (when-let [id (:_id last-entry)]
@@ -329,9 +361,7 @@
                       (assoc :current-player (get-in last-entry [:player-turn :player]))
                       (assoc :round (:round last-entry))
                       (assoc :winner (:winner last-entry))))))
-         (filter #(nil? (:winner %)))
-         (sort-by #(- (or (:last-move-time %) 0)))
-         (map #(dissoc % :last-move-time)))))
+         (sort-by #(- (or (:last-move-time %) 0))))))
 
 (defn group-player-games
   [db player player-games]

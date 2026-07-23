@@ -30,6 +30,11 @@
   [db collection where what]
   (mongo/update db (name collection) where {:$set what} {:upsert true}))
 
+(defn merge-all!
+  "Like merge! but $set's `what` on ALL matching documents (multi), no upsert."
+  [db collection where what]
+  (mongo/update db (name collection) where {:$set what} {:multi true}))
+
 (defn upsert!
   [db collection where what]
   (mongo/update db (name collection) where what {:upsert true}))

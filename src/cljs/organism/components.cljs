@@ -306,6 +306,30 @@
 
 ;; ── Active games (observe) display ──────────────────────────────────────────
 
+(defn- format-last-move
+  "Epoch-seconds → concise local date/time, e.g. \"Jul 14, 2026, 3:45 PM\"."
+  [secs]
+  (when secs
+    (.toLocaleString (js/Date. (* secs 1000))
+                     js/undefined
+                     #js {:month "short" :day "numeric" :year "numeric"
+                          :hour "numeric" :minute "2-digit"})))
+
+(defn- relative-time
+  "Epoch-millis → coarse \"N units ago\" phrase (e.g. \"3 days ago\")."
+  [ms]
+  (when (and ms (pos? ms))
+    (let [secs (quot (- (.now js/Date) ms) 1000)
+          ago  (fn [n unit] (str n " " unit (when (> n 1) "s") " ago"))]
+      (cond
+        (< secs 60)       "just now"
+        (< secs 3600)     (ago (quot secs 60) "minute")
+        (< secs 86400)    (ago (quot secs 3600) "hour")
+        (< secs 604800)   (ago (quot secs 86400) "day")
+        (< secs 2592000)  (ago (quot secs 604800) "week")
+        (< secs 31536000) (ago (quot secs 2592000) "month")
+        :else             (ago (quot secs 31536000) "year")))))
+
 (defn active-game-card
   "Render a single active/observed game card. Props:
    :game-key       — the game key
@@ -317,11 +341,28 @@
    :player-link-prefix — URL prefix for player links (e.g. \"/organism/player/\")
    :font-family    — optional font"
   [{:keys [game-key invocation round current-player colors link-prefix
-           player-link-prefix font-family]
+           player-link-prefix font-family last-move-time]
     :or {font-family "monospace"}}]
-  (let [{:keys [players description]} invocation
+  (let [{:keys [players description created]} invocation
         player-colors (into {} (map vector players (or colors (repeat "#444"))))
-        current-color (or (get player-colors current-player) (first colors) "#445")]
+        current-color (or (get player-colors current-player) (first colors) "#445")
+        ;; the player up after the current one (turn order = roster order, cycling)
+        next-player   (let [idx (->> players
+                                     (keep-indexed (fn [i p] (when (= p current-player) i)))
+                                     first)]
+                        (when (and idx (seq players))
+                          (nth players (mod (inc idx) (count players)))))
+        next-color    (or (get player-colors next-player) current-color)
+        created-ago (relative-time created)
+        last-ago    (relative-time (when last-move-time (* last-move-time 1000)))
+        time-parts  (cond-> []
+                      created-ago (conj [[:b "created"] (str " " created-ago)])
+                      last-ago    (conj [[:b "last move"] (str " " last-ago)]))
+        time-title  (string/join
+                     " - "
+                     (cond-> []
+                       created        (conj (str "created " (format-last-move (quot created 1000))))
+                       last-move-time (conj (str "last move " (format-last-move last-move-time)))))]
     [:div {:style {:margin "10px 20px" :padding "10px 0px"}}
      [:span
       [:a {:href (str link-prefix game-key)
@@ -339,8 +380,21 @@
                        :font-style "italic"}}
         description])
      (when round
-       [:span {:style {:margin "0px 20px" :color "#aaa"}}
-        (str " round " (inc (or round 0)))])
+       [:span {:style {:color "#fff"
+                       :border-radius "20px"
+                       :background next-color
+                       :padding "7px 20px"
+                       :margin "0px 10px"
+                       :vertical-align "middle"
+                       :font-family font-family}}
+        (str "round " (inc (or round 0)))])
+     (when (seq time-parts)
+       (into [:span {:style {:display "inline-block" :vertical-align "middle"
+                             :margin "0px 20px" :color "#888" :font-size "0.85em"
+                             :line-height "1.35"}
+                     :title time-title}]
+             (map (fn [part] (into [:span {:style {:display "block"}}] part))
+                  time-parts)))
      (for [game-player players
            :let [color (get player-colors game-player)]]
        ^{:key game-player}
@@ -378,30 +432,48 @@
   [{:keys [title games link-prefix player-link-prefix colors-fn home-path
            font-family title-bg]
     :or {title "observe" title-bg "#333"}}]
-  [:div {:style {:padding "20px" :color "#eee"}}
-   [:div {:style {:color "#fff"
-                  :border-radius "50px"
-                  :letter-spacing "8px"
-                  :font-family (or font-family "monospace")
-                  :margin "0px 20px"
-                  :padding "25px 60px"
-                  :background title-bg}}
-    [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
-              :href (or home-path "/")} title]]]
-   (if (empty? games)
-     [:p {:style {:margin "30px 40px" :color "#888"}} "no active games"]
-     [:div {:style {:margin "20px 40px"}}
-      (for [{:keys [key invocation round current-player]} games
-            :let [colors (when colors-fn (colors-fn invocation))]]
-        ^{:key key}
-        [active-game-card {:game-key key
-                           :invocation invocation
-                           :round round
-                           :current-player current-player
-                           :colors colors
-                           :link-prefix link-prefix
-                           :player-link-prefix player-link-prefix
-                           :font-family font-family}])])])
+  ;; Active games (no winner) split by recency: moved in the last week → ACTIVE,
+  ;; otherwise → INACTIVE. Games with a winner → COMPLETE. Highlight pill = whose
+  ;; turn it is for open games, the winner for completed ones (like the play page).
+  (let [week-ago  (- (quot (.now js/Date) 1000) (* 7 24 60 60))
+        recent?   (fn [g] (>= (or (:last-move-time g) 0) week-ago))
+        completed (filter :winner games)
+        open      (remove :winner games)
+        active    (filter recent? open)
+        inactive  (remove recent? open)
+        game-card (fn [{:keys [key invocation round last-move-time]} highlight]
+                    [active-game-card {:game-key key
+                                       :invocation invocation
+                                       :round round
+                                       :current-player highlight
+                                       :last-move-time last-move-time
+                                       :colors (when colors-fn (colors-fn invocation))
+                                       :link-prefix link-prefix
+                                       :player-link-prefix player-link-prefix
+                                       :font-family font-family}])
+        section   (fn [label tip items highlight-fn]
+                    (when (seq items)
+                      [:div {:style {:margin "20px 40px"}}
+                       [:h2 (if tip [:span {:title tip} label] label)]
+                       (for [{:keys [key] :as g} items]
+                         ^{:key key}
+                         [game-card g (highlight-fn g)])]))]
+    [:div {:style {:padding "20px" :color "#eee"}}
+     [:div {:style {:color "#fff"
+                    :border-radius "50px"
+                    :letter-spacing "8px"
+                    :font-family (or font-family "monospace")
+                    :margin "0px 20px"
+                    :padding "25px 60px"
+                    :background title-bg}}
+      [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
+                :href (or home-path "/")} title]]]
+     (if (empty? games)
+       [:p {:style {:margin "30px 40px" :color "#888"}} "no games yet"]
+       [:div
+        (section "ACTIVE"   "A solid color row shows whose turn it is." active   :current-player)
+        (section "INACTIVE" "No move in over a week."                   inactive :current-player)
+        (section "COMPLETE" nil                                         completed :winner)])]))
 
 ;; ── Player stats page ──────────────────────────────────────────────────────
 
@@ -417,16 +489,16 @@
   [label value color]
   [:span
    {:style {:display "inline-flex"
-            :flex-direction "column"
-            :align-items "center"
+            :flex-direction "row"
+            :align-items "baseline"
             :color "#fff"
-            :border-radius "20px"
+            :border-radius "15px"
             :background color
-            :padding "7px 20px"
+            :padding "6px 16px"
             :margin "0px 10px"}}
    [:span {:style {:font-size "1.1em"}} value]
    [:span {:style {:font-size "0.6em" :letter-spacing "2px"
-                   :opacity "0.7" :margin-top "2px"}} label]])
+                   :opacity "0.7" :margin-left "8px"}} label]])
 
 (defn players-page
   "Complete players/stats page renderer. Props:
