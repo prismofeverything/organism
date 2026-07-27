@@ -115,34 +115,44 @@ cut2=[]
 compartment(PLAYERS[4], -0.5*cellw, 0, Z2, cut2)
 cradle_from(cut2, Z2)
 free_cells=[(0.5*cellw,0),(-0.5*cellw,-celld),(0.5*cellw,-celld)]
-def one_stack(kind,mat,n,pitch,r,x,y,z):
+def one_stack(kind,mat,n,pitch,r,extra,x,y,z):
     for k in range(n):
         if kind=='food': dup(FOODT,mat,(x,y,z+k*pitch))
-        elif kind=='disk': dup(MIN[["EAT","MOVE","GROW"][k%3]],mat,(x,y,z+0.3+k*pitch))
+        elif kind=='disk': dup(MIN[extra],mat,(x,y,z+0.3+k*pitch))             # ALL one type per stack
+        elif kind=='mut': coin(mat,(x,y,z),22,7.8)                            # 26 cards x0.3mm = ~8mm deck
         else: coin(mat,(x,y,z+k*pitch),r,pitch)
 stacks=[]; g=colmat("gold",GOLD)
-for _ in range(12): stacks.append(('food',g,5,6.92,14))                       # 60 food -> 12 short stacks
+for _ in range(12): stacks.append(('food',g,5,6.92,14,None))                  # 60 food -> 12 short stacks
 for pl in PLAYERS:
     m=colmat("d_"+pl,PCOL[pl])
-    for _ in range(3): stacks.append(('disk',m,4,7.5,18.5))                   # 60 disks -> 3x4/player
-for pl in PLAYERS: stacks.append(('coin',colmat("f_"+pl,PCOL[pl]),9,2.2,18))  # 45 platforms -> 9/player
-for pl in PLAYERS: stacks.append(('coin',colmat("t_"+pl,PCOL[pl]),3,5.0,15))  # 15 tokens -> 3/player
+    for t in ["EAT","GROW","MOVE"]: stacks.append(('disk',m,4,7.5,18.5,t))    # PURE-TYPE: 4 EAT, 4 GROW, 4 MOVE
+for pl in PLAYERS: stacks.append(('coin',colmat("f_"+pl,PCOL[pl]),9,2.2,18,None))  # platforms 9/player
+for pl in PLAYERS: stacks.append(('coin',colmat("t_"+pl,PCOL[pl]),3,5.0,15,None))  # tokens 3/player
+# (mutations moved to the printed-goods floor tier — see below)
 per=[0,0,0]
-for si,(kind,mat,n,pitch,r) in enumerate(stacks):                             # round-robin -> even water level
+for si,(kind,mat,n,pitch,r,extra) in enumerate(stacks):                       # round-robin -> even water level
     ci=si%3; ox,oy=free_cells[ci]; idx=per[ci]; per[ci]+=1
     gx,row=idx%4, idx//4
-    one_stack(kind,mat,n,pitch,r, ox+(gx-1.5)*37, oy+CD/2-18-row*34, Z2)
-# ---- tier 0: folded board ----
-bd=bpy.data.meshes.new("bd"); bdo=bpy.data.objects.new("board",bd); C().objects.link(bdo)
-h=135; bd.from_pydata([(-h,-h,0),(h,-h,0),(h,h,0),(-h,h,0),(-h,-h,14),(h,-h,14),(h,h,14),(-h,h,14)],[],
-    [(0,1,2,3),(7,6,5,4),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7)]); bd.update(); bd.materials.append(colmat("bdm",(0.16,0.28,0.33)))
-bdo.location=(0,-celld/2,0)
+    one_stack(kind,mat,n,pitch,r,extra, ox+(gx-1.5)*37, oy+CD/2-18-row*34, Z2)
+# ---- tier 0: flat PRINTED goods, REAL thicknesses (shown slightly exploded to reveal each) ----
+def slab(name,w,d,th,z,rgb):
+    m=bpy.data.meshes.new(name); ob=bpy.data.objects.new(name,m); C().objects.link(ob)
+    m.from_pydata([(-w/2,-d/2,z),(w/2,-d/2,z),(w/2,d/2,z),(-w/2,d/2,z),(-w/2,-d/2,z+th),(w/2,-d/2,z+th),(w/2,d/2,z+th),(-w/2,d/2,z+th)],[],
+        [(0,1,2,3),(7,6,5,4),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7)]); m.update(); m.materials.append(colmat(name+"m",rgb))
+    ob.location=(0,-celld/2,0); return ob
+FLAT=[("board",270,270,8.0),("rulebook",222,222,2.5),("powerboard",210,210,4.0),("aids",150,150,2.5)]  # mm
+rgbs=[(0.16,0.28,0.33),(0.80,0.77,0.72),(0.42,0.32,0.52),(0.60,0.60,0.55)]
+zf=0.0; FLATH=0.0
+for (nm,w,d,th),rc in zip(FLAT,rgbs):
+    slab(nm,w,d,th,zf,rc); FLATH+=th; zf+=th+6                    # +6 exploded gap for the render
+slab("mutations",70,90,7.8,zf,(0.30,0.34,0.46)); FLATH+=7.8      # 26-card deck, with the printed goods
+bdo=None
 
 cam_d=bpy.data.cameras.new("Cam"); cam_d.lens=40; cam_d.clip_end=12000
 cam=bpy.data.objects.new("Cam",cam_d); C().objects.link(cam); sc.camera=cam
 tgt=Vector((0,-celld*0.6,150)); loc=Vector((-40,-celld*0.6-660,480))
 cam.rotation_mode='QUATERNION'; cam.location=loc; cam.rotation_quaternion=(tgt-loc).to_track_quat('-Z','Y')
 sc.render.image_settings.file_format='PNG'; sc.render.filepath=f"{FR}/final"
-BW=2*cellw+2*WALL; BD_=2*celld+2*WALL; BOXH=14+40+34   # board + piece layer + flattened stacks
-print(f"ASSEMBLED box ~ {BW:.0f} x {BD_:.0f} x {BOXH:.0f} mm ({BW/25.4:.1f} x {BD_/25.4:.1f} x {BOXH/25.4:.1f} in), tiers water-levelled")
+BW=2*cellw+2*WALL; BD_=2*celld+2*WALL; BOXH=FLATH+35+40   # flat printed goods + piece tier + stack tier
+print(f"ASSEMBLED box ~ {BW:.0f} x {BD_:.0f} x {BOXH:.0f} mm ({BW/25.4:.1f} x {BD_/25.4:.1f} x {BOXH/25.4:.1f} in); flat goods {FLATH:.0f}mm, water-levelled")
 bpy.ops.render.render(write_still=True); print("wrote",sc.render.filepath)
