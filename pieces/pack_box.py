@@ -16,10 +16,8 @@ from the flat single-layer end to the board-limited multi-layer end.
 """
 import sys, math, os
 HERE = os.path.dirname(os.path.abspath(__file__))
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Circle
+# matplotlib is imported lazily inside draw() so this module stays importable under Blender's
+# bundled python (which has no matplotlib) -- build_packed_box.py imports pack_box for its layout.
 
 # ---- measured component library ------------------------------------------------
 # footprint = top-down bounding size when the part sits in its storage orientation.
@@ -55,8 +53,10 @@ BOMS = {
     # maximal "big box": full 3D game + the complete minimal set + tokens/platforms/mutations.
     # 8mm food cubes struck: the minimal disks are food-style, so real food nests on them.
     # PLAT=5 assumes 1 platform/player; if 5/player it's 25 (still a few tiny stacks -> negligible).
+    # per player x5: 12 pieces (4/4/4) + 12 disks (4/4/4) + 3 power tokens + 9 platforms;
+    # food (60) + mutations (26) are shared. Food goes in the "6th place" compartment.
     "maximal": {"EAT": 20, "MOVE": 20, "GROW": 20, "FOOD": 60, "DISC": 60,
-                "PTOK": 15, "PLAT": 5, "MUT": 26},
+                "PTOK": 15, "PLAT": 45, "MUT": 26},
     # minimal alone (figured out separately, next): silhouette disks + real food, no cubes.
     "minimal": {"DISC": 60},
 }
@@ -154,6 +154,9 @@ def report(name, bom, res):
     return per_comp
 
 def draw(name, bom, res, path):
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle, Circle
     iw, idd, iz = res["inner"]; ex, ey, ez = res["ext"]; gap = res["gap"]
     fig, ax = plt.subplots(figsize=(9, 9 * ey / ex))
     ax.add_patch(Rectangle((-2.5, -2.5), ex, ey, fill=False, ec="#333", lw=2))

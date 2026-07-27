@@ -22,6 +22,8 @@ GRAFTS    := $(OUT)/EAT_graft.obj $(OUT)/MOVE_graft.obj $(OUT)/GROW_graft.obj
 FOOD_STLS := $(FOOD)/FOOD_nosnap.stl $(FOOD)/FOOD_snap.stl
 PLATE_STL := $(FOOD)/print_plate.stl
 PIECES_PLATE_STL := $(FOOD)/pieces_plate.stl
+MINDISKS  := $(OUT)/EAT_mindisk.stl $(OUT)/MOVE_mindisk.stl $(OUT)/GROW_mindisk.stl
+DISK_PLATE := $(ROOT)/stl/disk_plate.stl
 
 help:                       ## list targets (default)
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -35,6 +37,8 @@ grafts: $(GRAFTS)           ## 3 connector-grafted pieces in out/ (needs blanks)
 food:   $(FOOD_STLS)        ## slip + snap FOOD STLs in renders/food/
 plate:  $(PLATE_STL)        ## combined print plate STL (needs grafts + food)
 pieceplate: $(PIECES_PLATE_STL) ## pieces-only plate STL (EAT/MOVE/GROW, no food -> separate colour)
+disks:  $(MINDISKS)         ## 2D silhouette disks -> out/*_mindisk.stl (crisp vector curves)
+diskplate: $(DISK_PLATE)    ## print plate: DISK_COPIES each (def 4) 2D disk, socket-down, self-supporting -> stl/disk_plate.stl
 all:    blanks grafts food plate   ## rebuild everything (skips video)
 
 $(BLANKS): meshlib/build.py meshlib/graft_lib.py
@@ -61,6 +65,17 @@ $(PIECES_PLATE_STL): $(GRAFTS) build_print_plate.py strip_slivers.py
 	PIECES_ONLY=true $(BLENDER) $(BFLAGS) build_print_plate.py
 	$(PY) strip_slivers.py $(PIECES_PLATE_STL)
 	PIECES_ONLY=true $(PY) preview_plate.py
+
+# 2D silhouette disks: clean_svg.py (venv shapely+svgelements) samples each SVG outline into a dense
+# clean simple polygon; build_minimal.py extrudes + bevels + grafts the connector. Crisp vector
+# curves, watertight, no voxel remesh. Tune density with MIN_NSAMP (default 1600).
+$(MINDISKS): build_minimal.py clean_svg.py inputs/eat.svg inputs/move.svg inputs/grow.svg
+	$(BLENDER) $(BFLAGS) build_minimal.py
+
+# print plate of the 3 disks (1 each), dropped to the bed socket-down. Self-supporting sockets
+# (sor._socket_ss, baked in by build_minimal.py) -> prints support-free inside AND out.
+$(DISK_PLATE): build_disk_plate.py $(MINDISKS)
+	$(BLENDER) $(BFLAGS) build_disk_plate.py
 
 measure: $(FOOD_STLS)       ## FOOD nesting % measurement
 	$(PY) stack_food.py $(FOOD)/FOOD_nosnap.profile.json
@@ -91,5 +106,5 @@ video:                      ## gameplay animation -> scene/<game>-play.mp4 (slow
 clean:                      ## nuke out/ blanks+grafts and plate STLs (food STLs preserved)
 	rm -f $(BLANKS) $(GRAFTS) $(PLATE_STL) $(PIECES_PLATE_STL)
 
-.PHONY: help print blanks grafts food plate pieceplate all measure preview video clean
+.PHONY: help print blanks grafts food plate pieceplate disks diskplate all measure preview video clean
 .DEFAULT_GOAL := help
