@@ -121,7 +121,41 @@ json.dump(doc, open('$TMPFILE', 'w'))
   echo "=== Done ==="
 }
 
+help() {
+  cat <<EOF
+./deploy.sh — build the organism uberjar locally and manage the prod server.
+
+Commands:
+  build            (default) shadow-cljs release + lein uberjar
+                   → $LOCAL_JAR
+  clean            wipe .shadow-cljs, target, resources/public/js, node_modules,
+                   reinstall npm, then build from scratch
+  ship             build, then scp jar to the server and restart the process
+  push             skip build; upload the existing local jar and restart
+                   (redeploy the same artifact)
+  tail             ssh + tail -f the remote organism.log (Ctrl-C to quit)
+  log [N]          print last N lines of the remote log (default 100)
+  status           report whether the remote server process is alive
+  bugs [args...]   fetch /eridu/bug-report/dump from playorganism.io over
+                   HTTPS into ~/Documents/eridu-bug-reports.jsonl, then run
+                   ~/bin/eridu_bug_watch.py --reset --once on it. Extra args
+                   pass through (e.g. --spawn-claude). Requires an exported
+                   cookie at ~/.config/eridu-cookie.txt — see file header.
+  sync-bot --game G --owner O --name N
+                   mongoexport a bot from local Mongo, mongoimport it into
+                   the prod DB (upsert on game-type + name)
+  help, -h, --help show this message
+
+Deploy target:
+  $REMOTE_HOST:$REMOTE_DIR
+  (server only needs Java; all Node/ClojureScript compilation is local)
+EOF
+}
+
 case "${1:-build}" in
+  help|-h|--help)
+    help
+    ;;
   build)
     build
     ;;
@@ -154,7 +188,7 @@ case "${1:-build}" in
     ;;
   *)
     echo "Unknown command: $1"
-    echo "Commands: build, clean, ship, push, tail, log, status, sync-bot"
+    echo "Run ./deploy.sh help for available commands."
     exit 1
     ;;
 esac
