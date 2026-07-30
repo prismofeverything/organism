@@ -39,3 +39,4 @@ auto.save
 bonus-coverage/
 *.mp4
 .nix-mongo/
+/pieces/stl

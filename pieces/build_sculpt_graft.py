@@ -40,6 +40,13 @@ SCULPT_OUT = os.environ.get("SCULPT_OUT", f"{HERE}/out/EAT_sculpt_graft.obj")
 # in the valleys. Each sculpt has its own value (EAT≈41.24 for the current 5-arm).
 SEAT_Z_ENV = os.environ.get("SEAT_Z", "")
 SEAT_Z = float(SEAT_Z_ENV) if SEAT_Z_ENV else None     # filled in below if None
+# SEAT_MODE: how to autodetect SEAT_Z when not given.
+#   cradle (default) - highest z where the body fully wraps R_SEAT (legacy; peg perches on a pillar).
+#   seam             - the body's TOP surface at the ridge radius (min over angle), so the ridge base
+#                      lands ON the body: the sculpt flows straight into the ridge with no vertical
+#                      skirt and no flat prelude. Pair with LEVEL (trims the footprint where lobes
+#                      rise slightly above it) + PEDESTAL_LIFT=0. This is GROW's setup.
+SEAT_MODE = os.environ.get("SEAT_MODE", "cradle")
 # TRUNCATE: chops everything above SEAT_Z from the body, giving a flat top for the dome.
 # Required for tapering pieces (MOVE-like spikes); EAT-style preserves features above.
 TRUNCATE = os.environ.get("TRUNCATE", "false").lower() in ("true", "1", "yes")
@@ -105,6 +112,21 @@ sculpt.location.z = -zmin
 bpy.ops.object.transform_apply(location=True)
 zmax_sculpt_initial = max(v.co.z for v in sculpt.data.vertices)
 print(f"sculpt: {len(sculpt.data.vertices)} verts, z[0, {zmax_sculpt_initial:.2f}]")
+
+# SEAT_MODE=seam: SEAT_Z = the body's top surface at the ridge radius (min over angular sector), so
+# the ridge base sits right on the sculpt -> body flows into the ridge, no skirt / no flat prelude.
+if SEAT_Z is None and SEAT_MODE == "seam":
+    _NB = 48; _tops = [-1e9] * _NB
+    for v in sculpt.data.vertices:
+        _r = math.hypot(v.co.x, v.co.y)
+        if abs(_r - R_SEAT) < 0.25:
+            _k = int((math.atan2(v.co.y, v.co.x) + math.pi) / (2 * math.pi) * _NB) % _NB
+            if v.co.z > _tops[_k]: _tops[_k] = v.co.z
+    _tops = [t for t in _tops if t > -1e9]
+    if not _tops:
+        raise SystemExit(f"seam autodetect: no body verts near r=R_SEAT={R_SEAT}")
+    SEAT_Z = min(_tops)
+    print(f"  autodetect (seam): SEAT_Z={SEAT_Z:.2f}  (min body-top at r={R_SEAT} over {len(_tops)} sectors)")
 
 # autodetect SEAT_Z: scan z from top down, find the highest z where every direction
 # of the cross-section has outer-surface R >= R_SEAT (i.e. the central pillar still
@@ -227,10 +249,17 @@ def build_cylinder(name, radius, z0, z1, n=64):
     return o
 
 
-# Pedestal: small flat platform raised ABOVE the body's natural surface (instead of
-# carved into it as a divot). LIFT lifts the dome above SEAT_Z; EMBED extends the
-# pedestal a touch below SEAT_Z so it blends with the body instead of perching.
-PEDESTAL_LIFT  = float(os.environ.get("PEDESTAL_LIFT",  "0.5"))   # mm raised above SEAT_Z
+# LEVELER: the graft must SUBTRACT the body in the connector footprint down to a flat seat at
+# SEAT_Z, then OVERLAY the peg — not just UNION the peg over body that pokes up. Cradle pieces
+# (GROW's clover) carry body ABOVE SEAT_Z inside the footprint (between dome and ridge, and out to
+# the seat ring); union alone leaves it, so a mating part's socket bottoms on it and only perches.
+# R_LEVEL extends a hair past R_SEAT so the seat RING (just outside the ridge) also lands on the
+# plane. TRUNCATE already removes everything above SEAT_Z, so it's its own leveler.
+LEVEL          = os.environ.get("LEVEL", "true").lower() in ("true", "1", "yes")
+LEVEL_MARGIN   = float(os.environ.get("LEVEL_MARGIN", "1.0"))     # R_LEVEL = R_SEAT + this
+# LIFT raises the peg above SEAT_Z; now 0 because the seat is leveled flat (no divot to avoid).
+# EMBED extends the pedestal below SEAT_Z so the peg unions cleanly into the leveled body.
+PEDESTAL_LIFT  = float(os.environ.get("PEDESTAL_LIFT",  "0.0"))   # mm raised above SEAT_Z
 PEDESTAL_EMBED = float(os.environ.get("PEDESTAL_EMBED", "0.5"))   # mm extending into body
 
 # ----- build the dome+pedestal as ONE watertight solid (no internal interface)
@@ -251,6 +280,20 @@ if TRUNCATE:
     mod.operation = 'DIFFERENCE'; mod.solver = 'EXACT'; mod.object = cutter
     bpy.ops.object.modifier_apply(modifier="cut")
     bpy.data.objects.remove(cutter, do_unlink=True)
+
+if LEVEL and not TRUNCATE:
+    # Leveler: flatten the connector footprint to SEAT_Z so the mating part's socket/seat meets a
+    # clean plane. Subtract a cylinder (r <= R_SEAT+LEVEL_MARGIN) above SEAT_Z from the body; the
+    # peg is unioned on afterwards so its dome+ridge become the surface inside R_SEAT.
+    r_level = R_SEAT + LEVEL_MARGIN
+    leveler = build_cylinder("subtract_level", radius=r_level, z0=SEAT_Z, z1=cyl_top)
+    print(f"  LEVEL: flattening connector footprint to z={SEAT_Z:.2f} within r<{r_level:.2f}")
+    bpy.ops.object.select_all(action='DESELECT')
+    sculpt.select_set(True); bpy.context.view_layer.objects.active = sculpt
+    mod = sculpt.modifiers.new("level", 'BOOLEAN')
+    mod.operation = 'DIFFERENCE'; mod.solver = 'EXACT'; mod.object = leveler
+    bpy.ops.object.modifier_apply(modifier="level")
+    bpy.data.objects.remove(leveler, do_unlink=True)
 
 if CLIP_TO_SILHOUETTE:
     # Build a SILHOUETTE PRISM from the body's cross-section at SEAT_Z, extruded
@@ -374,6 +417,13 @@ except Exception:
     bpy.ops.export_mesh.stl(filepath=stl_out)
 print(f"wrote {SCULPT_OUT}")
 print(f"wrote {stl_out}")
+
+# The overview render below uses BLENDER_WORKBENCH, which can SIGSEGV on a headless machine with no
+# GPU/display — and it's purely cosmetic (self-documentation); the graft OBJ/STL are already written.
+# So make it opt-in: set RENDER_OVERVIEW=true on a machine with a display to regenerate the overview.
+if os.environ.get("RENDER_OVERVIEW", "").lower() not in ("true", "1", "yes"):
+    print("overview render skipped (set RENDER_OVERVIEW=true to enable)")
+    raise SystemExit(0)
 
 # ----- auto-render overview (front + top + 3/4) into pieces/renders/sculpt_<name>_overview.png
 # Mirrors the auto-render pattern in meshlib/build.py:_render_pieces so every sculpt graft
