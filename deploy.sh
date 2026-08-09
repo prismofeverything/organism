@@ -13,7 +13,7 @@
 #   ./deploy.sh sync-bot --game journey --owner prismofeverything --name OBO
 #                            — push a bot from local MongoDB to remote
 #
-# Deploy target from $DEPLOY_HOST (default ryan@elephantlaboratories.com).
+# Deploy target from $DEPLOY_HOST (default prism@elephantlaboratories.com).
 # The server only needs Java — all Node/ClojureScript compilation
 # happens locally.
 
@@ -21,8 +21,9 @@ set -e
 cd "$(dirname "$0")"
 
 # Deploy target. Defaults to the domain (correct once DNS points at the new box);
-# override for the pre-cutover droplet:  DEPLOY_HOST=ryan@NEW_IP ./deploy.sh ship
-REMOTE_HOST="${DEPLOY_HOST:-ryan@elephantlaboratories.com}"
+# override for the pre-cutover droplet:  DEPLOY_HOST=prism@tetrahedron.world ./deploy.sh ship
+# The app runs as the 'prism' user on the new box (created by the migration's 02 script).
+REMOTE_HOST="${DEPLOY_HOST:-prism@elephantlaboratories.com}"
 SERVICE="organism"          # systemd unit: HTTP + WebSocket on :11551
 REMOTE_DIR="~/organism"
 REMOTE_JAR="$REMOTE_DIR/organism.jar"

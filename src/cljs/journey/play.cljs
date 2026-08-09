@@ -9,6 +9,7 @@
    [journey.board :as board]
    [organism.ajax :as ajax]
    [organism.components :as components]
+   [organism.dom :as dom]
    [organism.websockets :as ws]))
 
 ;; ── State ─────────────────────────────────────────────────────────────────────
@@ -24,6 +25,9 @@
 
 (defonce observe-games
   (r/atom []))
+
+(defonce player-games
+  (r/atom {}))
 
 (defonce bots-set
   (r/atom #{}))
@@ -113,6 +117,16 @@
     (and (map? k) (:suit k))
     (str (get game/suit-names (:suit k) "?"))
     :else              (pr-str k)))
+
+(def spend-phases
+  "Phases whose position choices are 'which of MY sundivers do I spend'. The payer
+   is always the player being asked — see journey.game/actor-player."
+  #{:choose-activate-matrix-spend
+    :choose-activate-tower-spend
+    :choose-activate-tower-join-spend
+    :flare-beacon-join-spend
+    :captain-beacon-join-spend
+    :cipher-spend})
 
 (defn convert-choice? [k]
   (and (map? k) (contains? k :type) (contains? k :target)))
@@ -227,7 +241,7 @@
   "Wraps render-game with mouse-drag pan and keyboard/slider zoom.
    Arrow keys pan; PageUp/PageDown zoom; drag the starfield to pan.
    Optional: on-navigate, fly-highlights, chosen-pos."
-  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click cipher-on-beacon-hover cipher-hover cipher-queue-color on-habitat-click habitat-player]}]]
+  [state pos-highlights on-hex-click choice-buttons & [{:keys [on-navigate fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click cipher-on-beacon-hover cipher-hover cipher-queue-color on-habitat-click habitat-player spend-highlights spend-player]}]]
   (r/with-let
     [drag  (r/atom nil)
      on-key
@@ -268,6 +282,8 @@
        :landing-revealed (:revealed @landing-anim)
        :on-habitat-click on-habitat-click
        :habitat-player habitat-player
+       :spend-highlights spend-highlights
+       :spend-player spend-player
        :on-bg-mouse-down
        (fn [e]
          (.preventDefault e)
@@ -362,6 +378,9 @@
             bot-thinking?     (and (not active?) (contains? bots cp) (not (:game-over state)))
             ;; Detect cipher phase: cipher positions go to cipher display, not board
             is-cipher?        (= :cipher (:phase srv))
+            ;; Paying a cost: the player being asked pays from their own pool,
+            ;; even when it is someone else's turn (owner taking the bonus).
+            is-spend?         (contains? spend-phases (:phase srv))
             cipher-positions  (when is-cipher?
                                 (set (filter hex-pos? (keys choices))))
             ;; Remove cipher positions from choices before partition (they go to cipher display)
@@ -518,6 +537,14 @@
                 [:span {:style {:color cp-fg :opacity 0.7 :margin-left "12px" :font-size "20px"}} summary])
               (when active?
                 [:span {:style {:color "#88CCAA" :margin-left "12px" :font-size "20px" :font-weight "bold"}} "← your turn"])]
+             ;; Whose pool a cost comes out of, spelled out — during an owner
+             ;; bonus the turn belongs to one player and the bill to another.
+             (when (and (contains? spend-phases srv-phase)
+                        (not= cp-name (game/current-player state)))
+               [:div {:style {:color cp-fg :opacity 0.75 :font-size "17px"
+                              :white-space "nowrap"}}
+                (str "paid from " cp-name "'s sundivers — not "
+                     (game/current-player state) "'s")])
              ;; Choice buttons row
              (when (seq buttons)
                [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"
@@ -597,7 +624,9 @@
                                   (:color (first (get-in state [:player-turn :cipher-queue] []))))
             :on-habitat-click (when habitat-choice
                                 (fn [] (send-action! nil)))
-            :habitat-player (when habitat-choice my)}]]
+            :habitat-player (when habitat-choice my)
+            :spend-highlights (when (and active? is-spend?) pos-hl)
+            :spend-player (when is-spend? cp)}]]
          ;; History panel (right side) — hidden by default, toggled with ESC.
          (when @history-visible?
            (let [sel       (or view-step (dec n))
@@ -695,6 +724,41 @@
     :accent         "#7AAAE0"
     :slot-bg        "#10182A"
     :background     "#04040E"}])
+
+(defn player-colors-for
+  "player → css colour, from journey's turn-order palette."
+  [players]
+  (let [ck (board/build-player-colors (vec players))]
+    (into {} (map (fn [p] [p (board/pwo (get ck p :sun))]) players))))
+
+(defn games-page
+  "JOURNEY's 'my games' list — the shared page every game renders."
+  [player]
+  [components/player-games-page
+   {:player        player
+    :games         @player-games
+    :color         (or (:color @player-preferences) "#1A2A4A")
+    :home-path     "/journey"
+    :play-prefix   "/journey/play/"
+    :create-prefix "/journey/play/"
+    :player-prefix "/player/"
+    :colors-fn     (fn [{:keys [players]}] (player-colors-for players))
+    :note-fn       (fn [{:keys [round]}] (str " round " (inc (or round 0))))
+    :empty-content
+    [:div {:style {:margin "30px 40px"}}
+     [:p {:style {:color "#556677" :margin-bottom "16px"}}
+      "No games yet."]
+     [:div {:style {:display "flex" :gap "12px"}}
+      [:a {:href "/journey/create"
+           :style {:color "#7AAAE0" :padding "8px 20px"
+                   :border "1px solid #2A4A80" :border-radius "4px"
+                   :text-decoration "none"}}
+       "Create a game"]
+      [:a {:href "/journey/generate"
+           :style {:color "#7AAAE0" :padding "8px 20px"
+                   :border "1px solid #2A4A80" :border-radius "4px"
+                   :text-decoration "none"}}
+       "Generate a game"]]]}])
 
 (defn observe-page []
   (let [games @observe-games]
@@ -969,6 +1033,8 @@
     (and (exists? js/isObserve)  js/isObserve)  [observe-page]
     (and (exists? js/isCreate)   js/isCreate)   [create-page]
     (and (exists? js/playKey)    js/playKey)     [play-page]
+    (and (exists? js/playerKey)  (not (str/blank? js/playerKey)))
+    [games-page js/playerKey]
     :else [:div]))
 
 ;; ── Init ──────────────────────────────────────────────────────────────────────
@@ -983,6 +1049,15 @@
   (when js/isObserve
     (when js/observeGames
       (reset! observe-games (reader/read-string js/observeGames))))
+  (if js/playerGames
+    (let [games (reader/read-string js/playerGames)]
+      (reset! player-games games)
+      (dom/change-favicon (if (components/player-active? js/playerKey games)
+                            "/favicon/active.ico"
+                            "/favicon/dormant.ico"))
+      ;; refresh so the tab icon reflects other players' moves
+      (.setInterval js/window (fn [] (.reload js/location)) 300000))
+    (dom/change-favicon "/favicon/neutral.ico"))
   (when js/playKey
     (let [protocol (if (= (.-protocol js/location) "https:") "wss:" "ws:")]
       (ws/make-websocket!

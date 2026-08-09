@@ -853,17 +853,28 @@
 (declare advance-after-actions begin-next-station)
 
 (defn actor-player
-  "The player executing actions: activator = turn player, owner = station owner."
+  "The player executing actions: activator = turn player, owner = station owner.
+
+   Control and cost travel together. When a stretch of an action has been handed
+   to another player — the owner taking the bonus on their own station — that
+   player is the actor for every sub-choice in it, and every sundiver, beacon and
+   platform it costs comes out of THEIR pool, even though it is still the
+   activator's turn. :choice-player is that handoff, so it wins here."
   [state actor]
-  (if (= actor :activator)
-    (current-player state)
-    (get-in state [:player-turn :action :current-owner])))
+  (or (get-in state [:player-turn :choice-player])
+      (if (= actor :activator)
+        (current-player state)
+        (get-in state [:player-turn :action :current-owner]))))
 
 (defn begin-actor-actions
   "Start the given actor's action sequence. For foundry, executes all actions
-   immediately. For matrix/tower, sets the appropriate choice phase."
+   immediately. For matrix/tower, sets the appropriate choice phase.
+
+   :current-actor is stamped up front, on every path — a stale value left over
+   from a previous run would silently bill the wrong player."
   [state actor]
-  (let [actions-key  (if (= actor :activator) :activator-actions :owner-actions)
+  (let [state        (assoc-in state [:player-turn :action :current-actor] actor)
+        actions-key  (if (= actor :activator) :activator-actions :owner-actions)
         n-actions    (get-in state [:player-turn :action actions-key] 0)
         station-type (get-in state [:player-turn :action :station-type])
         aplayer      (actor-player state actor)]
@@ -878,12 +889,10 @@
             (advance-after-actions actor)))
 
       :else
-      (-> state
-          (assoc-in [:player-turn :action :current-actor] actor)
-          (assoc-in [:player-turn :phase]
-                    (case station-type
-                      :matrix :choose-activate-matrix-beacon
-                      :tower  :choose-activate-tower-heading))))))
+      (assoc-in state [:player-turn :phase]
+                (case station-type
+                  :matrix :choose-activate-matrix-beacon
+                  :tower  :choose-activate-tower-heading)))))
 
 (defn- return-sundiver-from-station
   "Return the activator's sundiver from the current station to their habitat.

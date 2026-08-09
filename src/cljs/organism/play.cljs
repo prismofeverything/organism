@@ -3859,194 +3859,37 @@
        [organism-board game board invocation-colors turn choices]]])))
 
 
-(defn open-games-section
-  "Organism wrapper around the shared open-games-section."
-  [player games]
-  [components/open-games-section
-   {:games games
-    :link-prefix "/organism/create/"
-    :current-player player
-    :font-family font-choice
-    :colors-fn (fn [invocation]
-                 (invocation-player-colors (:player-count invocation) invocation))}])
-
-(defn player-active?
-  [player games]
-  (let [active-games (get games "active")]
-    (some?
-     (some
-      (fn [game]
-        (= player (:current-player game)))
-      active-games))))
-
-(defn active-games-section
-  [player games]
-  (when-not (empty? games)
-    [:div
-     {:style
-      {:margin "20px 40px"}}
-     [:h2
-      [:span
-       {:title "A solid color row indicates it is your turn in that game.\nThe icon on the tab for this page will turn green when it is your turn."}
-       "ACTIVE"]]
-     (for [{:keys [game round players player-colors current-player invocation]} games]
-       (let [player-color (get player-colors player)
-             ring-count (:ring-count invocation)
-             organism-victory (:organism-victory invocation)]
-         ^{:key game}
-         [:div
-          {:style
-           (if (= player current-player)
-             {:background player-color
-              :margin "10px 20px"
-              :padding "10px 0px"
-              :border-radius "10px"}
-             {:margin "10px 20px"
-              :padding "10px 0px"})}
-          [:span
-           {:title
-            (str
-             (when ring-count
-               (str ring-count " rings | "))
-             (when organism-victory
-               (str organism-victory " organisms for victory\n\n"))
-             (:description invocation))}
-           [:a
-            {:href (str "/organism/play/" game)
-             :style
-             {:color "#fff"
-              :border-radius "15px"
-              :background player-color
-              :padding "10px 20px"
-              :letter-spacing "5px"
-              :font-family font-choice
-              :font-size "1.3em"}}
-            game]]
-          [:span
-           {:style
-            {:margin "0px 20px"}}
-           " round " (inc round)]
-          (for [game-player players]
-            (let [current-color (get player-colors game-player)]
-              ^{:key game-player}
-              [:span
-               [:a
-                {:href (str js/playerPath "/" game-player)
-                 :style
-                 (if (= game-player current-player)
-                   {:color "#fff"
-                    :border-radius "20px"
-                    :background current-color
-                    :margin "0px 10px"
-                    :padding "7px 20px"}
-                   {:padding "5px 10px"
-                    :margin "0px 10px"
-                    :border-style "solid"
-                    :border-width "2px"
-                    :border-color current-color
-                    :border-radius "5px"
-                    :color current-color})}
-                game-player]]))]))]))
-
-(defn complete-games-section
-  [player games]
-  (when-not (empty? games)
-    [:div
-     {:style
-      {:margin "20px 40px"}}
-     [:h2 "COMPLETE"]
-     (for [{:keys [game round players player-colors winner]} (reverse games)]
-       (let [player-color (get player-colors player)]
-         ^{:key game}
-         [:div
-          {:style
-           (if (= player winner)
-             {:background player-color
-              :margin "10px 20px"
-              :padding "10px 0px"
-              :border-radius "10px"}
-             {:margin "10px 20px"
-              :padding "10px 0px"})}
-          [:span
-           [:a
-            {:href (str "/organism/play/" game)
-             :style
-             {:color "#fff"
-              :border-radius "15px"
-              :background player-color
-              :padding "10px 20px"
-              :letter-spacing "5px"
-              :font-family font-choice
-              :font-size "1.3em"}}
-            game]]
-          [:span
-           {:style
-            {:margin "0px 20px"}}
-           " round " (inc round)]
-          (for [game-player players]
-            (let [current-color (get player-colors game-player)]
-              ^{:key game-player}
-              [:span
-               [:a
-                {:href (str js/playerPath "/" game-player)
-                 :style
-                 (if (= game-player winner)
-                   {:color "#fff"
-                    :border-radius "20px"
-                    :background current-color
-                    :margin "0px 10px"
-                    :padding "7px 20px"}
-                   {:padding "5px 10px"
-                    :margin "0px 10px"
-                    :border-style "solid"
-                    :border-width "2px"
-                    :border-color current-color
-                    :border-radius "5px"
-                    :color current-color})}
-                game-player]]))]))]))
-
-(defn player-page-banner
-  [player color turn]
-  [:div
-   {:style
-    {:color "#fff"
-     :border-radius "50px"
-     :cursor "pointer"
-     :background color
-     :letter-spacing "8px"
-     :font-family font-choice
-     :margin "20px 0px"
-     :padding "25px 60px"}
-    :on-click
-    (fn [event]
-      (let [color (board/random-color 0.2 0.9)]
-        (swap! player-preferences assoc :color color)
-        (ajax/post-preferences! player {:color color})))}
-   [:h1
-    [:a
-     {:style
-      {:color "#fff"}
-      :href js/homePath}
-     player]]
-   [:div
-    {:style
-     {:font-size "1.3em"
-      :letter-spacing "5px"
-      :margin "10px 0px"}}
-    (string/join " " (string/split (name turn) #"-"))]])
+(def player-active? components/player-active?)
 
 (defn player-page
+  "The player's game list — delegates to the shared components implementation
+   so organism and the other games render the same page."
   [player]
-  (let [games @player-games
+  (let [games (or @player-games {})
         color (:color @player-preferences)]
-    [:div
-     {:style
-      {:padding "20px"
-       :color "#eee"}}
-     [player-page-banner player color "games"]
-     [open-games-section player (get games "open")]
-     [active-games-section player (get games "active")]
-     [complete-games-section player (get games "complete")]]))
+    [components/player-games-page
+     {:player         player
+      :games          games
+      :color          color
+      :home-path      js/homePath
+      :play-prefix    "/organism/play/"
+      :create-prefix  "/organism/create/"
+      :player-prefix  (str js/playerPath "/")
+      :font-family    font-choice
+      :open-colors-fn (fn [invocation]
+                        (invocation-player-colors (:player-count invocation) invocation))
+      :note-fn        (fn [{:keys [round]}] (str " round " (inc (or round 0))))
+      :tooltip-fn     (fn [{:keys [invocation]}]
+                        (let [{:keys [ring-count organism-victory description]} invocation]
+                          (str (when ring-count (str ring-count " rings | "))
+                               (when organism-victory
+                                 (str organism-victory " organisms for victory\n\n"))
+                               description)))
+      :on-banner-click
+      (fn [_event]
+        (let [color (board/random-color 0.2 0.9)]
+          (swap! player-preferences assoc :color color)
+          (ajax/post-preferences! player {:color color})))}]))
 
 (defn valid-player-name?
   [players player]

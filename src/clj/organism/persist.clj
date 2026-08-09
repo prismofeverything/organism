@@ -386,10 +386,13 @@
   ([db player]
    (load-player-games db player nil))
   ([db player game-type]
-   (let [query (if game-type
-                 {"$or" [{:game-type game-type}
-                         {:game-type {"$exists" false}}]}
-                 {})
+   (let [;; Untyped records are legacy organism (see the backfill migration) —
+         ;; only organism inherits them, or journey/eridu/… would list them too.
+         query (cond
+                 (nil? game-type)          {}
+                 (= "organism" game-type)  {"$or" [{:game-type game-type}
+                                                   {:game-type {"$exists" false}}]}
+                 :else                     {:game-type game-type})
          records (db/query db (player-games-key player) query)
          records (map deserialize-player-game records)
          states (group-player-games db player records)

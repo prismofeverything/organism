@@ -577,3 +577,128 @@
 
             (recur s (inc turn))))))))
 
+;; ── Activation bonus: control and cost travel together ──────────────────────
+;; Whoever is asked to make a choice pays for it out of their own pool, even
+;; when it is someone else's turn (the owner taking the bonus on their station).
+
+(def ^:private alice-pos [5 0])
+(def ^:private bob-pos   [-5 0])
+
+(defn- bonus-setup
+  "alice (activator) is activating bob's matrix station; each has board
+   sundivers nowhere near the other's, and neither has habitat sundivers, so
+   the offered spend positions say unambiguously whose pool is being charged."
+  []
+  (-> (game/initial-state ["alice" "bob"])
+      (assoc-in [:board [2 0]]
+                (-> (game/make-tile :blue)
+                    (game/add-station :matrix "bob" 1)
+                    (assoc-in [:sundivers "alice"] 1)))
+      (assoc-in [:board alice-pos] (assoc (game/make-tile :green) :sundivers {"alice" 2}))
+      (assoc-in [:board bob-pos]   (assoc (game/make-tile :green) :sundivers {"bob" 2}))
+      (assoc-in [:players "alice" :habitat :sundivers] 0)
+      (assoc-in [:players "bob" :habitat :sundivers] 0)
+      (assoc-in [:player-turn :action-type] :activate)
+      (assoc-in [:player-turn :action :station-type] :matrix)
+      (assoc-in [:player-turn :action :stations-queue] [[2 0]])
+      (assoc-in [:player-turn :action :free-activation?] false)
+      game/begin-next-station))
+
+(deftest owner-bonus-is-paid-from-the-owners-board-sundivers-test
+  (let [s0 (bonus-setup)]
+    (is (= :choose-activate-matrix-beacon (game/current-phase s0)))
+    ;; The activator's BASE action is the activator's: their beacon, their cost.
+    (let [[_ beacon-cs] (choice/find-state-raw s0)
+          s1            (get beacon-cs (first (game/matrix-beacon-positions s0 "alice")))
+          [ph spend-cs] (choice/find-state-raw s1)]
+      (is (= :choose-activate-matrix-spend ph))
+      (is (contains? (set (keys spend-cs)) alice-pos))
+      (is (not (contains? (set (keys spend-cs)) bob-pos))
+          "the activator's base action must not reach into the owner's pool")
+
+      ;; Base paid → the owner is offered the bonus.
+      (let [s2             (get spend-cs alice-pos)
+            [ph2 bonus-cs] (choice/find-state-raw s2)]
+        (is (= :choose-activate-owner-bonus ph2))
+        (is (= "bob" (get-in s2 [:player-turn :choice-player])))
+
+        ;; The owner takes it: every sub-choice, and every cost, is theirs.
+        (let [s3         (get bonus-cs 1)
+              [ph3 bcs3] (choice/find-state-raw s3)]
+          (is (= :owner (get-in s3 [:player-turn :action :current-actor])))
+          (is (= :choose-activate-matrix-beacon ph3))
+          (let [bpos       (first (game/matrix-beacon-positions s3 "bob"))
+                s4         (get bcs3 bpos)
+                [ph4 scs4] (choice/find-state-raw s4)]
+            (is (= :choose-activate-matrix-spend ph4))
+            (is (contains? (set (keys scs4)) bob-pos)
+                "the owner's bonus is payable from the OWNER's sundivers")
+            (is (not (contains? (set (keys scs4)) alice-pos))
+                "the owner's bonus must NOT be paid from the ACTIVATOR's pool")
+            ;; …and spending really does come out of bob: he drops 2 → 1, while
+            ;; alice still holds the 1 she has left after paying for her base.
+            (let [done (get scs4 bob-pos)]
+              (is (= 1 (get-in done [:board bob-pos :sundivers "bob"])))
+              (is (= 1 (get-in done [:board alice-pos :sundivers "alice"]))
+                  "the activator's sundivers are untouched by the owner's bonus"))))))))
+
+;; ── Randomized: the player asked is always the player charged ───────────────
+
+(def ^:private activation-actor-phases
+  "Phases whose choices are generated from (actor-player state)."
+  #{:choose-activate-matrix-beacon
+    :choose-activate-matrix-spend
+    :choose-activate-tower-heading
+    :choose-activate-tower-spend})
+
+(defn- asked-player [state]
+  (or (get-in state [:player-turn :choice-player])
+      (game/current-player state)))
+
+(defn- play-checking-actor
+  "Walk a random game, always taking the owner bonus when offered, and record
+   every activation phase where the player asked differs from the player whose
+   resources the choices are built from."
+  [seed max-steps counters]
+  (let [rng (java.util.Random. seed)]
+    (loop [state (game/initial-state ["alice" "bob" "cheryl"])
+           step  0
+           found []]
+      (if (or (>= step max-steps) (:game-over state))
+        found
+        (let [[phase choices] (choice/find-state-raw state)]
+          (if (empty? choices)
+            found
+            (let [asked (asked-player state)
+                  found (if (contains? activation-actor-phases phase)
+                          (let [payer (choice/actor-player state)]
+                            (when (not= asked (game/current-player state))
+                              (swap! counters update :owner-controlled (fnil inc 0)))
+                            (if (= asked payer)
+                              found
+                              (conj found {:seed seed :step step :phase phase
+                                           :asked asked :payer payer})))
+                          found)
+                  ks    (vec (keys choices))
+                  k     (cond
+                          (= phase :choose-activate-owner-bonus)   (apply max ks)
+                          (and (= phase :choose-action-type)
+                               (contains? choices :activate)
+                               (< (.nextInt rng 10) 7))            :activate
+                          (and (= phase :choose-action-type)
+                               (contains? choices :convert)
+                               (< (.nextInt rng 10) 6))            :convert
+                          :else (nth ks (.nextInt rng (count ks))))]
+              (if-let [next-state (get choices k)]
+                (recur next-state (inc step) found)
+                found))))))))
+
+(deftest player-asked-is-the-player-charged-test
+  (let [counters (atom {})
+        found    (doall (mapcat #(play-checking-actor % 3000 counters) (range 40)))]
+    (when (seq found)
+      (println "actor/choice-player mismatches:" (take 5 found)))
+    (is (pos? (:owner-controlled @counters 0))
+        "the walk must actually reach owner-controlled activation phases")
+    (is (empty? found)
+        "the player asked to choose must be the player whose resources are used")))

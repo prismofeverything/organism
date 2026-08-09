@@ -533,7 +533,8 @@
 
 (defn render-board
   [state player-order player-colors pos-highlights on-hex-click
-   & [{:keys [fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert]}]]
+   & [{:keys [fly-highlights chosen-pos active-player conv-groups conv-sundivers pending-convert
+              spend-highlights spend-player]}]]
   (let [board       (:board state)
         ark-pos     (:ark state)
         heading-dir (game/heading-direction state)
@@ -542,6 +543,7 @@
         conv-g      (or conv-groups {})
         conv-s      (or conv-sundivers #{})
         conv-targets (set (map first (keys conv-g)))
+        spend-hl    (or spend-highlights #{})
         pending     pending-convert]
     [:g
      ;; Tiles (backgrounds, matches, world tokens, beacons, stations, sundivers)
@@ -553,12 +555,18 @@
                  is-chosen?  (= pos chosen)
                  is-conv-s?  (contains? conv-s pos)
                  is-conv-t?  (contains? conv-targets pos)
+                 is-spend?   (contains? spend-hl pos)
                  hl (cond
                       is-chosen?                     :chosen
                       (contains? pos-highlights pos) :gold
                       :else                          nil)
                  ;; Highlight sundivers: fly-from, chosen, or convert-involved
                  shl (cond
+                       ;; Paying a cost: ring the PAYER's own sundivers, so it is
+                       ;; never ambiguous whose pool a tile is spending from when
+                       ;; several players share it.
+                       is-spend?  {:highlight-player spend-player :highlight-color "#FFD030"
+                                   :on-sundiver-click (when on-hex-click #(on-hex-click pos))}
                        is-fly?    {:highlight-player active-player :highlight-color "#FFD030"
                                    :on-sundiver-click (when on-hex-click #(on-hex-click [:fly pos]))}
                        is-chosen? {:highlight-player active-player :highlight-color "#30FF90"}
@@ -1111,7 +1119,8 @@
    & [{:keys [pan-x pan-y zoom on-bg-mouse-down fly-highlights chosen-pos active-player
               conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click
               cipher-on-beacon-hover cipher-hover
-              cipher-queue-color landing-revealed on-habitat-click habitat-player]
+              cipher-queue-color landing-revealed on-habitat-click habitat-player
+              spend-highlights spend-player]
        :or   {pan-x 0 pan-y 0 zoom 1.0}}]]
   (let [player-order  (:turn-order state)
         player-colors (build-player-colors player-order)
@@ -1186,7 +1195,8 @@
                   :transition "transform 0.18s cubic-bezier(0.2,0,0,1)"}}
       [render-board state player-order player-colors pos-highlights on-hex-click
        {:fly-highlights fly-highlights :chosen-pos chosen-pos :active-player active-player
-        :conv-groups conv-groups :conv-sundivers conv-sundivers :pending-convert pending-convert}]
+        :conv-groups conv-groups :conv-sundivers conv-sundivers :pending-convert pending-convert
+        :spend-highlights spend-highlights :spend-player spend-player}]
       (when (= :landing (get-in state [:game-over :type]))
         [render-scoring-overlay state player-colors])
       ;; Cipher hover: glowing match arcs on the board

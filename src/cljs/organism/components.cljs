@@ -683,3 +683,175 @@
                                     :background "#1A2810" :color "#88CC66"
                                     :border-color "#4A4"})}
           "Create Game"]]))))
+
+;; ── Player games page ("my games") ─────────────────────────────────────────
+
+(defn player-active?
+  "True when it is `player`'s turn in any of their active games — drives the
+   green tab favicon on the games list."
+  [player games]
+  (boolean
+   (some (fn [game] (= player (:current-player game)))
+         (get games "active"))))
+
+;; The canonical /<game>/play list. Every game's play page should render this
+;; rather than growing its own copy — pass link prefixes and a colour source.
+
+(defn- game-row
+  "One game row: the game-key pill, a meta note, then a pill per player.
+   `emphasis` is the player to call out (whose turn it is, or the winner);
+   when that is the viewer the whole row takes their colour."
+  [{:keys [game-key href player-prefix players player-colors emphasis viewer
+           note tooltip font-family]}]
+  (let [viewer-color (get player-colors viewer "#445")]
+    [:div
+     {:style (if (and emphasis (= viewer emphasis))
+               {:background viewer-color
+                :margin "10px 20px"
+                :padding "10px 0px"
+                :border-radius "10px"}
+               {:margin "10px 20px"
+                :padding "10px 0px"})}
+     [:span
+      (when tooltip {:title tooltip})
+      [:a
+       {:href href
+        :style {:color "#fff"
+                :border-radius "15px"
+                :background viewer-color
+                :padding "10px 20px"
+                :letter-spacing "5px"
+                :font-family (or font-family "monospace")
+                :font-size "1.3em"
+                :text-decoration "none"}}
+       game-key]]
+     (when note
+       [:span {:style {:margin "0px 20px"}} note])
+     (for [game-player players]
+       (let [player-color (get player-colors game-player "#445")]
+         ^{:key game-player}
+         [:span
+          [:a
+           {:href (str player-prefix game-player)
+            :style (if (= game-player emphasis)
+                     {:color "#fff"
+                      :border-radius "20px"
+                      :background player-color
+                      :margin "0px 10px"
+                      :padding "7px 20px"
+                      :text-decoration "none"}
+                     {:padding "5px 10px"
+                      :margin "0px 10px"
+                      :border-style "solid"
+                      :border-width "2px"
+                      :border-color player-color
+                      :border-radius "5px"
+                      :color player-color
+                      :text-decoration "none"})}
+           game-player]]))]))
+
+(defn games-section
+  "A titled list of game rows. Props:
+   :title       — section heading (e.g. \"ACTIVE\")
+   :tooltip     — optional heading tooltip
+   :games       — seq of player-game records
+   :viewer      — the logged-in player
+   :play-prefix — URL prefix for the game link
+   :player-prefix — URL prefix for player links
+   :colors-fn   — (fn [record] → {player → css-color}); falls back to :player-colors
+   :emphasis-fn — (fn [record] → player to call out)
+   :note-fn     — (fn [record] → string shown next to the game name)
+   :tooltip-fn  — (fn [record] → hover text for the game name)"
+  [{:keys [title tooltip games viewer play-prefix player-prefix
+           colors-fn emphasis-fn note-fn tooltip-fn font-family]}]
+  (when (seq games)
+    [:div {:style {:margin "20px 40px"}}
+     [:h2 (if tooltip [:span {:title tooltip} title] title)]
+     (for [{:keys [game players] :as record} games]
+       ^{:key game}
+       [game-row
+        {:game-key      game
+         :href          (str play-prefix game)
+         :player-prefix player-prefix
+         :players       players
+         :player-colors (if colors-fn (colors-fn record) (:player-colors record))
+         :emphasis      (when emphasis-fn (emphasis-fn record))
+         :viewer        viewer
+         :note          (when note-fn (note-fn record))
+         :tooltip       (when tooltip-fn (tooltip-fn record))
+         :font-family   font-family}])]))
+
+(defn player-games-banner
+  [{:keys [player color label home-path font-family on-click]}]
+  [:div
+   {:style {:color "#fff"
+            :border-radius "50px"
+            :cursor (when on-click "pointer")
+            :background (or color "#445")
+            :letter-spacing "8px"
+            :font-family (or font-family "monospace")
+            :margin "20px 0px"
+            :padding "25px 60px"}
+    :on-click on-click}
+   [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
+             :href (or home-path "/")}
+         player]]
+   (when label
+     [:div {:style {:font-size "1.3em" :letter-spacing "5px" :margin "10px 0px"}}
+      label])])
+
+(defn player-games-page
+  "The shared 'my games' page: banner, then OPEN / ACTIVE / COMPLETE sections.
+   Props:
+   :player          — logged-in player
+   :games           — {\"open\" [...] \"active\" [...] \"complete\" [...]}
+   :color           — banner colour
+   :label           — banner sub-label (default \"games\")
+   :home-path       — banner link target
+   :play-prefix     — e.g. \"/journey/play/\"
+   :create-prefix   — where open games link (e.g. \"/organism/create/\")
+   :player-prefix   — e.g. \"/player/\"
+   :colors-fn       — (fn [record] → {player → css-color}) for active/complete
+   :open-colors-fn  — (fn [invocation] → [colors]) for open game slots
+   :note-fn         — (fn [record] → string) shown beside the game name
+   :tooltip-fn      — (fn [record] → hover text)
+   :empty-content   — hiccup shown when there are no games at all
+   :on-banner-click — optional banner handler
+   :font-family"
+  [{:keys [player games color label home-path play-prefix create-prefix player-prefix
+           colors-fn open-colors-fn note-fn tooltip-fn empty-content
+           on-banner-click font-family]
+    :or   {label "games" player-prefix "/player/"}}]
+  (let [open      (get games "open")
+        active    (get games "active")
+        completed (get games "complete")
+        section   (fn [title tooltip rows emphasis-fn]
+                    [games-section
+                     {:title         title
+                      :tooltip       tooltip
+                      :games         rows
+                      :viewer        player
+                      :play-prefix   play-prefix
+                      :player-prefix player-prefix
+                      :colors-fn     colors-fn
+                      :emphasis-fn   emphasis-fn
+                      :note-fn       note-fn
+                      :tooltip-fn    tooltip-fn
+                      :font-family   font-family}])]
+    [:div {:style {:padding "20px" :color "#eee"}}
+     [player-games-banner {:player player :color color :label label
+                           :home-path home-path :font-family font-family
+                           :on-click on-banner-click}]
+     [open-games-section {:games open
+                          :link-prefix (or create-prefix play-prefix)
+                          :current-player player
+                          :colors-fn open-colors-fn
+                          :font-family font-family}]
+     (section "ACTIVE"
+              (str "A solid color row indicates it is your turn in that game.\n"
+                   "The icon on the tab for this page will turn green when it is your turn.")
+              active :current-player)
+     (section "COMPLETE" nil (reverse completed) :winner)
+     (when (and (empty? open) (empty? active) (empty? completed))
+       (or empty-content
+           [:p {:style {:margin "30px 40px" :color "#888"}} "no games yet"]))]))

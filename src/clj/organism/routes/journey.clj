@@ -44,14 +44,18 @@
       :preferences preferences})))
 
 (defn play-list-page
-  "Show the logged-in player's games for journey."
+  "Show the logged-in player's games for journey — same page ORGANISM renders,
+   via organism.components/player-games-page."
   [db request]
-  (let [player (get-in request [:session :player])
+  (let [player       (get-in request [:session :player])
+        preferences  (persist/find-player-preferences db player)
         player-games (persist/load-player-games db player "journey")]
     (layout/render
      request
      "journey/games.html"
-     {:session-player player
+     {:player player
+      :session-player player
+      :preferences preferences
       :player-games (pr-str player-games)})))
 
 (defn play-page
