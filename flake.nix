@@ -81,7 +81,14 @@
             stopMongo
             mongoStatus
             pkgs.babashka
+            # Headless browser for perf profiling of the CLJS UI.
+            pkgs.chromium
           ];
+
+          # puppeteer-core will spawn this binary instead of downloading
+          # its own Chromium.
+          PUPPETEER_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
+          PUPPETEER_SKIP_DOWNLOAD  = "1";
 
           JAVA_HOME = "${jdk}/lib/openjdk";
 

@@ -383,17 +383,39 @@
           {}
           (filter #(= owner (:owner %)) (:links state))))
 
+(defn- link-bfs-in-graph
+  "BFS over a precomputed adjacency map (see `link-graphs-for`)."
+  [g start]
+  (loop [frontier [start] seen #{start}]
+    (if (empty? frontier)
+      seen
+      (let [n (first frontier) r (rest frontier)
+            nexts (remove seen (get g n #{}))]
+        (recur (into (vec r) nexts) (into seen nexts))))))
+
 (defn- link-bfs
   "BFS from start over the player's link graph. Returns set of reachable
-   sids (including start)."
+   sids (including start). Rebuilds the graph each call — prefer
+   `link-bfs-in-graph` with a precomputed graph when doing many BFSes
+   in a single legal-actions call."
   [state owner start]
-  (let [g (player-link-adj state owner)]
-    (loop [frontier [start] seen #{start}]
-      (if (empty? frontier)
-        seen
-        (let [n (first frontier) r (rest frontier)
-              nexts (remove seen (get g n #{}))]
-          (recur (into (vec r) nexts) (into seen nexts)))))))
+  (link-bfs-in-graph (player-link-adj state owner) start))
+
+(defn- link-graphs-for
+  "Build per-owner adjacency maps once from (:links state). Returns
+   `{owner → adjacency-map}` for all owners with ≥1 link."
+  [state]
+  (let [owners (into #{} (map :owner) (:links state))]
+    (reduce (fn [m o] (assoc m o (player-link-adj state o))) {} owners)))
+
+(defn- player-sundiver-spaces
+  "Only spaces where `player` has ≥1 sundiver. Skips empty vectors —
+   important because :sundivers is a full 86-key map, most empty."
+  [state player]
+  (reduce-kv (fn [acc sid divs]
+               (if (and (seq divs) (some #(= player (:owner %)) divs))
+                 (conj acc sid) acc))
+             [] (:sundivers state)))
 
 (defn- link-exists?
   "Is there any link between a and b already?"
@@ -403,15 +425,39 @@
             (and (contains? ep a) (contains? ep b))))
         (:links state)))
 
+;; ── Lazy next-state values ────────────────────────────────────────────────
+;;
+;; `legal-actions` returns `{choice-key → Delay-of-next-state}` — deferring
+;; the state-transition work until a caller actually picks a choice. Bots
+;; and the WS handler only ever consume ONE next-state per call, so we no
+;; longer waste work computing all of them.
+
+(defn force-choice
+  "Force a legal-actions value into its next-state. Accepts either a
+   Delay or a plain state (for callers that constructed the map by hand)."
+  [v]
+  (cond
+    (nil? v)              nil
+    #?(:clj  (instance? clojure.lang.IDeref v)
+       :cljs (satisfies? IDeref v)) @v
+    :else v))
+
+(defn next-state
+  "Convenience: given a legal-actions map + choice-key, return the
+   next-state (forcing the delay), or nil if the choice is not legal."
+  [actions ck]
+  (when-let [v (get actions ck)]
+    (force-choice v)))
+
 ;; ── Auto-advance ──────────────────────────────────────────────────────────
 
 (declare legal-actions* transition-to-game-over)
 
 (defn- single-choice
-  "If actions have exactly one entry, return the resulting state, else nil."
+  "If actions have exactly one entry, return the (forced) next-state, else nil."
   [actions]
   (when (= 1 (count actions))
-    (val (first actions))))
+    (force-choice (val (first actions)))))
 
 ;; Phases whose single-choice states we auto-advance through
 (def ^:private auto-advance-phases
@@ -443,11 +489,12 @@
       (for [sid board/beam-orbital-spaces
             :when (not (space-has-mothership? state sid))]
         [[:place-mothership sid]
-         (auto-advance
-           (-> state
-               (set-mothership player sid)
-               (assoc :phase :choose-action-type)
-               (assoc :phase-data {})))]))))
+         (delay
+           (auto-advance
+             (-> state
+                 (set-mothership player sid)
+                 (assoc :phase :choose-action-type)
+                 (assoc :phase-data {}))))]))))
 
 ;; ── PHASE: :resolve-mothership ────────────────────────────────────────────
 
@@ -459,30 +506,33 @@
         outer  (board/outer-orbit r)
         adj    (get-in state [:board :adjacency])
         base   {[:stay]
-                (auto-advance
-                  (-> state
-                      (assoc :phase :choose-action-type)
-                      (assoc :phase-data {})))}
+                (delay
+                  (auto-advance
+                    (-> state
+                        (assoc :phase :choose-action-type)
+                        (assoc :phase-data {}))))}
         with-in
         (if (and inner (not= :silver r))
           (if-let [target (board/frontmost-adjacent-in-ring adj ms inner)]
             (assoc base [:shift-in]
-                   (auto-advance
-                     (-> state
-                         (set-mothership player target)
-                         (assoc :phase :choose-action-type)
-                         (assoc :phase-data {}))))
+                   (delay
+                     (auto-advance
+                       (-> state
+                           (set-mothership player target)
+                           (assoc :phase :choose-action-type)
+                           (assoc :phase-data {})))))
             base)
           base)
         with-out
         (if outer
           (if-let [target (board/frontmost-adjacent-in-ring adj ms outer)]
             (assoc with-in [:shift-out]
-                   (auto-advance
-                     (-> state
-                         (set-mothership player target)
-                         (assoc :phase :choose-action-type)
-                         (assoc :phase-data {}))))
+                   (delay
+                     (auto-advance
+                       (-> state
+                           (set-mothership player target)
+                           (assoc :phase :choose-action-type)
+                           (assoc :phase-data {})))))
             with-in)
           with-in)]
     with-out))
@@ -528,13 +578,13 @@
 
 (defn- choose-action-type-actions [state]
   (let [player (current-player state)
-        base   {[:choose-move] (auto-advance (enter-moving state))}
+        base   {[:choose-move] (delay (auto-advance (enter-moving state)))}
         any-target?
         (or (seq (activatable-sun-spaces state player))
             (seq (activatable-planet-spaces state player))
             (seq (activatable-city-spaces state player)))]
     (if any-target?
-      (assoc base [:choose-activate] (auto-advance (enter-activating-untargeted state)))
+      (assoc base [:choose-activate] (delay (auto-advance (enter-activating-untargeted state))))
       base)))
 
 ;; ── PHASE: :moving ────────────────────────────────────────────────────────
@@ -593,13 +643,14 @@
   (and (board/orbital? sid)
        (= sid (planet-space-for-orbit state (board/orbit-of sid)))))
 
-(defn- do-planet-flip [state sid idx on?]
+(defn- do-planet-flip
+  "Toggle :on-planet? for a sundiver. **[POLICY]** Free — does not
+   consume a movement point (previous policy charged 1)."
+  [state sid idx on?]
   (let [divs (sundivers-at state sid)
         sd   (nth divs idx)
         sd'  (assoc sd :on-planet? (boolean on?))]
-    (-> state
-        (assoc-in [:sundivers sid idx] sd')
-        decrement-moves)))
+    (assoc-in state [:sundivers sid idx] sd')))
 
 (defn- enter-drawing-cards
   "Transition to :drawing-cards with the given cards-owed. Zero owed is
@@ -613,52 +664,51 @@
 (defn- moving-actions [state]
   (let [player (current-player state)
         moves  (get-in state [:phase-data :moves-left] 0)
-        base   {[:done-moving] (enter-drawing-cards state 1)}]
+        base   {[:done-moving] (delay (enter-drawing-cards state 1))}
+        player-spaces (player-sundiver-spaces state player)
+
+        ;; on/off toggles are FREE — always available, regardless of moves.
+        planet-on-map
+        (into {}
+          (for [sid player-spaces
+                :when (current-planet-at? state sid)
+                [i sd] (map-indexed vector (sundivers-at state sid))
+                :when (and (= player (:owner sd)) (not (:on-planet? sd)))]
+            [[:planet-on [sid i]] (delay (do-planet-flip state sid i true))]))
+
+        planet-off-map
+        (into {}
+          (for [sid player-spaces
+                :when (current-planet-at? state sid)
+                [i sd] (map-indexed vector (sundivers-at state sid))
+                :when (and (= player (:owner sd)) (:on-planet? sd))]
+            [[:planet-off [sid i]] (delay (do-planet-flip state sid i false))]))]
     (if (pos? moves)
       (let [adj (get-in state [:board :adjacency])
+            link-graphs (link-graphs-for state)
+
             launch-map
             (if (pos? (get-in state [:players player :habitat] 0))
               (into {}
                 (for [dst (launch-targets state player)]
-                  [[:launch dst] (do-launch state player dst)]))
+                  [[:launch dst] (delay (do-launch state player dst))]))
               {})
 
             fly-map
             (into {}
-              (for [[sid divs] (:sundivers state)
-                    :when (some #(= player (:owner %)) divs)
-                    dst (neighbors-set (get adj sid #{}) sid)
-                    :let [_ dst]]
-                [[:fly sid dst] (do-fly state player sid dst)]))
+              (for [sid player-spaces
+                    dst (get adj sid #{})]
+                [[:fly sid dst] (delay (do-fly state player sid dst))]))
 
             path-map
             (into {}
-              ;; enumerate over players who own links; for each (src, dst)
-              ;; where src has our sundiver and dst reachable in owner's graph
-              (for [owner (set (map :owner (:links state)))
-                    [sid divs] (:sundivers state)
-                    :when (and (some #(= player (:owner %)) divs)
-                               (contains? (player-link-adj state owner) sid))
-                    dst (disj (link-bfs state owner sid) sid)]
-                [[:path sid dst] (do-path state player sid dst owner)]))
-
-            planet-on-map
-            (into {}
-              (for [[sid divs] (:sundivers state)
-                    :when (current-planet-at? state sid)
-                    [i sd] (map-indexed vector divs)
-                    :when (and (= player (:owner sd)) (not (:on-planet? sd)))]
-                [[:planet-on [sid i]] (do-planet-flip state sid i true)]))
-
-            planet-off-map
-            (into {}
-              (for [[sid divs] (:sundivers state)
-                    :when (current-planet-at? state sid)
-                    [i sd] (map-indexed vector divs)
-                    :when (and (= player (:owner sd)) (:on-planet? sd))]
-                [[:planet-off [sid i]] (do-planet-flip state sid i false)]))]
+              (for [[owner g] link-graphs
+                    sid player-spaces
+                    :when (contains? g sid)
+                    dst (disj (link-bfs-in-graph g sid) sid)]
+                [[:path sid dst] (delay (do-path state player sid dst owner))]))]
         (merge base launch-map fly-map path-map planet-on-map planet-off-map))
-      base)))
+      (merge base planet-on-map planet-off-map))))
 
 ;; ── PHASE: :activating ────────────────────────────────────────────────────
 
@@ -725,20 +775,24 @@
             m     {}
             m     (if suns
                     (assoc m [:activate-sun]
-                           (enter-activating-target state :sun (activatable-sun-spaces state player)))
+                           (delay
+                             (enter-activating-target state :sun
+                                                      (activatable-sun-spaces state player))))
                     m)
             m     (if plans
                     (assoc m [:activate-planets]
-                           (enter-activating-target state :planets (activatable-planet-spaces state player)))
+                           (delay
+                             (enter-activating-target state :planets
+                                                      (activatable-planet-spaces state player))))
                     m)
             m     (if cits
                     (assoc m [:activate-cities]
-                           (enter-activating-target state :cities (activatable-city-spaces state player)))
+                           (delay
+                             (enter-activating-target state :cities
+                                                      (activatable-city-spaces state player))))
                     m)]
         (if (empty? m)
-          ;; degenerate — shouldn't happen because we suppressed
-          ;; [:choose-activate] earlier, but fail-safe:
-          {[:no-activation-possible] (enter-drawing-cards state 0)}
+          {[:no-activation-possible] (delay (enter-drawing-cards state 0))}
           m))
 
       :else
@@ -754,16 +808,15 @@
             act-map
             (into {}
               (for [sid valid-remaining]
-                [[:activate-space sid] (activate-space-transition state target sid)]))
+                [[:activate-space sid] (delay (activate-space-transition state target sid))]))
             can-done? (pos? activated-count)]
         (cond
           (and (zero? activated-count) (empty? act-map))
-          ;; must have ≥1 but none available now — recover
-          {[:no-activation-possible] (enter-drawing-cards state 0)}
+          {[:no-activation-possible] (delay (enter-drawing-cards state 0))}
 
           can-done?
           (assoc act-map [:done-activating]
-                 (enter-drawing-cards state (:cards-owed pd 0)))
+                 (delay (enter-drawing-cards state (:cards-owed pd 0))))
 
           :else
           act-map)))))
@@ -828,13 +881,13 @@
           (for [[i sd] (map-indexed vector divs)
                 :when (= player (:owner sd))
                 [ck effect] (concat
-                              [[[:sun-outer i] (do-sun-outer state sid k i)]]
+                              [[[:sun-outer i] (delay (do-sun-outer state sid k i))]]
                               (when (and (= color (:resource sd))
                                          (pos? (get-in state [:players player :components] 0)))
-                                [[[:sun-inner i] (do-sun-inner state sid k i)]]))]
+                                [[[:sun-inner i] (delay (do-sun-inner state sid k i))]]))]
             [ck effect]))]
     (if (empty? m)
-      {[:done-activating-space] (return-to-activating state sid 0)}
+      {[:done-activating-space] (delay (return-to-activating state sid 0))}
       m)))
 
 ;; ── PHASE: :activating-planet-space ───────────────────────────────────────
@@ -887,7 +940,7 @@
                            (pos? stock)
                            price
                            (>= energy price))]
-            [[:planet-buy i] (do-planet-buy state sid r i)]))
+            [[:planet-buy i] (delay (do-planet-buy state sid r i))]))
         builds
         (into {}
           (for [[i sd] (map-indexed vector divs)
@@ -899,31 +952,24 @@
                            (< (get-in state [:market-cities res-color] 0) cities-per-color)
                            (not (ring-has-city-of-color? state r res-color))
                            (pos? (get-in state [:players player :city-platforms] 0)))]
-            [[:planet-build i res-color] (do-planet-build state sid r i res-color)]))
+            [[:planet-build i res-color] (delay (do-planet-build state sid r i res-color))]))
         m (merge buys builds)]
-    ;; Fallback: if no buy/build is available for this planet (e.g., market
-    ;; empty + insufficient energy, or sundivers only carry the ring's own
-    ;; color), degrade gracefully so the state machine can't wedge.
     (if (empty? m)
-      {[:done-activating-space] (return-to-activating state sid 0)}
+      {[:done-activating-space] (delay (return-to-activating state sid 0))}
       m)))
 
 ;; ── PHASE: :link-placement ────────────────────────────────────────────────
 
 (defn- outbound-color-of
-  "outbound-color(src) per §5.9.3:
-     - sun wedge → wedge color
-     - city space → city color
-     - other space where actor has a link to src AND actor's link chain
-       from src reaches a single city → that city color. Returns nil if
-       ambiguous or unreachable."
-  [state actor src]
+  "outbound-color(src) per §5.9.3. `g-actor` is actor's link adjacency
+   map (precompute once via `player-link-adj`)."
+  [state g-actor src]
   (cond
     (board/sun? src)   (board/space-color src)
     (city-here? state src) (:color (city-at state src))
     :else
-    (when (seq (links-touching state src actor))
-      (let [reachable (link-bfs state actor src)
+    (when (seq (get g-actor src))
+      (let [reachable (link-bfs-in-graph g-actor src)
             city-colors (set
                           (for [sid reachable
                                 :let [c (city-at state sid)]
@@ -933,25 +979,26 @@
 
 (defn- sun-anchored?
   "Is src reachable via actor's link graph to some sun wedge (or IS a sun
-   wedge)?"
-  [state actor src]
+   wedge)? `g-actor` is actor's link adjacency map."
+  [g-actor src]
   (or (board/sun? src)
-      (some board/sun? (link-bfs state actor src))))
+      (some board/sun? (link-bfs-in-graph g-actor src))))
 
 (defn- valid-link-start?
   "src is valid iff it's a sun wedge, a sun-anchored city, or a sun-
-   anchored space with an actor link touching it (§5.9.1 clause 5)."
-  [state actor src]
+   anchored space with an actor link touching it (§5.9.1 clause 5).
+   `g-actor` is actor's link adjacency map."
+  [state g-actor src]
   (cond
     (board/sun? src) true
-    (city-here? state src) (sun-anchored? state actor src)
-    :else (and (seq (links-touching state src actor))
-               (sun-anchored? state actor src))))
+    (city-here? state src) (sun-anchored? g-actor src)
+    :else (and (seq (get g-actor src))
+               (sun-anchored? g-actor src))))
 
-(defn- actor-link-count-at
-  "Number of actor's links touching sid."
-  [state actor sid]
-  (count (links-touching state sid actor)))
+(defn- actor-link-count-at-in-graph
+  "Number of actor's links touching sid, from a precomputed graph."
+  [g-actor sid]
+  (count (get g-actor sid #{})))
 
 (defn- pay-per-link-transfer
   "If exhaust-owners[color] ≠ actor, transfer 1 energy from actor to
@@ -1032,36 +1079,37 @@
         energy (get-in state [:players actor :energy] 0)
         links-supply (get-in state [:players actor :links-supply] 0)
         actions-left (get pd :actions-left 0)
-        base {[:done-linking] (link-placement-return state)}]
+        base {[:done-linking] (delay (link-placement-return state))}]
     (if (or (zero? actions-left) (zero? energy) (zero? links-supply))
       base
-      ;; enumerate all valid links
-      (let [candidate-srcs
+      ;; enumerate all valid links — precompute actor's link graph ONCE
+      (let [g-actor (player-link-adj state actor)
+            candidate-srcs
             (for [sid (get-in state [:board :spaces])
-                  :when (and (valid-link-start? state actor sid)
-                             (< (actor-link-count-at state actor sid) 2))]
+                  :when (and (valid-link-start? state g-actor sid)
+                             (< (actor-link-count-at-in-graph g-actor sid) 2))]
               sid)
             link-map
             (reduce
               (fn [m src]
-                (let [color (outbound-color-of state actor src)]
+                (let [color (outbound-color-of state g-actor src)]
                   (if (nil? color)
                     m
                     (reduce
                       (fn [m dst]
                         (cond
-                          ;; single-link-between-spaces (any owner)
                           (or (link-exists? state src dst)
                               (= src dst)
-                              (>= (actor-link-count-at state actor dst) 2))
+                              (>= (actor-link-count-at-in-graph g-actor dst) 2))
                           m
 
                           (contains? exhausted-colors color)
-                          (let [nxt (apply-link state actor src dst color nil)]
-                            (assoc m [:link src dst]
-                                   (if (zero? (get-in nxt [:phase-data :actions-left] 0))
-                                     (link-placement-return nxt)
-                                     nxt)))
+                          (assoc m [:link src dst]
+                                 (delay
+                                   (let [nxt (apply-link state actor src dst color nil)]
+                                     (if (zero? (get-in nxt [:phase-data :actions-left] 0))
+                                       (link-placement-return nxt)
+                                       nxt))))
 
                           :else
                           (let [owners (active-owners-of-color state color)]
@@ -1069,11 +1117,12 @@
                               m
                               (reduce
                                 (fn [m exhaust-pk]
-                                  (let [nxt (apply-link state actor src dst color exhaust-pk)]
-                                    (assoc m [:link src dst exhaust-pk]
-                                           (if (zero? (get-in nxt [:phase-data :actions-left] 0))
-                                             (link-placement-return nxt)
-                                             nxt))))
+                                  (assoc m [:link src dst exhaust-pk]
+                                         (delay
+                                           (let [nxt (apply-link state actor src dst color exhaust-pk)]
+                                             (if (zero? (get-in nxt [:phase-data :actions-left] 0))
+                                               (link-placement-return nxt)
+                                               nxt)))))
                                 m owners)))))
                       m
                       (get adj src #{})))))
@@ -1104,8 +1153,8 @@
                             :bonus bonus
                             :parent-activation parent
                             :activation-space activation-space})]
-    {[:take-bonus] take-state
-     [:decline-bonus] decline-state}))
+    {[:take-bonus] (delay take-state)
+     [:decline-bonus] (delay decline-state)}))
 
 ;; ── PHASE: :activator-bonus-decision ──────────────────────────────────────
 
@@ -1125,8 +1174,8 @@
                             :activation-space activation-space})
         decline-state
         (return-to-activating (assoc state :phase-data parent) activation-space 0)]
-    {[:take-bonus] take-state
-     [:decline-bonus] decline-state}))
+    {[:take-bonus] (delay take-state)
+     [:decline-bonus] (delay decline-state)}))
 
 ;; ── PHASE: :drawing-cards ─────────────────────────────────────────────────
 
@@ -1191,7 +1240,7 @@
           state)))))
 
 (defn- drawing-cards-actions [state]
-  {[:draw-next] (draw-next-effect state)})
+  {[:draw-next] (delay (draw-next-effect state))})
 
 ;; ── Scoring (§6.4) ────────────────────────────────────────────────────────
 
@@ -1337,11 +1386,12 @@
 
 (defn- orbit-planets-actions [state]
   {[:orbit-resolved]
-   (auto-advance
-     (-> state
-         (resolve-orbit-effect)
-         (assoc :phase :advance-mothership)
-         (assoc :phase-data {})))})
+   (delay
+     (auto-advance
+       (-> state
+           (resolve-orbit-effect)
+           (assoc :phase :advance-mothership)
+           (assoc :phase-data {}))))})
 
 ;; ── PHASE: :advance-mothership ────────────────────────────────────────────
 
@@ -1352,10 +1402,11 @@
                  (set-mothership state player (board/front-space ms))
                  state)]
     {[:advance-resolved]
-     (auto-advance
-       (-> state
-           (assoc :phase :pass-flame)
-           (assoc :phase-data {})))}))
+     (delay
+       (auto-advance
+         (-> state
+             (assoc :phase :pass-flame)
+             (assoc :phase-data {}))))}))
 
 ;; ── PHASE: :pass-flame ────────────────────────────────────────────────────
 
@@ -1370,16 +1421,17 @@
         new-ms (mothership-of state nxt)
         phase (if new-ms :resolve-mothership :place-mothership)]
     {[:begin-next-turn]
-     (auto-advance
-       (-> state
-           (assoc :phase phase)
-           (assoc :phase-data {})))}))
+     (delay
+       (auto-advance
+         (-> state
+             (assoc :phase phase)
+             (assoc :phase-data {}))))}))
 
 ;; ── PHASE: :game-over ─────────────────────────────────────────────────────
 
 (defn- game-over-actions [state]
   ;; single-choice terminal fixed point
-  {[:end] state})
+  {[:end] (delay state)})
 
 ;; ── Dispatch ──────────────────────────────────────────────────────────────
 
