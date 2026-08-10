@@ -10,7 +10,7 @@ from mathutils import Vector
 P=os.path.dirname(os.path.abspath(__file__)); ASSETS=f"{P}/clip_assets"; LA=f"{P}/layout_assets"
 FR=os.environ.get("FR","/mnt/data/archive/organism-renders/unbox4"); os.makedirs(FR,exist_ok=True)
 RESX=int(os.environ.get("RESX","640")); RESY=int(os.environ.get("RESY","400")); SAMPLES=int(os.environ.get("SAMPLES","10"))
-LAST=int(os.environ.get("LAST","810"))                          # dive ends at SWOOPEND(521); the ONE continuous track keeps zooming into the crimson; words surface as it fills
+LAST=int(os.environ.get("LAST","449"))                          # swoop ZS->LAST (115 frames = 3x velocity); the ONE continuous track keeps zooming into the crimson; words surface as it fills
 def _l(c): return c/12.92 if c<=0.04045 else ((c+0.055)/1.055)**2.4
 def lin3(c): return (_l(c[0]),_l(c[1]),_l(c[2]),1.0)
 def hsl(h,s,l): return colorsys.hls_to_rgb(h/360.0,l/100.0,s/100.0)
@@ -452,106 +452,51 @@ cam=bpy.data.objects.new("Cam",cam_d); C().objects.link(cam); sc.camera=cam
 aim=bpy.data.objects.new("aim",None); C().objects.link(aim)
 tc=cam.constraints.new('TRACK_TO'); tc.target=aim; tc.track_axis='TRACK_NEGATIVE_Z'; tc.up_axis='UP_Y'
 ZS=int(os.environ.get("ZS","334"))                              # start the swoop EARLIER, while the board is still landing
-for f,cl,al in [(0,(0,-640,320),(BX,BY,30)),(95,(0,-1010,665),(0,-10,62)),(200,(0,-1370,800),(0,74,52)),(ZS,(0,-1370,800),(0,74,52))]:
+# hero framing — env-overridable so we can dial the angle. The swoop captures this live (cam/aim.location),
+# so wherever we put the hero, the dive STARTS from exactly here (no separate rebuild, no discontinuity).
+_HP=(float(os.environ.get("HPX","0")),float(os.environ.get("HPY","-1370")),float(os.environ.get("HPZ","800")))
+_HA=(float(os.environ.get("HAX","0")),float(os.environ.get("HAY","74")),float(os.environ.get("HAZ","52")))
+for f,cl,al in [(0,(0,-640,320),(BX,BY,30)),(95,(0,-1010,665),(0,-10,62)),(200,_HP,_HA),(ZS,_HP,_HA)]:
     cam.location=cl; cam.keyframe_insert("location",frame=f); aim.location=al; aim.keyframe_insert("location",frame=f)
 # (no camera board-tracking — it felt clumsy; the camera holds the hero framing while the board rises/falls)
-# SWOOP: the camera STARTS where it has been (hero look), goes DOWN THE SLOPE, then RIGHTS ITSELF for the
-# final tail straight into the red ball. It always looks along its direction of travel (tangent). Cubic
-# Bezier: P1 = along the hero look dir (start tangent == hero look, no jump); P2,P3 LEVEL at the ball height
-# (end tangent level -> rights itself, straight in). Progress eases by a SIGMOID in time (slow start/end).
-SWOOPEND=int(os.environ.get("SWOOPEND","521"))                  # end of the APPROVED dive; the into-red push is appended after
-_N=SWOOPEND-ZS
-# two-segment path: hero look -> DIVE (steep, down at the board) -> right itself, LEVEL into the red ball
-_H=_mu.Vector((0,-1370,800)); _D=_mu.Vector((0,60,168)); _R=_mu.Vector((0,470,186))
-_TH=_mu.Vector((0,0.888,-0.460))   # hero look dir (27.4deg down) = start tangent, continuous with the held shot
-_TL=_mu.Vector((0,1,0))            # level tangent at the dive bottom AND the red-ball end
-_vA=(_D-_H).length; _A0=_H; _A1=_H+_TH*(_vA/3.0); _A2=_D-_TL*(_vA/3.0); _A3=_D   # H->D
-_vB=(_R-_D).length; _C0=_D; _C1=_D+_TL*(_vB/3.0); _C2=_R-_TL*(_vB/3.0); _C3=_R   # D->R
-def _cub(p0,p1,p2,p3,u):
-    u=max(0.0,min(1.0,u)); v=1.0-u
-    return v*v*v*p0+3*v*v*u*p1+3*v*u*u*p2+u*u*u*p3
-_AMID=float(os.environ.get("AMID","0.78"))   # fraction of the path at the dive bottom
-def _bez(a):
-    a=max(0.0,min(1.0,a))
-    if a<_AMID: return _cub(_A0,_A1,_A2,_A3,a/_AMID)
-    return _cub(_C0,_C1,_C2,_C3,(a-_AMID)/(1.0-_AMID))
-_SIGK=float(os.environ.get("SIGK","4.5"))
-def _sig(t):
-    a0=1.0/(1.0+math.exp(_SIGK*0.5)); a1=1.0/(1.0+math.exp(-_SIGK*0.5))
-    return (1.0/(1.0+math.exp(-_SIGK*(t-0.5)))-a0)/(a1-a0)
-# EASING: keep the APPROVED accel+dive (logistic over NACC frames) byte-identical, then graft a LONG
-# velocity-matched decel tail -> gentle stop into the red. Seam at a=ASEAM (past the dive bottom 0.78).
-_NACC=int(os.environ.get("NACC","162"))            # frames of the unchanged accel+dive (=old ZS..496 span)
-_ASEAM=float(os.environ.get("ASEAM","0.86"))       # graft point (well past the dive, on the descent)
-_ks=1
-while _ks<_NACC and _sig(_ks/_NACC)<_ASEAM: _ks+=1
-_FS=ZS+_ks; _as=_sig(_ks/_NACC); _vs=_as-_sig((_ks-1)/_NACC)   # seam frame, a, and its velocity (Δa/frame)
-_TT=max(1,SWOOPEND-_FS); _m0=_vs*_TT                          # tail length; Hermite start tangent = seam velocity
-# seg C: continue the SAME Bezier track PAST the red ball INTO the cover's crimson cell — C1-continuous with
-# the dive's end tangent, so the camera just keeps zooming in on one curve (tangent-following aim, no re-aim).
-_segR=_bez(1.0); _segRt=(_bez(1.0)-_bez(0.99)).normalized()
-_CE=_mu.Vector((-5.0,536.0,169.0)); _CEt=_mu.Vector((0.0,1.0,0.0))    # camera end (~34mm off the crimson), looking +y into it
-_clen=(_CE-_segR).length; _Cc0=_segR; _Cc1=_segR+_segRt*(_clen/3.0); _Cc2=_CE-_CEt*(_clen/3.0); _Cc3=_CE
-_AEXT=1.0+float(os.environ.get("EXT","0.35"))
-def _path(a):
-    if a<=1.0: return _bez(a)
-    return _cub(_Cc0,_Cc1,_Cc2,_Cc3,(a-1.0)/(_AEXT-1.0))
-# ONE continuous ease: accel+dive UNCHANGED -> decel toward the red ball but HAND OFF a small velocity (_V521,
-# no stop) -> keep decelerating into the crimson to a full stop at LAST. No pause, no re-aim, no stitch.
-_V521=float(os.environ.get("V521","0.0025"))
+# SWOOP — ONE continuous parametric curve (degree-6 Bezier via de Casteljau). NOT segments, NO join, NO graft,
+# NO blend: one polynomial, C-infinity smooth start to end, so camera speed can never jump. The curve is BUILT
+# to start at the ACTUAL hold state: _CP[0] = the hold camera position, and _CP[1] lies straight along the hold
+# look direction (CAM0 -> hold-aim), so the start TANGENT already == the hero look. Tangent-following aim then
+# looks EXACTLY where the hold looked from frame one -- pos AND aim continuous, nothing to patch. Traces hero ->
+# DIVE down at the board (steepens) -> levels at the cell height -> plunges DEEP into the magenta cell. z descends
+# MONOTONICALLY (no wobble). Soft onset (v=0, eases out of the hold) then ACCELERATES, fastest into the red.
+_N=LAST-ZS
+_CAM0=_mu.Vector(cam.location); _HEROAIM=_mu.Vector(aim.location)   # the ACTUAL hold pos+aim (left by the last hero keyframe)
+_H0=float(os.environ.get("H0","380"))                              # start-handle length along the hold look dir
+_MENDY=float(os.environ.get("MENDY","548"))
+_CP=[_CAM0, _CAM0+(_HEROAIM-_CAM0).normalized()*_H0,               # CP0=hold pos ; CP1 on the hold look ray -> start tangent==hero look
+     _mu.Vector((0,-720,440)),_mu.Vector((0,-420,210)),
+     _mu.Vector((0,-120,166)),_mu.Vector((0,250,166)),_mu.Vector((0,_MENDY,166))]
+def _bez(a):                     # de Casteljau -> (point, EXACT analytic tangent). At the 2-point stage,
+    a=max(0.0,min(1.0,a)); pts=[p.copy() for p in _CP]           # lerp(a)=B(a) and (p1-p0) is exactly proportional
+    while len(pts)>2: pts=[pts[_i2].lerp(pts[_i2+1],a) for _i2 in range(len(pts)-1)]   # to B'(a): no finite diff
+    return pts[0].lerp(pts[1],a), (pts[1]-pts[0])
+# ease a(fr): velocity (1-e^-ER x)*e^+EA x -> soft onset (v=0, eases out of the hold), then ACCELERATES, fastest AT the red.
+_ER=float(os.environ.get("ER","7.0")); _EA=float(os.environ.get("EA","2.0"))
+_cum=[0.0]
+for _i in range(1,_N+1):
+    _x=_i/_N; _cum.append(_cum[-1]+(1.0-math.exp(-_ER*_x))*math.exp(_EA*_x))
+_tot=_cum[-1]
 def _ease(fr):
-    if fr<=_FS: return _sig((fr-ZS)/_NACC)
-    if fr<=SWOOPEND:
-        s=(fr-_FS)/float(SWOOPEND-_FS); m0=_vs*(SWOOPEND-_FS); m1=_V521*(SWOOPEND-_FS)
-        return (2*s**3-3*s**2+1)*_as+(s**3-2*s**2+s)*m0+(-2*s**3+3*s**2)*1.0+(s**3-s**2)*m1
-    s=(fr-SWOOPEND)/float(LAST-SWOOPEND); m0=_V521*(LAST-SWOOPEND)
-    return (2*s**3-3*s**2+1)*1.0+(s**3-2*s**2+s)*m0+(-2*s**3+3*s**2)*_AEXT
+    _i=fr-ZS
+    if _i<=0: return 0.0
+    if _i>=_N: return 1.0
+    return _cum[_i]/_tot
+# aim: PURE tangent-following via the EXACT analytic tangent (de Casteljau, not a finite difference). Because the
+# curve's start tangent == the hold look dir, at a->0 the aim points EXACTLY where the hold looked -- continuous
+# to machine precision (0.000 deg step). One curve, one uninterrupted motion, no blend, no patch, no seam.
 _pe0=bpy.context.preferences.edit; _ki0=_pe0.keyframe_new_interpolation_type; _pe0.keyframe_new_interpolation_type='LINEAR'
 for fr in range(ZS+1,LAST+1):
-    a=_ease(fr); pos=_path(a); tp=_path(a+0.01)-_path(a-0.01); look=pos+tp*25.0   # tangent = direction of travel, all the way in
+    a=_ease(fr); pos,tan=_bez(a); look=pos+tan.normalized()*25.0
     cam.location=(pos.x,pos.y,pos.z); cam.keyframe_insert("location",frame=fr)
     aim.location=(look.x,look.y,look.z); aim.keyframe_insert("location",frame=fr)
 _pe0.keyframe_new_interpolation_type=_ki0
-# ================= ENDING — IN-SCENE, SAME CAMERA (no stitch): the words SURFACE from the red on the cover =====
-# The camera keeps advancing PAST the dive with a SUBTLE push toward the red field (velocity continuous from the
-# dive's near-stop, ease-in -> no jump), aim straight ahead on the field (+y, on-axis so the word plane is square
-# to the camera -> no keystone). EAT/MOVE/GROW word+symbol pairs surface from the red (clarify red->white,
-# gentle float that LOCKS IN). This is the reveal ending built INTO this scene — one camera, one render.
-_font=bpy.data.fonts.load(os.path.join(P,"inputs/JTEnergyVF.ttf")); _SYMDIR=os.path.join(P,"inputs/sym_png"); _WY=569.0
-def _wordobj(txt,size):
-    cu=bpy.data.curves.new(txt,'FONT'); cu.body=txt; cu.font=_font; cu.align_x='CENTER'; cu.align_y='CENTER'; cu.size=size
-    o=bpy.data.objects.new(txt,cu); C().objects.link(o); o.rotation_euler=(math.pi/2,0,0); o.visible_shadow=False
-    m,fade=_fademat(txt+"_m"); cu.materials.append(m); return o,fade
-def _symobj(name,diam):
-    img=bpy.data.images.load(os.path.join(_SYMDIR,name+".png")); iw,ih=img.size
-    w,h=(diam,diam*ih/iw) if iw>=ih else (diam*iw/ih,diam)
-    bpy.ops.mesh.primitive_plane_add(size=1); o=bpy.context.active_object; o.name=name+"_sym"
-    o.rotation_euler=(math.pi/2,0,0); o.scale=(w,h,1); o.visible_shadow=False
-    m,fade=_fademat(name+"_sm",image=img); o.data.materials.append(m); return o,fade
-_WSZ=float(os.environ.get("WSZ","3.3")); _SYSZ=float(os.environ.get("SYSZ","4.2"))   # tiny — pushed deep into the small crimson so it's PURE red (no yellow ring); words still fill the frame
-def _wwidth(txt):
-    ob,_=_wordobj(txt,_WSZ); bpy.context.view_layer.update()
-    dg=bpy.context.evaluated_depsgraph_get(); w=ob.evaluated_get(dg).dimensions.x
-    bpy.data.objects.remove(ob,do_unlink=True); return w
-_maxw=max(_wwidth(t) for t in ("EAT","MOVE","GROW")); _CXC=-5.0    # centred on the crimson cell (camera is on-axis there)
-_COLSP=_maxw+float(os.environ.get("COLGAP","3.5")); _COLX=[_CXC-_COLSP,_CXC,_CXC+_COLSP]   # spacing = widest word + gap -> no overlap
-_WZ=172.0; _SZ=166.0                                            # tight vertical pair (the zoomed frame is short)
-_plan=[("EAT",0,_WZ,"w"),("eat",0,_SZ,"s"),("MOVE",1,_WZ,"w"),("move",1,_SZ,"s"),("GROW",2,_WZ,"w"),("grow",2,_SZ,"s")]
-_ELEAD=int(os.environ.get("ELEAD","115")); _ESTAG=int(os.environ.get("ESTAG","14")); _EFADE=int(os.environ.get("EFADE","36"))
-_ESETTLE=int(os.environ.get("ESETTLE","64")); _LOCKMIN=0.13; _FLX=0.3; _FLZ=0.45; _FTZ=3.6; _FTX=4.7
-def _smoother(t): t=max(0.0,min(1.0,t)); return t*t*t*(t*(t*6-15)+10)
-_pe=bpy.context.preferences.edit; _ki2=_pe.keyframe_new_interpolation_type; _pe.keyframe_new_interpolation_type='LINEAR'
-for _i,(label,col,zc,kind) in enumerate(_plan):
-    x=_COLX[col]; ob,fade=(_wordobj(label,_WSZ) if kind=="w" else _symobj(label,_SYSZ))
-    t0=SWOOPEND+_ELEAD+_i*_ESTAG; ph=_i*1.7
-    for fr in range(SWOOPEND+1,LAST+1):
-        f=_smoother((fr-t0)/_EFADE) if fr>=t0 else 0.0
-        fade.outputs[0].default_value=f; fade.outputs[0].keyframe_insert("default_value",frame=fr)
-        lock=_smoother((fr-t0)/_ESETTLE) if fr>=t0 else 0.0; amp=_LOCKMIN+(1.0-_LOCKMIN)*(1.0-lock)
-        fx=amp*_FLX*math.sin(2*math.pi*(fr/24.0)/_FTX+ph); fz=amp*_FLZ*math.sin(2*math.pi*(fr/24.0)/_FTZ+ph*1.3)
-        ob.location=(x+fx,_WY,zc+fz); ob.keyframe_insert("location",frame=fr)
-# (the camera into-red motion is now part of the ONE continuous track above — no separate/appended move)
-_pe.keyframe_new_interpolation_type=_ki2
 
 sc.frame_start=int(os.environ.get("FIRST","0")); sc.frame_end=LAST; sc.render.image_settings.file_format='PNG'
 
