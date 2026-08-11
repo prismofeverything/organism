@@ -66,7 +66,8 @@
       .oval .btn-primary:hover { background: rgba(255,255,255,0.25); }
       .oval .btn-secondary { background: transparent; color: rgba(255,255,255,0.6); }
       .oval .btn-secondary:hover { color: #fff; background: rgba(255,255,255,0.08); }
-      .oval .error { color: #ff6b6b; font-family: monospace; font-size: 0.85rem; margin-bottom: 12px; }
+      .oval .error { color: #ff6b6b; font-family: monospace; font-size: 0.85rem; margin-bottom: 12px; text-align: center; }
+      .oval .error-link { color: #fff; text-decoration: underline; }
     </style>
   </head>
   <body>
@@ -74,7 +75,7 @@
       <h1>{{game-title}}</h1>
       <h2>login</h2>
       {% if error %}
-      <div class="error">{{error}}</div>
+      <div class="error">{{error}}{% if register-url %} &mdash; <a class="error-link" href="{{register-url}}">sign up instead?</a>{% endif %}</div>
       {% endif %}
       <form method="POST" action="/login">
         {% csrf-field %}

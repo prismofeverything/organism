@@ -1,5 +1,6 @@
 (ns organism.routes.home
   (:require
+   [clojure.string :as str]
    [organism.board :as board]
    [organism.layout :as layout]
    [organism.choice :as choice]
@@ -24,12 +25,20 @@
    :games (choice/random-walk starting-game)})
 
 (defn require-player-auth
+  "Guard a player's own pages.
+
+   Someone logged out is sent to login and returned here afterward, the way
+   `shared/require-auth` does it. Someone logged in as a *different* player is
+   sent home instead — carrying the redirect there would bounce them straight
+   back to a page they still can't see."
   [handler]
   (fn [request]
-    (let [player (-> request :path-params :player)]
-      (if (= (get-in request [:session :player]) player)
-        (handler request)
-        (response/redirect "/login")))))
+    (let [player (-> request :path-params :player)
+          session-player (get-in request [:session :player])]
+      (cond
+        (= session-player player) (handler request)
+        (nil? session-player)     (response/redirect (str "/login?redirect=" (:uri request)))
+        :else                     (response/redirect "/")))))
 
 (defn catalog-page
   [request]
@@ -78,26 +87,54 @@
                    {:redirect redirect
                     :game-title (game-title redirect)})))
 
+(defn register-url
+  "Link to registration carrying the name they typed and where they were headed,
+   so \"register instead?\" lands on a form that is already filled in."
+  [player redirect]
+  (let [encode #(java.net.URLEncoder/encode (str %) "UTF-8")
+        params (cond-> []
+                 (not (str/blank? player))   (conj (str "player=" (encode player)))
+                 (not (str/blank? redirect)) (conj (str "redirect=" (encode redirect))))]
+    (if (seq params)
+      (str "/register?" (str/join "&" params))
+      "/register")))
+
 (defn login-submit
   [db request]
   (let [params (:params request)
         player (:player params)
         password (:password params)
         redirect (safe-redirect (:redirect params) player)
-        stored-hash (persist/find-player-password db player)]
-    (if (and stored-hash (hashers/check password stored-hash))
+        stored-hash (persist/find-player-password db player)
+        ;; A name nobody has registered is the overwhelmingly common way to
+        ;; fail this form — someone who meant to sign up and typed the name
+        ;; they wanted. Say so and hand them the register page rather than
+        ;; leaving them to guess at a password that never existed.
+        unknown? (and (not (str/blank? player)) (nil? stored-hash))
+        fail (fn [error extra]
+               (layout/render request "login.html"
+                              (merge {:error error
+                                      :redirect (:redirect params)
+                                      :game-title (game-title (:redirect params))}
+                                     extra)))]
+    (cond
+      (and stored-hash (hashers/check password stored-hash))
       (-> (response/redirect redirect)
           (assoc :session {:player player}))
-      (layout/render request "login.html"
-                     {:error "Invalid player name or password"
-                      :redirect (:redirect params)
-                      :game-title (game-title (:redirect params))}))))
+
+      unknown?
+      (fail (str "No player named \"" player "\"")
+            {:register-url (register-url player (:redirect params))})
+
+      :else
+      (fail "Invalid player name or password" nil))))
 
 (defn register-page
   [request]
   (let [redirect (get-in request [:query-params "redirect"])]
     (layout/render request "register.html"
                    {:redirect redirect
+                    :player (get-in request [:query-params "player"])
                     :game-title (game-title redirect)})))
 
 (defn register-submit
