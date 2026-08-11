@@ -478,7 +478,8 @@
 ;; ── Player stats page ──────────────────────────────────────────────────────
 
 (def ^:private stat-column-hues
-  {:playing (rand) :complete (rand) :won (rand) :created (rand)})
+  {:playing (rand) :complete (rand) :won (rand) :created (rand)
+   :glicko (rand) :elo (rand)})
 
 (defn- col-color
   [hue ratio]
@@ -500,10 +501,32 @@
    [:span {:style {:font-size "0.6em" :letter-spacing "2px"
                    :opacity "0.7" :margin-left "8px"}} label]])
 
+(defn- rating-cell
+  "The headline number. Glicko-2 is a rating *and* a deviation, and showing the
+   deviation is the whole point — 1600 ±40 and 1600 ±300 are different claims."
+  [label value deviation color]
+  [:span
+   {:style {:display "inline-flex"
+            :flex-direction "row"
+            :align-items "baseline"
+            :color "#fff"
+            :border-radius "15px"
+            :background color
+            :padding "6px 16px"
+            :margin "0px 10px"}}
+   [:span {:style {:font-size "1.3em"}} value]
+   (when deviation
+     [:span {:style {:font-size "0.7em" :opacity "0.7" :margin-left "6px"}}
+      (str "±" deviation)])
+   [:span {:style {:font-size "0.6em" :letter-spacing "2px"
+                   :opacity "0.7" :margin-left "8px"}} label]])
+
 (defn players-page
   "Complete players/stats page renderer. Props:
    :title              — page title (default \"players\")
-   :stats              — seq of {:key :color :active :complete :wins :created}
+   :stats              — seq of {:key :color :active :complete :wins :created
+                                 :elo :glicko :rd :rated :provisional}
+                         already ordered by the server (see leaderboard/player-stats)
    :player-link-prefix — URL prefix for player profile links
    :home-path          — link for the title
    :font-family        — optional font
@@ -514,7 +537,18 @@
         max-active   (col-max :active)
         max-complete (col-max :complete)
         max-wins     (col-max :wins)
-        max-created  (col-max :created)]
+        max-created  (col-max :created)
+        ;; Ratings all cluster around 1500, so shade them across the range the
+        ;; board actually spans rather than as a fraction of the maximum.
+        spread   (fn [k]
+                   (let [values (keep k stats)]
+                     (if (seq values)
+                       (let [lo (apply min values)
+                             hi (apply max values)]
+                         (fn [v] (/ (- v lo) (max 1 (- hi lo)))))
+                       (constantly 0))))
+        glicko-ratio (spread :glicko)
+        elo-ratio    (spread :elo)]
     [:div {:style {:padding "20px" :color "#eee"}}
      [:div {:style {:color "#fff"
                     :border-radius "50px"
@@ -528,11 +562,20 @@
      (if (empty? stats)
        [:p {:style {:margin "30px 40px" :color "#888"}} "no players yet"]
        [:div {:style {:margin "20px 40px"}}
-        (for [{:keys [key color active complete wins created]} stats]
+        [:p {:style {:margin "10px 20px 25px" :color "#888" :font-size "0.8em"
+                     :font-family "monospace" :line-height "1.6em"}}
+         "glicko — rating with the uncertainty around it, ranked by what a record establishes rather than by the number itself"
+         [:br]
+         "elo — the classic: a fixed step per game, no sense of its own confidence"
+         [:br]
+         "fewer than five finished games and a rating is still a guess, marked new and sorted below the rest"]
+        (for [{:keys [key color active complete wins created
+                      elo glicko rd rated provisional]} stats]
           ^{:key key}
           [:div {:style {:margin "10px 20px" :padding "10px 0px"
                          :display "flex" :align-items "center"
-                         :flex-wrap "wrap" :gap "4px"}}
+                         :flex-wrap "wrap" :gap "4px"
+                         :opacity (if provisional "0.6" "1")}}
            [:a {:href (str player-link-prefix "/" key)
                 :style {:color "#fff"
                         :border-radius "15px"
@@ -544,6 +587,26 @@
                         :margin-right "10px"
                         :text-decoration "none"}}
             key]
+           (if glicko
+             [rating-cell "glicko" glicko rd
+              (col-color (:glicko stat-column-hues) (glicko-ratio glicko))]
+             [:span {:style {:color "#666" :font-size "0.8em" :margin "0px 10px"
+                             :letter-spacing "2px"}} "unrated"])
+           (when elo
+             [rating-cell "elo" elo nil
+              (col-color (:elo stat-column-hues) (elo-ratio elo))])
+           ;; The "won" cell below counts every win; only games that finished
+           ;; with a winner against other people move a rating, so say how many
+           ;; of them there were rather than leave the two numbers to argue.
+           (when (pos? (or rated 0))
+             [:span {:style {:color "#888" :font-size "0.6em" :letter-spacing "2px"
+                             :margin "0px 4px"}}
+              (str rated " rated")])
+           (when provisional
+             [:span {:style {:color "#aaa" :font-size "0.6em" :letter-spacing "2px"
+                             :border "1px solid #555" :border-radius "15px"
+                             :padding "4px 10px" :margin "0px 10px"}}
+              "new"])
            [stat-cell "playing"  active
             (col-color (:playing  stat-column-hues) (/ active   max-active))]
            [stat-cell "complete" complete

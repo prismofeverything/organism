@@ -25,19 +25,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MM = 1.0
 COMPONENTS = {
     # 3D hero pieces stand upright (their height is the tall dimension). round-ish footprint.
-    "EAT":  dict(kind="stand", w=34.0, d=34.0, h=46.0, color="#cf5b52", shape="blob"),
-    "MOVE": dict(kind="stand", w=36.0, d=36.0, h=57.0, color="#5aa0b4", shape="blob"),
-    "GROW": dict(kind="stand", w=37.0, d=37.0, h=37.0, color="#8a6bb0", shape="blob"),
+    "EAT":  dict(kind="stand", w=32.5, d=34.0, h=44.0, color="#cf5b52", shape="blob"),   # measured out/EAT_sculpt_graft.obj
+    "MOVE": dict(kind="stand", w=35.7, d=35.2, h=53.0, color="#5aa0b4", shape="blob"),   # measured out/MOVE_sculpt_graft.obj
+    "GROW": dict(kind="stand", w=36.6, d=36.6, h=31.8, color="#8a6bb0", shape="blob"),   # measured out/GROW_sculpt_graft.obj
     # 3D food nests deeply: base 11.25, each extra adds 6.92 (slip fit, measured).
     "FOOD": dict(kind="stack", dia=28.1, h=11.25, pitch=6.92, color="#d99a3a", shape="disc"),
     # minimal set: silhouette disks are "basically food" (food-style peg/socket) -> they NEST.
     "DISC": dict(kind="stack", dia=37.0, h=9.0,  pitch=7.0,  color="#c8b48a", shape="disc"),
     # 5 players x 3 power tokens = 15, small coins (Ø30 x 5) -> short nested stacks.
     "PTOK": dict(kind="stack", dia=30.0, h=5.0, pitch=5.0, color="#b9b9c2", shape="disc"),
-    # player platforms + mutation cards are small ROUND tokens punched from print sheets (NOT big
-    # boards) -> same ~37mm footprint as the pieces, they column-pack in the tray.
-    "PLAT": dict(kind="stack", dia=37.0, h=2.0, pitch=2.0, color="#9a8fb5", shape="disc"),
-    "MUT":  dict(kind="stack", dia=44.0, h=0.5, pitch=0.5, color="#6f9f8f", shape="disc"),
+    # player platforms = round tokens (measured plats/blue.png 540px @300dpi = 46mm).
+    # mutation "cards" are BIG round ability discs (measured cards/card_*.png 1520px @300dpi = 123mm).
+    "PLAT": dict(kind="stack", dia=46.0, h=2.0, pitch=2.0, color="#9a8fb5", shape="disc"),
+    "MUT":  dict(kind="stack", dia=123.0, h=0.5, pitch=0.5, color="#6f9f8f", shape="disc"),
 }
 
 # The ONLY true large flats. player platforms + mutation cards are NOT here (they're round tray
@@ -55,8 +55,8 @@ BOMS = {
     # PLAT=5 assumes 1 platform/player; if 5/player it's 25 (still a few tiny stacks -> negligible).
     # per player x5: 12 pieces (4/4/4) + 12 disks (4/4/4) + 3 power tokens + 9 platforms;
     # food (60) + mutations (26) are shared. Food goes in the "6th place" compartment.
-    "maximal": {"EAT": 20, "MOVE": 20, "GROW": 20, "FOOD": 60, "DISC": 60,
-                "PTOK": 15, "PLAT": 45, "MUT": 26},
+    "maximal": {"EAT": 20, "MOVE": 20, "GROW": 20, "FOOD": 60,
+                "PTOK": 15, "PLAT": 45, "MUT": 26},   # 3D-only product: minimal DISC set struck (no more 2D pieces)
     # minimal alone (figured out separately, next): silhouette disks + real food, no cubes.
     "minimal": {"DISC": 60},
 }

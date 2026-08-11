@@ -4,6 +4,7 @@
    [organism.board :as board]
    [organism.game :as game]
    [organism.layout :as layout]
+   [organism.leaderboard :as leaderboard]
    [organism.persist :as persist]
    [organism.middleware :as middleware]
    [organism.routes.organism-bot :as bot]
@@ -21,7 +22,7 @@
    :play-path        "/organism/play"
    :ws-prefix        "/ws/organism/play/"
    :load-observe     persist/load-observe-games
-   :load-player-stats #(persist/load-player-stats % "organism")})
+   :load-player-stats leaderboard/player-stats})
 
 ;; ── Page handlers ─────────────────────────────────────────────────────────
 

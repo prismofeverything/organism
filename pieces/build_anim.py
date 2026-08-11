@@ -107,7 +107,7 @@ def disc_art(name,path,loc,r,rotz=0.0,h=2.0,shadeless=True,crop=1.0):
     o.rotation_euler=(0,0,rotz); return o
 
 # ================= box: tray + lid, BOTH with cover(top) + wrap(sides) art =================
-BX,BY=0.0,-30.0; IW,ID,BH=330.0,312.0,92.0; hw,hd=IW/2,ID/2
+BX,BY=0.0,-30.0; IW,ID,BH=330.0,330.0,95.0; hw,hd=IW/2,ID/2   # REAL 13x13in floor (330mm), ~3.75in deep — see pack_box.py
 COVER=imgmat("cover",f"{ASSETS}/box_top.png"); WRAP=imgmat("wrap",f"{ASSETS}/box_wrap.png")
 WRAPS=float(os.environ.get("WRAPS","0.56"))/330.0               # box_wrap image-fraction per mm (cover panel ~0.56 wide); tune via WRAPS
 def wrap_walls(mesh, z_off):                                     # continuous DRAPE of box_wrap: sides continue the top's art outward at UNIFORM scale (no stretch)
@@ -176,9 +176,9 @@ ARC=[(130,"food"),(180,"red"),(230,"yellow"),(50,"blue"),(0,"purple"),(-50,"gree
 order=["EAT","MOVE","GROW"]; PSCALE=1.0
 # ================= PACKED layout: real per-player COMPARTMENTS (3x2 grid) — how we actually pack the box =================
 # floor tier at ZT (printed goods sit below); each player's set is a colour-blocked compartment.
-ZT=13.0
-CELL={"red":(-110,BY+78),"yellow":(0,BY+78),"blue":(110,BY+78),
-      "purple":(-110,BY-78),"green":(0,BY-78),"food":(110,BY-78)}
+ZT=32.0   # insert floor: pieces STAND here, clear ABOVE the board+flats slab (board packed at z~8) -> no interpenetration
+CELL={"red":(-83,BY+109),"yellow":(83,BY+109),"blue":(-83,BY),
+      "purple":(83,BY),"green":(-83,BY-109),"food":(83,BY-109)}   # 2x3 real compartments in the 330x330 floor
 for deg,who in ARC:
     if who=="food":                                            # food + accessory (platform/token) stacks share the 6th compartment
         cx,cy=CELL["food"]; n=0; col=0
@@ -193,9 +193,9 @@ for deg,who in ARC:
         continue
     pl=who; pi=PLAYERS.index(pl); pmat=colmat("pm_"+pl,PCOL[pl]); dmat=colmat("dm_"+pl,PCOL[pl])
     cx,cy=CELL[pl]
-    for r,t in enumerate(order):                               # 12 pieces STANDING: 3 type-columns x 4 rows (back of the compartment)
+    for r,t in enumerate(order):                               # 12 pieces STANDING: 3 type-ROWS x 4 columns, 40x34 pitch -> no interpenetration
         for cc in range(4):
-            pk=Vector((cx+(r-1)*34, cy+56-cc*28, ZT)); prot=(0,0,0)
+            pk=Vector((cx+(cc-1.5)*40.0, cy+(r-1)*34.0, ZT)); prot=(0,0,0)
             hero,hrot=ppos(deg,cc-1.5,(r-1)*40); hero.z=0
             reg(dup(TPL[t],pmat,pk,prot,PSCALE),pk,prot,hero,hrot,"p%d"%pi)
     if TWOD:                                                   # 2D minimal-disk stacks (front strip) — REMOVED from the product (no more 2D pieces)
@@ -204,10 +204,10 @@ for deg,who in ARC:
             for k in range(4):
                 pk=Vector((sx,sy,ZT+k*9))
                 reg(dup(MIND[t],dmat,pk,(0,0,0),PSCALE),pk,(0,0,0),base+Vector((0,0,4+k*10.5)),hr,"disk")
-    fx,fy=CELL["food"]; sx=fx-40+pi*20; sy=fy-44; base,hr=ppos(deg,-2.9,6)   # platform stacks grouped in the accessory cell
+    sx=-120.0+pi*60.0; sy=BY-128.0; base,hr=ppos(deg,-2.9,6)   # platform stacks (REAL ⌀46) spread along the SLAB, below the piece insert
     for k in range(9):
-        pk=Vector((sx,sy,ZT+k*2.0))
-        reg(disc_art("plat_%d_%d"%(pi,k),f"{LA}/plats/{pl}.png",pk,18.5,rotz=0,h=2.2,crop=0.8,shadeless=False),pk,(0,0,0),base+Vector((0,0,1.2+k*2.3)),hr,"disk")
+        pk=Vector((sx,sy,3.0+k*2.2))
+        reg(disc_art("plat_%d_%d"%(pi,k),f"{LA}/plats/{pl}.png",pk,23.0,rotz=0,h=2.2,crop=0.8,shadeless=False),pk,(0,0,0),base+Vector((0,0,1.2+k*2.3)),hr,"disk")
 
 # ---- printed goods = the FLOOR bundle (packed flat BELOW the compartments, z<ZT); they rise LAST ----
 def flat_pk(cx,cy,z): return Vector((cx,cy,z))
@@ -231,23 +231,23 @@ for k in range(5):
     reg(disc_art("aid_%d"%k,f"{ASSETS}/player_aid.png",pk,52,rotz=0,h=1.4,shadeless=False),pk,(0,0,0),hero,th-math.radians(90),"back")
 # power board
 pbh,pir=ring(64)
-reg(disc_art("powerboard",f"{ASSETS}/power_board.png",flat_pk(BX,BY,7),105,rotz=0,h=3.0,shadeless=False),flat_pk(BX,BY,7),(0,0,0),Vector((pbh.x,pbh.y,0.5)),pir,"back")   # power board on the rulebook
+reg(disc_art("powerboard",f"{ASSETS}/power_board.png",flat_pk(BX,BY,7),115,rotz=0,h=3.0,shadeless=False),flat_pk(BX,BY,7),(0,0,0),Vector((pbh.x,pbh.y,0.5)),pir,"back")   # power board (REAL ⌀230) on the rulebook
 # power tokens: 3 per player, small colour stacks in the accessory (food) cell
 sdx,sdy=-math.cos(math.radians(64)),-math.sin(math.radians(64)); tdx,tdy=-sdy,sdx
 fx,fy=CELL["food"]
 for pi,pl in enumerate(PLAYERS):
     cx=pbh.x+70*sdx+(pi-2)*22*tdx; cy=pbh.y+70*sdy+(pi-2)*22*tdy
-    tmat=colmat("pw_"+pl,PCOL[pl],0.5); sx,sy=fx-44+pi*22, fy-32
+    tmat=colmat("pw_"+pl,PCOL[pl],0.5); sx,sy=-120.0+pi*60.0, BY+128.0   # REAL ⌀30 token stacks along the SLAB top edge, below the insert
     for k in range(3):
-        pk=Vector((sx,sy,ZT+k*3.0))
-        reg(disc("tok_%d_%d"%(pi,k),tmat,pk,11,h=2.7),pk,(0,0,0),Vector((cx,cy,2.4+k*3.0)),0,"back")
+        pk=Vector((sx,sy,3.0+k*5.0))
+        reg(disc("tok_%d_%d"%(pi,k),tmat,pk,15,h=5.0),pk,(0,0,0),Vector((cx,cy,2.4+k*3.0)),0,"back")
 # mutation cards fanned upper-right (three short arcs straddling RDIAG)
 mcards=(sorted(glob.glob(f"{LA}/cards/card_*.png")) or sorted(glob.glob(f"{LA}/MutationCard*.png")))[:26]
+_mhx=RDIAG*math.cos(math.radians(42)); _mhy=RDIAG*math.sin(math.radians(42))    # reveal = ONE real ⌀123 DECK near the board (not 26 tiny fanned discs)
 for k,cp in enumerate(mcards):
-    rr=RDIAG-40+(k%3)*40; th=math.radians(42)+((k//3)-(len(mcards)//6))*math.radians(2.8)
-    hero=Vector((rr*math.cos(th),rr*math.sin(th),1.2+ (k%3)*0.3))
-    pk=Vector((BX+96,BY+58,3+k*0.7))                                            # mutations = a deck stacked in a floor corner
-    reg(disc_art("mut_%d"%k,cp,pk,18.5,rotz=0,h=1.0,crop=0.9,shadeless=True),pk,(0,0,0),hero,th-math.radians(90),"mut")
+    hero=Vector((_mhx+(k%3-1)*5.0, _mhy+(k//3-4)*3.0, 1.2+k*0.5))               # stacked deck, slight fan
+    pk=Vector((BX+85,BY+100,3.0+k*0.5))                                         # packed: ⌀123 mutation DECK in a slab corner, UNDER the piece insert
+    reg(disc_art("mut_%d"%k,cp,pk,61.5,rotz=0,h=0.7,crop=0.9,shadeless=True),pk,(0,0,0),hero,0.0,"mut")
 
 # ================= board: a CIRCLE that quad-folds — 4 quarter-disc planes on real hinges, DOUBLE-SIDED (Pent top / Hex bottom), real 3mm depth so faces never coincide (no z-fight) =================
 # board_root = the TUMBLE + descent pivot (sits at the board's CENTROID so it spins about its own centre,
@@ -455,7 +455,7 @@ ZS=int(os.environ.get("ZS","334"))                              # start the swoo
 # hero framing — env-overridable so we can dial the angle. The swoop captures this live (cam/aim.location),
 # so wherever we put the hero, the dive STARTS from exactly here (no separate rebuild, no discontinuity).
 _HP=(float(os.environ.get("HPX","0")),float(os.environ.get("HPY","-1370")),float(os.environ.get("HPZ","800")))
-_HA=(float(os.environ.get("HAX","0")),float(os.environ.get("HAY","74")),float(os.environ.get("HAZ","52")))
+_HA=(float(os.environ.get("HAX","0")),float(os.environ.get("HAY","74")),float(os.environ.get("HAZ","127")))   # HAZ=127 -> 25deg down-tilt (locked): hero looks AT the scene, not down into the pit
 for f,cl,al in [(0,(0,-640,320),(BX,BY,30)),(95,(0,-1010,665),(0,-10,62)),(200,_HP,_HA),(ZS,_HP,_HA)]:
     cam.location=cl; cam.keyframe_insert("location",frame=f); aim.location=al; aim.keyframe_insert("location",frame=f)
 # (no camera board-tracking — it felt clumsy; the camera holds the hero framing while the board rises/falls)
@@ -498,7 +498,79 @@ for fr in range(ZS+1,LAST+1):
     aim.location=(look.x,look.y,look.z); aim.keyframe_insert("location",frame=fr)
 _pe0.keyframe_new_interpolation_type=_ki0
 
-sc.frame_start=int(os.environ.get("FIRST","0")); sc.frame_end=LAST; sc.render.image_settings.file_format='PNG'
+# ================= ENDING REVEAL: build_reveal.py's clarify-in-place, ON THE ACTUAL cover red we dive into =========
+# build_reveal's exact mechanism (white emission masked by a keyframable FADE) + its letter-width layout, placed
+# in the gap in FRONT of the lid's red cell = the REAL red we see (no separate plane, no colour-match, no fog:
+# it IS the dive-end red). The held cam is STATIC, so a static clarify has NO parallax spread. CLARIFY IN PLACE.
+REVEAL=int(os.environ.get("REVEAL","1"))
+if REVEAL:
+    _hp,_ht=_bez(1.0); _hl=_hp+_ht.normalized()*25.0                               # dive-end camera pose (looking +Y into the cover's red cell)
+    _RVSYM=f"{P}/inputs/sym_png"
+    _LEAD=int(os.environ.get("RVLEAD","16")); _STAG=int(os.environ.get("RVSTAG","20")); _FADE=int(os.environ.get("RVFADE","40"))
+    _SETTLE=int(os.environ.get("RVSET","72")); _LOCKMIN=0.13; _HOLD=int(os.environ.get("RVHOLD","50")); _NEL=6
+    RVEND=LAST+_LEAD+(_NEL-1)*_STAG+_FADE+_HOLD
+    cam.location=(_hp.x,_hp.y,_hp.z); cam.keyframe_insert("location",frame=RVEND)   # HOLD the dive-end pose (STATIC) through the reveal
+    aim.location=(_hl.x,_hl.y,_hl.z); aim.keyframe_insert("location",frame=RVEND)
+    _WSIZE=float(os.environ.get("RVWS","2.0")); _SYMD=float(os.environ.get("RVSYMD","3.5"))   # WSIZE scaled up for the real-red frame; RVWS tunes fill
+    _RVS=_WSIZE/0.62                                                                          # scale build_reveal's WSIZE=0.62 GAPS + DRIFT proportionally to our size (else columns too tight + drift invisible)
+    _GAP=float(os.environ.get("RVGAP","0.16"))*_RVS; _COLGAP=float(os.environ.get("RVCOLGAP","0.42"))*_RVS   # build_reveal's exact gaps, scaled
+    _EMIT=float(os.environ.get("RVEMIT","1.1")); _RVD=float(os.environ.get("RVD","20.0")); _WY=_hp.y+_RVD   # words in the gap in FRONT of the lid's red face (y~570) -> the real red
+    _FLOATZ=0.03*_RVS; _FLOATX=0.017*_RVS; _FTZ=3.6; _FTX=4.7                                 # build_reveal's gentle drift, scaled (was too small at big WSIZE -> looked static)
+    def _rsm(x): x=max(0.0,min(1.0,x)); return x*x*x*(x*(x*6-15)+10)
+    def _rvclear(nt):
+        for _n in list(nt.nodes): nt.nodes.remove(_n)
+    _rvfont=bpy.data.fonts.load(f"{P}/inputs/JTEnergyVF.ttf")
+    def _rvfademat(name,image=None):                          # build_reveal.fade_mat VERBATIM (white emission masked by keyframable FADE)
+        m=bpy.data.materials.new(name); m.use_nodes=True; nt=m.node_tree; _rvclear(nt)
+        e=nt.nodes.new("ShaderNodeEmission"); e.inputs["Color"].default_value=(1,1,1,1); e.inputs["Strength"].default_value=_EMIT
+        tr=nt.nodes.new("ShaderNodeBsdfTransparent"); fade=nt.nodes.new("ShaderNodeValue"); fade.outputs[0].default_value=0.0
+        mix=nt.nodes.new("ShaderNodeMixShader"); nt.links.new(tr.outputs[0],mix.inputs[1]); nt.links.new(e.outputs[0],mix.inputs[2])
+        o=nt.nodes.new("ShaderNodeOutputMaterial"); nt.links.new(mix.outputs[0],o.inputs["Surface"])
+        if image is not None:
+            tex=nt.nodes.new("ShaderNodeTexImage"); tex.image=image; tex.interpolation='Cubic'
+            mul=nt.nodes.new("ShaderNodeMath"); mul.operation='MULTIPLY'
+            nt.links.new(tex.outputs["Alpha"],mul.inputs[0]); nt.links.new(fade.outputs[0],mul.inputs[1]); nt.links.new(mul.outputs[0],mix.inputs[0])
+        else: nt.links.new(fade.outputs[0],mix.inputs[0])
+        return m,fade
+    def _rvwordobj(txt):                                      # build_reveal.word_obj (faces -Y toward the held cam)
+        cu=bpy.data.curves.new(txt,'FONT'); cu.body=txt; cu.font=_rvfont; cu.align_x='CENTER'; cu.align_y='CENTER'; cu.size=_WSIZE
+        ob=bpy.data.objects.new(txt,cu); C().objects.link(ob); ob.rotation_euler=(math.pi/2,0,0)
+        m,fade=_rvfademat(txt+"_rvm"); cu.materials.append(m); return ob,fade
+    def _rvsymobj(name,diam):                                 # build_reveal.sym_obj
+        img=bpy.data.images.load(f"{_RVSYM}/{name}.png"); iw,ih=img.size
+        if iw>=ih: w=diam; h=diam*ih/iw
+        else: h=diam; w=diam*iw/ih
+        bpy.ops.mesh.primitive_plane_add(size=1); ob=bpy.context.active_object; ob.name=name+"_rvsym"
+        ob.rotation_euler=(math.pi/2,0,0); ob.scale=(w,h,1); m,fade=_rvfademat(name+"_rvsm",image=img); ob.data.materials.append(m); return ob,fade
+    def _rvwidth(txt):
+        ob,_=_rvwordobj(txt); bpy.context.view_layer.update()
+        _dg=bpy.context.evaluated_depsgraph_get(); w=ob.evaluated_get(_dg).dimensions.x; bpy.data.objects.remove(ob,do_unlink=True); return w
+    _ww={w:_rvwidth(w) for w in ["EAT","MOVE","GROW"]}
+    _letter=(_ww["EAT"]/3+_ww["MOVE"]/4+_ww["GROW"]/4)/3.0
+    _SYMW=_SYMD*_letter; _colW=max(max(_ww.values()),_SYMW); _capH=0.70*_WSIZE
+    _ai=bpy.data.images.load(f"{_RVSYM}/eat.png"); _aiw,_aih=_ai.size; _symH=_SYMW if _aih>=_aiw else _SYMW*_aih/_aiw
+    _total=_capH+_GAP+_symH; _WZ=_hp.z+_total/2-_capH/2; _SZ=_hp.z-_total/2+_symH/2   # centred on the held camera height, on the real red
+    _spacing=_colW+_COLGAP; _COLX=[-_spacing,0.0,_spacing]
+    _plan=[("EAT",0,_WZ,"w"),("eat",0,_SZ,"s"),("MOVE",1,_WZ,"w"),("move",1,_SZ,"s"),("GROW",2,_WZ,"w"),("grow",2,_SZ,"s")]
+    _rvpe=bpy.context.preferences.edit; _rvki=_rvpe.keyframe_new_interpolation_type; _rvpe.keyframe_new_interpolation_type='LINEAR'
+    cam.data.lens=40.0; cam.data.keyframe_insert("lens",frame=LAST)                        # keep zooming in EVER SO SLIGHTLY through the reveal (dive lens=40)
+    cam.data.lens=float(os.environ.get("RVZOOM","45.0")); cam.data.keyframe_insert("lens",frame=RVEND)   # ~12% zoom over ~8.6s, LINEAR (no ease)
+    for _i,(lab,col,restZ,kind) in enumerate(_plan):
+        x=_COLX[col]; ob,fade=(_rvwordobj(lab) if kind=="w" else _rvsymobj(lab,_SYMW)); t0=LAST+_LEAD+_i*_STAG; ph=_i*1.7
+        for _vf in ("visible_shadow","visible_diffuse","visible_glossy"):          # camera-only emissive overlay on the real red (no cast shadow / no light spill on the lid)
+            try: setattr(ob,_vf,False)
+            except Exception: pass
+        for fr in range(LAST,RVEND+1):
+            f=_rsm((fr-t0)/_FADE) if fr>=t0 else 0.0
+            fade.outputs[0].default_value=f; fade.outputs[0].keyframe_insert("default_value",frame=fr)
+            lock=_rsm((fr-t0)/_SETTLE) if fr>=t0 else 0.0; amp=_LOCKMIN+(1.0-_LOCKMIN)*(1.0-lock)
+            fx=amp*_FLOATX*math.sin(2*math.pi*(fr/24.0)/_FTX+ph); fz=amp*_FLOATZ*math.sin(2*math.pi*(fr/24.0)/_FTZ+ph*1.3)
+            ob.location=(x+fx,_WY,restZ+fz); ob.keyframe_insert("location",frame=fr)   # CLARIFY IN PLACE at the rest position (no rise); gentle float only
+    _rvpe.keyframe_new_interpolation_type=_rvki
+else:
+    RVEND=LAST
+
+sc.frame_start=int(os.environ.get("FIRST","0")); sc.frame_end=RVEND; sc.render.image_settings.file_format='PNG'
 
 # ================= collision VALIDATION (VALIDATE=1) — does anything fly through anything while moving? =================
 # World AABBs for box parts/pieces; a rotation-invariant BOUNDING SPHERE for the board (centre=hub pivot,

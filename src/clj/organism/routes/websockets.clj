@@ -8,6 +8,7 @@
    [organism.bots :as bots]
    [organism.game :as game]
    [organism.board :as board]
+   [organism.leaderboard :as leaderboard]
    [organism.persist :as persist]
    [organism.examples :as examples])
   (:import
@@ -257,7 +258,11 @@
        message)
       (persist/update-state! db game-key game)
       (if (:winner game)
-        (persist/complete-game! db game-key game)
+        (do
+          (persist/complete-game! db game-key game)
+          ;; Ratings replay the whole history, so this is safe to fire on a
+          ;; completion that arrives twice or on a game that later gets undone.
+          (leaderboard/rate-later! db))
         (let [next-player (-> game :player-turn :player)]
           (when-not (= current-player next-player)
             (persist/update-player-games!
