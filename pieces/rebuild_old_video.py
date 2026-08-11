@@ -75,7 +75,7 @@ print("FAITHFUL S=%.4f old_fp=%.2f -> heights %s footprints %s"%(
     S,OLD_FP,{t:round(Hnew[t]*S,2) for t in Hnew},{t:round(Wnew[t]*S,2) for t in Wnew}))
 
 # ---- 4. swap: parent new sculpt to each old body, align base+height, object colour, hide old ----
-made=0
+made=0; Nmap={}
 for vc,objs in bodies.items():
     T=MAP[vc]
     for O in objs:
@@ -97,61 +97,57 @@ for vc,objs in bodies.items():
         if mat and N.material_slots:
             N.material_slots[0].link='OBJECT'; N.material_slots[0].material=mat
         O.hide_render=True
+        Nmap[O]=N                                            # old body -> new piece (food parents to this)
         made+=1
 print("swapped_pieces",made)
 
-# ---- 5. FOOD: each old creature wore a white cup (torus) = its food. Seat a faithful FOOD (real
-# meniscus) on the new piece's connector where the cup was, inheriting the cup's appear/disappear +
-# position, at the SAME faithful scale S. Parent to the torus so the food tracks the game exactly. ----
+# ---- 5. FOOD: real meniscus on each piece that carried a cup. Parent to the PIECE, NOT the cup: a cup's
+# scale animates to 0 on appear/disappear and the old matrix trick divided by it -> food shot to infinity
+# (giant grey) and inherited the cup's 180deg flip (upside-down). Parented to the upright piece the food
+# sits rigidly on the connector, centered + upright + tracking movement; ONLY its appear/disappear is
+# driven from the cup's own scale animation. ----
 FOODOBJ="/home/youdonotexist/code/organism/pieces/renders/food/FOOD_nosnap.obj"
 pre=set(bpy.data.objects)
-bpy.ops.wm.obj_import(filepath=FOODOBJ, up_axis='Y', forward_axis='NEGATIVE_Z')   # meniscus -> Z-up, opening +z
+bpy.ops.wm.obj_import(filepath=FOODOBJ, up_axis='Y', forward_axis='NEGATIVE_Z')   # meniscus -> Z-up
 fo=[x for x in bpy.data.objects if x not in pre and x.type=='MESH'][0]
 bpy.ops.object.select_all(action='DESELECT'); fo.select_set(True); bpy.context.view_layer.objects.active=fo
-# bake orientation but KEEP the food's NATIVE origin (do NOT re-zero) — build_play_real.py:81 seats the food's
-# native origin at the plateau so its socket SWALLOWS the peg (no perch/intersect). Re-zeroing to the base breaks this.
-bpy.ops.object.transform_apply(location=False,rotation=True,scale=True)
+bpy.ops.object.transform_apply(location=False,rotation=True,scale=True)   # keep NATIVE origin (base=socket seat), Z-up
 if not fo.data.materials: fo.data.materials.append(bpy.data.materials.new("food_slot"))
 foodmesh=fo.data; fo.hide_render=True; fo.hide_viewport=True; fo.location=(9000,9100,0)
 foodmat=bpy.data.materials.new("FOODcream"); foodmat.diffuse_color=(242/255,230/255,158/255,1)
-DOME=4.3; FS=S*(0.94/0.90)    # food scale = piece-scale x (FSCALE/PSCALE), the build_play_real clearance so the socket swallows the peg with slack
-_tor=[o for o in bpy.data.objects if o.type=='MESH' and 'torus' in o.name.lower()]
-tfp={o:[abs(o.scale[i]) for i in range(3)] for o in _tor}
-for _f in [1,80,160,240,320,400,480,560]:
-    sc.frame_set(_f)
-    for o in _tor:
-        for i in range(3): tfp[o][i]=max(tfp[o][i],abs(o.scale[i]))
-sc.frame_set(400)
-def bodybasez(B):
-    cs=[B.matrix_world@V(c) for c in B.bound_box]; return min(c.z for c in cs)
+DOME=4.3; FCLEAR=0.94/0.90    # build_play_real food/piece clearance so the socket swallows the peg with slack
 allbodies=[B for objs in bodies.values() for B in objs]
+_tor=[o for o in bpy.data.objects if o.type=='MESH' and 'torus' in o.name.lower()]
+# presample each cup's scale across the WHOLE timeline (drives food appear/disappear), step 2 frames
+STEP=2; FRS=list(range(1,581,STEP))
+cupS={T:[] for T in _tor}; cupmax={T:1e-6 for T in _tor}
+for f in FRS:
+    sc.frame_set(f)
+    for T in _tor:
+        s=max(abs(T.scale[i]) for i in range(3)); cupS[T].append(s)
+        if s>cupmax[T]: cupmax[T]=s
+sc.frame_set(400)
 foods=0
 for T in _tor:
-    fp=[max(v,1e-3) for v in tfp[T]]
-    if max(fp)<1e-3: continue
+    if cupmax[T]<1e-3: continue
     tw=T.matrix_world.translation
     best=None; bd=1e9
     for B in allbodies:
         bw=B.matrix_world.translation; d=((tw.x-bw.x)**2+(tw.y-bw.y)**2)**0.5
         if d<bd: bd=d; best=B
     if best is None or bd>3.0: continue                  # stray center ring -> skip
+    N=Nmap.get(best)
+    if N is None: continue
     typ=MAP[len(best.data.vertices)]
-    bw=best.matrix_world.translation
-    cz=bodybasez(best)+Hnew[typ]*S-DOME*S                # connector seat-plane world z (piece top - dome)
     F=bpy.data.objects.new(T.name+"_FOOD", foodmesh); sc.collection.objects.link(F)
-    # UPRIGHT seat despite the cup's 180deg flip: park the food at an explicit world transform
-    # (identity rotation, seat pos, scale FS) via matrix_parent_inverse, computed against the cup's
-    # FULL-POSE matrix (f400 loc/rot + fp scale). The cup then only lends translate + appear/disappear.
-    lc,rq,_=T.matrix_world.decompose()
-    _S=mathutils.Matrix.Identity(4)
-    for _i in range(3): _S[_i][_i]=fp[_i]
-    fullpose=mathutils.Matrix.Translation(lc)@rq.to_matrix().to_4x4()@_S
-    _D=mathutils.Matrix.Identity(4)
-    for _i in range(3): _D[_i][_i]=FS
-    desired=mathutils.Matrix.Translation((bw.x,bw.y,cz))@_D     # upright, centered on piece, native origin at plateau
-    F.parent=T; F.matrix_parent_inverse=fullpose.inverted()@desired
-    F.location=(0,0,0); F.rotation_euler=(0,0,0); F.scale=(1,1,1)
-    F.material_slots[0].link='OBJECT'; F.material_slots[0].material=foodmat
+    F.parent=N; F.matrix_parent_inverse=mathutils.Matrix.Identity(4)
+    F.location=(0.0,0.0, Hnew[typ]-DOME)                 # piece-local central axis, at the plateau: socket swallows the peg
+    F.rotation_euler=(0,0,0)                             # upright (piece is upright)
+    if F.material_slots: F.material_slots[0].link='OBJECT'; F.material_slots[0].material=foodmat
+    # appear/disappear: local scale = FCLEAR*(cup_scale/cup_max); x piece world-scale S -> world FS*ratio
+    for i,f in enumerate(FRS):
+        sv=FCLEAR*(cupS[T][i]/cupmax[T])
+        F.scale=(sv,sv,sv); F.keyframe_insert("scale",frame=f)
     foods+=1
 print("seated_food",foods)
 
@@ -169,6 +165,12 @@ if os.environ.get("ANIM","0")=="1":
     print("ANIM range %d-%d (resume)"%(sc.frame_start,sc.frame_end))
     bpy.ops.render.render(animation=True)
     print("RENDERED_ANIM")
+elif os.environ.get("FRAMES"):
+    for _fr in [int(x) for x in os.environ["FRAMES"].split(",")]:
+        sc.frame_set(_fr)
+        sc.render.filepath=os.environ.get("OUTDIR","/mnt/data/archive/organism-renders/oldvideo/")+"chk_%04d"%_fr
+        bpy.ops.render.render(write_still=True); print("CHK",_fr)
+    print("RENDERED_CHECKS")
 else:
     _fr=int(os.environ.get("FRAME","400")); sc.frame_set(_fr)
     sc.render.filepath=os.environ.get("OUTPNG","/tmp/claude-1000/-home-youdonotexist-code-organism/bbf7149e-6408-42a3-bcf9-0890d4f37841/scratchpad/swap_test_%d"%_fr)

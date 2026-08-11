@@ -6,17 +6,138 @@
     <title>ORGANISM - learn</title>
     {% style "/assets/bulma/css/bulma.min.css" %}
     {% style "/css/screen.css" %}
+    <style>
+      body { background-color: #111; color: #ccc; margin: 0; }
+      .learn { max-width: 1100px; margin: 0 auto; padding: 2.5rem 1.5rem 6rem; }
+      .learn a { text-decoration: none; }
+
+      .back { color: #666; font-size: 0.95rem; }
+      .back:hover { color: #ccc; }
+
+      h1.learn-title {
+        color: #eee; font-size: 2.2rem; letter-spacing: 0.25em;
+        text-transform: uppercase; margin: 1.5rem 0 0.35rem;
+      }
+      .learn-sub { color: #666; margin-bottom: 3rem; }
+
+      .section-label {
+        color: #555; font-size: 0.75rem; text-transform: uppercase;
+        letter-spacing: 0.1em; margin: 3.5rem 0 1.25rem;
+        border-bottom: 1px solid #222; padding-bottom: 0.5rem;
+      }
+
+      /* rulebook */
+      .rulebook { display: flex; gap: 1.75rem; align-items: center; flex-wrap: wrap; }
+      .rulebook img {
+        width: 220px; border-radius: 4px; display: block;
+        border: 1px solid #222; transition: border-color 0.15s;
+      }
+      .rulebook a:hover img { border-color: #555; }
+      .rulebook-meta { color: #888; max-width: 26rem; line-height: 1.6; }
+      .rulebook-meta strong { color: #ddd; font-weight: normal; font-size: 1.15rem; }
+      .meta-line { color: #555; font-size: 0.8rem; letter-spacing: 0.08em;
+                   text-transform: uppercase; margin-top: 0.5rem; }
+
+      /* diagram */
+      .diagram img {
+        width: 100%; max-width: 760px; display: block; border-radius: 4px;
+        border: 1px solid #222; transition: border-color 0.15s;
+      }
+      .diagram a:hover img { border-color: #555; }
+
+      /* clips */
+      .clips {
+        display: grid; gap: 1.75rem 1.5rem;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      }
+      .clip video {
+        width: 100%; aspect-ratio: 1 / 1; display: block;
+        border-radius: 4px; background: #000; border: 1px solid #222;
+      }
+      .clip h3 {
+        color: #ddd; font-size: 1rem; letter-spacing: 0.18em;
+        text-transform: uppercase; margin: 0.85rem 0 0.3rem;
+      }
+      .clip p { color: #777; font-size: 0.9rem; line-height: 1.5; margin: 0; }
+
+      /* playthrough */
+      .playthrough video {
+        width: 100%; max-width: 620px; display: block;
+        border-radius: 4px; background: #000; border: 1px solid #222;
+      }
+      .playthrough p { color: #777; margin-top: 0.85rem; }
+    </style>
   </head>
-  <body style="background-color:#111; color:#ccc;">
-    <section class="section">
-      <div class="container">
-        <nav style="margin-bottom:2rem">
-          <a href="/organism" style="color:#666">← organism</a>
-        </nav>
-        <h1 class="title" style="color:#eee">learn</h1>
-        <p class="subtitle" style="color:#888">rules, tutorials, and strategy guides.</p>
-        <p style="color:#555; font-style:italic">coming soon.</p>
+  <body>
+    <div class="learn">
+      <nav><a class="back" href="/organism">&larr; organism</a></nav>
+
+      <h1 class="learn-title">learn</h1>
+      <p class="learn-sub">the rulebook, the shape of a turn, and every action in motion.</p>
+
+      <!-- ── rulebook ─────────────────────────────────────────────────── -->
+      <div class="section-label">rulebook</div>
+      <div class="rulebook">
+        <a href="/img/organism-rulebook.pdf" target="_blank">
+          <img src="/img/rulebook-cover-01.png" alt="ORGANISM rulebook cover"/>
+        </a>
+        <div class="rulebook-meta">
+          <strong>The complete rules.</strong>
+          <div class="meta-line">24 pages &middot; pdf &middot; artwork by wyn tiedmers</div>
+        </div>
       </div>
-    </section>
+
+      <!-- ── diagram ──────────────────────────────────────────────────── -->
+      <div class="section-label">the turn</div>
+      <div class="diagram">
+        <a href="/img/organism-player-diagram.png" target="_blank">
+          <img src="/img/organism-player-diagram.png" alt="ORGANISM turn structure diagram"/>
+        </a>
+      </div>
+
+      <!-- ── clips ────────────────────────────────────────────────────── -->
+      <div class="section-label">actions</div>
+      <div class="clips">
+        {% for clip in clips %}
+        <div class="clip">
+          <video src="/video/{{clip.file}}" muted loop playsinline preload="metadata"></video>
+          <h3>{{clip.title}}</h3>
+          <p>{{clip.caption}}</p>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- ── playthrough ──────────────────────────────────────────────── -->
+      <div class="section-label">a game</div>
+      <div class="playthrough">
+        <video src="/video/zach-dan-ryan-play.mp4" poster="/video/zach-dan-ryan-play.jpg"
+               controls playsinline preload="none"></video>
+        <p>an example of play</p>
+      </div>
+    </div>
+
+    <script>
+      // The action clips are short silent loops — play them like animated
+      // stills, but only while they are actually on screen so a visitor never
+      // downloads ten videos at once.
+      (function () {
+        var clips = document.querySelectorAll('.clip video');
+        if (!('IntersectionObserver' in window)) {
+          clips.forEach(function (v) { v.autoplay = true; v.play().catch(function () {}); });
+          return;
+        }
+        var seen = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            var video = entry.target;
+            if (entry.isIntersecting) {
+              video.play().catch(function () {});
+            } else {
+              video.pause();
+            }
+          });
+        }, { rootMargin: '150px' });
+        clips.forEach(function (v) { seen.observe(v); });
+      })();
+    </script>
   </body>
 </html>

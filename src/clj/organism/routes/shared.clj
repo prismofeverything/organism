@@ -91,13 +91,17 @@
       :player-stats (pr-str (or stats []))})))
 
 (defn learn-page
-  "Render a learn page using the game-spec."
-  [{:keys [template-prefix] :as _spec} request]
+  "Render a learn page using the game-spec.
+
+   `:learn-params` on the spec is merged into the template context, so a game
+   can hand its learn template whatever it needs (organism passes the action
+   clips) without this handler knowing anything about it."
+  [{:keys [template-prefix learn-params] :as _spec} request]
   (let [player (get-in request [:session :player])]
     (layout/render
      request
      (str template-prefix "/learn.html")
-     {:session-player player})))
+     (merge {:session-player player} learn-params))))
 
 ;; ── Shared API: player search ────────────────────────────────────────────
 

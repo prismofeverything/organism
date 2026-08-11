@@ -11,6 +11,30 @@
    [organism.routes.shared :as shared]
    [organism.routes.websockets :as ws]))
 
+;; ── Learn page clips ─────────────────────────────────────────────────────
+
+(def action-clips
+  "The short silent loops on the learn page, in teaching order: the four things
+   an element can do, then what happens between players, then how you win."
+  [{:file "clip_eat.mp4"        :title "eat"
+    :caption "take food into your organism"}
+   {:file "clip_move.mp4"       :title "move"
+    :caption "move a fed/mobile element to an open space"}
+   {:file "clip_grow.mp4"       :title "grow"
+    :caption "spend food to make a new element"}
+   {:file "clip_circulate.mp4"  :title "circulate"
+    :caption "send half the food from one element to another"}
+   {:file "clip_conflict.mp4"   :title "conflict"
+    :caption "elements of different players conflict"}
+   {:file "clip_perish.mp4"     :title "perish"
+    :caption "if an organism is missing any element type, it perishes"}
+   {:file "clip_power.mp4"      :title "power"
+    :caption "for each turn you held the center, and each element you unravel"}
+   {:file "clip_two_org.mp4"    :title "two organisms"
+    :caption "each organism you control gets its own turn"}
+   {:file "clip_three_org.mp4"  :title "three organisms"
+    :caption "if you ever have three living organisms at any time on your turn you win (!)"}])
+
 ;; ── Game spec ────────────────────────────────────────────────────────────
 
 (def organism-spec
@@ -22,7 +46,8 @@
    :play-path        "/organism/play"
    :ws-prefix        "/ws/organism/play/"
    :load-observe     persist/load-observe-games
-   :load-player-stats leaderboard/player-stats})
+   :load-player-stats leaderboard/player-stats
+   :learn-params     {:clips action-clips}})
 
 ;; ── Page handlers ─────────────────────────────────────────────────────────
 
