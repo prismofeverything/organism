@@ -45,20 +45,28 @@
       }
       .diagram a:hover img { border-color: #555; }
 
-      /* clips */
-      .clips {
-        display: grid; gap: 1.75rem 1.5rem;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      /* clips — one rule per row, video beside its wording */
+      .clips { display: flex; flex-direction: column; }
+      .clip {
+        display: flex; align-items: center; gap: 2.25rem;
+        padding: 2rem 0; border-top: 1px solid #1c1c1c;
       }
+      .clip:first-child { border-top: none; padding-top: 0.5rem; }
       .clip video {
-        width: 100%; aspect-ratio: 1 / 1; display: block;
+        flex: 0 0 300px; width: 300px; aspect-ratio: 1 / 1; display: block;
         border-radius: 4px; background: #000; border: 1px solid #222;
       }
+      .clip-text { flex: 1; min-width: 0; }
       .clip h3 {
-        color: #ddd; font-size: 1rem; letter-spacing: 0.18em;
-        text-transform: uppercase; margin: 0.85rem 0 0.3rem;
+        color: #ddd; font-size: 1.15rem; letter-spacing: 0.2em;
+        text-transform: uppercase; margin: 0 0 0.6rem;
       }
-      .clip p { color: #777; font-size: 0.9rem; line-height: 1.5; margin: 0; }
+      .clip p { color: #888; font-size: 1.05rem; line-height: 1.6; margin: 0; }
+
+      @media (max-width: 720px) {
+        .clip { flex-direction: column; align-items: stretch; gap: 1rem; }
+        .clip video { flex: none; width: 100%; }
+      }
 
       /* playthrough */
       .playthrough video {
@@ -73,7 +81,7 @@
       <nav><a class="back" href="/organism">&larr; organism</a></nav>
 
       <h1 class="learn-title">learn</h1>
-      <p class="learn-sub">the rulebook, the shape of a turn, and every action in motion.</p>
+      <p class="learn-sub">the rulebook, the diagram, and examples.</p>
 
       <!-- ── rulebook ─────────────────────────────────────────────────── -->
       <div class="section-label">rulebook</div>
@@ -101,8 +109,10 @@
         {% for clip in clips %}
         <div class="clip">
           <video src="/video/{{clip.file}}" muted loop playsinline preload="metadata"></video>
-          <h3>{{clip.title}}</h3>
-          <p>{{clip.caption}}</p>
+          <div class="clip-text">
+            <h3>{{clip.title}}</h3>
+            <p>{{clip.caption}}</p>
+          </div>
         </div>
         {% endfor %}
       </div>

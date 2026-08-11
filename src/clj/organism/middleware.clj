@@ -5,6 +5,7 @@
     [organism.layout :refer [error-page]]
     [ring.middleware.anti-forgery :refer [wrap-anti-forgery]]
     [organism.middleware.formats :as formats]
+    [organism.middleware.range :refer [wrap-range]]
     [muuntaja.middleware :refer [wrap-format wrap-params]]
     [organism.config :refer [env]]
     [ring.middleware.flash :refer [wrap-flash]]
@@ -55,4 +56,9 @@
         (-> site-defaults
             (assoc-in [:security :anti-forgery] false)
             (dissoc :session)))
+      ;; Outside wrap-defaults on purpose: site-defaults' :static is what
+      ;; actually serves resources/public, so this is the only layer that sees
+      ;; those responses. It only touches file-backed bodies, so pages fall
+      ;; through untouched.
+      wrap-range
       wrap-internal-error))
