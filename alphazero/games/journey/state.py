@@ -942,12 +942,22 @@ def compute_scores(state: dict, pos: tuple) -> dict[str, int]:
     return scores
 
 
+# Extra points for holding the captain flame when the Ark lands.
+LANDING_BONUS = 1
+
+
 def land_ark(state: dict, pos: tuple) -> dict:
-    scores = compute_scores(state, pos)
+    captain = state.get("captain_flame")
+    beacons = compute_scores(state, pos)
+    scores = dict(beacons)
+    if captain:
+        scores[captain] = scores.get(captain, 0) + LANDING_BONUS
     max_score = max(scores.values()) if scores else 0
     winners = [p for p in state["turn_order"] if scores.get(p, 0) == max_score]
     state = deep_copy(state)
-    state["game_over"] = {"type": "landing", "tile": pos, "scores": scores, "winners": winners}
+    state["game_over"] = {"type": "landing", "tile": pos, "scores": scores,
+                          "beacon_scores": beacons, "captain": captain,
+                          "landing_bonus": LANDING_BONUS, "winners": winners}
     state["player_turn"]["phase"] = "game_over"
     return state
 

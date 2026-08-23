@@ -73,9 +73,10 @@ def import_one(path, kind):
         bpy.context.view_layer.objects.active = new[0]; bpy.ops.object.join(); new = [new[0]]
     return new[0]
 
-# Degenerate sliver removal happens after export, in strip_slivers.py (trimesh isolates the
-# near-coincident sculpt specks as their own tiny bodies; Blender welds them onto the body here,
-# so they can't be separated at this stage).
+# strip_slivers.py still runs after export, but only as a safety net -- it now reports "no
+# slivers". The specks it was written for were never in the mesh: they were an artifact of
+# reading the OBJ back through trimesh, and Blender's own export (this one) is a single
+# watertight body per piece. See gather_stls.py.
 print("plate layout (non-manifold edges; slicers auto-repair small counts):")
 for (label, path, kind), (x, y) in zip(items, positions):
     o = import_one(path, kind); o.name = label

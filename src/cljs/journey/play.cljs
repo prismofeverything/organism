@@ -437,7 +437,14 @@
                                   (send-action! (get wrap-dest->key pos-or-key))
                                   :else                                  (send-action! pos-or-key))))
             chosen-pos        (get-in state [:player-turn :action :fly-from])
-            undo-btn          (when (and active? undo?)
+            ;; During play the undo belongs to whoever is on the clock. Once
+            ;; the game is over nobody is, so any player at the table can take
+            ;; back the landing and keep rewinding from there.
+            can-rewind?       (and undo? (not viewing-history?)
+                                   (or active?
+                                       (and (:game-over state)
+                                            (some #{my} (:turn-order state)))))
+            undo-btn          (when can-rewind?
                                 [{:label "undo" :on-click send-undo!}])
             filtered-btns     btn-choices
             buttons           (concat
@@ -509,7 +516,11 @@
                                           (if (= :landing (:type go))
                                             (str "landed! "
                                                  (str/join ", "
-                                                   (map (fn [[p sc]] (str p ": " sc))
+                                                   (map (fn [[p sc]]
+                                                          (str p ": " sc
+                                                               (when (and (= p (:captain go))
+                                                                          (pos? (:landing-bonus go 0)))
+                                                                 " (captain)")))
                                                         (:scores go))))
                                             (str "loss — flares " (:flares-drawn state 0) "/13")))
                   (when srv-phase (name srv-phase)))]
@@ -599,11 +610,18 @@
                      :on-click #(reset! game-over-collapsed? true)}
                [:div {:style {:font-size "29px" :margin-bottom "12px"}} "GAME OVER"]
                (if (= :landing (:type go))
-                 [:div
-                  [:div (str "Landing at " (pr-str (:tile go)))]
-                  (for [[p sc] (:scores go)]
-                    [:div {:key p :style {:margin-top "4px"}}
-                     (str p ": " sc " pts")])]
+                 (let [beacons (:beacon-scores go (:scores go))
+                       bonus   (:landing-bonus go 0)
+                       captain (:captain go)]
+                   [:div
+                    [:div (str "Landing at " (pr-str (:tile go)))]
+                    (for [[p sc] (:scores go)]
+                      [:div {:key p :style {:margin-top "4px"}}
+                       (str p ": " sc " pts")
+                       (when (and (= p captain) (pos? bonus))
+                         [:span {:style {:color board/captain-stroke :font-size "17px"
+                                         :margin-left "10px"}}
+                          (str "(" (get beacons p 0) " + " bonus " captain)")])])])
                  [:div
                   [:div (str "Loss — captain: " (:captain go))]
                   [:div {:style {:margin-top "8px" :color "#889"}}
@@ -870,7 +888,16 @@
           (when (and (= :landing (get-in s [:game-over :type]))
                      (not= @landing-anim-triggered (get-in s [:game-over :tile])))
             (reset! landing-anim-triggered (get-in s [:game-over :tile]))
-            (start-landing-animation! s)))))
+            (start-landing-animation! s))
+          ;; Rewound out of a landing: drop the reveal overlay and the zoom it
+          ;; forced, so the board is playable again.
+          (when (and (not (:game-over s)) @landing-anim-triggered)
+            (reset! landing-anim-triggered nil)
+            (reset! landing-anim nil)
+            (reset! game-over-collapsed? false)
+            (reset! board-zoom 1.0)
+            (reset! board-pan-x 0)
+            (reset! board-pan-y 0)))))
 
     "initialize"
     (do

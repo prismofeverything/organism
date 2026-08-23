@@ -1349,13 +1349,16 @@
      (when-let [go (:game-over state)]
        (when (= :landing (:type go))
          (let [scores  (:scores go)
+               beacons (:beacon-scores go scores)
+               bonus   (:landing-bonus go 0)
+               captain (:captain go)
                winners (:winners go)
                tile    (:tile go)
                n       (count player-order)
                bw      (* n 130)
                bx      (/ (- vw bw) 2)]
-           [:g {:transform (str "translate(" bx "," (- vh 50) ")")}
-            [:rect {:x -10 :y -18 :width (+ bw 20) :height 46
+           [:g {:transform (str "translate(" bx "," (- vh 62) ")")}
+            [:rect {:x -10 :y -18 :width (+ bw 20) :height 62
                     :fill "#0A0E1C" :stroke "#2A4A80" :stroke-width 1 :rx 6
                     :opacity 0.92}]
             [:text {:x (/ bw 2) :y -4
@@ -1365,14 +1368,23 @@
              (str "LANDED AT " (pr-str tile))]
             (map-indexed
              (fn [i player]
-               (let [ck (get player-colors player :sun)
-                     fc (ptb ck)
-                     sc (get scores player 0)
+               (let [ck   (get player-colors player :sun)
+                     fc   (ptb ck)
+                     sc   (get scores player 0)
+                     cap? (= player captain)
                      win? (some #{player} winners)]
                  [:g {:key player :transform (str "translate(" (* i 130) ",0)")}
                   [:text {:x 65 :y 14
                           :text-anchor "middle"
                           :fill fc :font-size "17" :font-weight (if win? "bold" "normal")
                           :font-family "monospace"}
-                   (str player ": " sc (when win? " ★"))]]))
+                   (str player ": " sc (when win? " ★"))]
+                  ;; Captain landing bonus, spelled out under the total
+                  (when (and cap? (pos? bonus))
+                    [:g
+                     [:g {:transform "translate(28,29) scale(0.85)"} [captain-flame]]
+                     [:text {:x 76 :y 33
+                             :text-anchor "middle"
+                             :fill captain-stroke :font-size "12" :font-family "monospace"}
+                      (str (get beacons player 0) " + " bonus " captain")]])]))
              player-order)])))]))

@@ -18,6 +18,16 @@
   (db/insert! db (str "journey-actions-" game-key)
               {:choice (pr-str choice-key)}))
 
+(defn drop-last-actions!
+  "Remove the last n entries from a game's action log. Called after an undo so
+   the persisted event stream matches the state we rewound to — otherwise the
+   log keeps describing moves that no longer happened."
+  [db game-key n]
+  (let [collection (str "journey-actions-" game-key)]
+    (dotimes [_ n]
+      (when-let [doc (db/find-last db collection {})]
+        (db/delete! db collection {:_id (:_id doc)})))))
+
 (defn append-history-entry!
   "Append a lightweight history entry to the game's history log."
   [db game-key state]

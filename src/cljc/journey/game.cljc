@@ -202,14 +202,30 @@
      scores
      hex-directions)))
 
+(def landing-bonus
+  "Extra points for holding the captain flame at the moment the Ark lands.
+   Whoever brings the Ark home is rewarded for it."
+  1)
+
 (defn land-ark
-  "End the game: compute scores from landing on tile at pos."
+  "End the game: compute scores from landing on tile at pos.
+   Beacon scores come from the cipher; the captain at the moment of landing
+   also collects the landing bonus."
   [state pos]
-  (let [scores    (compute-scores state pos)
+  (let [captain   (:captain-flame state)
+        beacons   (compute-scores state pos)
+        scores    (cond-> beacons
+                    captain (update captain (fnil + 0) landing-bonus))
         max-score (if (seq scores) (apply max (vals scores)) 0)
         winners   (filterv #(= (get scores % 0) max-score) (:turn-order state))]
     (-> state
-        (assoc :game-over {:type :landing :tile pos :scores scores :winners winners})
+        (assoc :game-over {:type          :landing
+                           :tile          pos
+                           :scores        scores
+                           :beacon-scores beacons
+                           :captain       captain
+                           :landing-bonus landing-bonus
+                           :winners       winners})
         (assoc-in [:player-turn :phase] :game-over))))
 
 (defn trigger-loss

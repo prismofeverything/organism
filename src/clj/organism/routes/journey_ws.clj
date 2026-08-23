@@ -15,7 +15,9 @@
 ;; ── Games atom ────────────────────────────────────────────────────────────────
 ;; {:games {play-key → {:key      play-key
 ;;                       :state    game-state (or nil before creation)
-;;                       :history  []  — undo stack of previous states
+;;                       :history  []  — undo stack of previous states, one
+;;                                       entry per applied step for the whole
+;;                                       game (in memory; a restart empties it)
 ;;                       :bots     #{} — set of bot player names
 ;;                       :players  []  — player name list
 ;;                       :chat     [...]
@@ -31,14 +33,38 @@
   (or (get-in state [:player-turn :choice-player])
       (game/current-player state)))
 
-(defn- turn-advanced?
-  "True only when a step moved play to a different turn-player — the real turn
-   boundary (begin-next-player-turn). The choice-player can change *within* a turn
-   (owner bonus, cipher beacon placement, flare/captain joins) without advancing
-   the turn; those steps must stay on the undo stack, so they are NOT turn changes."
-  [prev-state next-state]
-  (not= (game/current-player prev-state)
-        (game/current-player next-state)))
+(defn- bot-decision?
+  "True when `state` is a point where a bot was the one on the clock. Bot moves
+   go on the undo stack like everyone else's, but undo skips back past them —
+   a bot's own choice is not something a human can revise, and stopping on one
+   would strand the game (nothing restarts the bot loop after an undo)."
+  [bots state]
+  (contains? bots (choice-player state)))
+
+(defn- may-undo?
+  "Undo belongs to whoever is on the clock — the button follows the same rule.
+   Once the game is over nobody is on the clock, so any player at the table may
+   take back the landing and start rewinding from there."
+  [state player-key]
+  (boolean
+   (and state
+        (if (:game-over state)
+          (some #{player-key} (:turn-order state))
+          (= player-key (choice-player state))))))
+
+(defn- rewind
+  "Pop the undo stack back to the most recent state where a human was on the
+   clock. Returns [target-state remaining-history], or nil when there is no
+   such state left — the whole point of the stack is that this walk never stops
+   at a turn boundary, a cipher placement, or a bot's move."
+  [bots history]
+  (loop [h history]
+    (when (seq h)
+      (let [state (peek h)
+            rest' (pop h)]
+        (if (bot-decision? bots state)
+          (recur rest')
+          [state rest'])))))
 
 ;; ── Persistence helper ──────────────────────────────────────────────────────
 
@@ -177,24 +203,23 @@
                                                 (fnil conj #{}) ck)
                                      :else next-state)
                         effective (bot-advance next-state)]
-                    (swap! games
-                           (fn [gs]
-                             (-> gs
-                                 (assoc-in [:games play-key :state] effective)
-                                 ;; Keep the undo stack threaded through the turn.
-                                 ;; Clear only when this move ends a turn, or is part
-                                 ;; of the bot's *own* turn (bot turns aren't undoable).
-                                 ;; When a bot resolves a sub-decision inside a human's
-                                 ;; turn (e.g. the owner bonus on the bot's station),
-                                 ;; leave history intact so the human can still undo
-                                 ;; their action — the bot's response folds into it.
-                                 (assoc-in [:games play-key :history]
-                                           (if (or (contains? bots (game/current-player effective))
-                                                   (turn-advanced? current-state effective))
-                                             []
-                                             (:history (get-in gs [:games play-key])))))))
-                    (broadcast-state! play-key)
-                    (save-state! db play-key ck)
+                    ;; Bot steps join the stack like any other; `rewind` skips
+                    ;; back past them. Guard on identity so a step computed from
+                    ;; a state an undo has since replaced is dropped instead of
+                    ;; clobbering the rewind.
+                    (when (identical? current-state
+                                      (get-in @games [:games play-key :state]))
+                      (swap! games
+                             (fn [gs]
+                               (if (identical? current-state
+                                               (get-in gs [:games play-key :state]))
+                                 (-> gs
+                                     (assoc-in [:games play-key :state] effective)
+                                     (update-in [:games play-key :history]
+                                                (fnil conj []) current-state))
+                                 gs)))
+                      (broadcast-state! play-key)
+                      (save-state! db play-key ck))
                     (recur)))))))))
       (catch Exception e
         (log/error "Bot turn error" play-key (.getMessage e))))))
@@ -246,19 +271,17 @@
                                   (recur (first (vals cs)))
                                   s)))
                   new-player    (choice-player effective)
-                  turn-changed? (turn-advanced? state effective)
                   bots          (:bots game-data)]
+              ;; Every step goes on the stack, including the one that ends the
+              ;; turn — the chain has to run unbroken from the end of the game
+              ;; back to the start, through cipher placements and turn changes.
               (swap! games
                      (fn [gs]
                        (-> gs
                            (assoc-in [:games play-key :state] effective)
-                           (assoc-in [:games play-key :history]
-                                     (if turn-changed?
-                                       []
-                                       (conj (:history (get-in gs [:games play-key])) state))))))
+                           (update-in [:games play-key :history] (fnil conj []) state))))
               (log/info "Action" play-key player-key (pr-str choice-key)
-                        "turn-changed?" turn-changed?
-                        "can-undo?" (boolean (seq (:history (get-in @games [:games play-key])))))
+                        "undo-depth" (count (:history (get-in @games [:games play-key]))))
               (broadcast-state! play-key)
               (save-state! db play-key choice-key)
               ;; Check if the current choice-player (after auto-advance) is a bot
@@ -268,19 +291,35 @@
         (catch Exception e
           (log/error "Failed to apply action" play-key player-key choice (.getMessage e)))))))
 
+(defn- undo! [db play-key player-key bots]
+  (let [;; The walk happens inside the swap so two undos in flight can't both
+        ;; rewind to the same state; swap-vals! then reports exactly how many
+        ;; steps this one consumed.
+        [before after]
+        (swap-vals! games
+                    (fn [gs]
+                      (if-let [[target remaining]
+                               (rewind bots (get-in gs [:games play-key :history]))]
+                        (-> gs
+                            (assoc-in [:games play-key :state] target)
+                            (assoc-in [:games play-key :history] remaining))
+                        gs)))
+        n (- (count (get-in before [:games play-key :history]))
+             (count (get-in after [:games play-key :history])))]
+    (when (pos? n)
+      (log/info "Undo" play-key player-key "steps" n
+                "undo-depth" (count (get-in after [:games play-key :history])))
+      (broadcast-state! play-key)
+      ;; Drop the rewound moves from the persisted event log too, so the saved
+      ;; state and the action log keep telling the same story.
+      (persist-j/drop-last-actions! db play-key n)
+      (save-state! db play-key))))
+
 (defn handle-undo! [db play-key player-key]
-  (let [game-data (get-in @games [:games play-key])
-        history   (:history game-data)]
-    (when (seq history)
-      (let [prev-state (peek history)]
-        (swap! games
-               (fn [gs]
-                 (-> gs
-                     (assoc-in [:games play-key :state] prev-state)
-                     (update-in [:games play-key :history] pop))))
-        (log/info "Undo" play-key player-key)
-        (broadcast-state! play-key)
-        (save-state! db play-key)))))
+  (let [game-data (get-in @games [:games play-key])]
+    (if (may-undo? (:state game-data) player-key)
+      (undo! db play-key player-key (:bots game-data))
+      (log/info "Undo refused — not on the clock" play-key player-key))))
 
 (defn handle-chat! [db play-key player-key {:keys [message]}]
   (let [msg {:type    "chat"

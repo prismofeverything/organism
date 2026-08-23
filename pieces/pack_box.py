@@ -26,8 +26,8 @@ MM = 1.0
 COMPONENTS = {
     # 3D hero pieces stand upright (their height is the tall dimension). round-ish footprint.
     "EAT":  dict(kind="stand", w=32.5, d=34.0, h=44.0, color="#cf5b52", shape="blob"),   # measured out/EAT_sculpt_graft.obj
-    "MOVE": dict(kind="stand", w=35.7, d=35.2, h=53.0, color="#5aa0b4", shape="blob"),   # measured out/MOVE_sculpt_graft.obj
-    "GROW": dict(kind="stand", w=36.6, d=36.6, h=31.8, color="#8a6bb0", shape="blob"),   # measured out/GROW_sculpt_graft.obj
+    "MOVE": dict(kind="stand", w=35.8, d=35.4, h=55.0, color="#5aa0b4", shape="blob"),   # measured out/MOVE_sculpt_graft.obj
+    "GROW": dict(kind="stand", w=36.6, d=36.6, h=34.8, color="#8a6bb0", shape="blob"),   # measured out/GROW_sculpt_graft.obj
     # 3D food nests deeply: base 11.25, each extra adds 6.92 (slip fit, measured).
     "FOOD": dict(kind="stack", dia=28.1, h=11.25, pitch=6.92, color="#d99a3a", shape="disc"),
     # minimal set: silhouette disks are "basically food" (food-style peg/socket) -> they NEST.
