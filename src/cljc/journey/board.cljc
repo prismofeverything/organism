@@ -63,6 +63,45 @@
 (def captain-fill   "#F09020")
 (def captain-stroke "#FFD060")
 
+(defn- parse-hex-byte [s]
+  #?(:clj  (Integer/parseInt ^String s 16)
+     :cljs (js/parseInt s 16)))
+
+(defn- srgb->linear [c]
+  (let [c (/ c 255.0)]
+    (if (<= c 0.03928)
+      (/ c 12.92)
+      (Math/pow (/ (+ c 0.055) 1.055) 2.4))))
+
+(defn relative-luminance
+  "WCAG relative luminance of a #rrggbb colour: 0 for black, 1 for white."
+  [hex]
+  (let [h (str/replace (str hex) "#" "")
+        h (if (= 3 (count h)) (apply str (mapcat #(list % %) h)) h)]
+    (if (= 6 (count h))
+      (let [[r g b] (map #(srgb->linear (parse-hex-byte (subs h % (+ % 2)))) [0 2 4])]
+        (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b)))
+      0.0)))
+
+(def ^:private ink-threshold
+  "The luminance at which black and white text have equal WCAG contrast:
+   sqrt(1.05 * 0.05) - 0.05. Above it black wins, below it white."
+  (- (Math/sqrt (* 1.05 0.05)) 0.05))
+
+(def readable-on
+  "Black or white — whichever reads better on `bg`. The player palette runs from
+   near-white (:silver) to pure black (:void), so no single ink colour is legible
+   across all of them; pick one per background instead."
+  (memoize
+   (fn [bg]
+     (if (> (relative-luminance bg) ink-threshold) "#000000" "#FFFFFF"))))
+
+(defn accent-on
+  "A green that stays legible on `bg` — the light one on dark grounds, a deep
+   one on light grounds."
+  [bg]
+  (if (= "#000000" (readable-on bg)) "#0A5A38" "#88CCAA"))
+
 (defn pf  [ck] (get player-fill ck neutral-fill))
 (defn ps  [ck] (get player-stroke ck neutral-stroke))
 (defn ptb [ck] (get tile-bg ck neutral-fill))
@@ -720,8 +759,15 @@
 ;; ── Cipher display ────────────────────────────────────────────────────────────
 
 (def ^:const cipher-hex-size 26)
+(def ^:const cipher-scale    2.0)
 
-(defn cipher-hex [cipher pos highlight? on-click on-beacon-hover cipher-queue-color revealed?]
+;; Half-extents of the 7-hex rosette once scaled: the outer hex centres sit
+;; 1.5*size out in x and sqrt3*size in y, and each hex adds its own radius.
+(def cipher-half-w (* cipher-scale (+ (* 1.5 cipher-hex-size) cipher-hex-size)))
+(def cipher-half-h (* cipher-scale (* sqrt3 cipher-hex-size 1.5)))
+
+(defn cipher-hex [cipher pos highlight? on-click on-beacon-hover cipher-queue-color revealed?
+                  & [{:keys [viewer viewer-color]}]]
   (let [[cx cy]  (let [[q r] pos]
                    [(* cipher-hex-size 1.5 q)
                     (* cipher-hex-size sqrt3 (+ (* 0.5 q) r))])
@@ -751,34 +797,60 @@
      (when highlight?
        [:polygon {:points (hex-pts-str (- cipher-hex-size 1))
                   :fill "none" :stroke "#FFD030" :stroke-width 5 :opacity 0.2}])
-     ;; Color beacon dots — with hover support
-     (let [n (count colors)]
-       (for [[i c] (map-indexed vector colors)
-             :let  [a   (if (= n 1) 0 (* i (/ tau n)))
-                    r   (if (= n 1) 0 (* cipher-hex-size 0.38))
-                    icf (get world-outer c "#555")]]
-         [:circle {:key (str c i)
-                   :cx (* r (Math/cos a))
-                   :cy (* r (Math/sin a))
-                   :r  (if (= n 1) (* cipher-hex-size 0.35) (* cipher-hex-size 0.22))
-                   :fill icf
-                   :style {:cursor "pointer"}
-                   :on-mouse-enter (when on-beacon-hover #(on-beacon-hover pos c))
-                   :on-mouse-leave (when on-beacon-hover #(on-beacon-hover nil nil))}]))
+     ;; Centre marker, under the dots: it matters most when the centre is empty,
+     ;; and anything on top of a ringed dot just clips the ring.
      (when (= pos [0 0])
        [:text {:x 0 :y 1
                :text-anchor "middle"
                :dominant-baseline "middle"
                :fill "#445" :font-size "9" :font-family "monospace"
                :style {:pointer-events "none"}}
-        "C"])]))
+        "C"])
+     ;; Color beacon dots — with hover support. A dot the viewer has a beacon
+     ;; under wears a ring in the viewer's own colour, so each player can read
+     ;; their own holdings straight off the cipher.
+     (let [n     (count colors)
+           ;; Dots orbit the hex centre. Both the orbit and the dot shrink as
+           ;; colours pile up, so a ringed dot never bites into its neighbour:
+           ;; ring-gap is how much room the ring needs outside the dot itself.
+           orbit (if (= n 1) 0 (* cipher-hex-size (if (> n 4) 0.50 0.42)))
+           ring-gap 3.6
+           dot-r (if (= n 1)
+                   (* cipher-hex-size 0.33)
+                   (-> (- (* orbit (Math/sin (/ Math/PI n))) ring-gap)
+                       (min (* cipher-hex-size 0.22))
+                       (max (* cipher-hex-size 0.11))))]
+       (for [[i c] (map-indexed vector colors)
+             :let  [a    (if (= n 1) 0 (* i (/ tau n)))
+                    dr   dot-r
+                    icf  (get world-outer c "#555")
+                    dx   (* orbit (Math/cos a))
+                    dy   (* orbit (Math/sin a))
+                    mine (and viewer (pos? (get-in entry [:colors c viewer] 0)))]]
+         [:g {:key (str c i)}
+          [:circle {:cx dx :cy dy :r dr
+                    :fill icf
+                    :style {:cursor "pointer"}
+                    :on-mouse-enter (when on-beacon-hover #(on-beacon-hover pos c))
+                    :on-mouse-leave (when on-beacon-hover #(on-beacon-hover nil nil))}]
+          (when mine
+            [:g {:style {:pointer-events "none"}}
+             ;; Dark backing ring first, so a pale viewer colour still separates
+             ;; from a pale world colour underneath.
+             [:circle {:cx dx :cy dy :r (+ dr 1.9) :fill "none"
+                       :stroke bg :stroke-width 2.6}]
+             [:circle {:cx dx :cy dy :r (+ dr 1.9) :fill "none"
+                       :stroke (ps viewer-color) :stroke-width 1.8}]])]))
+     ]))
 
-(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover cipher-queue-color landing-revealed]}]]
-  [:g {:transform "scale(2.0)"}
+(defn render-cipher [cipher & [{:keys [highlights on-click on-beacon-hover cipher-queue-color
+                                       landing-revealed viewer viewer-color]}]]
+  [:g {:transform (str "scale(" cipher-scale ")")}
    (for [pos (into [[0 0]] game/hex-directions)
          :let [hl? (and highlights (contains? highlights pos))
                rev? (and landing-revealed (contains? landing-revealed pos))]]
-     [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color rev?])])
+     [cipher-hex cipher pos hl? (when hl? on-click) on-beacon-hover cipher-queue-color rev?
+      {:viewer viewer :viewer-color viewer-color}])])
 
 ;; ── Scoring overlay (game-over landing) ──────────────────────────────────────
 
@@ -882,6 +954,10 @@
         sc           (pwo ck)
         is-cap       (= player-key captain)
         on-turn?     (= player-key (game/current-player state))
+        panel-bg     (if on-turn? (ptb ck) "#080814")
+        ;; Text is drawn straight onto the panel disc, whose fill swings from
+        ;; near-white (:silver on turn) to pure black (:void). Ink follows.
+        ink          (readable-on panel-bg)
         hab-click?   (some? on-habitat-click)
         player-order (:turn-order state)
         n-players    (count player-order)
@@ -895,7 +971,7 @@
          :style {:cursor (when hab-click? "pointer")}}
      ;; Circle backing
      [:circle {:cx cx :cy cy :r panel-r
-               :fill (if on-turn? (ptb ck) "#080814")
+               :fill panel-bg
                :stroke (cond hab-click? "#FFD030" on-turn? fc :else sc)
                :stroke-width (cond hab-click? 4 on-turn? 3 :else 1.5)}]
      ;; Captain flame (top-right quadrant)
@@ -905,7 +981,7 @@
      ;; Player name
      [:text {:x cx :y (- cy 52)
              :text-anchor "middle"
-             :fill fc :font-size "16" :font-weight "bold" :font-family "monospace"}
+             :fill ink :font-size "16" :font-weight "bold" :font-family "monospace"}
       player-key]
      ;; Habitat sundivers — up to 7 per row, rotated to match board direction
      (let [rot  sundiver-rot
@@ -928,7 +1004,7 @@
      ;; Move points
      [:text {:x cx :y (- cy 4)
              :text-anchor "middle"
-             :fill fc :font-size "12" :font-family "monospace"}
+             :fill ink :font-size "12" :font-family "monospace"}
       (str "move " (game/move-points state player-key))]
      ;; Station color dots showing where move bonus comes from
      (let [colors (sort (game/station-colors state player-key))
@@ -974,7 +1050,7 @@
                          [station-shape {:type :tower :color-key ck :level 0}]])
            ;; Number
            [:text {:x 9 :y 4
-                   :fill fc :font-size "12" :font-family "monospace"}
+                   :fill ink :font-size "12" :font-family "monospace"}
             (str n)]])])
      ;; Held card — small playing card with suit color and icon
      (when-let [card (get-in pstate [:held-card])]
@@ -1103,8 +1179,11 @@
 (def panel-w        (* 2 panel-r))  ; 130 — diameter
 (def panel-h        (* 2 panel-r))  ; 130 — diameter
 (def panel-gap      16)
-(def cipher-x       1150)
-(def cipher-y       150)
+(def cipher-margin  14)
+;; Parked hard against the right edge, clear of the board. The queue hangs
+;; below it and the deck sits lower still, so the whole right column is its own.
+(def cipher-x       (- vw cipher-half-w cipher-margin))
+(def cipher-y       (+ cipher-half-h 46))
 
 (defn render-game
   "Render the full game SVG.
@@ -1216,7 +1295,7 @@
 
      ;; ── Cipher (fixed position, not panned/zoomed, always expanded)
      [:g {:transform (str "translate(" cipher-x "," cipher-y ")")}
-      [:text {:x 0 :y -140
+      [:text {:x 0 :y (- (+ cipher-half-h 12))
               :text-anchor "middle"
               :fill "#445566"
               :font-size "13" :font-family "monospace" :letter-spacing "2"}
@@ -1224,7 +1303,11 @@
       [render-cipher (:cipher state) {:highlights cipher-highlights :on-click cipher-on-click
                                        :on-beacon-hover cipher-on-beacon-hover
                                        :cipher-queue-color cipher-queue-color
-                                       :landing-revealed landing-revealed}]
+                                       :landing-revealed landing-revealed
+                                       ;; active-player is the local player — each
+                                       ;; player sees their own beacons ringed.
+                                       :viewer active-player
+                                       :viewer-color (get player-colors active-player :sun)}]
       ;; Cipher queue: show pending beacons to place (or pending-cipher during tower actions)
       (let [cipher-queue (get-in state [:player-turn :cipher-queue] [])
             pending      (:pending-cipher state)
@@ -1235,8 +1318,8 @@
                       (choice/pending-cipher-queue pending)))]
         (when (seq items)
           (let [is-pending? (empty? cipher-queue)]
-            ;; Below the cipher (which extends to ~y=150 at scale 2.0), not over it.
-            [:g {:transform "translate(0,190)"}
+            ;; Below the cipher rosette, not over it.
+            [:g {:transform (str "translate(0," (+ cipher-half-h 55) ")")}
              [:text {:x 0 :y -16
                      :text-anchor "middle"
                      :fill (if is-pending? "#554433" "#445566")
@@ -1382,8 +1465,8 @@
                   ;; Captain landing bonus, spelled out under the total
                   (when (and cap? (pos? bonus))
                     [:g
-                     [:g {:transform "translate(28,29) scale(0.85)"} [captain-flame]]
-                     [:text {:x 76 :y 33
+                     [:g {:transform "translate(10,29) scale(0.75)"} [captain-flame]]
+                     [:text {:x 70 :y 33
                              :text-anchor "middle"
                              :fill captain-stroke :font-size "12" :font-family "monospace"}
                       (str (get beacons player 0) " + " bonus " captain")]])]))

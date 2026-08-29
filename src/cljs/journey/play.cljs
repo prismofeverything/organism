@@ -466,8 +466,12 @@
                 cp-name     (choice-player state)
                 p-colors    (board/build-player-colors (:turn-order state))
                 cp-ck       (get p-colors cp-name :sun)
-                cp-fg       (board/pwi cp-ck)
                 cp-bg       (board/ptb cp-ck)
+                ;; The oval is filled with the player's colour, which ranges from
+                ;; near-white to black — read the ink off the background rather
+                ;; than tinting it too.
+                cp-fg       (board/readable-on cp-bg)
+                cp-accent   (board/accent-on cp-bg)
                 cp-border   (board/pwo cp-ck)
                 action-type (get-in state [:player-turn :action-type])
                 station-type (get-in state [:player-turn :action :station-type])
@@ -526,7 +530,7 @@
                   (when srv-phase (name srv-phase)))]
             [:div {:style {:position "absolute" :top "-30px" :left "50%"
                            :transform "translateX(-50%)"
-                           :color "#AABBCC" :font-size "21px"
+                           :color cp-fg :font-size "21px"
                            :font-family "monospace" :z-index 10
                            :background cp-bg
                            :border (str "2px solid " cp-border)
@@ -540,14 +544,14 @@
              [:div {:style {:white-space "nowrap"}}
               [:span {:style {:color cp-fg :font-weight "bold" :font-size "24px"}} cp-name]
               (when action-type
-                [:span {:style {:color cp-fg :opacity 0.55 :margin-left "10px" :font-size "20px"}}
+                [:span {:style {:color cp-fg :opacity 0.72 :margin-left "10px" :font-size "20px"}}
                  (str "(" (name action-type)
                       (when station-type (str " " (name station-type)))
                       ")")])
               (when summary
                 [:span {:style {:color cp-fg :opacity 0.7 :margin-left "12px" :font-size "20px"}} summary])
               (when active?
-                [:span {:style {:color "#88CCAA" :margin-left "12px" :font-size "20px" :font-weight "bold"}} "← your turn"])]
+                [:span {:style {:color cp-accent :margin-left "12px" :font-size "20px" :font-weight "bold"}} "← your turn"])]
              ;; Whose pool a cost comes out of, spelled out — during an owner
              ;; bonus the turn belongs to one player and the bill to another.
              (when (and (contains? spend-phases srv-phase)
