@@ -26,7 +26,8 @@ cd "$(dirname "$0")"
 REMOTE_HOST="${DEPLOY_HOST:-prism@elephantlaboratories.com}"
 SERVICE="organism"          # systemd unit: HTTP + WebSocket on :11551
 REMOTE_DIR="~/organism"
-REMOTE_JAR="$REMOTE_DIR/organism.jar"
+REMOTE_JAR_NAME="organism.jar"
+REMOTE_JAR="$REMOTE_DIR/$REMOTE_JAR_NAME"
 LOCAL_JAR="target/uberjar/organism.jar"
 
 build() {
@@ -43,8 +44,49 @@ build() {
 }
 
 ship() {
+  if [ ! -f "$LOCAL_JAR" ]; then
+    echo "ERROR: $LOCAL_JAR not found — run ./deploy.sh build first"
+    exit 1
+  fi
+
+  echo "=== Verifying local jar ==="
+  # A jar that is already damaged locally must never reach the server.
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -qt "$LOCAL_JAR" >/dev/null 2>&1 || {
+      echo "ERROR: $LOCAL_JAR is not a valid archive — rebuild before shipping"
+      exit 1
+    }
+  else
+    echo "(unzip not found — skipping local archive check)"
+  fi
+  LOCAL_SIZE=$(stat -c%s "$LOCAL_JAR")
+  LOCAL_SUM=$(md5sum "$LOCAL_JAR" | cut -d' ' -f1)
+  echo "$LOCAL_SIZE bytes, md5 $LOCAL_SUM"
+
+  # Upload BESIDE the live jar, never over it. scp has been seen to exit 0 on a
+  # short write, and overwriting in place then leaves a truncated jar that
+  # systemd happily starts: every page renders, every classpath resource throws
+  # "invalid LOC header", and the site looks blank. Staging plus a checksum
+  # means a bad transfer costs nothing — the running deployment is untouched.
   echo "=== Uploading jar to $REMOTE_HOST ==="
-  scp "$LOCAL_JAR" "$REMOTE_HOST:$REMOTE_JAR"
+  scp "$LOCAL_JAR" "$REMOTE_HOST:$REMOTE_JAR.incoming"
+
+  echo "=== Verifying upload ==="
+  ssh "$REMOTE_HOST" "bash -lc '
+    set -e
+    cd $REMOTE_DIR
+    remote_size=\$(stat -c%s $REMOTE_JAR_NAME.incoming)
+    remote_sum=\$(md5sum $REMOTE_JAR_NAME.incoming | cut -d\" \" -f1)
+    if [ \"\$remote_size\" != \"$LOCAL_SIZE\" ] || [ \"\$remote_sum\" != \"$LOCAL_SUM\" ]; then
+      echo \"ERROR: upload does not match the local jar — NOT restarting $SERVICE\"
+      echo \"  local:  $LOCAL_SIZE bytes  $LOCAL_SUM\"
+      echo \"  remote: \$remote_size bytes  \$remote_sum\"
+      rm -f $REMOTE_JAR_NAME.incoming
+      exit 1
+    fi
+    echo \"upload verified — \$remote_size bytes, \$remote_sum\"
+    mv -f $REMOTE_JAR_NAME.incoming $REMOTE_JAR_NAME
+  '"
 
   echo "=== Restarting $SERVICE via systemd ==="
   # systemd owns the process now (unit installed by the migration's 02 script);

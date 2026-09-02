@@ -55,6 +55,16 @@
   :target-path "target/%s/"
   :main ^:skip-aot organism.core
 
+  ;; `shadow-cljs watch` leaves its unoptimized dev modules and source maps in
+  ;; resources/public/js/cljs-runtime — ~26MB that a release build never reads,
+  ;; since each release module is a single self-contained file. Packaging it
+  ;; inflated the uberjar by a quarter for nothing, and every extra megabyte is
+  ;; more upload to lose. Keep Leiningen's own signature-file default alongside:
+  ;; profile merge concatenates onto it, but spell it out so nothing depends on
+  ;; that.
+  :uberjar-exclusions [#"(?i)^META-INF/[^/]*\.(SF|RSA|DSA)$"
+                       #"^public/js/cljs-runtime/"]
+
   :plugins []
 
   :profiles

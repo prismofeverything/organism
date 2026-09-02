@@ -245,7 +245,14 @@ for pi,pl in enumerate(PLAYERS):
 mcards=(sorted(glob.glob(f"{LA}/cards/card_*.png")) or sorted(glob.glob(f"{LA}/MutationCard*.png")))[:26]
 _mhx=RDIAG*math.cos(math.radians(42)); _mhy=RDIAG*math.sin(math.radians(42))    # reveal = ONE real ⌀123 DECK near the board (not 26 tiny fanned discs)
 for k,cp in enumerate(mcards):
-    hero=Vector((_mhx+(k%3-1)*5.0, _mhy+(k//3-4)*3.0, 1.2+k*0.5))               # stacked deck, slight fan
+    # Fanned ALONG the ring (not straight out on the tangent, which shot the deck
+    # off the right of frame). Centred at 32 deg and spanning 22 deg, the fan sits
+    # in the gap between the purple set (reaches ~11 deg) and the power board
+    # (starts ~52 deg), so every card rim is visible and 26 is countable.
+    _span=float(os.environ.get("MUTFAN","22.0"))
+    _n=max(1,len(mcards)-1)
+    _th=math.radians(32.0)+(k-_n/2.0)*math.radians(_span/_n)
+    hero=Vector((RDIAG*math.cos(_th), RDIAG*math.sin(_th), 1.2+k*0.55))
     pk=Vector((BX+85,BY+100,3.0+k*0.5))                                         # packed: ⌀123 mutation DECK in a slab corner, UNDER the piece insert
     reg(disc_art("mut_%d"%k,cp,pk,61.5,rotz=0,h=0.7,crop=0.9,shadeless=True),pk,(0,0,0),hero,0.0,"mut")
 
@@ -307,7 +314,8 @@ lid.location=(BX,BY,BH-6); lid.rotation_euler=(0,0,0)
 for a in ("location","rotation_euler"): lid.keyframe_insert(a,frame=0)
 lid.location=(BX,BY,BH+148); lid.keyframe_insert("location",frame=14)          # (a) straight UP, high — well clear of the tray top
 lid.location=(0,330,255); lid.keyframe_insert("location",frame=32)             # (b) glide BACK while still FLAT & high (tray back edge is y=126)
-lid.location=(0,600,170); lid.rotation_euler=(math.radians(90),0,0)            # (c) settle to a standing poster — tilt ONLY now, behind everything
+BOXY=float(os.environ.get("BOXY","645"))                                        # back row reaches y=618 (power board); 645 leaves a ~27mm gap — behind it, not on it, not marooned
+lid.location=(0,BOXY,170); lid.rotation_euler=(math.radians(90),0,0)           # (c) settle to a standing poster — tilt ONLY now, BEHIND the back row
 for a in ("location","rotation_euler"): lid.keyframe_insert(a,frame=52)
 # board is LAST out: rise straight UP -> slow PULSING TUMBLE (reveals the hex underside) held high -> GLORIOUS slow lower + unfold
 LIFT=210; UPCLR=228; CTR=252; TRAYGO=232; PEAK=300; LOWER=300; UF1=306; END=390   # SYMMETRIC arc: gradual RISE+spin-up (210->300) mirrors the gradual DESCENT+spin-down (300->390)

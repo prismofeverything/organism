@@ -55,19 +55,40 @@ def colmat(name, rgb, rough=0.5):
     b = m.node_tree.nodes["Principled BSDF"]
     b.inputs["Base Color"].default_value = lin3(rgb); b.inputs["Roughness"].default_value = rough
     return m
-def imgmat(name, path, shadeless=False):
+# The source art is print resolution and `images.load` returns a NEW copy per
+# call, so the naive version asked for ~1.9 GB of texture on a 2 GB card -- the
+# 26 mutation cards alone are 917 MB to draw discs 60 px wide. Load each file
+# once and scale it to the pixels it actually occupies on screen.
+_IMG = {}
+def image(path, max_px):
+    key = (path, max_px)
+    if key not in _IMG:
+        img = bpy.data.images.load(path)
+        w, h = img.size
+        if max(w, h) > max_px:
+            f = max_px / float(max(w, h))
+            img.scale(max(1, int(w*f)), max(1, int(h*f)))
+        _IMG[key] = img
+    return _IMG[key]
+
+_MAT = {}
+def imgmat(name, path, shadeless=False, max_px=1024):
+    key = (path, shadeless, max_px)
+    if key in _MAT: return _MAT[key]
     m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree
     out = nt.nodes["Material Output"]
+    img = image(path, max_px)
     if shadeless:
         for n in list(nt.nodes):
             if n.type != "OUTPUT_MATERIAL": nt.nodes.remove(n)
-        t = nt.nodes.new("ShaderNodeTexImage"); t.image = bpy.data.images.load(path)
+        t = nt.nodes.new("ShaderNodeTexImage"); t.image = img
         e = nt.nodes.new("ShaderNodeEmission"); nt.links.new(t.outputs["Color"], e.inputs["Color"])
         nt.links.new(e.outputs[0], out.inputs["Surface"])
     else:
-        t = nt.nodes.new("ShaderNodeTexImage"); t.image = bpy.data.images.load(path)
+        t = nt.nodes.new("ShaderNodeTexImage"); t.image = img
         b = nt.nodes["Principled BSDF"]; nt.links.new(t.outputs["Color"], b.inputs["Base Color"])
         b.inputs["Roughness"].default_value = 0.62
+    _MAT[key] = m
     return m
 
 # ---------------- table ----------------
@@ -111,7 +132,8 @@ def disc(name, mat, loc, r, h=2.0, rotz=0.0):
     o.data.materials.clear(); o.data.materials.append(mat); return o
 def disc_art(name, path, loc, r, rotz=0.0, h=2.0, shadeless=True, crop=1.0):
     o = disc(name, colmat(name+"_e", (0.05,0.06,0.08), 0.7), loc, r, h=h, rotz=0)
-    o.data.materials.append(imgmat(name+"_f", path, shadeless=shadeless))
+    o.data.materials.append(imgmat(name+"_f", path, shadeless=shadeless,
+                                   max_px=max(128, min(2048, int(4*r)))))
     for poly in o.data.polygons: poly.material_index = 1 if poly.normal.z > 0.9 else 0
     uv = o.data.uv_layers[0] if o.data.uv_layers else o.data.uv_layers.new()
     for poly in o.data.polygons:
