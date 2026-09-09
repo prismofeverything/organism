@@ -672,6 +672,41 @@
      (every? (comp not empty?) players)
      (= (count players) (count players-set)))))
 
+(def game-key-forbidden
+  "Characters that break a game name where it gets used as a URL path segment,
+   a Mongo collection suffix, or part of a query. Everything else stays legal —
+   unicode, spaces, apostrophes and punctuation are all normal in game names
+   here and plenty of existing games rely on it."
+  #{\/ \\ \? \# \% \newline \return \tab})
+
+(defn game-key-problem
+  "nil when this name can be used as a game key, otherwise why it cannot."
+  [game-key]
+  (let [key (str game-key)]
+    (cond
+      (string/blank? key)              "a game needs a name"
+      (not= key (string/trim key))     "no spaces at the start or end"
+      (> (count key) 120)              "that name is too long"
+      (string/starts-with? key "$")    "a name cannot start with $"
+      (some game-key-forbidden key)    "these characters are not allowed: / \\ ? # %"
+      :else nil)))
+
+(defn full-invocation?
+  "Whether every seat the creator asked for is taken by a distinct player.
+
+   Stricter than valid-invocation?, which says nothing about how many seats
+   there were meant to be — some older invocations carry a :players vector
+   longer than their :player-count. A game only starts itself when the roster
+   is exactly the size it was set up to be."
+  [invocation]
+  (let [player-count (:player-count invocation)
+        players (:players invocation)]
+    (boolean
+     (and player-count
+          (pos? player-count)
+          (= player-count (count players))
+          (valid-invocation? invocation)))))
+
 (defn player-symmetry
   [player-count]
   (cond

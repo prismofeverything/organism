@@ -2,6 +2,7 @@
   (:require
    [clojure.pprint :refer (pprint)]
    [clojure.java.io :as io]
+   [clojure.string :as str]
    [clojure.tools.logging :as log]
    [cognitect.transit :as transit]
    [org.httpkit.server :as hk]
@@ -121,7 +122,10 @@
                games [:games game-key :channels]
                #(remove #{channel} %))]
     (if (empty? (get-in games [:games game-key :channels]))
-      (dissoc games game-key)
+      ;; dissoc off the :games map, not off the wrapper — dropping the key from
+      ;; the top level did nothing, so every game ever opened stayed resident
+      ;; and a reconnect read the stale registry copy instead of the database.
+      (update games :games dissoc game-key)
       games)))
 
 (defn disconnect!
@@ -150,33 +154,29 @@
 
 (defn update-create-game
   [db player game-key channel {:keys [invocation] :as message}]
-  (let [invocation (assoc invocation :game-type "organism")]
-    (swap!
-     games
-     assoc-in [:games game-key :invocation]
-     invocation)
-    (send-channels!
-     (get-in @games [:games game-key :channels])
-     message)
-    (persist/create-open-game! db game-key invocation player)))
+  (if-let [problem (board/game-key-problem game-key)]
+    (do
+      (log/warn "refusing to open game" (pr-str game-key) "-" problem)
+      (send! channel {:type "error"
+                      :message (str (pr-str game-key) " will not work as a game name: "
+                                    problem)}))
+    (let [invocation (assoc invocation :game-type "organism")]
+      (swap!
+       games
+       assoc-in [:games game-key :invocation]
+       invocation)
+      (send-channels!
+       (get-in @games [:games game-key :channels])
+       message)
+      (persist/create-open-game! db game-key invocation player))))
+
+(declare set-slot!)
 
 (defn update-player-name
   [db page-player game-key channel {:keys [index player] :as message}]
-  (swap!
-   games
-   update-in
-   [:games game-key :invocation]
-   (fn [invocation]
-     (let [previous-name (nth (:players invocation) index)]
-       (-> invocation
-           (update
-            :players
-            (fn [invoke]
-              (assoc (vec invoke) index player)))))))
-  (log/info "player name updated" player "invocation" (-> @games :games (get game-key) :invocation))
-  (send-channels!
-   (get-in @games [:games game-key :channels])
-   message))
+  (set-slot! db page-player game-key index player)
+  (log/info "player name updated" player "invocation"
+            (-> @games :games (get game-key) :invocation)))
 
 (defn update-open-game
   [db player game-key channel {:keys [invocation] :as message}]
@@ -206,8 +206,19 @@
         (assoc-in [:invocation :created] created)
         (assoc :game create))))
 
-(defn trigger-creation
-  [db player game-key channel message]
+(defn lobby-creator
+  "Who set this lobby up. Falls back to whoever is asking, for lobbies opened
+   before the creator was recorded."
+  [db game-key fallback]
+  (or (:created-by (persist/find-open-game db game-key)) fallback))
+
+(defn begin-game!
+  "Turn an open lobby into a live game: build the starting position, tell every
+   watching tab to switch over, and move the record out of :open-games.
+
+   `creator` is whoever set the lobby up, not whoever filled the last seat — a
+   game that starts itself on someone else's join still belongs to its author."
+  [db game-key creator]
   (let [game-state (get-in @games [:games game-key])
         {:keys [invocation game channels history chat] :as game-state}
         (complete-game-state game-state)]
@@ -224,9 +235,95 @@
       :history history
       :chat chat})
     (persist/remove-open-game! db game-key)
-    (persist/create-game! db (assoc (dissoc game-state :channels) :created-by player :game-type "organism"))
+    (persist/create-game! db (assoc (dissoc game-state :channels)
+                                    :created-by creator
+                                    :game-type "organism"))
     ;; If the first player is a bot, kick off bot turns immediately
-    (maybe-run-bot-turns! db game-key)))
+    (maybe-run-bot-turns! db game-key)
+    game-state))
+
+(defn trigger-creation
+  [db player game-key channel message]
+  (begin-game! db game-key (lobby-creator db game-key player)))
+
+(defn ensure-open-game!
+  "The registry entry for an open lobby, read out of the database if no tab has
+   one open. Callers with no websocket of their own — the HTTP join — need this
+   before they can touch the roster."
+  [db game-key]
+  (or (get-in @games [:games game-key])
+      (when-let [open (persist/find-open-game db game-key)]
+        (let [record (merge {:key game-key :game nil :history [] :channels #{}}
+                            open)]
+          (swap! games assoc-in [:games game-key] record)
+          record))))
+
+(defn- set-slot-in-loaded-lobby!
+  [db actor game-key index player-name seats]
+  (swap!
+   games
+   assoc-in [:games game-key :invocation :players]
+   (assoc seats index player-name))
+  (let [invocation (get-in @games [:games game-key :invocation])
+        ;; 2-arity: leave :created-by alone, a joiner does not own the lobby
+        _ (persist/create-open-game! db game-key invocation)
+        _ (send-channels!
+           (get-in @games [:games game-key :channels])
+           {:type "player-name" :index index :player player-name})
+        joined-self? (and (seq player-name) (= player-name actor))
+        begin? (and joined-self? (board/full-invocation? invocation))]
+    (when begin?
+      (log/info "lobby full on join, beginning" game-key))
+    {:invocation invocation
+     :begun? (boolean
+              (when begin?
+                (begin-game! db game-key (lobby-creator db game-key actor))
+                true))}))
+
+(defn set-slot!
+  "Put `player-name` in seat `index` of an open lobby.
+
+   Persisting here is the whole point. A claimed seat used to live only in the
+   registry plus whatever open-game snapshot the browser sent afterwards, so a
+   join could be quietly undone by a stale snapshot arriving late.
+
+   The lobby begins on its own when this fills the last seat AND the name put
+   there is the name of the person doing it — that is somebody joining and
+   completing the roster. A creator typing another player's name is still just
+   editing, and does not start the game out from under them."
+  [db actor game-key index player-name]
+  (let [record (ensure-open-game! db game-key)
+        seats (vec (get-in record [:invocation :players]))]
+    (cond
+      (nil? record) {:error "no such open game"}
+      (not (and (integer? index) (<= 0 index) (< index (count seats))))
+      {:error "no such seat"}
+      :else (set-slot-in-loaded-lobby! db actor game-key index player-name seats))))
+
+(defn join-open-game!
+  "Take a seat in an open lobby on behalf of `player`, with the checks a click
+   from the games list needs — the seat has to exist, be empty, and the player
+   must not already be seated. Returns {:invocation :begun?} or {:error}."
+  [db game-key index player]
+  (if-let [record (ensure-open-game! db game-key)]
+    (let [invocation (:invocation record)
+          players (vec (:players invocation))
+          seats (or (:player-count invocation) (count players))]
+      (cond
+        (not (and (integer? index) (<= 0 index) (< index (count players))))
+        {:error "no such seat"}
+
+        (some #{player} (take seats players))
+        {:error "you are already in this game"}
+
+        (not (str/blank? (nth players index)))
+        {:error (str "that seat is taken by " (nth players index))}
+
+        :else
+        ;; the joiner is both the actor and the name, which is what lets the
+        ;; lobby start itself when this was the last empty seat
+        (set-slot! db player game-key index player)))
+    {:error "no such open game"}))
 
 (defn- maybe-run-bot-turns!
   "After a turn change, if the new current player is a bot, spawn a future

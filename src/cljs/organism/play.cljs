@@ -3444,12 +3444,16 @@
                                     name)
                                 name)]
                    (send-player-name! index chosen)
-                   (send-open-game! (update invocation :players assoc index chosen))))
+                   (send-open-game! @board-invocation)))
     :on-focus  (fn []
                  (when (and (not in-game?) (empty? player))
                    (send-player-name! index page-player)
-                   (send-open-game! (update invocation :players assoc index page-player))))
-    :on-blur   (fn [] (send-open-game! invocation))}])
+                   (send-open-game! @board-invocation)))
+    ;; Read the atom rather than the invocation this render closed over.
+    ;; send-player-name! has already updated it, while the closed-over copy is
+    ;; whatever was on screen before the name went in — sending that on the way
+    ;; out overwrote the seat that had just been claimed.
+    :on-blur   (fn [] (send-open-game! @board-invocation))}])
 
 (defn players-input
   [page-player invocation]
@@ -3879,6 +3883,8 @@
       ;; controls only appear when you are looking at your own list.
       :deletable?     (and (exists? js/sessionPlayer)
                            (= player js/sessionPlayer))
+      :joinable?      (and (exists? js/sessionPlayer)
+                           (= player js/sessionPlayer))
       :font-family    font-choice
       :open-colors-fn (fn [invocation]
                         (invocation-player-colors (:player-count invocation) invocation))
@@ -4106,7 +4112,11 @@
       (reset! dest-hover nil)
       (reset! action-popup nil)
       (reset! intro-hover nil))
-    "chat" (swap! chat update-chat received)))
+    "chat" (swap! chat update-chat received)
+    "error" (js/alert (:message received))
+    ;; condp with no default throws, which would turn any message this build
+    ;; does not know about into a broken page.
+    (js/console.warn "unhandled message type" type (pr-str received))))
 
 ;; -------------------------
 ;; Routes

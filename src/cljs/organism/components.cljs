@@ -255,6 +255,13 @@
          "It gets marked for deletion. Any move, or any player pressing KEEP, "
          "cancels it. If nobody does either, it is removed in two days.")))
 
+(defn game-url
+  "A URL for one game. The key is encoded because game names are free text —
+   spaces, apostrophes and punctuation are all ordinary here (\"2p Testing!\",
+   \"Woogachaka's Game\"), and an unencoded space is not a valid URL."
+  [prefix game-key suffix]
+  (str prefix (js/encodeURIComponent game-key) suffix))
+
 (defn- post-game-action!
   [url game-key on-done]
   (ajax-core/POST url
@@ -272,14 +279,33 @@
   "Ask the server to delete (or mark) a game, then reload so the list shows
    whichever of the two happened."
   [play-prefix game-key]
-  (post-game-action! (str play-prefix game-key "/delete") game-key
+  (post-game-action! (game-url play-prefix game-key "/delete") game-key
                      #(.reload js/location)))
 
 (defn request-keep!
   "The objection — cancel a pending deletion."
   [play-prefix game-key]
-  (post-game-action! (str play-prefix game-key "/keep") game-key
+  (post-game-action! (game-url play-prefix game-key "/keep") game-key
                      #(.reload js/location)))
+
+(defn request-join!
+  "Take a seat in an open lobby straight from the list. If that fills the last
+   seat the server starts the game, and we go to it rather than back to a lobby
+   that no longer exists."
+  [play-prefix game-key index]
+  (ajax-core/POST (game-url play-prefix game-key "/join")
+    {:params          {:index index}
+     :format          :transit
+     :response-format :transit
+     :handler         (fn [response]
+                        (if (:begun response)
+                          (set! (.-location js/window)
+                                (game-url play-prefix game-key ""))
+                          (.reload js/location)))
+     :error-handler   (fn [err]
+                        (js/alert (str "Could not join " game-key ": "
+                                       (or (get-in err [:response :error])
+                                           (:status-text err)))))}))
 
 (defn- delete-control
   [{:keys [game-key history-count on-delete]}]
@@ -323,7 +349,7 @@
    :current-player — logged-in player name (highlighted)
    :font-family — optional font for the title (default monospace)"
   [{:keys [game-key invocation colors link-prefix current-player font-family
-           on-delete]
+           on-delete on-join]
     :or {font-family "monospace"}}]
   (let [{:keys [players ring-count description]} invocation
         first-color (or (first colors) "#445")]
@@ -350,15 +376,23 @@
         ^{:key i}
         [:span
          (if (string/blank? game-player)
-           ;; Open slot
-           [:a {:href (str link-prefix game-key)
-                :style {:padding "5px 10px" :margin "0px 10px"
-                        :border-style "dashed" :border-width "2px"
-                        :border-color (or color "#445") :border-radius "5px"
-                        :color (or color "#445")
-                        :text-decoration "none"
-                        :font-family font-family}}
-            "open"]
+           ;; Open slot — clicking it seats you here and there is nothing else
+           ;; to decide, so it acts rather than sending you to the create page.
+           (let [slot-style {:padding "5px 10px" :margin "0px 10px"
+                             :border-style "dashed" :border-width "2px"
+                             :border-color (or color "#445") :border-radius "5px"
+                             :color (or color "#445")
+                             :text-decoration "none"
+                             :font-family font-family}]
+             (if on-join
+               [:button {:title (str "take this seat"
+                                     (when current-player (str " as " current-player)))
+                         :on-click (fn [_] (on-join i))
+                         :style (merge slot-style {:background "transparent"
+                                                   :cursor "pointer"})}
+                "join"]
+               [:a {:href (str link-prefix game-key) :style slot-style}
+                "open"]))
            ;; Filled slot
            [:a {:href (str link-prefix game-key)
                 :style (if (= game-player current-player)
@@ -394,7 +428,7 @@
    :current-player — logged-in player name
    :colors-fn      — (fn [invocation]) returning a vector of colors per slot
    :font-family    — optional font family"
-  [{:keys [games link-prefix current-player colors-fn font-family on-delete]}]
+  [{:keys [games link-prefix current-player colors-fn font-family on-delete on-join]}]
   (when (seq games)
     [:div {:style {:margin "20px 40px"}}
      [:h2
@@ -408,7 +442,8 @@
                         :link-prefix link-prefix
                         :current-player current-player
                         :font-family font-family
-                        :on-delete (when on-delete #(on-delete game))}])]))
+                        :on-delete (when on-delete #(on-delete game))
+                        :on-join (when on-join (fn [index] (on-join game index)))}])]))
 
 ;; ── Active games (observe) display ──────────────────────────────────────────
 
@@ -1005,7 +1040,7 @@
    :font-family"
   [{:keys [player games color label home-path play-prefix create-prefix player-prefix
            colors-fn open-colors-fn note-fn tooltip-fn empty-content
-           on-banner-click font-family deletable?]
+           on-banner-click font-family deletable? joinable?]
     :or   {label "games" player-prefix "/player/"}}]
   (let [open      (get games "open")
         active    (get games "active")
@@ -1019,6 +1054,10 @@
                     (fn [record] (request-delete! play-prefix (game-key record))))
         on-keep   (when deletable?
                     (fn [record] (request-keep! play-prefix (game-key record))))
+        ;; Taking a seat needs the <play-prefix>/:play/join route, so it is
+        ;; opt-in the same way deletion is.
+        on-join   (when joinable?
+                    (fn [record index] (request-join! play-prefix (game-key record) index)))
         section   (fn [title tooltip rows emphasis-fn extra]
                     [games-section
                      (merge
@@ -1043,7 +1082,8 @@
                           :current-player player
                           :colors-fn open-colors-fn
                           :font-family font-family
-                          :on-delete on-delete}]
+                          :on-delete on-delete
+                          :on-join on-join}]
      (section "ACTIVE"
               (str "A solid color row indicates it is your turn in that game.\n"
                    "The icon on the tab for this page will turn green when it is your turn.")

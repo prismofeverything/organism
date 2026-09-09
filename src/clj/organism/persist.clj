@@ -59,11 +59,15 @@
   ([db game-key invocation created-by]
    (println "creating open game!" game-key)
    (db/index! db :open-games [:key] {:unique true})
-   (db/merge!
-    db :open-games
-    {:key game-key}
-    (cond-> {:invocation invocation}
-      created-by (assoc :created-by created-by)))))
+   (let [existing (db/one db :open-games {:key game-key})]
+     (db/merge!
+      db :open-games
+      {:key game-key}
+      (cond-> {:invocation invocation}
+        ;; First writer owns the lobby. Later writes come from people joining,
+        ;; and a joiner must not take over authorship of someone else's game.
+        (and created-by (nil? (:created-by existing)))
+        (assoc :created-by created-by))))))
 
 (defn remove-open-game!
   [db game-key]
@@ -538,11 +542,16 @@
      records)))
 
 (defn find-open-game
+  "The open lobby under this key, or nil.
+
+   The nil matters: threading a missing record through dissoc/assoc produced
+   {:chat []}, which is truthy, so every `if-let` on this saw a lobby that was
+   not there."
   [db key]
-  (->
-   (db/one db :open-games {:key key})
-   (dissoc :_id)
-   (assoc :chat (load-chat db key))))
+  (when-let [record (db/one db :open-games {:key key})]
+    (-> record
+        (dissoc :_id)
+        (assoc :chat (load-chat db key)))))
 
 (defn load-game
   [db key]

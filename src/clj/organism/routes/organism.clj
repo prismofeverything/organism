@@ -9,7 +9,8 @@
    [organism.middleware :as middleware]
    [organism.routes.organism-bot :as bot]
    [organism.routes.shared :as shared]
-   [organism.routes.websockets :as ws]))
+   [organism.routes.websockets :as ws]
+   [ring.util.response :as response]))
 
 ;; ── Learn page clips ─────────────────────────────────────────────────────
 
@@ -109,6 +110,24 @@
       :preferences preferences
       :player-games (pr-str player-games)})))
 
+(defn join-game!
+  "Take a seat in an open lobby straight from the games list, without a trip
+   through the create page. If this fills the last seat the game begins on its
+   own — the creator already chose the settings when they opened the lobby."
+  [db request]
+  (let [player (get-in request [:session :player])
+        game-key (-> request :path-params :play)
+        params (or (:body-params request) (:params request))
+        raw (get params :index (get params "index"))
+        index (if (string? raw) (parse-long raw) raw)
+        result (ws/join-open-game! db game-key index player)]
+    (if (:error result)
+      (response/bad-request result)
+      (response/response
+       {:joined game-key
+        :begun (boolean (:begun? result))
+        :players (vec (get-in result [:invocation :players]))}))))
+
 ;; ── Generate page (all-bot game) ─────────────────────────────────────────
 
 (def ^:private generate-bot-names
@@ -201,6 +220,8 @@
                       :middleware [shared/require-auth]}]
    ["/play/:play"    {:get (partial play-page db)}]
    ["/play/:play/"   {:get (partial play-page db)}]
+   ["/play/:play/join"   {:post (partial join-game! db)
+                          :middleware [shared/require-auth]}]
    ["/play/:play/delete" {:post (partial shared/delete-game! organism-spec db)
                           :middleware [shared/require-auth]}]
    ["/play/:play/keep"   {:post (partial shared/keep-game! db)
