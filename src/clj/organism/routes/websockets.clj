@@ -137,6 +137,17 @@
   (doseq [ch channels]
     (send! ch message)))
 
+(defn drop-game!
+  "Forget a deleted game: tell any open tabs, then take it out of the registry.
+
+   Without this a connected client keeps a live channel on a key whose data is
+   gone, and the next connect! would quietly rebuild it as an empty lobby."
+  [game-key]
+  (let [channels (get-in @games [:games game-key :channels])]
+    (when (seq channels)
+      (send-channels! channels {:type "deleted" :key game-key}))
+    (swap! games update :games dissoc game-key)))
+
 (defn update-create-game
   [db player game-key channel {:keys [invocation] :as message}]
   (let [invocation (assoc invocation :game-type "organism")]
@@ -147,7 +158,7 @@
     (send-channels!
      (get-in @games [:games game-key :channels])
      message)
-    (persist/create-open-game! db game-key invocation)))
+    (persist/create-open-game! db game-key invocation player)))
 
 (defn update-player-name
   [db page-player game-key channel {:keys [index player] :as message}]
@@ -172,7 +183,7 @@
   (let [players (:players invocation)
         invocation (assoc invocation :game-type "organism")]
     (log/info "OPEN GAME" game-key players invocation)
-    (persist/create-open-game! db game-key invocation)))
+    (persist/create-open-game! db game-key invocation player)))
 
 (defn complete-game-state
   [{:keys [invocation game channels history chat] :as game-state}]

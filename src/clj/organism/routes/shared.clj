@@ -58,6 +58,87 @@
         (response/response {:play-key play-name}))
       (response/bad-request {:error "play-name and players required"}))))
 
+;; ── Deletion ─────────────────────────────────────────────────────────────
+;;
+;; See the workflow described in organism.persist. These two handlers are the
+;; whole of it: delete decides between removing the game now and marking it,
+;; keep is the objection that cancels a mark.
+
+(defn- participant?
+  "Only somebody with a stake in the game gets to touch its deletion state —
+   whoever created it, or anyone on the roster."
+  [record player]
+  (boolean
+   (and player
+        (or (= player (:created-by record))
+            (contains? (set (get-in record [:invocation :players])) player)))))
+
+(defn- humans-in
+  "The human names on a roster. Bots come from the game's stored :bots set, the
+   shared registry, and the \"generate-\" games that predate :bots."
+  [game-type record]
+  (let [bot-set (set (:bots record))]
+    (->> (get-in record [:invocation :players])
+         (remove str/blank?)
+         (remove bot-set)
+         (remove #(bots/bot? game-type %))
+         distinct)))
+
+(defn- nothing-at-stake?
+  "True when removing the game takes nothing from anyone else: no other human
+   on the roster, or not a single turn played yet. Those go immediately —
+   there is nobody who could object, so there is nothing to wait for."
+  [db game-type record player]
+  (or (empty? (remove #{player} (humans-in game-type record)))
+      (<= (persist/game-history-count db (:key record)) 1)))
+
+(defn delete-game!
+  "POST handler. Deletes outright when nothing is at stake, otherwise marks the
+   game and lets the grace period run.
+
+   `:on-delete` on the spec is called with the game key after a real deletion,
+   so the game's ws layer can drop it and tell any open tabs."
+  [{:keys [game-type on-delete] :as _spec} db request]
+  (let [player (get-in request [:session :player])
+        game-key (-> request :path-params :play)
+        record (persist/find-game-record db game-key)]
+    (cond
+      (nil? record)
+      (response/not-found {:error "no such game"})
+
+      (not (participant? record player))
+      (response/bad-request {:error "not your game"})
+
+      (nothing-at-stake? db game-type record player)
+      (do
+        (persist/delete-game! db game-key)
+        (when on-delete (on-delete game-key))
+        (response/response {:deleted game-key}))
+
+      :else
+      (response/response
+       {:marked game-key
+        :deletion (persist/mark-game-for-deletion! db game-key player)}))))
+
+(defn keep-game!
+  "POST handler — the objection. Any participant can cancel a pending deletion,
+   which is what keeps the player who marked it from stalling one through."
+  [db request]
+  (let [player (get-in request [:session :player])
+        game-key (-> request :path-params :play)
+        record (persist/find-game-record db game-key)]
+    (cond
+      (nil? record)
+      (response/not-found {:error "no such game"})
+
+      (not (participant? record player))
+      (response/bad-request {:error "not your game"})
+
+      :else
+      (do
+        (persist/unmark-game-for-deletion! db game-key)
+        (response/response {:kept game-key})))))
+
 ;; ── Common data loaders ──────────────────────────────────────────────────
 
 (defn load-open-games-for

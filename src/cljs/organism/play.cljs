@@ -3875,6 +3875,10 @@
       :play-prefix    "/organism/play/"
       :create-prefix  "/organism/create/"
       :player-prefix  (str js/playerPath "/")
+      ;; /organism/player/:someone-else renders this same page, so the delete
+      ;; controls only appear when you are looking at your own list.
+      :deletable?     (and (exists? js/sessionPlayer)
+                           (= player js/sessionPlayer))
       :font-family    font-choice
       :open-colors-fn (fn [invocation]
                         (invocation-player-colors (:player-count invocation) invocation))
@@ -4066,6 +4070,12 @@
              (assoc :progress (-> received :game :state :player-turn :introduction))
              (assoc :chosen-element nil)
              (assoc :chosen-space nil)))))
+    ;; The game under this tab was deleted out from under it. Leave, or the
+    ;; next connect would quietly rebuild the key as an empty lobby.
+    "deleted"
+    (do
+      (js/alert (str "This game (" (:key received) ") has been deleted."))
+      (dom/redirect! "/organism/play"))
     ;; bot-choices: server sends a list of choice keys the bot picked.
     ;; Client replays them via the SAME find-state choice flow the bot used.
     "bot-choices"

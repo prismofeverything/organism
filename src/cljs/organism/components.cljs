@@ -211,6 +211,106 @@
                              :margin-left "10px"}}
               "(bot)"])])])]))
 
+;; ── Deletion controls ───────────────────────────────────────────────────────
+;;
+;; Deleting a shared game is a workflow, not a button — see organism.persist.
+;; The server decides between removing a game outright and marking it, so the
+;; page just asks and then reloads: what comes back is what actually happened.
+
+(def ^:private delete-btn-style
+  {:background "transparent"
+   :border "1px solid #4A2A2A"
+   :border-radius "4px"
+   :color "#886666"
+   :padding "5px 10px"
+   :margin "0px 10px"
+   :font-size "12px"
+   :font-family "monospace"
+   :cursor "pointer"})
+
+(def ^:private keep-btn-style
+  (merge delete-btn-style
+         {:border "1px solid #3A5A3A" :color "#88AA77"}))
+
+(defn- time-until
+  "Epoch-seconds in the future → \"in 2 days\" / \"in 5 hours\"."
+  [secs]
+  (when secs
+    (let [remaining (- secs (quot (.now js/Date) 1000))
+          phrase (fn [n unit] (str "in " n " " unit (when (> n 1) "s")))]
+      (cond
+        (<= remaining 0)     "any moment now"
+        (< remaining 3600)   (phrase (max 1 (quot remaining 60)) "minute")
+        (< remaining 86400)  (phrase (quot remaining 3600) "hour")
+        :else                (phrase (quot remaining 86400) "day")))))
+
+(defn- delete-confirm-text
+  "History count is the forecast: 1 or less means only the initial state exists,
+   so nobody has anything invested and the game goes immediately."
+  [game-key history-count]
+  (if (and history-count (<= history-count 1))
+    (str "Delete " game-key "?\n\n"
+         "Nothing has happened in this game yet, so it goes right away.")
+    (str "Delete " game-key "?\n\n"
+         "It gets marked for deletion. Any move, or any player pressing KEEP, "
+         "cancels it. If nobody does either, it is removed in two days.")))
+
+(defn- post-game-action!
+  [url game-key on-done]
+  (ajax-core/POST url
+    {:params          {}
+     :format          :transit
+     :response-format :transit
+     :handler         (fn [_] (on-done))
+     :error-handler   (fn [err]
+                        (js/alert
+                         (str "Could not do that to " game-key ": "
+                              (or (get-in err [:response :error])
+                                  (:status-text err)))))}))
+
+(defn request-delete!
+  "Ask the server to delete (or mark) a game, then reload so the list shows
+   whichever of the two happened."
+  [play-prefix game-key]
+  (post-game-action! (str play-prefix game-key "/delete") game-key
+                     #(.reload js/location)))
+
+(defn request-keep!
+  "The objection — cancel a pending deletion."
+  [play-prefix game-key]
+  (post-game-action! (str play-prefix game-key "/keep") game-key
+                     #(.reload js/location)))
+
+(defn- delete-control
+  [{:keys [game-key history-count on-delete]}]
+  (when on-delete
+    [:button
+     {:title    "delete this game"
+      :on-click (fn [_]
+                  (when (js/confirm (delete-confirm-text game-key history-count))
+                    (on-delete)))
+      :style    delete-btn-style}
+     "\u2715"]))
+
+(defn- deletion-notice
+  "The line under a marked game: who marked it, when it goes, and the one click
+   that calls it off."
+  [{:keys [deletion on-keep]}]
+  (let [{:keys [marked-by deadline]} deletion]
+    [:div {:style {:margin "8px 20px 0px 20px" :padding "8px 14px"
+                   :border "1px dashed #6A3A3A" :border-radius "6px"
+                   :color "#BB8877" :font-size "0.85em"
+                   ;; table = block-level (own line) but shrink-to-fit
+                   :display "table"}}
+     [:span (str "marked for deletion"
+                 (when marked-by (str " by " marked-by))
+                 " \u2014 removed " (or (time-until deadline) "soon")
+                 " unless someone moves")]
+     (when on-keep
+       [:button {:on-click (fn [_] (on-keep))
+                 :style    (merge keep-btn-style {:margin-left "14px"})}
+        "KEEP"])]))
+
 ;; ── Open games display ──────────────────────────────────────────────────────
 
 (defn open-game-card
@@ -222,7 +322,8 @@
    :link-prefix — URL prefix for the game key (e.g. \"/organism/create/\")
    :current-player — logged-in player name (highlighted)
    :font-family — optional font for the title (default monospace)"
-  [{:keys [game-key invocation colors link-prefix current-player font-family]
+  [{:keys [game-key invocation colors link-prefix current-player font-family
+           on-delete]
     :or {font-family "monospace"}}]
   (let [{:keys [players ring-count description]} invocation
         first-color (or (first colors) "#445")]
@@ -277,7 +378,11 @@
                           :color color
                           :text-decoration "none"
                           :font-family font-family})}
-            game-player])])]
+            game-player])])
+      ;; A lobby nobody has joined has nothing at stake, so this one goes now.
+      [delete-control {:game-key game-key
+                       :history-count 0
+                       :on-delete on-delete}]]
      (when (and description (not (string/blank? description)))
        [:div {:style {:margin "0px 40px" :color "#aaa"}}
         description])]))
@@ -289,12 +394,12 @@
    :current-player — logged-in player name
    :colors-fn      — (fn [invocation]) returning a vector of colors per slot
    :font-family    — optional font family"
-  [{:keys [games link-prefix current-player colors-fn font-family]}]
+  [{:keys [games link-prefix current-player colors-fn font-family on-delete]}]
   (when (seq games)
     [:div {:style {:margin "20px 40px"}}
      [:h2
       [:span {:title "Click an open slot to join the game"} "OPEN"]]
-     (for [{:keys [key invocation]} games
+     (for [{:keys [key invocation] :as game} games
            :let [colors (when colors-fn (colors-fn invocation))]]
        ^{:key key}
        [open-game-card {:game-key key
@@ -302,7 +407,8 @@
                         :colors colors
                         :link-prefix link-prefix
                         :current-player current-player
-                        :font-family font-family}])]))
+                        :font-family font-family
+                        :on-delete (when on-delete #(on-delete game))}])]))
 
 ;; ── Active games (observe) display ──────────────────────────────────────────
 
@@ -765,16 +871,22 @@
    `emphasis` is the player to call out (whose turn it is, or the winner);
    when that is the viewer the whole row takes their colour."
   [{:keys [game-key href player-prefix players player-colors emphasis viewer
-           note tooltip font-family]}]
-  (let [viewer-color (get player-colors viewer "#445")]
-    [:div
-     {:style (if (and emphasis (= viewer emphasis))
+           note tooltip font-family deletion history-count on-delete on-keep]}]
+  (let [viewer-color (get player-colors viewer "#445")
+        base (if (and emphasis (= viewer emphasis))
                {:background viewer-color
                 :margin "10px 20px"
                 :padding "10px 0px"
                 :border-radius "10px"}
                {:margin "10px 20px"
-                :padding "10px 0px"})}
+                :padding "10px 0px"})]
+    [:div
+     ;; A marked row gets outlined so it reads as pending rather than gone.
+     {:style (if deletion
+               (merge base {:border "1px dashed #6A3A3A"
+                            :border-radius "10px"
+                            :padding "10px 12px"})
+               base)}
      [:span
       (when tooltip {:title tooltip})
       [:a
@@ -811,7 +923,12 @@
                       :border-radius "5px"
                       :color player-color
                       :text-decoration "none"})}
-           game-player]]))]))
+           game-player]]))
+     [delete-control {:game-key      game-key
+                      :history-count history-count
+                      :on-delete     on-delete}]
+     (when deletion
+       [deletion-notice {:deletion deletion :on-keep on-keep}])]))
 
 (defn games-section
   "A titled list of game rows. Props:
@@ -826,7 +943,8 @@
    :note-fn     — (fn [record] → string shown next to the game name)
    :tooltip-fn  — (fn [record] → hover text for the game name)"
   [{:keys [title tooltip games viewer play-prefix player-prefix
-           colors-fn emphasis-fn note-fn tooltip-fn font-family]}]
+           colors-fn emphasis-fn note-fn tooltip-fn font-family
+           on-delete on-keep]}]
   (when (seq games)
     [:div {:style {:margin "20px 40px"}}
      [:h2 (if tooltip [:span {:title tooltip} title] title)]
@@ -842,7 +960,11 @@
          :viewer        viewer
          :note          (when note-fn (note-fn record))
          :tooltip       (when tooltip-fn (tooltip-fn record))
-         :font-family   font-family}])]))
+         :font-family   font-family
+         :deletion      (:deletion record)
+         :history-count (:history-count record)
+         :on-delete     (when on-delete #(on-delete record))
+         :on-keep       (when on-keep #(on-keep record))}])]))
 
 (defn player-games-banner
   [{:keys [player color label home-path font-family on-click]}]
@@ -883,24 +1005,35 @@
    :font-family"
   [{:keys [player games color label home-path play-prefix create-prefix player-prefix
            colors-fn open-colors-fn note-fn tooltip-fn empty-content
-           on-banner-click font-family]
+           on-banner-click font-family deletable?]
     :or   {label "games" player-prefix "/player/"}}]
   (let [open      (get games "open")
         active    (get games "active")
         completed (get games "complete")
-        section   (fn [title tooltip rows emphasis-fn]
+        ;; Deletion is offered on open lobbies and live games only. Completed
+        ;; games stay: the ratings and the player stats replay them, so
+        ;; dropping one quietly rewrites history. `deletable?` is opt-in
+        ;; because it needs the <play-prefix>/:play/delete routes wired.
+        game-key  (fn [record] (or (:game record) (:key record)))
+        on-delete (when deletable?
+                    (fn [record] (request-delete! play-prefix (game-key record))))
+        on-keep   (when deletable?
+                    (fn [record] (request-keep! play-prefix (game-key record))))
+        section   (fn [title tooltip rows emphasis-fn extra]
                     [games-section
-                     {:title         title
-                      :tooltip       tooltip
-                      :games         rows
-                      :viewer        player
-                      :play-prefix   play-prefix
-                      :player-prefix player-prefix
-                      :colors-fn     colors-fn
-                      :emphasis-fn   emphasis-fn
-                      :note-fn       note-fn
-                      :tooltip-fn    tooltip-fn
-                      :font-family   font-family}])]
+                     (merge
+                      {:title         title
+                       :tooltip       tooltip
+                       :games         rows
+                       :viewer        player
+                       :play-prefix   play-prefix
+                       :player-prefix player-prefix
+                       :colors-fn     colors-fn
+                       :emphasis-fn   emphasis-fn
+                       :note-fn       note-fn
+                       :tooltip-fn    tooltip-fn
+                       :font-family   font-family}
+                      extra)])]
     [:div {:style {:padding "20px" :color "#eee"}}
      [player-games-banner {:player player :color color :label label
                            :home-path home-path :font-family font-family
@@ -909,12 +1042,14 @@
                           :link-prefix (or create-prefix play-prefix)
                           :current-player player
                           :colors-fn open-colors-fn
-                          :font-family font-family}]
+                          :font-family font-family
+                          :on-delete on-delete}]
      (section "ACTIVE"
               (str "A solid color row indicates it is your turn in that game.\n"
                    "The icon on the tab for this page will turn green when it is your turn.")
-              active :current-player)
-     (section "COMPLETE" nil (reverse completed) :winner)
+              active :current-player
+              {:on-delete on-delete :on-keep on-keep})
+     (section "COMPLETE" nil (reverse completed) :winner nil)
      (when (and (empty? open) (empty? active) (empty? completed))
        (or empty-content
            [:p {:style {:margin "30px 40px" :color "#888"}} "no games yet"]))]))

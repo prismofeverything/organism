@@ -47,6 +47,9 @@
    :ws-prefix        "/ws/organism/play/"
    :load-observe     persist/load-observe-games
    :load-player-stats leaderboard/player-stats
+   ;; After a real deletion, forget the game in the ws registry and tell any
+   ;; tab still sitting on it.
+   :on-delete        ws/drop-game!
    :learn-params     {:clips action-clips}})
 
 ;; ── Page handlers ─────────────────────────────────────────────────────────
@@ -61,6 +64,7 @@
      request
      "organism/player.html"
      {:player player
+      :session-player player
       :preferences preferences
       :player-games (pr-str player-games)})))
 
@@ -99,6 +103,9 @@
      request
      "organism/player.html"
      {:player player-key
+      ;; Anyone can view anyone's list — the viewer is who decides whether the
+      ;; delete controls render.
+      :session-player (get-in request [:session :player])
       :preferences preferences
       :player-games (pr-str player-games)})))
 
@@ -194,6 +201,10 @@
                       :middleware [shared/require-auth]}]
    ["/play/:play"    {:get (partial play-page db)}]
    ["/play/:play/"   {:get (partial play-page db)}]
+   ["/play/:play/delete" {:post (partial shared/delete-game! organism-spec db)
+                          :middleware [shared/require-auth]}]
+   ["/play/:play/keep"   {:post (partial shared/keep-game! db)
+                          :middleware [shared/require-auth]}]
    ["/observe"       {:get (partial shared/observe-page organism-spec db)}]
    ["/players"       {:get (partial shared/players-page organism-spec db)}]
    ["/learn"         {:get (partial shared/learn-page organism-spec)}]

@@ -27,9 +27,16 @@ BLUE_RGB = (109, 162, 178)
 FOOD_RGB = (242, 230, 158)   # soft warm yellow (matches video)
 
 # env: FOOD_COUNTS="1,2,3" (per-piece counts in EAT/MOVE/GROW order)
-#      VIEW="3q" | "top"
+#      VIEW="3q" | "top" ; VT/EXPOSURE (colour) ; BOARDSAT/BOARDVAL ; RESX/RESY/SAMPLES
 FOOD_COUNTS = [int(x) for x in os.environ.get("FOOD_COUNTS", "1,1,1").split(",")]
 VIEW        = os.environ.get("VIEW", "3q")
+VT          = os.environ.get("VT", "Standard")
+EXPOSURE    = float(os.environ.get("EXPOSURE", "0.0"))
+BOARDSAT    = float(os.environ.get("BOARDSAT", "1.15"))
+BOARDVAL    = float(os.environ.get("BOARDVAL", "0.92"))
+RESX        = int(os.environ.get("RESX", "1800"))
+RESY        = int(os.environ.get("RESY", "1200"))
+SAMPLES     = int(os.environ.get("SAMPLES", "96"))
 
 def s2l(c):
     c /= 255.0
@@ -40,10 +47,19 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 sc = bpy.context.scene
 try: sc.render.engine = 'BLENDER_EEVEE_NEXT'
 except Exception: sc.render.engine = 'BLENDER_EEVEE'
-try: sc.eevee.taa_render_samples = 96
+try: sc.eevee.taa_render_samples = SAMPLES
 except Exception: pass
-sc.render.resolution_x, sc.render.resolution_y = 1800, 1200
+sc.render.resolution_x, sc.render.resolution_y = RESX, RESY
 sc.render.film_transparent = False
+# Blender's default view transform is AgX, which rolls the entire frame toward a milky
+# pastel -- the reason this still read washed out beside the clips. build_clip.py:65 and
+# build_anim.py:26 both already turn it off; this was the one render in the set that never
+# got the fix. Standard clips highlights rather than rolling them off, so EXPOSURE exists
+# to pull the AgX-era light rig (3 suns + 0.9 world) back down underneath it.
+try: sc.view_settings.view_transform = VT     # true-to-print colors (not AgX milky wash)
+except Exception: pass
+sc.view_settings.exposure = EXPOSURE
+print(f"view_transform = {sc.view_settings.view_transform}  exposure = {EXPOSURE}")
 # soft warm world ambient
 w = bpy.data.worlds.new("W"); sc.world = w; w.use_nodes = True
 w.node_tree.nodes["Background"].inputs[0].default_value = (0.62, 0.63, 0.66, 1)
@@ -62,7 +78,14 @@ def img_mat(name, path):
     m = bpy.data.materials.new(name); m.use_nodes = True
     nt = m.node_tree; b = nt.nodes["Principled BSDF"]
     t = nt.nodes.new("ShaderNodeTexImage"); t.image = bpy.data.images.load(path)
-    nt.links.new(t.outputs["Color"], b.inputs["Base Color"])
+    # The board correction from build_clip.py:92 -- minification mipmaps average the
+    # high-contrast printed art toward grey at this oblique angle, so the saturation goes
+    # back in, with the value a step down to keep the board under the pieces.
+    hsv = nt.nodes.new("ShaderNodeHueSaturation")
+    hsv.inputs["Saturation"].default_value = BOARDSAT
+    hsv.inputs["Value"].default_value = BOARDVAL
+    nt.links.new(t.outputs["Color"], hsv.inputs["Color"])
+    nt.links.new(hsv.outputs["Color"], b.inputs["Base Color"])
     b.inputs["Roughness"].default_value = 0.85
     return m
 

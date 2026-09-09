@@ -24,6 +24,9 @@ PLATE_STL := $(FOOD)/print_plate.stl
 PIECES_PLATE_STL := $(FOOD)/pieces_plate.stl
 MINDISKS  := $(OUT)/EAT_mindisk.stl $(OUT)/MOVE_mindisk.stl $(OUT)/GROW_mindisk.stl
 DISK_PLATE := $(ROOT)/stl/disk_plate.stl
+SCULPTS   := $(OUT)/EAT_sculpt_graft.obj $(OUT)/MOVE_sculpt_graft.obj $(OUT)/GROW_sculpt_graft.obj
+SIDE_SVGS := $(foreach p,EAT MOVE GROW,$(ROOT)/svg/$(p)_side.svg $(ROOT)/svg/$(p)_side_trace.svg) \
+             $(ROOT)/svg/elements_side.svg $(ROOT)/svg/elements_side_trace.svg
 
 help:                       ## list targets (default)
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-10s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -39,6 +42,7 @@ plate:  $(PLATE_STL)        ## combined print plate STL (needs grafts + food)
 pieceplate: $(PIECES_PLATE_STL) ## pieces-only plate STL (EAT/MOVE/GROW, no food -> separate colour)
 disks:  $(MINDISKS)         ## 2D silhouette disks -> out/*_mindisk.stl (crisp vector curves)
 diskplate: $(DISK_PLATE)    ## print plate: DISK_COPIES each (def 4) 2D disk, socket-down, self-supporting -> stl/disk_plate.stl
+sides:  $(SIDE_SVGS)        ## side views -> svg/: filled silhouette + line trace (true-scale vector, mm)
 all:    blanks grafts food plate   ## rebuild everything (skips video)
 
 $(BLANKS): meshlib/build.py meshlib/graft_lib.py
@@ -77,6 +81,12 @@ $(MINDISKS): build_minimal.py clean_svg.py inputs/eat.svg inputs/move.svg inputs
 $(DISK_PLATE): build_disk_plate.py $(MINDISKS)
 	$(BLENDER) $(BFLAGS) build_disk_plate.py
 
+# side elevations, two flavours per piece: filled silhouette and a hidden-line trace (occluding
+# contour + creases). Everything is resampled, smoothed and refit as cubics so the curves describe
+# the form, not the mesh. True scale (1 unit = 1 mm); pass an azimuth to look from elsewhere.
+$(SIDE_SVGS): side_svg.py $(SCULPTS)
+	$(PY) side_svg.py
+
 measure: $(FOOD_STLS)       ## FOOD nesting % measurement
 	$(PY) stack_food.py $(FOOD)/FOOD_nosnap.profile.json
 
@@ -106,5 +116,5 @@ video:                      ## gameplay animation -> scene/<game>-play.mp4 (slow
 clean:                      ## nuke out/ blanks+grafts and plate STLs (food STLs preserved)
 	rm -f $(BLANKS) $(GRAFTS) $(PLATE_STL) $(PIECES_PLATE_STL)
 
-.PHONY: help print blanks grafts food plate pieceplate disks diskplate all measure preview video clean
+.PHONY: help print blanks grafts food plate pieceplate disks diskplate sides all measure preview video clean
 .DEFAULT_GOAL := help

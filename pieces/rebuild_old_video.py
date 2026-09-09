@@ -118,38 +118,76 @@ foodmat=bpy.data.materials.new("FOODcream"); foodmat.diffuse_color=(242/255,230/
 DOME=4.3; FCLEAR=0.94/0.90    # build_play_real food/piece clearance so the socket swallows the peg with slack
 allbodies=[B for objs in bodies.values() for B in objs]
 _tor=[o for o in bpy.data.objects if o.type=='MESH' and 'torus' in o.name.lower()]
-# presample each cup's scale across the WHOLE timeline (drives food appear/disappear), step 2 frames
+
+# ---- WHOSE food is it, and HOW MANY are on the piece? ----
+#
+# The first version answered both once, at frame 400: nearest body by XY, one food per
+# cup, every food parked at the same local point. All three failures were on screen:
+#   * pieces MOVE and come and go, so a cup that rides piece A for two thirds of the
+#     replay can be nearest piece B at frame 400. Measured: 4 of 18 cups change owner
+#     while visible -- an eater with no food, a grown piece carrying one it never took.
+#   * two cups could land on the SAME body and both parked at the same point, so they
+#     interpenetrated exactly. Measured: 3 bodies given two foods each. Eating a second
+#     looked like nothing, and spending one made the wrong one vanish.
+#   * one cup was dropped outright: at frame 400 its nearest body was 15.7 away.
+#
+# This is the model `build_play_real.py` already uses for the gameplay clips, which
+# solved the same problem from game state: ONE FOOD PER STACK SLOT on each piece, the
+# slot shown while the piece's food COUNT reaches it, stacked at 6.4mm. The count here
+# is derived per frame from the cups (the old scene has no game record), but everything
+# downstream is the proven arrangement rather than a second invention.
+STACK_STEP = 6.4             # build_play_real.py: `1.0 + peg + k*6.4`
+CUP_ON = 1e-3                # a cup smaller than this is not on the board
+MAXD = 3.0                   # further than this from a body is not sitting on it
+
 STEP=2; FRS=list(range(1,581,STEP))
-cupS={T:[] for T in _tor}; cupmax={T:1e-6 for T in _tor}
+cupmax={T:1e-6 for T in _tor}
 for f in FRS:
     sc.frame_set(f)
     for T in _tor:
-        s=max(abs(T.scale[i]) for i in range(3)); cupS[T].append(s)
+        s=max(abs(T.scale[i]) for i in range(3))
         if s>cupmax[T]: cupmax[T]=s
+# per sample, the normalised cup scales sitting on each body, biggest first
+onbody={B:[] for B in allbodies}
+for f in FRS:
+    sc.frame_set(f)
+    vis=[(B,B.matrix_world.translation) for B in allbodies
+         if max(abs(B.scale[i]) for i in range(3))>CUP_ON]
+    here={B:[] for B in allbodies}
+    for T in _tor:
+        s=max(abs(T.scale[i]) for i in range(3))
+        if s<CUP_ON or cupmax[T]<CUP_ON: continue
+        tw=T.matrix_world.translation
+        best=None; bd=1e9
+        for B,bw in vis:
+            d=((tw.x-bw.x)**2+(tw.y-bw.y)**2)**0.5
+            if d<bd: bd=d; best=B
+        if best is not None and bd<=MAXD: here[best].append(s/cupmax[T])
+    for B in allbodies: onbody[B].append(sorted(here[B], reverse=True))
 sc.frame_set(400)
-foods=0
-for T in _tor:
-    if cupmax[T]<1e-3: continue
-    tw=T.matrix_world.translation
-    best=None; bd=1e9
-    for B in allbodies:
-        bw=B.matrix_world.translation; d=((tw.x-bw.x)**2+(tw.y-bw.y)**2)**0.5
-        if d<bd: bd=d; best=B
-    if best is None or bd>3.0: continue                  # stray center ring -> skip
-    N=Nmap.get(best)
+
+foods=0; slots=0; deepest=0
+for B in allbodies:
+    need=max((len(v) for v in onbody[B]), default=0)
+    if need==0: continue
+    N=Nmap.get(B)
     if N is None: continue
-    typ=MAP[len(best.data.vertices)]
-    F=bpy.data.objects.new(T.name+"_FOOD", foodmesh); sc.collection.objects.link(F)
-    F.parent=N; F.matrix_parent_inverse=mathutils.Matrix.Identity(4)
-    F.location=(0.0,0.0, Hnew[typ]-DOME)                 # piece-local central axis, at the plateau: socket swallows the peg
-    F.rotation_euler=(0,0,0)                             # upright (piece is upright)
-    if F.material_slots: F.material_slots[0].link='OBJECT'; F.material_slots[0].material=foodmat
-    # appear/disappear: local scale = FCLEAR*(cup_scale/cup_max); x piece world-scale S -> world FS*ratio
-    for i,f in enumerate(FRS):
-        sv=FCLEAR*(cupS[T][i]/cupmax[T])
-        F.scale=(sv,sv,sv); F.keyframe_insert("scale",frame=f)
-    foods+=1
-print("seated_food",foods)
+    deepest=max(deepest,need); foods+=1
+    typ=MAP[len(B.data.vertices)]
+    base=Hnew[typ]-DOME
+    for k in range(need):
+        F=bpy.data.objects.new("%s_FOOD%d"%(B.name.replace(" ",""),k), foodmesh)
+        sc.collection.objects.link(F)
+        F.parent=N; F.matrix_parent_inverse=mathutils.Matrix.Identity(4)
+        F.location=(0.0,0.0, base + k*STACK_STEP)     # the pile telescopes upward
+        F.rotation_euler=(0,0,0)
+        if F.material_slots: F.material_slots[0].link='OBJECT'; F.material_slots[0].material=foodmat
+        for i,fr in enumerate(FRS):
+            v=onbody[B][i]
+            sv=FCLEAR*v[k] if len(v)>k else 0.0      # slot k shows while the count reaches it
+            F.scale=(sv,sv,sv); F.keyframe_insert("scale",frame=fr)
+        slots+=1
+print("seated_food pieces",foods,"slots",slots,"deepest_stack",deepest)
 
 # hide the old cup meshes (their transforms still drive the parented FOOD)
 hid=0

@@ -51,13 +51,19 @@
   (str "player-games-" key))
 
 (defn create-open-game!
-  [db game-key invocation]
-  (println "creating open game!" game-key)
-  (db/index! db :open-games [:key] {:unique true})
-  (db/merge!
-   db :open-games
-   {:key game-key}
-   {:invocation invocation}))
+  "Store (or update) an open lobby. `created-by` is whoever opened it, recorded
+   so a lobby can be cleaned up by the person who made it the way a created
+   game carries :created-by. Omitting it leaves any existing value alone."
+  ([db game-key invocation]
+   (create-open-game! db game-key invocation nil))
+  ([db game-key invocation created-by]
+   (println "creating open game!" game-key)
+   (db/index! db :open-games [:key] {:unique true})
+   (db/merge!
+    db :open-games
+    {:key game-key}
+    (cond-> {:invocation invocation}
+      created-by (assoc :created-by created-by)))))
 
 (defn remove-open-game!
   [db game-key]
@@ -113,7 +119,9 @@
      {:game game-key}
      {:round round
       :current-player current-player
-      :last-move-at now})))
+      :last-move-at now
+      ;; Playing is the veto: any turn cancels a pending deletion.
+      :deletion nil})))
 
 (defn update-player-games!
   [db game-key players state]
@@ -270,6 +278,117 @@
      db game-key players
      winner state)))
 
+;; ── Deletion ───────────────────────────────────────────────────────────
+;;
+;; A game belongs to everyone in it, so removing one is a small workflow rather
+;; than a button:
+;;
+;;   nothing at stake  ──delete──▶  gone now
+;;   live game  ──any player marks──▶  pending  ──deadline, silence──▶  gone
+;;                                        ▲ any move or objection clears it
+;;
+;; Deletion needs silence from everyone, which is exactly when a game is dead.
+;; A single objection defeats it, so the player who marks a game cannot stall
+;; their way to deleting one they are losing. organism.reap runs the sweep.
+
+(def deletion-grace-seconds
+  "How long a marked game waits for an objection before the reaper takes it."
+  (* 2 24 60 60))
+
+(defn now-seconds
+  []
+  (quot (System/currentTimeMillis) 1000))
+
+(defn find-game-record
+  "The :games or :open-games record for this key, whichever exists."
+  [db game-key]
+  (or (db/one db :games {:key game-key})
+      (db/one db :open-games {:key game-key})))
+
+(defn game-player-names
+  "Every real name in a game's roster. Open lobbies carry blank slots and a
+   roster can repeat a name, so this is not simply (:players invocation)."
+  [db game-key]
+  (->> (get-in (find-game-record db game-key) [:invocation :players])
+       (remove str/blank?)
+       distinct
+       vec))
+
+(defn game-history-count
+  [db game-key]
+  (db/number db (history-key game-key)))
+
+(defn last-activity-at
+  "Epoch seconds of the most recent history entry, read off its ObjectId.
+
+   The only trustworthy \"when did something last happen\" signal: bot turns
+   write history through update-state! without ever touching the player-games
+   records that carry :last-move-at."
+  [db game-key]
+  (let [id (:_id (db/find-last db (history-key game-key) {}))]
+    (when (instance? org.bson.types.ObjectId id)
+      (.getTimestamp ^org.bson.types.ObjectId id))))
+
+(defn- set-deletion!
+  "Write (or clear) the deletion flag on a game and mirror it onto every
+   player's row, so the games list can show it without a lookup per row.
+
+   These are updates, never upserts. An upsert here would invent a :games
+   document for a lobby that only lives in :open-games, and a statusless
+   player-games row for anyone missing one — the exact junk the
+   remove-empty-games migration had to go clean up."
+  [db game-key deletion]
+  (let [collection (if (db/one db :games {:key game-key}) :games :open-games)]
+    (db/merge-all! db collection {:key game-key} {:deletion deletion})
+    (doseq [name (game-player-names db game-key)]
+      (db/merge-all! db (player-games-key name) {:game game-key} {:deletion deletion}))))
+
+(defn mark-game-for-deletion!
+  "Flag a game for removal once the grace period runs out."
+  [db game-key player]
+  (let [now (now-seconds)
+        deletion {:marked-by player
+                  :marked-at now
+                  :deadline (+ now deletion-grace-seconds)}]
+    (println "marking for deletion" game-key "by" player)
+    (set-deletion! db game-key deletion)
+    deletion))
+
+(defn unmark-game-for-deletion!
+  "Cancel a pending deletion — an objection, or a move."
+  [db game-key]
+  (println "clearing deletion mark" game-key)
+  (set-deletion! db game-key nil))
+
+(defn- purge-collection!
+  "Empty a per-game collection, then drop it. The delete runs first so the data
+   is gone even where the drop is refused; the drop keeps dead namespaces from
+   accumulating one per deleted game."
+  [db collection]
+  (db/delete! db collection {})
+  (try
+    (db/drop! db collection)
+    (catch Exception e
+      (println "could not drop" (name collection) "-" (.getMessage e)))))
+
+(defn delete-game!
+  "Remove a game and everything hanging off it.
+
+   A game is spread across five places — :games, :open-games, its history and
+   chat collections, and one row in every participant's player-games — and
+   missing any of them orphans rows in somebody's list. This is the only place
+   that should ever take one apart."
+  [db game-key]
+  (let [players (game-player-names db game-key)]
+    (println "deleting game" game-key "for" players)
+    (doseq [name players]
+      (db/delete! db (player-games-key name) {:game game-key}))
+    (db/delete! db :games {:key game-key})
+    (db/delete! db :open-games {:key game-key})
+    (purge-collection! db (history-key game-key))
+    (purge-collection! db (chat-key game-key))
+    {:key game-key :players players}))
+
 (defn deserialize-player-game
   [player-game]
   (-> player-game
@@ -367,18 +486,22 @@
   [db player player-games]
   (reduce
    (fn [sections player-game]
-     (if (= "active" (:status player-game))
-       (update sections "active" conj player-game)
-       (let [game-key (:game player-game)
-             history-count (db/number db (history-key game-key))
-             witness (or (:witness player-game) 0)]
-         (if (= "complete" (:status player-game))
-           (if (< witness history-count)
-             (update
-              sections "active" conj
-              (assoc player-game :status "active" :current-player player))
-             (update sections "complete" conj player-game))
-           sections))))
+     (let [game-key (:game player-game)
+           ;; Ground truth for "has anything actually happened here" — 1 is the
+           ;; initial state alone. The delete control needs it on every row, and
+           ;; the witness comparison below reuses the same count.
+           history-count (db/number db (history-key game-key))
+           player-game (assoc player-game :history-count history-count)]
+       (if (= "active" (:status player-game))
+         (update sections "active" conj player-game)
+         (let [witness (or (:witness player-game) 0)]
+           (if (= "complete" (:status player-game))
+             (if (< witness history-count)
+               (update
+                sections "active" conj
+                (assoc player-game :status "active" :current-player player))
+               (update sections "complete" conj player-game))
+             sections)))))
    {"active" [] "complete" []}
    player-games))
 
