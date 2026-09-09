@@ -1483,6 +1483,10 @@
     (>= organism-count organism-victory)))
 
 (defn player-wins?
+  "Whether this player alone meets a victory condition.
+
+   Not the victory check — it cannot see anyone else, so it says yes to both
+   sides of a tie. victory?/find-leader is what actually decides a game."
   [game player]
   (or
    (enough-player-captures? game player)
@@ -1503,12 +1507,30 @@
       players))))
 
 (defn find-leader
-  [score-map]
-  (let [largest-lead (apply max (map last score-map))
-        lead-map (group-by last score-map)
-        leaders (get lead-map largest-lead)]
-    (when (= 1 (count leaders))
-      (-> leaders first first))))
+  "The single player at the top of a score map of already-qualifying players.
+
+   A tie is settled against whoever's turn produced it — causing a tie loses —
+   so the acting player is dropped from the tied leaders and the win goes to
+   whoever is left standing. This is the whole of the tie rule: without it a
+   tie returned nobody and the game simply carried on past its own ending.
+
+   `acting` is the player whose turn is being finished. The victory check in
+   choice/find-state runs after resolve-conflicts and check-integrity but
+   before the :check-integrity branch hands the turn on with start-next-turn,
+   so player-turn still names the player who just moved.
+
+   If two players who did NOT act are tied at the top there is nobody to hold
+   responsible, and no winner is declared."
+  ([score-map] (find-leader score-map nil))
+  ([score-map acting]
+   (let [largest-lead (apply max (map last score-map))
+         lead-map (group-by last score-map)
+         leaders (map first (get lead-map largest-lead))]
+     (if (= 1 (count leaders))
+       (first leaders)
+       (let [blameless (remove #{acting} leaders)]
+         (when (= 1 (count blameless))
+           (first blameless)))))))
 
 (defn capture-victory?
   [game]
@@ -1519,7 +1541,7 @@
            (>= captures 0))
          player-captures)]
     (when-not (empty? enough)
-      (find-leader enough))))
+      (find-leader enough (current-player game)))))
 
 (defn organism-victory?
   [game]
@@ -1541,7 +1563,7 @@
            (>= organism-count organism-victory))
          organism-counts)]
     (when-not (empty? enough)
-      (find-leader enough))))
+      (find-leader enough (current-player game)))))
 
 (defn victory?
   [game]
