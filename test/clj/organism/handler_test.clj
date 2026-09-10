@@ -1,6 +1,7 @@
 (ns organism.handler-test
   (:require
     [clojure.test :refer :all]
+    [clojure.string]
     [ring.mock.request :refer :all]
     [organism.handler :refer :all]
     [organism.middleware.formats :as formats]
@@ -18,8 +19,16 @@
     (f)))
 
 (deftest test-app
-  (testing "main route"
+  (testing "root redirects to the organism landing page"
+    ;; the multi-game catalog is no longer surfaced — see routes.home/root-redirect
     (let [response ((app) (request :get "/"))]
+      (is (= 302 (:status response)))
+      ;; ring absolutizes the Location against the request host
+      (is (clojure.string/ends-with? (get-in response [:headers "Location"])
+                                     "/organism"))))
+
+  (testing "and that landing page renders"
+    (let [response ((app) (request :get "/organism"))]
       (is (= 200 (:status response)))))
 
   (testing "not-found route"

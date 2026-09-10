@@ -46,14 +46,26 @@
       (is (= 127 (count six-adjacencies))))))
 
 (deftest initial-state-test
-  (testing "the creation of initial state from player info and adjacencies"
+  (testing "a fresh state names the first player and nothing else"
+    (let [state (initial-state ["orb" "mass"])]
+      (is (= 0 (:round state)))
+      (is (= {} (:elements state)))
+      (is (= {"orb" [] "mass" []} (:captures state)))
+      (is (= "orb" (get-in state [:player-turn :player])))
+      (is (empty? (get-in state [:player-turn :organism-turns])))))
+
+  (testing "the whole game built from player info and adjacencies"
     (let [colors [:yellow :red :blue :orange]
           rings (build-rings 6 colors)
           adjacencies (find-adjacencies rings)
           player-info [["orb" [[:orange 0] [:orange 1] [:orange 2]]]
                        ["mass" [[:orange 9] [:orange 10] [:orange 11]]]]
-          initial (initial-state colors adjacencies [:yellow 0] player-info 3)]
-      (println initial))))
+          game (initial-game colors adjacencies [:yellow 0] player-info 3 {})]
+      (is (= [:yellow 0] (:center game)))
+      (is (= ["orb" "mass"] (:turn-order game)))
+      (is (= 3 (:organism-victory game)))
+      (is (= adjacencies (:adjacencies game)))
+      (is (= "orb" (get-in game [:state :player-turn :player]))))))
 
 (deftest find-corners-test
   (testing "the process for finding corners"
@@ -122,9 +134,24 @@
       (println "post conflict" (:state resolved))
       (is (= 1 (count orb-elements)))
       (is (= :eat (:type (first orb-elements))))
-      (is (= 3 (:food (first orb-elements))))
+      ;; The survivor keeps the food it had. Taking the fallen elements' food
+      ;; is what the EXTRACT mutation buys — see the case below.
+      (is (= 0 (:food (first orb-elements))))
       (is (= 1 (count (get-captures resolved "orb"))))
       (is (= 1 (count (get-captures resolved "mass")))))))
+
+(deftest conflict-extract-test
+  (testing "EXTRACT hands the fallen elements' food to the survivor"
+    (let [game (-> examples/two-player-close
+                   (assoc :mutations {:EXTRACT {}})
+                   (add-element "orb" 0 :eat [:orange 5] 0)
+                   (add-element "orb" 0 :move [:blue 4] 2)
+                   (add-element "mass" 1 :grow [:blue 3] 2))
+          resolved (resolve-conflicts game "orb")
+          orb-elements (get (player-elements resolved) "orb")]
+      (is (= 1 (count orb-elements)))
+      ;; nothing of its own, plus 2 from each element that fell
+      (is (= 4 (:food (first orb-elements)))))))
 
 (def integrity-position
   (-> examples/two-player-close
@@ -174,8 +201,14 @@
               (trace-organism [:orange 5] 111))
           organisms (group-organisms state)]
       (println "traced" organisms)
+      ;; the traced group, and everything still unassigned
       (is (= 2 (count organisms)))
-      (is (= 3 (count (get organisms ["orb" 111])))))))
+      ;; group-organisms keys by organism id alone — safe because it is only
+      ;; ever called on a game find-organisms has just numbered
+      (is (= 3 (count (get organisms 111))))
+      (is (= #{[:orange 5] [:blue 4] [:red 2]}
+             (set (map :space (get organisms 111)))))
+      (is (every? #(= "orb" (:player %)) (get organisms 111))))))
 
 (deftest clear-organisms-test
   (testing "clearing the organism state"
@@ -184,8 +217,10 @@
               (clear-organisms))
           organisms (group-organisms state)]
       (println "cleared" organisms)
-      (is (= 2 (count organisms)))
-      (is (= 3 (count (get organisms ["orb" nil])))))))
+      ;; every element is now organism nil, so they all group together
+      (is (= 1 (count organisms)))
+      (is (= 7 (count (get organisms nil))))
+      (is (every? nil? (map :organism (get organisms nil)))))))
 
 (deftest organisms-test
   (testing "identifying contiguous groups of elements as distinct organisms"
@@ -217,7 +252,15 @@
           organisms (group-organisms game)]
       (println "sacrifice" (:state game) organisms)
       (is (= 1 (count organisms)))
-      (is (= 3 (count (get-captures game "orb")))))))
+      ;; orb takes two: mass's :move from the conflict, and one :integrity for
+      ;; mass's organism perishing. Moving to the centre cut orb's own :grow
+      ;; off from the rest, so that one perished as a sacrifice — and a
+      ;; sacrifice pays only the players it had captured, which here is nobody.
+      (is (= 2 (count (get-captures game "orb"))))
+      (is (= [:move :integrity] (mapv :type (get-captures game "orb"))))
+      (is (nil? (get-element game (:center game)))
+          "the element that moved to the centre perished on its own")
+      (is (= 1 (count (get-captures game "mass")))))))
 
 (deftest turn-test
   (testing "taking a turn"

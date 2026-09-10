@@ -1174,6 +1174,12 @@
     game))
 
 (defn group-organisms
+  "Elements grouped by organism id: {organism-id [element ...]}.
+
+   Keyed by the id alone, which is only unambiguous once find-organisms has
+   numbered them — it numbers across every player, so ids are unique. On a
+   hand-built position where two players happen to carry the same id, their
+   elements land in the same group."
   [game]
   (reduce
    (fn [organisms element]
@@ -1259,7 +1265,6 @@
                     (conj players (:player element)))
                   #{}
                   elements)]
-             (println "ORGANISM" organism-id organism-player? elements)
              (if (and
                   (find-mutation game :RAIN)
                   (organism-player? (rain-player game)))
