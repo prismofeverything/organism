@@ -15,11 +15,11 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{player}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{player|js}};
       var playerGames = null;
-      var playerPreferences = "{{preferences|addslashes|safe}}";
-      var playKey = "{{play}}";
+      var playerPreferences = {{preferences|js}};
+      var playKey = {{play|js}};
       var homePath = "/organism";
       var playerPath = "/organism/player";
       var isCreate = false;

@@ -4027,7 +4027,8 @@
   (condp = type
     "initialize"
     (if js/isCreate
-      (dom/redirect! (str "/organism/play/" @create-game-key))
+      (dom/redirect! (str "/organism/play/"
+                          (js/encodeURIComponent @create-game-key)))
       (do
         (swap! game-state initialize-game received)
         (reset! board-invocation (:invocation received))
@@ -4211,6 +4212,8 @@
           (connect-create-ws! pk)))
       (when game?
         (ws/make-websocket!
-         (str protocol "//" (.-host js/location) "/ws/organism/play/" js/playKey)
+         ;; the key is a game name — encode it, it can hold spaces and quotes
+         (str protocol "//" (.-host js/location) "/ws/organism/play/"
+              (js/encodeURIComponent js/playKey))
          update-messages!))
       (mount-components))))

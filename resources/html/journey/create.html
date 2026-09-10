@@ -14,9 +14,9 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{session-player}}";
-      var playerPreferences = "{{preferences|addslashes|safe}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{session-player|js}};
+      var playerPreferences = {{preferences|js}};
       var playerGames = null;
       var playKey = null;
       var isCreate = true;

@@ -39,7 +39,7 @@
     <a class="nav-link" href="/oroboros">← oroboros home</a>
 
     <script type="text/javascript">
-      var playerGames = "{{player-games|addslashes|safe}}";
+      var playerGames = {{player-games|js}};
       (function() {
         var container = document.getElementById('games-list');
         try {

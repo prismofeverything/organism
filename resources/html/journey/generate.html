@@ -14,7 +14,7 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
+      var csrfToken = {{csrf-token|js}};
       var playerKey = null;
       var playerPreferences = "{}";
       var playerGames = null;
@@ -22,7 +22,7 @@
       var isCreate = false;
       var isObserve = false;
       var isGenerate = true;
-      var generateHistory = "{{generate-history|addslashes|safe}}";
+      var generateHistory = {{generate-history|js}};
     </script>
     {% script "/js/journey.js" %}
   </body>

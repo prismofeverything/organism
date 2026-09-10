@@ -15,11 +15,11 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{player}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{player|js}};
       var playerGames = null;
-      var playerPreferences = "{{preferences|addslashes|safe}}";
-      var gameKey = "{{game}}";
+      var playerPreferences = {{preferences|js}};
+      var gameKey = {{game|js}};
       var isCreate = false;
       var isStats = false;
       var isObserve = false;

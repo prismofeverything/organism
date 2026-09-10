@@ -12,8 +12,8 @@
     </div>
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{session-player}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{session-player|js}};
       var playKey = null;
       var isCreate = false;
       var isObserve = false;
@@ -23,9 +23,9 @@
       var botGameType = "journey";
       var botBasePath = "/journey/bots";
       var botHomePath = "/journey";
-      var preloadedBot = "{{bot|addslashes|safe}}";
-      var preloadedBotName = "{{bot-name|addslashes|safe}}";
-      var preloadedBotOwner = "{{bot-owner|addslashes|safe}}";
+      var preloadedBot = {{bot|js}};
+      var preloadedBotName = {{bot-name|js}};
+      var preloadedBotOwner = {{bot-owner|js}};
     </script>
     {% script "/js/journey-bots.js" %}
   </body>

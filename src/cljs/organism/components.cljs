@@ -14,6 +14,7 @@
    [reagent.core :as r]
    [cljs.reader :as reader]
    [ajax.core :as ajax-core]
+   [organism.base :as base]
    [organism.websockets :as ws]))
 
 ;; ── Shared atoms ────────────────────────────────────────────────────────────
@@ -33,7 +34,9 @@
      (ws/close-websocket!)
      (let [protocol (if (= (.-protocol js/location) "https:") "wss:" "ws:")]
        (ws/make-websocket!
-        (str protocol "//" (.-host js/location) ws-prefix game-key)
+        ;; game-key is a game name, so it needs encoding like any other one
+        (str protocol "//" (.-host js/location) ws-prefix
+             (js/encodeURIComponent game-key))
         update-fn
         on-open)))))
 
@@ -260,7 +263,14 @@
    spaces, apostrophes and punctuation are all ordinary here (\"2p Testing!\",
    \"Woogachaka's Game\"), and an unencoded space is not a valid URL."
   [prefix game-key suffix]
-  (str prefix (js/encodeURIComponent game-key) suffix))
+  (str (base/join-path prefix (js/encodeURIComponent game-key)) suffix))
+
+(defn player-url
+  "A link to a player's page. Player names are free text the same way game
+   names are, and the prefix reaches us with or without its trailing slash
+   depending on which page is asking."
+  [prefix player]
+  (base/join-path prefix (js/encodeURIComponent player)))
 
 (defn- post-game-action!
   [url game-key on-done]
@@ -357,7 +367,7 @@
      [:div {:style {:margin "10px 20px" :padding "10px 0px"}}
       ;; Game name button
       [:span
-       [:a {:href (str link-prefix game-key)
+       [:a {:href (game-url link-prefix game-key "")
             :style {:color "#fff"
                     :border-radius "15px"
                     :background first-color
@@ -391,10 +401,10 @@
                          :style (merge slot-style {:background "transparent"
                                                    :cursor "pointer"})}
                 "join"]
-               [:a {:href (str link-prefix game-key) :style slot-style}
+               [:a {:href (game-url link-prefix game-key "") :style slot-style}
                 "open"]))
            ;; Filled slot
-           [:a {:href (str link-prefix game-key)
+           [:a {:href (game-url link-prefix game-key "")
                 :style (if (= game-player current-player)
                          {:color "#fff"
                           :border-radius "20px"
@@ -506,7 +516,7 @@
                        last-move-time (conj (str "last move " (format-last-move last-move-time)))))]
     [:div {:style {:margin "10px 20px" :padding "10px 0px"}}
      [:span
-      [:a {:href (str link-prefix game-key)
+      [:a {:href (game-url link-prefix game-key "")
            :style {:color "#fff"
                    :border-radius "15px"
                    :background current-color
@@ -540,7 +550,7 @@
            :let [color (get player-colors game-player)]]
        ^{:key game-player}
        [:span
-        [:a {:href (str player-link-prefix game-player)
+        [:a {:href (player-url player-link-prefix game-player)
              :style (if (= game-player current-player)
                       {:color "#fff"
                        :border-radius "20px"
@@ -717,7 +727,7 @@
                          :display "flex" :align-items "center"
                          :flex-wrap "wrap" :gap "4px"
                          :opacity (if provisional "0.6" "1")}}
-           [:a {:href (str player-link-prefix "/" key)
+           [:a {:href (player-url player-link-prefix key)
                 :style {:color "#fff"
                         :border-radius "15px"
                         :background (or color "#444")
@@ -880,7 +890,7 @@
                         :handler         (fn [resp]
                                            (let [pk (or (:play-key resp) (get resp "play-key"))]
                                              (set! (.-location js/window)
-                                                   (str play-url-prefix pk))))
+                                                   (game-url play-url-prefix pk ""))))
                         :error-handler   (fn [err]
                                            (reset! error (str "Create failed: " (pr-str err))))})))))
            :style (merge btn-style {:padding "12px 36px" :font-size "16px"
@@ -942,7 +952,7 @@
          ^{:key game-player}
          [:span
           [:a
-           {:href (str player-prefix game-player)
+           {:href (player-url player-prefix game-player)
             :style (if (= game-player emphasis)
                      {:color "#fff"
                       :border-radius "20px"
@@ -987,7 +997,7 @@
        ^{:key game}
        [game-row
         {:game-key      game
-         :href          (str play-prefix game)
+         :href          (game-url play-prefix game "")
          :player-prefix player-prefix
          :players       players
          :player-colors (if colors-fn (colors-fn record) (:player-colors record))

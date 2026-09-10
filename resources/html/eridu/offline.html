@@ -17,10 +17,10 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{player}}";
-      var playerName = "{{player}}";
-      var playerPreferences = "{{preferences|addslashes|safe}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{player|js}};
+      var playerName = {{player|js}};
+      var playerPreferences = {{preferences|js}};
       var playKey = "";
       var isCreate = false;
       var isObserve = false;

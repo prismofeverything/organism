@@ -13,9 +13,9 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{player}}";
-      var playKey = "{{play}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{player|js}};
+      var playKey = {{play|js}};
     </script>
     {% script "/js/future.js" %}
   </body>

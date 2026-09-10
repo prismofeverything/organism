@@ -14,8 +14,8 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{session-player}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{session-player|js}};
       var playerPreferences = null;
       var playerGames = null;
       var playKey = null;
@@ -24,7 +24,7 @@
       var isCreate = false;
       var isObserve = false;
       var isStats = true;
-      var playerStats = "{{player-stats|addslashes|safe}}";
+      var playerStats = {{player-stats|js}};
     </script>
     {% script "/js/organism.js" %}
   </body>

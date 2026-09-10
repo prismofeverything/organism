@@ -94,7 +94,7 @@
     </div>
 
     <script>
-      var csrfToken = "{{csrf-token}}";
+      var csrfToken = {{csrf-token|js}};
       var simData = {% if sim-data %} {{sim-data|addslashes|safe}} {% else %} null {% endif %};
       var evoStatus = {% if evo-status %} {{evo-status|addslashes|safe}} {% else %} null {% endif %};
 

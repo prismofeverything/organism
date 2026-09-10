@@ -13,7 +13,7 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
+      var csrfToken = {{csrf-token|js}};
       var playerKey = "";
       var playKey = "";
       var isLineages = true;

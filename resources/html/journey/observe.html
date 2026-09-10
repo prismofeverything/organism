@@ -14,15 +14,15 @@
     {% style "/css/screen.css" %}
 
     <script type="text/javascript">
-      var csrfToken = "{{csrf-token}}";
-      var playerKey = "{{session-player}}";
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{session-player|js}};
       var playerPreferences = null;
       var playerGames = null;
       var playKey = null;
       var isCreate = false;
       var isObserve = true;
       var isGenerate = false;
-      var observeGames = "{{observe-games|addslashes|safe}}";
+      var observeGames = {{observe-games|js}};
     </script>
     {% script "/js/journey.js" %}
   </body>
