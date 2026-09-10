@@ -1011,24 +1011,93 @@
          :on-delete     (when on-delete #(on-delete record))
          :on-keep       (when on-keep #(on-keep record))}])]))
 
+(def ^:private picker-button-style
+  {:background "#222" :color "#bbb" :border "1px solid #555"
+   :border-radius "6px" :padding "7px 14px" :font-size "12px"
+   :font-family "monospace" :letter-spacing "1px" :cursor "pointer"})
+
+(defn- colour-picker
+  "The panel the banner opens: a real colour input, the hex it is on, a reroll
+   for the old behaviour, and a way out.
+
+   There is no cancel. Every change has already been applied, so dismissing
+   keeps whatever was chosen — which is the point, the colour used to be
+   snatched away again on the next stray click."
+  [{:keys [color on-color random-color on-close]}]
+  (let [hex (base/color->hex color)]
+    [:div
+     {:on-click (fn [event] (.stopPropagation event))
+      :style {:position "absolute" :top "100%" :left "40px" :z-index 200
+              :margin-top "10px" :padding "14px 18px"
+              :background "#161616" :border "1px solid #444"
+              :border-radius "10px"
+              :letter-spacing "normal" :font-family "monospace"
+              :display "flex" :align-items "center" :gap "12px"
+              :box-shadow "0 6px 24px rgba(0,0,0,0.5)"}}
+     [:input
+      {:type "color"
+       :value hex
+       :title "pick a colour"
+       :on-change (fn [event] (on-color (-> event .-target .-value)))
+       :style {:width "48px" :height "36px" :padding "0" :cursor "pointer"
+               :background "transparent" :border "1px solid #555"
+               :border-radius "6px"}}]
+     [:code {:style {:color "#999" :font-size "12px"}} hex]
+     (when random-color
+       [:button {:on-click (fn [_] (on-color (random-color)))
+                 :style picker-button-style}
+        "random"])
+     [:button {:on-click (fn [_] (on-close))
+               :style picker-button-style}
+      "done"]]))
+
 (defn player-games-banner
-  [{:keys [player color label home-path font-family on-click]}]
-  [:div
-   {:style {:color "#fff"
-            :border-radius "50px"
-            :cursor (when on-click "pointer")
-            :background (or color "#445")
-            :letter-spacing "8px"
-            :font-family (or font-family "monospace")
-            :margin "20px 0px"
-            :padding "25px 60px"}
-    :on-click on-click}
-   [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
-             :href (or home-path "/")}
-         player]]
-   (when label
-     [:div {:style {:font-size "1.3em" :letter-spacing "5px" :margin "10px 0px"}}
-      label])])
+  "The name banner over a games list.
+
+   The name is a link and behaves like one. Clicking anywhere else on the
+   banner opens the colour picker. It used to reroll a random colour on any
+   click at all — including clicks meant for the name, which navigated and
+   changed the colour at the same time, so the colour never settled anywhere."
+  [_props]
+  (let [open? (r/atom false)
+        dismiss (fn dismiss []
+                  (reset! open? false)
+                  (.removeEventListener js/document "click" dismiss))]
+    (fn [{:keys [player color label home-path font-family on-color random-color]}]
+      [:div
+       {:style {:color "#fff"
+                :border-radius "50px"
+                :cursor (when on-color "pointer")
+                :background (or color "#445")
+                :letter-spacing "8px"
+                :font-family (or font-family "monospace")
+                :margin "20px 0px"
+                :padding "25px 60px"
+                :position "relative"}
+        :title (when on-color "click for a colour")
+        :on-click (fn [event]
+                    (when on-color
+                      ;; stop here, or the listener below closes it again on
+                      ;; the very click that opened it
+                      (.stopPropagation event)
+                      (if @open?
+                        (dismiss)
+                        (do (reset! open? true)
+                            (.addEventListener js/document "click" dismiss)))))}
+       [:h1 [:a {:style {:color "#fff" :text-decoration "none"}
+                 :href (or home-path "/")
+                 ;; the name is a link first — navigate without the picker
+                 ;; opening behind it
+                 :on-click (fn [event] (.stopPropagation event))}
+             player]]
+       (when label
+         [:div {:style {:font-size "1.3em" :letter-spacing "5px" :margin "10px 0px"}}
+          label])
+       (when @open?
+         [colour-picker {:color color
+                         :on-color on-color
+                         :random-color random-color
+                         :on-close dismiss}])])))
 
 (defn player-games-page
   "The shared 'my games' page: banner, then OPEN / ACTIVE / COMPLETE sections.
@@ -1046,11 +1115,13 @@
    :note-fn         — (fn [record] → string) shown beside the game name
    :tooltip-fn      — (fn [record] → hover text)
    :empty-content   — hiccup shown when there are no games at all
-   :on-banner-click — optional banner handler
+   :on-color        — (fn [css-colour]) applied as the picker changes; supply it
+                      to give the banner a colour picker at all
+   :random-color    — (fn [] css-colour) behind the picker's \"random\" button
    :font-family"
   [{:keys [player games color label home-path play-prefix create-prefix player-prefix
            colors-fn open-colors-fn note-fn tooltip-fn empty-content
-           on-banner-click font-family deletable? joinable?]
+           on-color random-color font-family deletable? joinable?]
     :or   {label "games" player-prefix "/player/"}}]
   (let [open      (get games "open")
         active    (get games "active")
@@ -1086,7 +1157,7 @@
     [:div {:style {:padding "20px" :color "#eee"}}
      [player-games-banner {:player player :color color :label label
                            :home-path home-path :font-family font-family
-                           :on-click on-banner-click}]
+                           :on-color on-color :random-color random-color}]
      [open-games-section {:games open
                           :link-prefix (or create-prefix play-prefix)
                           :current-player player

@@ -62,8 +62,14 @@
   (zipmap tile-colors (repeat num-worlds-per-color)))
 
 (defn bag-empty?
+  "Whether the bag has anything left to draw.
+
+   Not (every? zero?): cipher-place-beacon decrements a colour without checking
+   there is any of it left, so a count can reach -1. A -1 is not zero, so a bag
+   with nothing drawable in it read as non-empty forever — which hid the loss
+   condition AND sent draw-from-bag at an empty collection."
   [bag]
-  (every? zero? (vals bag)))
+  (not-any? pos? (vals bag)))
 
 (defn bag-choices
   [bag]
@@ -76,12 +82,14 @@
 
 
 (defn draw-from-bag
-  "Remove one world tile of the given color from the bag.
-   Returns [updated-bag color] or nil if that color is exhausted."
+  "Remove one world tile from the bag, chosen at random from what is left.
+   Returns [updated-bag color], or nil when the bag has nothing to give —
+   which is what this always claimed to do and never did."
   [bag]
-  (let [choices (bag-choices bag)
-        color (rand-nth choices)]
-    [(update bag color dec) color]))
+  (let [choices (bag-choices bag)]
+    (when (seq choices)
+      (let [color (rand-nth choices)]
+        [(update bag color dec) color]))))
 
 ;; --- cards ---
 ;; Shared deck of 5 suits × 13 cards = 65 cards.
@@ -141,7 +149,9 @@
   (let [new-color? (not (contains? (get-in state [:cipher pos :colors] {}) color))]
     (cond-> state
       new-color?              (assoc-in [:cipher pos :colors color] {})
-      (and new-color? from-bag?) (update-in [:bag color] dec)
+      ;; clamped: an unchecked dec here is what drove bag counts negative
+      (and new-color? from-bag?) (update-in [:bag color]
+                                            (fn [n] (max 0 (dec (or n 0)))))
       true                    (update-in [:cipher pos :colors color player] (fnil inc 0)))))
 
 ;; --- landing check ---
@@ -352,16 +362,17 @@
 (defn explore
   "Draw a world from the bag, place a new tile of that color at pos,
    add one sundiver there for player, and mark only that sundiver immobile.
-   If the bag is empty, triggers a loss instead."
+   If the bag has nothing left, triggers a loss instead."
   [state player pos]
-  (if (bag-empty? (:bag state))
-    (trigger-loss state)
-    (let [[bag color] (draw-from-bag (:bag state))
-          tile (assoc-in (make-tile color) [:sundivers player] 1)]
+  ;; one question, asked once: can we actually draw? Asking bag-empty? first and
+  ;; then drawing left room for the two to disagree, and they did.
+  (if-let [[bag color] (draw-from-bag (:bag state))]
+    (let [tile (assoc-in (make-tile color) [:sundivers player] 1)]
       (-> state
           (assoc :bag bag)
           (assoc-in [:board pos] tile)
-          (mark-immobile player pos)))))
+          (mark-immobile player pos)))
+    (trigger-loss state)))
 
 (defn launch-sundiver
   "Transfer one sundiver from player's habitat to pos.

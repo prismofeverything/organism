@@ -3865,6 +3865,21 @@
 
 (def player-active? components/player-active?)
 
+(defonce ^:private colour-post-timer (atom nil))
+
+(defn persist-color!
+  "Save a chosen colour, once the choosing stops.
+
+   A colour input fires a change for every step of a drag, and each one of
+   those is a preferences write. Only the colour they settle on needs to go."
+  [player color]
+  (when-let [pending @colour-post-timer]
+    (js/clearTimeout pending))
+  (reset! colour-post-timer
+          (js/setTimeout
+           (fn [] (ajax/post-preferences! player {:color color}))
+           300)))
+
 (defn player-page
   "The player's game list — delegates to the shared components implementation
    so organism and the other games render the same page."
@@ -3895,11 +3910,10 @@
                                (when organism-victory
                                  (str organism-victory " organisms for victory\n\n"))
                                description)))
-      :on-banner-click
-      (fn [_event]
-        (let [color (board/random-color 0.2 0.9)]
-          (swap! player-preferences assoc :color color)
-          (ajax/post-preferences! player {:color color})))}]))
+      :on-color       (fn [color]
+                        (swap! player-preferences assoc :color color)
+                        (persist-color! player color))
+      :random-color   (fn [] (board/random-color 0.2 0.9))}]))
 
 (defn valid-player-name?
   [players player]
