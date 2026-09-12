@@ -48,27 +48,31 @@ def make_handler(root, examples):
                     return self.send_error(503, 'Build the shared renderer: npx shadow-cljs release ogf-viewer')
             if path == '/api/status':
                 models = []
-                for directory in sorted(root.glob('[2-5]p')):
+                for directory in sorted(root.glob('[2-5]p*')):
                     status = read_json(directory / 'status.json', {})
                     history = metrics(directory / 'metrics.jsonl')
                     records = []
                     for file in sorted((directory / 'games').glob('*.json'), reverse=True):
                         # Metadata cache avoids reparsing full games on every poll.
-                        stamp = file.stat().st_mtime_ns
+                        try:
+                            stamp = file.stat().st_mtime_ns
+                        except FileNotFoundError:
+                            continue  # Trainer may prune a recording after glob().
                         cached = self.server.record_cache.get(str(file))
                         if not cached or cached[0] != stamp:
                             data = read_json(file, {})
                             meta = {k: data.get(k) for k in ('name', 'iteration', 'number', 'result', 'finished')}
                             meta['url'] = f'/api/game/{directory.name}/{file.name}'
-                            self.server.record_cache[str(file)] = (stamp, meta)
-                        records.append(self.server.record_cache[str(file)][1])
-                    models.append({'model': directory.name, 'status': status, 'metrics': history, 'games': records, 'evaluation': read_json(directory / 'evaluation.json')})
-                valid = {str(p) for p in root.glob('[2-5]p/games/*.json')}
+                            cached = (stamp, meta)
+                            self.server.record_cache[str(file)] = cached
+                        records.append(cached[1])
+                    models.append({'model': directory.name, 'config': read_json(directory / 'config.json', {}), 'status': status, 'metrics': history, 'games': records, 'evaluation': read_json(directory / 'evaluation.json'), 'evaluation_progress': read_json(directory / 'evaluation-progress.json'), 'checkpoint_timing': read_json(directory / 'checkpoint-timing.json'), 'load_timing': read_json(directory / 'load-timing.json')})
+                valid = {str(p) for p in root.glob('[2-5]p*/games/*.json')}
                 self.server.record_cache = {k: v for k, v in self.server.record_cache.items() if k in valid}
                 examples_list = [{'name': p.stem, 'url': f'/api/example/{p.name}'} for p in sorted(examples.glob('*.json'))]
                 return self.send_json({'now': time.time(), 'stop_requested': (root / 'STOP').exists(),
-                                       'models': models, 'examples': examples_list})
-            match = re.fullmatch(r'/api/game/([2-5]p)/(live|[\w-]+\.json)', path)
+                                       'models': models, 'examples': examples_list, 'curriculum': read_json(root / 'curriculum.json')})
+            match = re.fullmatch(r'/api/game/([2-5]p(?:-r[3-7])?)/(live|[\w-]+\.json)', path)
             if path == '/api/live':
                 file = root / 'current.json'
             elif match:

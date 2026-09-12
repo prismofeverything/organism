@@ -124,7 +124,7 @@ pub struct Board {
 impl Board {
     pub fn new(players: usize, rings: usize, notches: bool) -> Self {
         assert!((2..=5).contains(&players));
-        assert!((4..=7).contains(&rings));
+        assert!((3..=7).contains(&rings) && (rings >= 4 || players == 2));
         let symmetry = if players < 5 { 6 } else { 5 };
         let mut spaces = vec![(0, 0)];
         for r in 1..rings {
@@ -180,7 +180,7 @@ impl Board {
             })
             .collect();
         let total = (rings - 1) * symmetry;
-        let offset = (rings - 4).div_ceil(2) + usize::from(players == 4);
+        let offset = rings.saturating_sub(4).div_ceil(2) + usize::from(players == 4);
         let homes = (0..players)
             .map(|p| {
                 (0..3)
@@ -974,6 +974,25 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compact_two_player_board_preserves_starting_clearance() {
+        let b = Board::new(2, 3, false);
+        assert_eq!(b.spaces.len(), 19);
+        assert_eq!(b.grid(), 12);
+        assert_eq!(
+            b.homes[0].iter().map(|&i| b.spaces[i]).collect::<Vec<_>>(),
+            vec![(2, 0), (2, 1), (2, 2)]
+        );
+        assert_eq!(
+            b.homes[1].iter().map(|&i| b.spaces[i]).collect::<Vec<_>>(),
+            vec![(2, 6), (2, 7), (2, 8)]
+        );
+        for (p, homes) in b.homes.iter().enumerate() {
+            for &h in homes {
+                assert!(b.adj[h].iter().all(|i| !b.homes[1 - p].contains(i)));
+            }
+        }
+    }
     #[test]
     fn introduction_clears_three_homes_only() {
         let b = Board::new(2, 4, false);

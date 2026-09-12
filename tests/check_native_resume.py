@@ -3,7 +3,7 @@ import json, subprocess, tempfile, time
 from pathlib import Path
 exe=Path('native/target/release/organism-train').resolve()
 root=Path(tempfile.mkdtemp(prefix='organism-resume-'))
-flags=['train','--cpu','--players','2','--actors','2','--sims','8','--max-steps','80','--blocks','1','--filters','8','--train-steps','2','--batch-size','8','--eval-every','0','--iters','2']
+flags=['train','--cpu','--players','2','--actors','2','--concurrent-games','4','--gpu-batch','2','--sims','8','--max-steps','80','--blocks','1','--filters','8','--train-steps','2','--batch-size','8','--eval-every','0','--iters','2']
 def command(name):return [str(exe),*flags,'--checkpoint',str(root/name)]
 def saved(name):
     base=root/name/'2p'; index=json.loads((base/'latest.json').read_text())

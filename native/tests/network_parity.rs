@@ -68,3 +68,36 @@ fn python_forward_adam_and_native_resume() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn transfer_between_board_sizes_preserves_spatial_weights_and_rebuilds_dense_heads()
+-> anyhow::Result<()> {
+    use organism_train::game::Board;
+    let root = std::env::temp_dir().join(format!("organism-transfer-{}", std::process::id()));
+    std::fs::create_dir_all(&root)?;
+    let small = Board::new(2, 3, false);
+    let large = Board::new(2, 4, false);
+    let old = Network::new(2, small.grid(), small.action_size(), 1, 8, Device::Cpu);
+    old.vs.save(root.join("source.ot"))?;
+    let mut new = Network::new(2, large.grid(), large.action_size(), 1, 8, Device::Cpu);
+    let count = new.import_spatial_features(&root.join("source.ot"))?;
+    assert!(count > 10);
+    let a = old.vs.variables();
+    let b = new.vs.variables();
+    for name in [
+        "input_conv.weight",
+        "res_blocks.0.conv1.weight",
+        "policy_bn.running_mean",
+        "value_conv.weight",
+    ] {
+        assert_eq!(f64::try_from((&a[name] - &b[name]).abs().max())?, 0.);
+    }
+    assert_ne!(a["policy_fc.weight"].size(), b["policy_fc.weight"].size());
+    assert_ne!(a["value_fc1.weight"].size(), b["value_fc1.weight"].size());
+    let (p, v) = new.infer(&large.encode(&large.initial(), 0), 1)?;
+    assert_eq!(p.len(), large.action_size());
+    assert_eq!(v.len(), 2);
+    assert!(p.iter().chain(&v).all(|x| x.is_finite()));
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

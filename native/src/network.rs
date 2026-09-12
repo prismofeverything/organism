@@ -116,6 +116,35 @@ impl Network {
             actions,
         }
     }
+    pub fn import_spatial_features(&mut self, path: &Path) -> Result<usize> {
+        let old: BTreeMap<_, _> = Tensor::load_multi_with_device(path, self.vs.device())?
+            .into_iter()
+            .collect();
+        let mut copied = 0;
+        tch::no_grad(|| -> Result<()> {
+            for (name, mut tensor) in self.vs.variables() {
+                if name.starts_with("input_")
+                    || name.starts_with("res_blocks.")
+                    || name.starts_with("policy_conv.")
+                    || name.starts_with("policy_bn.")
+                    || name.starts_with("value_conv.")
+                    || name.starts_with("value_bn.")
+                {
+                    let source = old
+                        .get(&name)
+                        .ok_or_else(|| anyhow::anyhow!("missing transfer tensor {name}"))?;
+                    anyhow::ensure!(
+                        source.size() == tensor.size(),
+                        "incompatible transfer tensor {name}"
+                    );
+                    tensor.copy_(source);
+                    copied += 1;
+                }
+            }
+            Ok(())
+        })?;
+        Ok(copied)
+    }
     pub fn forward(&self, x: &Tensor, train: bool) -> (Tensor, Tensor) {
         let mut h = x.apply(&self.input).apply_t(&self.bn, train).relu();
         for b in &self.blocks {

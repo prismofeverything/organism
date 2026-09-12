@@ -24,8 +24,9 @@ must provide compatible headers, libraries and C++ ABI; rebuild and rerun checks
 after changing those dependencies. CUDA is retained explicitly in the link so
 its kernels register even when the linker would otherwise drop the library.
 
-Defaults: separate 2/3-player networks, four rings, 4 residual blocks × 64 filters,
-64 MCTS simulations per choice, 16 concurrent games, four Rust search workers,
+Defaults: separate 2/3-player networks, a three-ring two-player curriculum and
+a four-ring three-player board, 4 residual blocks × 64 filters,
+64 MCTS simulations per choice, 64 concurrent games (GPU cohorts of 32), four Rust search workers,
 two libtorch CPU threads, 100 gradient updates per iteration, batch 64, replay
 capacity 5,000 positions per model. Each iteration completes at least 16 games.
 Finished games are replaced while that quota is pending. Unfinished games carry
@@ -103,6 +104,35 @@ Games stop on a rule victory, three occurrences of the same decision state, or
 4,000 choices. Cutoffs receive neutral value targets and retain search-policy
 targets. A high cutoff fraction is a learning diagnostic, not a victory.
 
+## Board-size curriculum
+
+The launcher enables `--rings-2p 3 --curriculum-2p`. Two-player training starts on
+19 spaces in `2p-r3`; the original 37-space `2p` checkpoint remains a saved
+comparison. Three-player training continues in `3p` on four rings.
+
+The curriculum considers a one-ring expansion only when each of the last three
+iterations has at least 60% rule victories and those iterations contain at least
+48 completed games. At a scheduled evaluation, it then plays at least 32 games
+against frozen starting weights, balanced across both seats. Expansion requires
+no more than 25% cutoffs and a 95% Wilson lower bound for wins/all games above
+50% (at least 22 wins in a 32-game test). These are initial engineering screening
+thresholds; repeated tests are not independent and do not provide a formal
+95% guarantee of strategic competence. Lower loss alone never triggers expansion.
+
+On qualification, the next two-player iteration uses the next ring count, up to
+`--curriculum-max-rings 7`. Progress is stored in `curriculum.json`; every stage
+has its own directory (`2p-r3`, `2p-r4`, ...), frozen opponent, optimizer, replay,
+and histories. Previous stages and unfinished games remain saved. Spatial
+convolutions and batch-normalization parameters transfer; all dense policy/value
+layers are newly initialized for the larger board. This preserves learned local
+features, not guaranteed playing strength. New-stage optimizer/replay start fresh.
+
+This curriculum currently applies only to two-player board size. A future
+three-player curriculum can use the same approach. Transfer to five players also
+changes input channels and value outputs, and is not implemented by this helper;
+it needs explicit remapping and separate evaluation. The long-term five-player,
+seven-ring objective is not evidence that small-board success will transfer intact.
+
 ## Migration and verification
 
 The Python checkpoints remain in `checkpoints/organism`. Migration imports only
@@ -126,7 +156,7 @@ ORGANISM_NETWORK_FIXTURE=/tmp/native-network-cpu bash native/test-gpu.sh --offli
 ORGANISM_NETWORK_FIXTURE=/tmp/native-network-cuda ORGANISM_TEST_CUDA=1 bash native/test-gpu.sh --offline --test network_parity -- --ignored
 ```
 
-Parity covers 950 sampled 2/3-player positions, every legal child board, legal
+Parity covers 1,185 sampled positions (2p on three/four rings and 3p on four rings), every legal child board, legal
 indices and encoded inputs. Dedicated regressions cover introduction clearing
 all three homes while preserving adjacent food, circulation transferring half
 rounded up, capture ties and cyclic multiplayer value backup. Network tests
@@ -150,3 +180,61 @@ training dashboard. The former serial Python production run, at 35% duty,
 completed four 2p games in 2,680 seconds (three rule wins and one repetition).
 That is a useful historical reference, not a controlled comparison with native
 full-duty training and its different sampling/replay behavior.
+
+`--concurrent-games` controls the active self-play pool independently of the
+`--actors` finished-game quota (defaults to that quota when omitted). Production
+uses 64 active games and a 16-finished-game threshold, with the existing 100
+updates per iteration. Carried games are preserved on restart; changing pool
+size changes scheduling and RNG consumption, not model/checkpoint dimensions.
+Iteration metrics now include `search_timings` (leaf preparation, input packing,
+inference including transfers/synchronization, and backup) and pool size. Old
+partial checkpoints have no earlier phase timings, so their first resumed
+iteration has only partial profiling coverage.
+
+
+The production search pipeline uses `--gpu-batch 32 --exploration-rounds 10`.
+Exploration samples visit targets for the first ten full board rounds; zero
+selects the older 30-choice window for comparisons. `--legacy-search` and
+`--no-tree-reuse` support ablation runs. These flags are recorded in metrics and
+saved state. Changing settings invalidates retained trees but preserves weights
+and replay. No food-accumulation penalty or additional cutoff was introduced:
+`unchanged_layout_rounds` is only a diagnostic and exact repetition includes food.
+
+Search evaluates the same historical/path repetition and choice horizon as the
+outer game runner, with victories taking precedence. The CPU/GPU pipeline uses
+fixed cohorts and a bounded channel, one pending leaf per game, and one owning
+thread for network inference. Cohorts preserve per-game ordering and batch
+composition. Phase durations can overlap, so their sum is no longer a partition
+of total wall time. Root noise is regenerated from clean priors each decision.
+Selected subtrees are pruned/reindexed and reused; trees larger than 4096 retained
+nodes are discarded. Trees are persisted for exact resume and invalidated before
+optimizer updates. Search completes transactionally before episode/RNG commit.
+
+In `--forever` mode, evaluation is resumable background work: one evaluation
+slice after eight self-play batches and after each twenty gradient updates.
+Each job owns immutable candidate/opponent snapshots, so later training cannot
+change its matchup. A pending job is completed before scheduling another for
+that model. Evaluation progress appears separately in the dashboard; the live
+board follows self-play. Finite runs drain their pending evaluation for validation.
+Evaluation jobs persist alongside training checkpoints. Two full completed
+fixtures are retained per model; lightweight reports remain in `evaluations/`.
+Curriculum promotion transfers the tested frozen candidate, not newer untested
+weights. Evaluation reports identify the new search/exploration protocol; they
+are not directly comparable with earlier protocol results.
+
+Both model/replay/optimizer bundles remain resident between iterations, within
+the existing shared CUDA allocator cap. Checkpoints are read directly into typed
+state through a buffered stream. Save/load durations and serialized bytes are
+written to `checkpoint-timing.json` and `load-timing.json`; the dashboard shows
+save cost. Pre-upgrade model snapshots were preserved under
+`checkpoints/organism-native-archives/pre-pipeline-20260912`.
+
+Validation: `python3 tests/check_native_resume.py` and
+`python3 tests/check_native_background.py` cover exact interrupted training and
+durable evaluation that overlaps self-play. Native unit tests cover search
+cutoffs, cohort ordering, tree reuse, root noise, cancellation and frozen weights.
+
+Learning-rate decay now has a floor of `1e-4` (initial rate remains `1e-3`).
+Previously, hundreds of mostly cutoff iterations reduced the rate below `1e-8`
+before competence. Metrics record the effective learning rate. The floor keeps
+updates active; it is not evidence of improved playing strength.

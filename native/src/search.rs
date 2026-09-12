@@ -3,6 +3,11 @@ use crate::game::{Board, State};
 use anyhow::Result;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Random(pub u64);
@@ -70,9 +75,11 @@ impl Evaluator for crate::network::Network {
         self.infer(inputs, batch)
     }
 }
+#[derive(Clone, Serialize, Deserialize)]
 struct Node {
     state: State,
     prior: f32,
+    base_prior: f32,
     visits: u32,
     values: Vec<f32>,
     children: Vec<(usize, usize)>,
@@ -83,6 +90,7 @@ impl Node {
         Self {
             state,
             prior,
+            base_prior: prior,
             visits: 0,
             values: vec![0.; players],
             children: vec![],
@@ -90,7 +98,8 @@ impl Node {
         }
     }
 }
-struct Tree {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Tree {
     nodes: Vec<Node>,
 }
 struct Request {
@@ -99,7 +108,7 @@ struct Request {
     input: Vec<f32>,
 }
 impl Tree {
-    fn new(s: State, players: usize) -> Self {
+    pub fn new(s: State, players: usize) -> Self {
         Self {
             nodes: vec![Node::new(s, 1., players)],
         }
@@ -113,10 +122,16 @@ impl Tree {
         }
     }
     fn prepare(&mut self, board: &Board, root: bool) -> Option<Request> {
+        self.prepare_limited(board, root, &Limits::default())
+    }
+    fn prepare_limited(&mut self, board: &Board, root: bool, limits: &Limits) -> Option<Request> {
         let mut path = vec![0];
         let mut i = 0;
         if !root {
             while self.nodes[i].expanded && !self.nodes[i].children.is_empty() {
+                if limits.cutoff(&self.nodes, &path) || self.nodes[i].state.winner.is_some() {
+                    break;
+                }
                 let parent = &self.nodes[i];
                 let actor = parent.state.player;
                 i = parent
@@ -143,6 +158,10 @@ impl Tree {
             let mut v = vec![-1. / (board.players - 1) as f32; board.players];
             v[winner] = 1.;
             self.backup(&path, &v);
+            return None;
+        }
+        if limits.cutoff(&self.nodes, &path) {
+            self.backup(&path, &vec![0.; board.players]);
             return None;
         }
         let legal = board.legal(s);
@@ -189,9 +208,257 @@ impl Tree {
         let noise: Vec<_> = children.iter().map(|_| rng.gamma(0.3)).collect();
         let sum: f64 = noise.iter().sum();
         for ((_, i), eta) in children.iter().zip(noise) {
-            self.nodes[*i].prior = 0.75 * self.nodes[*i].prior + 0.25 * (eta / sum) as f32;
+            self.nodes[*i].prior = 0.75 * self.nodes[*i].base_prior + 0.25 * (eta / sum) as f32;
         }
     }
+}
+/// Past real positions exclude the current decision, exactly like the game runner.
+#[derive(Default, Clone)]
+pub struct Limits<'a> {
+    pub seen: Option<&'a HashMap<State, u32>>,
+    pub steps: usize,
+    pub max_steps: usize,
+    pub repetition: u32,
+}
+pub fn repetition_state(s: &State) -> State {
+    let mut s = s.clone();
+    s.round = 0;
+    s.next_order = 0;
+    for p in s.pieces.iter_mut().flatten() {
+        p.order = 0;
+    }
+    s
+}
+impl Limits<'_> {
+    fn cutoff(&self, nodes: &[Node], path: &[usize]) -> bool {
+        if self.max_steps > 0 && self.steps + path.len() - 1 >= self.max_steps {
+            return true;
+        }
+        if self.repetition == 0 {
+            return false;
+        }
+        let key = repetition_state(&nodes[*path.last().unwrap()].state);
+        let past = self
+            .seen
+            .and_then(|seen| seen.get(&key))
+            .copied()
+            .unwrap_or(0) as usize;
+        let in_path = path[..path.len() - 1]
+            .iter()
+            .filter(|&&i| repetition_state(&nodes[i].state) == key)
+            .count();
+        past + in_path >= self.repetition.saturating_sub(1) as usize
+    }
+}
+impl Tree {
+    pub fn state(&self) -> &State {
+        &self.nodes[0].state
+    }
+    pub fn policy(&self, board: &Board) -> Vec<f32> {
+        let mut p = vec![0.; board.action_size()];
+        let sum: u32 = self.nodes[0]
+            .children
+            .iter()
+            .map(|(_, i)| self.nodes[*i].visits)
+            .sum();
+        for &(a, i) in &self.nodes[0].children {
+            p[a] = self.nodes[i].visits as f32 / sum.max(1) as f32;
+        }
+        p
+    }
+    /// Keep only the selected subtree. No regeneration of legal successors.
+    pub fn advance(&mut self, action: usize) -> Result<()> {
+        let root = self.nodes[0]
+            .children
+            .iter()
+            .find(|(a, _)| *a == action)
+            .map(|(_, i)| *i)
+            .ok_or_else(|| anyhow::anyhow!("search chose illegal action"))?;
+        let mut order = vec![root];
+        let mut map = HashMap::new();
+        let mut cursor = 0;
+        while cursor < order.len() {
+            let old = order[cursor];
+            map.insert(old, cursor);
+            order.extend(self.nodes[old].children.iter().map(|(_, i)| *i));
+            cursor += 1;
+        }
+        if order.len() > 4096 {
+            *self = Self::new(
+                self.nodes[root].state.clone(),
+                self.nodes[root].values.len(),
+            );
+            return Ok(());
+        }
+        self.nodes = order
+            .iter()
+            .map(|&i| {
+                let mut n = self.nodes[i].clone();
+                n.children = n.children.iter().map(|&(a, i)| (a, map[&i])).collect();
+                n.prior = n.base_prior;
+                n
+            })
+            .collect();
+        Ok(())
+    }
+}
+
+/// Bounded pipeline: fixed cohorts preserve per-game ordering and inference batch
+/// composition. CPU jobs prepare the next leaves while the owner runs another
+/// cohort on its network. Exactly one request per tree is ever outstanding.
+pub fn queued<E: Evaluator, F: FnMut() -> Result<()>>(
+    board: &Board,
+    trees: &mut [Tree],
+    limits: &[Limits],
+    net: &E,
+    sims: usize,
+    rng: &mut Random,
+    noise: bool,
+    batch: usize,
+    mut control: F,
+    timings: &mut Timings,
+) -> Result<()> {
+    anyhow::ensure!(
+        trees.len() == limits.len() && batch > 0,
+        "invalid queue layout"
+    );
+    let start = Instant::now();
+    let seeds: Vec<_> = trees.iter().map(|_| rng.next()).collect();
+    struct Job<'a> {
+        trees: &'a mut [Tree],
+        limits: &'a [Limits<'a>],
+        seeds: &'a [u64],
+        iteration: usize,
+    }
+    struct Ready<'a> {
+        job: Job<'a>,
+        requests: Vec<Option<Request>>,
+        inputs: Vec<f32>,
+        prepare: f64,
+        pack: f64,
+    }
+    fn submit<'a>(
+        scope: &rayon::Scope<'a>,
+        board: &'a Board,
+        job: Job<'a>,
+        tx: mpsc::SyncSender<Result<Ready<'a>>>,
+    ) {
+        scope.spawn(move |_| {
+            let ready = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let start = Instant::now();
+                let requests: Vec<_> = job
+                    .trees
+                    .par_iter_mut()
+                    .zip(job.limits)
+                    .map(|(t, l)| {
+                        if job.iteration == 0 && t.nodes[0].expanded {
+                            None
+                        } else {
+                            t.prepare_limited(board, job.iteration == 0, l)
+                        }
+                    })
+                    .collect();
+                let prepare = start.elapsed().as_secs_f64();
+                let start = Instant::now();
+                let size = requests.iter().flatten().map(|r| r.input.len()).sum();
+                let mut inputs = Vec::with_capacity(size);
+                for r in requests.iter().flatten() {
+                    inputs.extend_from_slice(&r.input);
+                }
+                let pack = start.elapsed().as_secs_f64();
+                Ready {
+                    job,
+                    requests,
+                    inputs,
+                    prepare,
+                    pack,
+                }
+            }))
+            .map_err(|_| anyhow::anyhow!("search preparation worker panicked"));
+            // Deliver failure too: otherwise the coordinator could wait forever.
+            let _ = tx.send(ready);
+        });
+    }
+    let result = rayon::in_place_scope(|scope| -> Result<()> {
+        let count = trees.len().div_ceil(batch);
+        let (tx, rx) = mpsc::sync_channel(count.max(1));
+        for ((trees, limits), seeds) in trees
+            .chunks_mut(batch)
+            .zip(limits.chunks(batch))
+            .zip(seeds.chunks(batch))
+        {
+            submit(
+                scope,
+                board,
+                Job {
+                    trees,
+                    limits,
+                    seeds,
+                    iteration: 0,
+                },
+                tx.clone(),
+            );
+        }
+        let mut completed = 0;
+        while completed < count {
+            control()?;
+            let mut ready = match rx.recv_timeout(Duration::from_millis(10)) {
+                Ok(r) => r?,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(e) => return Err(e.into()),
+            };
+            timings.prepare_seconds += ready.prepare;
+            timings.pack_seconds += ready.pack;
+            let n = ready.requests.iter().flatten().count();
+            if n > 0 {
+                let start = Instant::now();
+                let (priors, values) = net.evaluate(&ready.inputs, n)?;
+                timings.inference_seconds += start.elapsed().as_secs_f64();
+                timings.inference_calls += 1;
+                timings.evaluated_positions += n;
+                let start = Instant::now();
+                let mut j = 0;
+                for (t, r) in ready.job.trees.iter_mut().zip(ready.requests) {
+                    if let Some(r) = r {
+                        t.finish(
+                            board,
+                            r,
+                            &priors[j * board.action_size()..(j + 1) * board.action_size()],
+                            &values[j * board.players..(j + 1) * board.players],
+                            ready.job.iteration == 0,
+                        );
+                        j += 1;
+                    }
+                }
+                timings.backup_seconds += start.elapsed().as_secs_f64();
+            }
+            if ready.job.iteration == 0 && noise {
+                for (t, &seed) in ready.job.trees.iter_mut().zip(ready.job.seeds) {
+                    t.noise(&mut Random(seed));
+                }
+            }
+            if ready.job.iteration == sims {
+                completed += 1;
+            } else {
+                ready.job.iteration += 1;
+                submit(scope, board, ready.job, tx.clone());
+            }
+        }
+        Ok(())
+    });
+    timings.total_seconds += start.elapsed().as_secs_f64();
+    result
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct Timings {
+    pub prepare_seconds: f64,
+    pub pack_seconds: f64,
+    pub inference_seconds: f64,
+    pub backup_seconds: f64,
+    pub total_seconds: f64,
+    pub evaluated_positions: usize,
+    pub inference_calls: usize,
 }
 pub fn policies<E: Evaluator, F: FnMut() -> Result<()>>(
     board: &Board,
@@ -200,28 +467,61 @@ pub fn policies<E: Evaluator, F: FnMut() -> Result<()>>(
     sims: usize,
     rng: &mut Random,
     noise: bool,
-    mut control: F,
+    control: F,
 ) -> Result<Vec<Vec<f32>>> {
+    policies_profiled(
+        board,
+        states,
+        net,
+        sims,
+        rng,
+        noise,
+        control,
+        &mut Timings::default(),
+    )
+}
+pub fn policies_profiled<E: Evaluator, F: FnMut() -> Result<()>>(
+    board: &Board,
+    states: &[State],
+    net: &E,
+    sims: usize,
+    rng: &mut Random,
+    noise: bool,
+    mut control: F,
+    timings: &mut Timings,
+) -> Result<Vec<Vec<f32>>> {
+    let total = std::time::Instant::now();
     let mut trees: Vec<_> = states
         .iter()
         .cloned()
         .map(|s| Tree::new(s, board.players))
         .collect();
+    // Reuse the packed input allocation across simulations; values remain identical.
+    let mut inputs = Vec::new();
     for iteration in 0..=sims {
         control()?;
         let root = iteration == 0;
+        let phase = std::time::Instant::now();
         let requests: Vec<_> = trees
             .par_iter_mut()
             .map(|t| t.prepare(board, root))
             .collect();
-        let mut inputs = vec![];
+        timings.prepare_seconds += phase.elapsed().as_secs_f64();
+        let phase = std::time::Instant::now();
+        inputs.clear();
         let mut count = 0;
         for r in requests.iter().flatten() {
             inputs.extend_from_slice(&r.input);
             count += 1;
         }
+        timings.pack_seconds += phase.elapsed().as_secs_f64();
         if count > 0 {
+            let phase = std::time::Instant::now();
             let (priors, values) = net.evaluate(&inputs, count)?;
+            timings.inference_seconds += phase.elapsed().as_secs_f64();
+            timings.inference_calls += 1;
+            timings.evaluated_positions += count;
+            let phase = std::time::Instant::now();
             let mut j = 0;
             for (tree, request) in trees.iter_mut().zip(requests) {
                 if let Some(r) = request {
@@ -235,6 +535,7 @@ pub fn policies<E: Evaluator, F: FnMut() -> Result<()>>(
                     j += 1;
                 }
             }
+            timings.backup_seconds += phase.elapsed().as_secs_f64();
         }
         if root && noise {
             for tree in &mut trees {
@@ -242,7 +543,7 @@ pub fn policies<E: Evaluator, F: FnMut() -> Result<()>>(
             }
         }
     }
-    Ok(trees
+    let result = trees
         .into_iter()
         .map(|tree| {
             let mut p = vec![0.; board.action_size()];
@@ -256,7 +557,9 @@ pub fn policies<E: Evaluator, F: FnMut() -> Result<()>>(
             }
             p
         })
-        .collect())
+        .collect();
+    timings.total_seconds += total.elapsed().as_secs_f64();
+    Ok(result)
 }
 #[cfg(test)]
 mod tests {
@@ -310,5 +613,182 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn search_detects_historical_and_path_repetition_and_horizon() {
+        let b = Board::new(2, 3, false);
+        let state = b.initial();
+        let history = HashMap::from([(repetition_state(&state), 2)]);
+        let limits = Limits {
+            seen: Some(&history),
+            repetition: 3,
+            ..Limits::default()
+        };
+        let mut t = Tree::new(state.clone(), 2);
+        assert!(t.prepare_limited(&b, true, &limits).is_none());
+        assert_eq!(t.nodes[0].visits, 1);
+        assert_eq!(t.nodes[0].values, vec![0., 0.]);
+        // A repeated position encountered twice along the hypothetical path.
+        let mut child = state.clone();
+        child.round = 10;
+        t.nodes = vec![
+            Node::new(state, 1., 2),
+            Node::new(child.clone(), 1., 2),
+            Node::new(child, 1., 2),
+        ];
+        t.nodes[0].expanded = true;
+        t.nodes[0].children = vec![(0, 1)];
+        t.nodes[1].expanded = true;
+        t.nodes[1].children = vec![(0, 2)];
+        assert!(
+            t.prepare_limited(
+                &b,
+                false,
+                &Limits {
+                    repetition: 3,
+                    ..Limits::default()
+                }
+            )
+            .is_none()
+        );
+        assert_eq!(t.nodes[2].visits, 1);
+        t.nodes[2].visits = 0;
+        assert!(
+            t.prepare_limited(
+                &b,
+                false,
+                &Limits {
+                    steps: 9,
+                    max_steps: 10,
+                    ..Limits::default()
+                }
+            )
+            .is_none()
+        );
+        assert_eq!(t.nodes[2].visits, 0); // cutoff at depth one, before the grandchild
+        // A real victory takes priority over a cutoff.
+        t.nodes[0].state.winner = Some(1);
+        t.prepare_limited(&b, true, &limits);
+        assert_eq!(t.nodes[0].values, vec![-1., 1.]);
+    }
+    #[test]
+    fn queue_order_is_independent_of_cohort_size_and_preserves_subtrees() {
+        let b = Board::new(2, 3, false);
+        let net = Uniform(b.action_size(), 2);
+        let mut a = vec![Tree::new(b.initial(), 2); 4];
+        let mut c = a.clone();
+        let limits = vec![Limits::default(); 4];
+        for (trees, batch) in [(&mut a, 1), (&mut c, 2)] {
+            queued(
+                &b,
+                trees,
+                &limits,
+                &net,
+                32,
+                &mut Random(42),
+                true,
+                batch,
+                || Ok(()),
+                &mut Timings::default(),
+            )
+            .unwrap();
+        }
+        for (a, c) in a.iter_mut().zip(&c) {
+            assert_eq!(a.policy(&b), c.policy(&b));
+            let action = a.nodes[0]
+                .children
+                .iter()
+                .max_by_key(|(_, i)| a.nodes[*i].visits)
+                .unwrap()
+                .0;
+            let successor = b
+                .legal(a.state())
+                .into_iter()
+                .find(|(i, _)| *i == action)
+                .unwrap()
+                .1;
+            let visits = a.nodes[a.nodes[0]
+                .children
+                .iter()
+                .find(|(i, _)| *i == action)
+                .unwrap()
+                .1]
+                .visits;
+            a.advance(action).unwrap();
+            assert_eq!(a.state(), &successor);
+            assert_eq!(a.nodes[0].visits, visits);
+            assert!(
+                a.nodes
+                    .iter()
+                    .all(|n| n.children.iter().all(|(_, i)| *i < a.nodes.len()))
+            );
+            let restored: Tree = serde_json::from_str(&serde_json::to_string(a).unwrap()).unwrap();
+            assert_eq!(a.policy(&b), restored.policy(&b));
+        }
+    }
+    #[test]
+    fn root_noise_does_not_compound_and_queue_cancels_cleanly() {
+        let b = Board::new(2, 3, false);
+        let net = Uniform(b.action_size(), 2);
+        let mut trees = vec![Tree::new(b.initial(), 2); 8];
+        queued(
+            &b,
+            &mut trees,
+            &vec![Limits::default(); 8],
+            &net,
+            8,
+            &mut Random(1),
+            true,
+            2,
+            || Ok(()),
+            &mut Timings::default(),
+        )
+        .unwrap();
+        let tree = &mut trees[0];
+        tree.noise(&mut Random(44));
+        let priors: Vec<_> = tree.nodes.iter().map(|n| n.prior).collect();
+        tree.noise(&mut Random(44));
+        assert_eq!(
+            priors,
+            tree.nodes.iter().map(|n| n.prior).collect::<Vec<_>>()
+        );
+        let mut calls = 0;
+        let result = queued(
+            &b,
+            &mut trees,
+            &vec![Limits::default(); 8],
+            &net,
+            64,
+            &mut Random(1),
+            true,
+            2,
+            || {
+                calls += 1;
+                anyhow::ensure!(calls < 3, "stop");
+                Ok(())
+            },
+            &mut Timings::default(),
+        );
+        assert!(result.is_err());
+    }
+    #[test]
+    fn worker_failure_is_reported_without_hanging_the_queue() {
+        let board = Board::new(2, 3, false);
+        let mut state = board.initial();
+        state.food.clear();
+        let mut trees = vec![Tree::new(state, 2)];
+        let result = queued(
+            &board,
+            &mut trees,
+            &[Limits::default()],
+            &Uniform(board.action_size(), 2),
+            2,
+            &mut Random(1),
+            false,
+            1,
+            || Ok(()),
+            &mut Timings::default(),
+        );
+        assert!(result.unwrap_err().to_string().contains("worker panicked"));
     }
 }

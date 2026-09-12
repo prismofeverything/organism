@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
-    io::Write,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::{Instant, SystemTime, UNIX_EPOCH},
@@ -19,7 +19,6 @@ use tch::{Device, Kind, Tensor};
 static STOPPING: AtomicBool = AtomicBool::new(false);
 unsafe extern "C" {
     fn organism_cuda_fraction(f: f64) -> i32;
-    fn organism_cuda_empty_cache();
     fn signal(sig: i32, handler: extern "C" fn(i32)) -> usize;
     fn nice(n: i32) -> i32;
     fn flock(fd: i32, operation: i32) -> i32;
@@ -33,11 +32,12 @@ fn now() -> f64 {
         .unwrap()
         .as_secs_f64()
 }
-fn atomic_json(path: &Path, data: &impl Serialize) -> Result<()> {
+pub(crate) fn atomic_json(path: &Path, data: &impl Serialize) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
-    let mut file = File::create(&tmp)?;
+    let mut file = BufWriter::with_capacity(1024 * 1024, File::create(&tmp)?);
     serde_json::to_writer(&mut file, data)?;
-    file.sync_all()?;
+    file.flush()?;
+    file.get_ref().sync_all()?;
     fs::rename(tmp, path)?;
     Ok(())
 }
@@ -70,6 +70,12 @@ struct Episode {
     result: Option<Value>,
     id: String,
     started: f64,
+    #[serde(default)]
+    tree: Option<search::Tree>,
+    #[serde(default)]
+    layout_since_round: Option<u32>,
+    #[serde(default)]
+    longest_layout_rounds: u32,
 }
 impl Episode {
     fn new(board: &Board, iteration: u64, number: usize, rng: &mut Random) -> Self {
@@ -82,6 +88,9 @@ impl Episode {
             result: None,
             id: format!("{iteration:06}-{number:02}-{:016x}", rng.next()),
             started: now(),
+            tree: None,
+            layout_since_round: Some(0),
+            longest_layout_rounds: 0,
         }
     }
 }
@@ -100,17 +109,44 @@ struct Saved {
     elapsed: f64,
     #[serde(default)]
     last_metrics: Option<Value>,
-    #[serde(default)]
+    #[serde(default = "missing_decisions")]
     decisions: usize,
+    #[serde(default)]
+    search_timings: search::Timings,
+    #[serde(default)]
+    search_settings: Option<SearchSettings>,
 }
-pub(crate) fn repetition_state(s: &State) -> State {
-    let mut s = s.clone();
-    s.round = 0;
-    s.next_order = 0;
-    for p in s.pieces.iter_mut().flatten() {
-        p.order = 0;
+// Fast draw-only iterations must not anneal learning away before competence.
+fn learning_rate(iteration: u64) -> f64 {
+    (1e-3 * 0.5f64.powi((iteration / 20).min(4) as i32)).max(1e-4)
+}
+fn missing_decisions() -> usize {
+    usize::MAX
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+struct SearchSettings {
+    exploration_rounds: u32,
+    gpu_batch: usize,
+    reuse: bool,
+    legacy: bool,
+}
+impl SearchSettings {
+    fn sample(&self, state: &State, choices: usize) -> bool {
+        if self.exploration_rounds == 0 {
+            choices < 30
+        } else {
+            state.round < self.exploration_rounds
+        }
     }
-    s
+}
+pub(crate) use search::repetition_state;
+// Diagnostic only. Food remains part of the exact repetition key and legal state.
+fn same_layout(a: &State, b: &State) -> bool {
+    a.captures == b.captures
+        && a.pieces.len() == b.pieces.len()
+        && a.pieces.iter().zip(&b.pieces).all(|(a, b)| {
+            a.as_ref().map(|p| (p.player, p.kind)) == b.as_ref().map(|p| (p.player, p.kind))
+        })
 }
 fn frame(board: &Board, s: &State, step: usize, action: Option<usize>) -> Value {
     let names = ["orb", "mass", "brone", "laam", "stuk"];
@@ -178,6 +214,7 @@ impl Control {
     }
 }
 fn save(dir: &Path, s: &Saved, net: &Network, adam: &Adam) -> Result<()> {
+    let started = Instant::now();
     let generations = dir.join("snapshots");
     fs::create_dir_all(&generations)?;
     let name = format!(
@@ -190,14 +227,19 @@ fn save(dir: &Path, s: &Saved, net: &Network, adam: &Adam) -> Result<()> {
     fs::create_dir(&path)?;
     net.vs.save(path.join("model.ot"))?;
     adam.save(&path.join("adam.ot"))?;
-    let mut file = File::create(path.join("state.json"))?;
+    let mut file = BufWriter::with_capacity(1024 * 1024, File::create(path.join("state.json"))?);
     serde_json::to_writer(&mut file, s)?;
-    file.sync_all()?;
+    file.flush()?;
+    file.get_ref().sync_all()?;
     File::open(path.join("model.ot"))?.sync_all()?;
     File::open(path.join("adam.ot"))?.sync_all()?;
     File::open(&path)?.sync_all()?;
     atomic_json(&dir.join("latest.json"), &json!({"generation":name}))?;
     File::open(dir)?.sync_all()?;
+    atomic_json(
+        &dir.join("checkpoint-timing.json"),
+        &json!({"save_seconds":started.elapsed().as_secs_f64(),"state_bytes":fs::metadata(path.join("state.json"))?.len(),"updated":now()}),
+    )?;
     let mut old: Vec<_> = fs::read_dir(generations)?
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
@@ -216,6 +258,7 @@ fn load(
     adam: &mut Adam,
     seed: u64,
 ) -> Result<Saved> {
+    let started = Instant::now();
     if !dir.join("latest.json").exists() {
         return Ok(Saved {
             version: 1,
@@ -231,19 +274,24 @@ fn load(
             elapsed: 0.,
             last_metrics: None,
             decisions: 0,
+            search_timings: search::Timings::default(),
+            search_settings: None,
         });
     }
-    let index: Value = serde_json::from_reader(File::open(dir.join("latest.json"))?)?;
+    let index: Value = serde_json::from_reader(std::io::BufReader::new(File::open(
+        dir.join("latest.json"),
+    )?))?;
     let name = index["generation"].as_str().context("invalid generation")?;
     anyhow::ensure!(
         !name.contains('/') && !name.contains(".."),
         "invalid snapshot path"
     );
     let generation = dir.join("snapshots").join(name);
-    let raw: Value = serde_json::from_reader(File::open(generation.join("state.json"))?)?;
-    let had_decisions = raw.get("decisions").is_some();
-    let mut saved: Saved = serde_json::from_value(raw)?;
-    if !had_decisions {
+    let mut saved: Saved = serde_json::from_reader(std::io::BufReader::with_capacity(
+        1024 * 1024,
+        File::open(generation.join("state.json"))?,
+    ))?;
+    if saved.decisions == usize::MAX {
         saved.decisions = saved.episodes.iter().map(|e| e.samples.len()).sum();
     }
     anyhow::ensure!(
@@ -262,11 +310,15 @@ fn load(
         saved.episodes.len(),
         adam.step
     );
+    atomic_json(
+        &dir.join("load-timing.json"),
+        &json!({"load_seconds":started.elapsed().as_secs_f64(),"updated":now()}),
+    )?;
     Ok(saved)
 }
 fn status(dir: &Path, s: &Saved, stage: &str, index: usize, extra: Value) -> Result<()> {
     let e = s.episodes.get(index);
-    let mut value = json!({"stage":stage,"updated":now(),"pid":std::process::id(),"iteration":s.iteration+1,"game_number":index+1,"game_id":e.map(|e|&e.id),"started":e.map(|e|e.started),"step":e.map(|e|e.samples.len()),"actors":s.config.actors,"backend":"rust-libtorch"});
+    let mut value = json!({"stage":stage,"updated":now(),"pid":std::process::id(),"iteration":s.iteration+1,"game_number":index+1,"game_id":e.map(|e|&e.id),"started":e.map(|e|e.started),"step":e.map(|e|e.samples.len()),"actors":s.config.actors,"rings":s.config.rings,"unchanged_layout_rounds":e.map(|e|e.state.round.saturating_sub(e.layout_since_round.unwrap_or(e.state.round))),"backend":"rust-libtorch"});
     if let Some(fields) = extra.as_object() {
         for (k, v) in fields {
             value[k] = v.clone();
@@ -277,7 +329,7 @@ fn status(dir: &Path, s: &Saved, stage: &str, index: usize, extra: Value) -> Res
 fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str) -> Result<()> {
     let e = &mut s.episodes[i];
     let names = ["orb", "mass", "brone", "laam", "stuk"];
-    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason});
+    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds});
     e.result = Some(result.clone());
     for sample in &mut e.samples {
         sample.value = (0..board.players)
@@ -313,6 +365,163 @@ fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str)
     println!("{}p game {}: {}", board.players, i + 1, result);
     Ok(())
 }
+#[derive(Serialize, Deserialize)]
+struct PendingEvaluation {
+    session: crate::evaluate::Session,
+    iteration: u64,
+    promotion_candidate: bool,
+}
+struct EvaluationJob {
+    saved: PendingEvaluation,
+    candidate: Network,
+    opponent: Network,
+    path: PathBuf,
+}
+impl EvaluationJob {
+    fn network(board: &Board, config: &Config, device: Device) -> Network {
+        Network::new(
+            board.players,
+            board.grid(),
+            board.action_size(),
+            config.blocks,
+            config.filters,
+            device,
+        )
+    }
+    fn load(dir: &Path, board: &Board, config: &Config, device: Device) -> Result<Option<Self>> {
+        let pointer = dir.join("pending-evaluation.json");
+        if !pointer.exists() {
+            return Ok(None);
+        }
+        let value: Value = serde_json::from_reader(std::io::BufReader::new(File::open(pointer)?))?;
+        let iteration = value["iteration"]
+            .as_u64()
+            .context("invalid evaluation pointer")?;
+        let path = dir.join("evaluation-jobs").join(iteration.to_string());
+        let saved: PendingEvaluation = serde_json::from_reader(std::io::BufReader::new(
+            File::open(path.join("state.json"))?,
+        ))?;
+        anyhow::ensure!(saved.iteration == iteration, "evaluation identity mismatch");
+        let mut candidate = Self::network(board, config, device);
+        candidate.vs.load(path.join("candidate.ot"))?;
+        let mut opponent = Self::network(board, config, device);
+        opponent.vs.load(path.join("opponent.ot"))?;
+        Ok(Some(Self {
+            saved,
+            candidate,
+            opponent,
+            path,
+        }))
+    }
+    fn create(
+        dir: &Path,
+        board: &Board,
+        config: &Config,
+        net: &Network,
+        iteration: u64,
+        per_seat: usize,
+        promotion_candidate: bool,
+        settings: &SearchSettings,
+    ) -> Result<Self> {
+        let path = dir.join("evaluation-jobs").join(iteration.to_string());
+        fs::create_dir_all(&path)?;
+        let mut candidate = Self::network(board, config, net.vs.device());
+        candidate.vs.copy(&net.vs)?;
+        let mut opponent = Self::network(board, config, net.vs.device());
+        opponent.vs.load(dir.join("baseline.ot"))?;
+        candidate.vs.save(path.join("candidate.ot"))?;
+        opponent.vs.save(path.join("opponent.ot"))?;
+        File::open(path.join("candidate.ot"))?.sync_all()?;
+        File::open(path.join("opponent.ot"))?.sync_all()?;
+        let saved = PendingEvaluation {
+            session: crate::evaluate::Session::new(
+                board,
+                config.sims,
+                per_seat,
+                config.max_steps,
+                config.repetition,
+                9917,
+                settings.exploration_rounds,
+            ),
+            iteration,
+            promotion_candidate,
+        };
+        let job = Self {
+            saved,
+            candidate,
+            opponent,
+            path,
+        };
+        job.persist()?;
+        File::open(&job.path)?.sync_all()?;
+        atomic_json(
+            &dir.join("pending-evaluation.json"),
+            &json!({"iteration":iteration}),
+        )?;
+        Ok(job)
+    }
+    fn persist(&self) -> Result<()> {
+        atomic_json(&self.path.join("state.json"), &self.saved)
+    }
+}
+fn service_evaluation(
+    job: &mut Option<EvaluationJob>,
+    board: &Board,
+    dir: &Path,
+    settings: &SearchSettings,
+    control: &mut Control,
+) -> Result<()> {
+    let Some(eval) = job.as_mut() else {
+        return Ok(());
+    };
+    eval.saved.session.tick(
+        board,
+        &eval.candidate,
+        &eval.opponent,
+        settings.gpu_batch,
+        || control.checkpoint(),
+    )?;
+    atomic_json(
+        &dir.join("evaluation-progress.json"),
+        &json!({"iteration":eval.saved.iteration,"updated":now(),"completed":eval.saved.session.results.iter().filter(|r|r.is_some()).count(),"games":eval.saved.session.results.len(),"choices":eval.saved.session.steps,"stage":if eval.saved.session.done(){"complete"}else{"running alongside self-play"}}),
+    )?;
+    if eval.saved.session.done() {
+        let mut report = eval.saved.session.report();
+        report["iteration"] = json!(eval.saved.iteration);
+        report["opponent"] = json!("frozen starting weights");
+        atomic_json(&dir.join("evaluation.json"), &report)?;
+        fs::create_dir_all(dir.join("evaluations"))?;
+        atomic_json(
+            &dir.join("evaluations")
+                .join(format!("{:06}.json", eval.saved.iteration)),
+            &report,
+        )?;
+        if eval.saved.promotion_candidate && crate::curriculum::passes(&report) {
+            let root = dir.parent().unwrap();
+            let mut c: crate::curriculum::Progress = serde_json::from_reader(
+                std::io::BufReader::new(File::open(root.join("curriculum.json"))?),
+            )?;
+            if c.rings == board.rings {
+                crate::curriculum::promote(root, &mut c, &eval.candidate, &report)?;
+            }
+        }
+        println!("{}p background evaluation: {}", board.players, report);
+        fs::remove_file(dir.join("pending-evaluation.json"))?;
+        // The completed candidate remains a reproducible frozen evaluation fixture.
+        *job = None;
+        // Bound full evaluation fixtures; lightweight reports remain in evaluations/.
+        let mut fixtures: Vec<_> = fs::read_dir(dir.join("evaluation-jobs"))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .collect();
+        fixtures.sort_by_key(|e| e.file_name().to_string_lossy().parse::<u64>().unwrap_or(0));
+        for entry in fixtures.iter().take(fixtures.len().saturating_sub(2)) {
+            fs::remove_dir_all(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 fn iteration(
     board: &Board,
     dir: &Path,
@@ -320,9 +529,12 @@ fn iteration(
     net: &Network,
     adam: &mut Adam,
     control: &mut Control,
+    concurrent_games: usize,
+    settings: &SearchSettings,
+    evaluation: &mut Option<EvaluationJob>,
 ) -> Result<()> {
     while s.episodes.iter().filter(|e| e.result.is_some()).count() < s.config.actors
-        && s.episodes.iter().filter(|e| e.result.is_none()).count() < s.config.actors
+        && s.episodes.iter().filter(|e| e.result.is_none()).count() < concurrent_games
     {
         let number = s.episodes.len() + 1;
         s.episodes
@@ -336,6 +548,7 @@ fn iteration(
     let mut started = Instant::now();
     let mut telemetry = Instant::now() - std::time::Duration::from_secs(5);
     let mut checkpoint = Instant::now();
+    let mut search_batches = 0usize;
     let result = (|| -> Result<()> {
         loop {
             control.checkpoint()?;
@@ -367,7 +580,7 @@ fn iteration(
             if finished >= s.config.actors {
                 break;
             }
-            while s.episodes.iter().filter(|e| e.result.is_none()).count() < s.config.actors {
+            while s.episodes.iter().filter(|e| e.result.is_none()).count() < concurrent_games {
                 let number = s.episodes.len() + 1;
                 s.episodes
                     .push(Episode::new(board, s.iteration + 1, number, &mut s.rng));
@@ -398,30 +611,73 @@ fn iteration(
                     s,
                     "self_play",
                     i,
-                    json!({"active_games":active.len(),"phase":board.phase(&s.episodes[i].state)}),
+                    json!({"active_games":active.len(),"concurrent_games":concurrent_games,"phase":board.phase(&s.episodes[i].state)}),
                 )?;
                 telemetry = Instant::now();
             }
-            let states: Vec<_> = active
-                .iter()
-                .map(|&i| s.episodes[i].state.clone())
-                .collect();
             let saved_rng = s.rng.clone();
-            let policies =
-                match search::policies(board, &states, net, s.config.sims, &mut s.rng, true, || {
-                    control.checkpoint()
-                }) {
+            // Transactional search: unfinished work cannot alter a durable episode.
+            let mut trees: Vec<_> = active
+                .iter()
+                .map(|&i| {
+                    s.episodes[i].tree.clone().unwrap_or_else(|| {
+                        search::Tree::new(s.episodes[i].state.clone(), board.players)
+                    })
+                })
+                .collect();
+            let policies = if settings.legacy {
+                let states: Vec<_> = active
+                    .iter()
+                    .map(|&i| s.episodes[i].state.clone())
+                    .collect();
+                match search::policies_profiled(
+                    board,
+                    &states,
+                    net,
+                    s.config.sims,
+                    &mut s.rng,
+                    true,
+                    || control.checkpoint(),
+                    &mut s.search_timings,
+                ) {
                     Ok(p) => p,
                     Err(e) => {
                         s.rng = saved_rng;
                         return Err(e);
                     }
-                };
+                }
+            } else {
+                let limits: Vec<_> = active
+                    .iter()
+                    .map(|&i| search::Limits {
+                        seen: Some(&seen[i]),
+                        steps: s.episodes[i].samples.len(),
+                        max_steps: s.config.max_steps,
+                        repetition: s.config.repetition,
+                    })
+                    .collect();
+                if let Err(e) = search::queued(
+                    board,
+                    &mut trees,
+                    &limits,
+                    net,
+                    s.config.sims,
+                    &mut s.rng,
+                    true,
+                    settings.gpu_batch,
+                    || control.checkpoint(),
+                    &mut s.search_timings,
+                ) {
+                    s.rng = saved_rng;
+                    return Err(e);
+                }
+                trees.iter().map(|t| t.policy(board)).collect()
+            };
             s.decisions += active.len();
-            for (&i, pi) in active.iter().zip(policies) {
+            for ((&i, pi), mut tree) in active.iter().zip(policies).zip(trees) {
                 let e = &mut s.episodes[i];
                 *seen[i].entry(repetition_state(&e.state)).or_default() += 1;
-                let action = if e.samples.len() < 30 {
+                let action = if settings.sample(&e.state, e.samples.len()) {
                     s.rng.sample(&pi)
                 } else {
                     pi.iter()
@@ -430,12 +686,28 @@ fn iteration(
                         .unwrap()
                         .0
                 };
-                let next = board
-                    .legal(&e.state)
-                    .into_iter()
-                    .find(|(a, _)| *a == action)
-                    .context("search chose illegal action")?
-                    .1;
+                let next = if settings.legacy {
+                    board
+                        .legal(&e.state)
+                        .into_iter()
+                        .find(|(a, _)| *a == action)
+                        .context("search chose illegal action")?
+                        .1
+                } else {
+                    tree.advance(action)?;
+                    let next = tree.state().clone();
+                    if settings.reuse {
+                        e.tree = Some(tree);
+                    }
+                    next
+                };
+                let since = e.layout_since_round.get_or_insert(e.state.round);
+                e.longest_layout_rounds = e
+                    .longest_layout_rounds
+                    .max(next.round.saturating_sub(*since));
+                if !same_layout(&e.state, &next) {
+                    *since = next.round;
+                }
                 e.samples.push(Sample {
                     state: e.state.clone(),
                     pi,
@@ -445,6 +717,10 @@ fn iteration(
                 e.frames
                     .push(frame(board, &e.state, e.samples.len(), Some(action)));
             }
+            search_batches += 1;
+            if search_batches % 8 == 0 {
+                service_evaluation(evaluation, board, dir, settings, control)?;
+            }
             if checkpoint.elapsed().as_secs() >= 120 {
                 for (e, map) in s.episodes.iter_mut().zip(&seen) {
                     e.seen = map.iter().map(|(s, n)| (s.clone(), *n)).collect();
@@ -452,8 +728,15 @@ fn iteration(
                 s.elapsed += started.elapsed().as_secs_f64();
                 started = Instant::now();
                 save(dir, s, net, adam)?;
+                if let Some(job) = evaluation.as_ref() {
+                    job.persist()?;
+                }
                 checkpoint = Instant::now();
             }
+        }
+        // Neural weights change below: invalidate every retained search tree.
+        for e in &mut s.episodes {
+            e.tree = None;
         }
         if !s.replay.is_empty() {
             while s.training_step < s.config.train_steps {
@@ -489,14 +772,13 @@ fn iteration(
                 let p_value = f64::try_from(&pl)?;
                 let v_value = f64::try_from(&vl)?;
                 anyhow::ensure!(p_value.is_finite() && v_value.is_finite(), "nonfinite loss");
-                adam.update(
-                    net,
-                    &(&pl + &vl),
-                    1e-3 * 0.5f64.powi((s.iteration / 20) as i32),
-                )?;
+                adam.update(net, &(&pl + &vl), learning_rate(s.iteration))?;
                 s.policy_sum += p_value;
                 s.value_sum += v_value;
                 s.training_step += 1;
+                if s.training_step % 20 == 0 {
+                    service_evaluation(evaluation, board, dir, settings, control)?;
+                }
             }
         }
         Ok(())
@@ -510,7 +792,7 @@ fn iteration(
     let decisions = s.decisions;
     let victories = stats.iter().filter(|g| g["termination"] == "win").count();
     let seconds = s.elapsed.max(1e-9);
-    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds});
+    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration)});
     atomic_json(
         &dir.join("live.json"),
         &ogf(
@@ -525,6 +807,7 @@ fn iteration(
     s.iteration += 1;
     s.episodes.retain(|e| e.result.is_none());
     s.decisions = 0;
+    s.search_timings = search::Timings::default();
     s.training_step = 0;
     s.policy_sum = 0.;
     s.value_sum = 0.;
@@ -633,6 +916,15 @@ pub fn main(args: &[String]) -> Result<()> {
         "Native Rust training: {device:?}, {threads} search threads, {:.0}% work duty",
         duty * 100.
     );
+    let settings = SearchSettings {
+        exploration_rounds: argument(args, "--exploration-rounds", "10").parse()?,
+        gpu_batch: argument(args, "--gpu-batch", "16").parse()?,
+        reuse: !args.iter().any(|a| a == "--no-tree-reuse"),
+        legacy: args.iter().any(|a| a == "--legacy-search"),
+    };
+    anyhow::ensure!(settings.gpu_batch > 0, "GPU batch must be positive");
+    let mut resident: HashMap<usize, (PathBuf, Network, Adam, Saved, Option<EvaluationJob>)> =
+        HashMap::new();
     for _ in 0..if forever { usize::MAX } else { cycles } {
         for &players in &player_counts {
             if control.stopping() {
@@ -642,9 +934,30 @@ pub fn main(args: &[String]) -> Result<()> {
                 (2..=3).contains(&players),
                 "training currently supports 2/3 players"
             );
+            let curriculum = if players == 2 && args.iter().any(|a| a == "--curriculum-2p") {
+                Some(crate::curriculum::load(
+                    &root,
+                    argument(args, "--rings-2p", "3").parse()?,
+                    argument(args, "--curriculum-max-rings", "7").parse()?,
+                )?)
+            } else {
+                None
+            };
+            if let Some(c) = &curriculum {
+                atomic_json(&root.join("curriculum.json"), c)?;
+            }
             let config = Config {
                 players,
-                rings: argument(args, "--rings", "4").parse()?,
+                rings: if let Some(c) = &curriculum {
+                    c.rings
+                } else {
+                    argument(
+                        args,
+                        &format!("--rings-{players}p"),
+                        &argument(args, "--rings", "4"),
+                    )
+                    .parse()?
+                },
                 blocks: argument(args, "--blocks", "4").parse()?,
                 filters: argument(args, "--filters", "64").parse()?,
                 sims: argument(args, "--sims", "64").parse()?,
@@ -656,7 +969,8 @@ pub fn main(args: &[String]) -> Result<()> {
                 train_steps: argument(args, "--train-steps", "100").parse()?,
             };
             anyhow::ensure!(
-                (4..=7).contains(&config.rings)
+                (3..=7).contains(&config.rings)
+                    && (config.rings >= 4 || players == 2)
                     && config.sims > 0
                     && config.actors > 0
                     && config.max_steps > 0
@@ -667,59 +981,109 @@ pub fn main(args: &[String]) -> Result<()> {
                     && config.repetition != 1,
                 "invalid configuration"
             );
-            let dir = root.join(format!("{players}p"));
+            let model_name = if curriculum.is_some() || config.rings == 3 {
+                format!("{players}p-r{}", config.rings)
+            } else {
+                format!("{players}p")
+            };
+            let dir = root.join(model_name);
             fs::create_dir_all(dir.join("games"))?;
             let board = Board::new(players, config.rings, false);
-            tch::manual_seed(players as i64 * 17);
-            let mut net = Network::new(
-                players,
-                board.grid(),
-                board.action_size(),
-                config.blocks,
-                config.filters,
-                device,
-            );
-            let fresh = !dir.join("latest.json").exists();
-            if fresh {
-                if let Some(i) = args.iter().position(|a| a == "--warm-start") {
-                    let weights =
-                        PathBuf::from(args.get(i + 1).context("missing warm-start root")?)
-                            .join(format!("{players}p.pt"));
-                    anyhow::ensure!(
-                        weights.exists(),
-                        "missing warm-start weights: {}",
-                        weights.display()
-                    );
-                    if weights.exists() {
-                        net.vs.load(&weights)?;
-                        println!("Imported weights: {}", weights.display());
+            let (net, mut adam, mut saved, mut evaluation) = if let Some((
+                cached_dir,
+                net,
+                adam,
+                saved,
+                evaluation,
+            )) = resident
+                .remove(&players)
+                .filter(|(path, _, _, _, _)| path == &dir)
+            {
+                let _ = cached_dir;
+                (net, adam, saved, evaluation)
+            } else {
+                tch::manual_seed(players as i64 * 17);
+                let mut net = Network::new(
+                    players,
+                    board.grid(),
+                    board.action_size(),
+                    config.blocks,
+                    config.filters,
+                    device,
+                );
+                let fresh = !dir.join("latest.json").exists();
+                if fresh {
+                    if let Some(path) = curriculum.as_ref().and_then(|c| c.source_model.as_ref()) {
+                        let count = net.import_spatial_features(Path::new(path))?;
+                        println!(
+                            "Transferred {count} spatial tensors; initialized new dense heads for {} rings",
+                            config.rings
+                        );
+                    }
+                    if let Some(i) = args.iter().position(|a| a == "--warm-start") {
+                        let weights =
+                            PathBuf::from(args.get(i + 1).context("missing warm-start root")?)
+                                .join(format!("{players}p.pt"));
+                        anyhow::ensure!(
+                            weights.exists(),
+                            "missing warm-start weights: {}",
+                            weights.display()
+                        );
+                        if weights.exists() {
+                            net.vs.load(&weights)?;
+                            println!("Imported weights: {}", weights.display());
+                        }
                     }
                 }
+                let mut adam = Adam::new();
+                let saved = load(
+                    &dir,
+                    config.clone(),
+                    &mut net,
+                    &mut adam,
+                    players as u64 * 17,
+                )?;
+                let evaluation = EvaluationJob::load(&dir, &board, &config, device)?;
+                (net, adam, saved, evaluation)
+            };
+            if saved.search_settings.as_ref() != Some(&settings) {
+                for e in &mut saved.episodes {
+                    e.tree = None;
+                }
+                saved.search_settings = Some(settings.clone());
             }
-            let mut adam = Adam::new();
-            let mut saved = load(
-                &dir,
-                config.clone(),
-                &mut net,
-                &mut adam,
-                players as u64 * 17,
-            )?;
             atomic_json(&dir.join("config.json"), &config)?;
             if !dir.join("baseline.ot").exists() {
                 net.vs.save(dir.join("baseline.tmp.ot"))?;
                 fs::rename(dir.join("baseline.tmp.ot"), dir.join("baseline.ot"))?;
             }
+            let concurrent_games: usize =
+                argument(args, "--concurrent-games", &config.actors.to_string()).parse()?;
+            anyhow::ensure!(concurrent_games > 0, "concurrent games must be positive");
             control.last = Instant::now();
             println!(
                 "{}p iteration {}, {} concurrent games",
                 players,
                 saved.iteration + 1,
-                config.actors
+                concurrent_games
             );
-            match iteration(&board, &dir, &mut saved, &net, &mut adam, &mut control) {
+            match iteration(
+                &board,
+                &dir,
+                &mut saved,
+                &net,
+                &mut adam,
+                &mut control,
+                concurrent_games,
+                &settings,
+                &mut evaluation,
+            ) {
                 Ok(()) => {}
                 Err(e) => {
                     save(&dir, &saved, &net, &adam)?;
+                    if let Some(job) = evaluation.as_ref() {
+                        job.persist()?;
+                    }
                     status(
                         &dir,
                         &saved,
@@ -738,128 +1102,42 @@ pub fn main(args: &[String]) -> Result<()> {
                     return Err(e);
                 }
             }
+            let promotion_candidate = curriculum.as_ref().is_some_and(|c| c.rings < c.max_rings)
+                && crate::curriculum::ready_to_test(&dir)?;
             let eval_every: u64 = argument(args, "--eval-every", "5").parse()?;
-            if eval_every > 0
+            if evaluation.is_none()
+                && eval_every > 0
                 && (saved.iteration == 1 || saved.iteration % eval_every == 0)
                 && !control.stopping()
             {
-                status(
-                    &dir,
-                    &saved,
-                    "evaluation",
-                    0,
-                    json!({"iteration":saved.iteration}),
-                )?;
-                let mut opponent = Network::new(
-                    players,
-                    board.grid(),
-                    board.action_size(),
-                    config.blocks,
-                    config.filters,
-                    device,
-                );
-                opponent.vs.load(dir.join("baseline.ot"))?;
-                let per_seat = argument(args, "--eval-games-per-seat", "2").parse()?;
+                let per_seat: usize = argument(args, "--eval-games-per-seat", "2").parse()?;
+                let per_seat = if promotion_candidate {
+                    per_seat.max(16)
+                } else {
+                    per_seat
+                };
                 anyhow::ensure!(per_seat > 0, "evaluation games per seat must be positive");
-                let mut watched = usize::MAX;
-                let mut live = Episode::new(&board, saved.iteration, 1, &mut Random(0));
-                let mut published = Instant::now() - std::time::Duration::from_secs(1);
-                match crate::evaluate::run(
+                evaluation = Some(EvaluationJob::create(
+                    &dir,
                     &board,
+                    &config,
                     &net,
-                    &opponent,
-                    config.sims,
+                    saved.iteration,
                     per_seat,
-                    config.max_steps,
-                    config.repetition,
-                    9917,
-                    || control.checkpoint(),
-                    |states, steps, results| {
-                        let i = if watched < states.len() && results[watched].is_none() {
-                            watched
-                        } else {
-                            results.iter().position(Option::is_none).unwrap_or(0)
-                        };
-                        if watched != i {
-                            watched = i;
-                            live.frames.clear();
-                            live.id = format!("eval-{:06}-{}", saved.iteration, i + 1);
-                            published = Instant::now() - std::time::Duration::from_secs(1);
-                        }
-                        if live.frames.last().and_then(|f| f["step"].as_u64())
-                            != Some(steps[i] as u64)
-                        {
-                            live.frames.push(frame(&board, &states[i], steps[i], None));
-                            if live.frames.len() > 64 {
-                                live.frames.remove(0);
-                            }
-                        }
-                        live.state = states[i].clone();
-                        live.result = results[i].clone();
-                        if published.elapsed().as_secs_f64() >= 0.25
-                            || results.iter().all(Option::is_some)
-                        {
-                            publish_live(
-                                &dir,
-                                &board,
-                                &live,
-                                saved.iteration,
-                                i + 1,
-                                "evaluation",
-                            )?;
-                            status(
-                                &dir,
-                                &saved,
-                                "evaluation",
-                                0,
-                                json!({"iteration":saved.iteration,"game_id":live.id,"game_number":i+1,"step":steps[i],"active_games":results.iter().filter(|r|r.is_none()).count()}),
-                            )?;
-                            published = Instant::now();
-                        }
-                        Ok(())
-                    },
-                ) {
-                    Ok(mut report) => {
-                        report["iteration"] = json!(saved.iteration);
-                        report["opponent"] = json!("frozen starting weights");
-                        atomic_json(&dir.join("evaluation.json"), &report)?;
-                        fs::create_dir_all(dir.join("evaluations"))?;
-                        atomic_json(
-                            &dir.join("evaluations")
-                                .join(format!("{:06}.json", saved.iteration)),
-                            &report,
-                        )?;
-                        println!("{}p evaluation: {}", players, report);
-                        status(
-                            &dir,
-                            &saved,
-                            "evaluation_complete",
-                            0,
-                            json!({"iteration":saved.iteration}),
-                        )?;
-                    }
-                    Err(e) if control.stopping() => {
-                        status(
-                            &dir,
-                            &saved,
-                            "stopped",
-                            0,
-                            json!({"message":"Stopped during evaluation; training checkpoint already saved"}),
-                        )?;
-                        println!("Evaluation interrupted: {e}");
-                        return Ok(());
-                    }
-                    Err(e) => return Err(e),
+                    promotion_candidate,
+                    &settings,
+                )?);
+            }
+            if !forever {
+                // Finite validation runs still produce a complete evaluation report.
+                while evaluation.is_some() && !control.stopping() {
+                    service_evaluation(&mut evaluation, &board, &dir, &settings, &mut control)?;
                 }
             }
-            drop(saved);
-            drop(adam);
-            drop(net);
-            if !cpu {
-                unsafe {
-                    organism_cuda_empty_cache();
-                }
+            if let Some(job) = evaluation.as_ref() {
+                job.persist()?;
             }
+            resident.insert(players, (dir, net, adam, saved, evaluation));
         }
     }
     Ok(())
@@ -877,8 +1155,10 @@ mod tests {
         let mut e = Episode::new(&board, 1, 1, &mut Random(0));
         e.frames = (0..100).map(|i| frame(&board, &e.state, i, None)).collect();
         publish_live(&dir, &board, &e, 1, 1, "evaluation").unwrap();
-        let live: Value =
-            serde_json::from_reader(File::open(root.join("current.json")).unwrap()).unwrap();
+        let live: Value = serde_json::from_reader(std::io::BufReader::new(
+            File::open(root.join("current.json")).unwrap(),
+        ))
+        .unwrap();
         assert_eq!(live["frames"].as_array().unwrap().len(), 64);
         assert_eq!(live["frames"][63]["step"], 99);
         assert_eq!(live["live-stage"], "evaluation");
@@ -907,5 +1187,87 @@ mod tests {
             .collect();
         assert_eq!(rows, vec![json!({"iteration":1}), metric]);
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn exploration_covers_full_rounds_not_menu_choices() {
+        let b = Board::new(2, 3, false);
+        let mut state = b.initial();
+        let settings = SearchSettings {
+            exploration_rounds: 10,
+            gpu_batch: 2,
+            reuse: true,
+            legacy: false,
+        };
+        state.round = 9;
+        assert!(settings.sample(&state, 1000));
+        state.round = 10;
+        assert!(!settings.sample(&state, 2));
+    }
+    #[test]
+    fn background_candidate_is_frozen_and_job_is_durable() {
+        let root = std::env::temp_dir().join(format!("organism-eval-job-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let board = Board::new(2, 3, false);
+        let config = Config {
+            players: 2,
+            rings: 3,
+            blocks: 1,
+            filters: 8,
+            sims: 2,
+            actors: 2,
+            max_steps: 10,
+            repetition: 3,
+            replay: 20,
+            batch: 4,
+            train_steps: 1,
+        };
+        let net = EvaluationJob::network(&board, &config, Device::Cpu);
+        net.vs.save(root.join("baseline.ot")).unwrap();
+        let settings = SearchSettings {
+            exploration_rounds: 10,
+            gpu_batch: 2,
+            reuse: true,
+            legacy: false,
+        };
+        let mut job =
+            EvaluationJob::create(&root, &board, &config, &net, 7, 1, false, &settings).unwrap();
+        let input = board.encode(&board.initial(), 0);
+        let before = job.candidate.infer(&input, 1).unwrap();
+        tch::no_grad(|| {
+            for (_, mut v) in net.vs.variables() {
+                let _ = v.fill_(0.123);
+            }
+        });
+        assert_eq!(before, job.candidate.infer(&input, 1).unwrap());
+        job.saved
+            .session
+            .tick(&board, &job.candidate, &job.opponent, 2, || Ok(()))
+            .unwrap();
+        job.persist().unwrap();
+        let loaded = EvaluationJob::load(&root, &board, &config, Device::Cpu)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.saved.iteration, 7);
+        assert_eq!(loaded.saved.session.steps, job.saved.session.steps);
+        assert_eq!(before, loaded.candidate.infer(&input, 1).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn food_accumulation_is_diagnostic_not_exact_repetition() {
+        let b = Board::new(2, 3, false);
+        let a = b.legal(&b.initial())[0].1.clone();
+        let mut next = a.clone();
+        next.pieces.iter_mut().flatten().next().unwrap().food += 1;
+        assert!(same_layout(&a, &next));
+        assert_ne!(repetition_state(&a), repetition_state(&next));
+        next.pieces.iter_mut().flatten().next().unwrap().kind = crate::game::Kind::Circulate;
+        assert!(!same_layout(&a, &next));
+    }
+    #[test]
+    fn draw_only_iterations_cannot_anneal_learning_to_zero() {
+        assert_eq!(learning_rate(0), 1e-3);
+        assert_eq!(learning_rate(20), 5e-4);
+        assert_eq!(learning_rate(80), 1e-4);
+        assert_eq!(learning_rate(u64::MAX), 1e-4);
     }
 }

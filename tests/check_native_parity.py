@@ -11,18 +11,19 @@ def main():
     child=subprocess.Popen(['native/target/release/organism-train'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
     checks=0
     try:
-        for players in (2,3):
+        cases=[(2,3),(2,4),(3,4)]
+        for players,rings in cases:
             for run in range(3):
-                game=OrganismGame(players,num_rings=4,remove_notches=False)
+                game=OrganismGame(players,num_rings=rings,remove_notches=False)
                 state=game.initial_state();path=[]
                 for step in range(1200):
                     legal=game.legal_actions(state)
                     if step<50 or step%10==0 or not legal:
-                        child.stdin.write(json.dumps({'players':players,'actions':path})+'\n');child.stdin.flush()
+                        child.stdin.write(json.dumps({'players':players,'rings':rings,'actions':path})+'\n');child.stdin.flush()
                         line=child.stdout.readline()
                         if not line:raise RuntimeError('Rust oracle exited')
                         actual=json.loads(line)
-                        context=f'{players}p run={run} step={step} path={path}'
+                        context=f'{players}p rings={rings} run={run} step={step} path={path}'
                         assert actual['snapshot']==snapshot(state),context+'\nsnapshot mismatch\n'+str(actual['snapshot'])+'\n'+str(snapshot(state))
                         assert sorted(actual['legal'])==sorted(legal),context+'\nlegal mismatch '+str(actual['legal'])+' vs '+str(list(legal))
                         assert actual['round']==state['state']['round'],context+' round'
@@ -33,7 +34,7 @@ def main():
                         checks+=1
                     if not legal:break
                     action=rng.choice(sorted(legal));path.append(action);state=legal[action]
-                print(f'{players}p run {run}: {len(path)} choices, winner={state["state"]["winner"]}',flush=True)
+                print(f'{players}p rings={rings} run {run}: {len(path)} choices, winner={state["state"]["winner"]}',flush=True)
         print(f'Native/Python parity passed: {checks} positions plus all child boards, legal choices and encodings.')
     finally:
         child.stdin.close();child.wait(timeout=10)
