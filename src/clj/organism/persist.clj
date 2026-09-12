@@ -50,24 +50,37 @@
   [key]
   (str "player-games-" key))
 
+(declare remove-open-game!)
+
 (defn create-open-game!
-  "Store (or update) an open lobby. `created-by` is whoever opened it, recorded
-   so a lobby can be cleaned up by the person who made it the way a created
-   game carries :created-by. Omitting it leaves any existing value alone."
+  "Store (or update) an open lobby.
+
+   A key has one lifecycle: an open lobby or a live/completed game, never both.
+   In particular, an old websocket message must not be able to recreate a
+   lobby after that key has started playing. `created-by` is whoever opened it;
+   omitting it leaves any existing value alone."
   ([db game-key invocation]
    (create-open-game! db game-key invocation nil))
   ([db game-key invocation created-by]
-   (println "creating open game!" game-key)
-   (db/index! db :open-games [:key] {:unique true})
-   (let [existing (db/one db :open-games {:key game-key})]
-     (db/merge!
-      db :open-games
-      {:key game-key}
-      (cond-> {:invocation invocation}
-        ;; First writer owns the lobby. Later writes come from people joining,
-        ;; and a joiner must not take over authorship of someone else's game.
-        (and created-by (nil? (:created-by existing)))
-        (assoc :created-by created-by))))))
+   (if (db/one db :games {:key game-key})
+     ;; A late browser snapshot is harmless, and also repairs any older zombie
+     ;; open-game record that happened to survive beside its real game.
+     (do
+       (println "ignoring stale open game!" game-key)
+       (remove-open-game! db game-key))
+     (do
+       (println "creating open game!" game-key)
+       (db/index! db :open-games [:key] {:unique true})
+       (let [existing (db/one db :open-games {:key game-key})]
+         (db/merge!
+          db :open-games
+          {:key game-key}
+          (cond-> {:invocation invocation
+                   :status "open"}
+            ;; First writer owns the lobby. Later writes come from people joining,
+            ;; and a joiner must not take over authorship of someone else's game.
+            (and created-by (nil? (:created-by existing)))
+            (assoc :created-by created-by))))))))
 
 (defn remove-open-game!
   [db game-key]
@@ -242,7 +255,11 @@
         player-colors (board/invocation-player-colors invocation)]
     (println "CREATING GAME" game-state)
     (db/index! db :games [:key] {:unique true})
-    (db/insert! db :games game-state)
+    ;; Starting is the transition out of the lobby. Do this here too (rather
+    ;; than trusting every caller) so the invariant survives a late/open
+    ;; websocket message during the handoff.
+    (remove-open-game! db key)
+    (db/insert! db :games (assoc game-state :status "active"))
     (db/insert! db (history-key key) initial-state)
     (doseq [player (reverse (:players invocation))]
       (db/index! db (player-games-key player) [:game] {:unique true}))
@@ -277,7 +294,8 @@
     (db/merge!
      db :games
      {:key game-key}
-     {:game (assoc (:game game-state) :state serialized)})
+     {:game (assoc (:game game-state) :state serialized)
+      :status "complete"})
     (complete-player-games!
      db game-key players
      winner state)))
@@ -401,8 +419,15 @@
 
 (defn load-open-games
   [db]
-  (let [records (db/query db :open-games {})]
-    (filter-ids records)))
+  (let [records (db/query db :open-games {})
+        zombies (filter #(db/one db :games {:key (:key %)}) records)]
+    ;; Old deployments could leave an open-game document beside the real game.
+    ;; Heal those records while loading, and never expose them to the UI.
+    (doseq [{:keys [key]} zombies]
+      (remove-open-game! db key))
+    (->> records
+         (remove (set zombies))
+         filter-ids)))
 
 (defn load-players
   [db]

@@ -115,6 +115,17 @@
     (is (false? (:begun? (ws/set-slot! *db* "alice" "partial" 1 "bo"))))
     (is (some? (db/one *db* :open-games {:key "partial"})))))
 
+(deftest a-late-lobby-update-cannot-resurrect-a-started-game
+  (testing "the stale open-game snapshot that caused the full zombie is ignored"
+    (open-lobby! "late" ["alice" ""])
+    (ws/join-open-game! *db* "late" 1 "bob")
+    (is (some? (db/one *db* :games {:key "late"})))
+    ;; This mirrors an already-queued websocket `open-game` message arriving
+    ;; after the last player joined and the game began.
+    (persist/create-open-game! *db* "late" (invocation-for ["alice" "bob"]))
+    (is (nil? (db/one *db* :open-games {:key "late"})))
+    (is (= "active" (:status (db/one *db* :games {:key "late"}))))))
+
 ;; ── the pieces underneath ─────────────────────────────────────────────────
 
 (deftest full-invocation-means-every-seat-taken
