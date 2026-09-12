@@ -9,7 +9,13 @@
  :dev-http {3100 "resources/public"}
 
  :builds
- {:organism
+ {:ogf-viewer
+  {:target :browser
+   :output-dir "resources/public/js/ogf-viewer"
+   :asset-path "/viewer"
+   :modules {:main {:init-fn organism.viewer/init!}}}
+
+  :organism
   {:target :browser
    :output-dir "resources/public/js"
    :asset-path "/js"

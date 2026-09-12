@@ -58,8 +58,10 @@ class AlphaZeroNetwork(nn.Module):
         action_size: int,
         num_res_blocks: int = 10,
         num_filters: int = 128,
+        value_size: int = 1,
     ):
         super().__init__()
+        self.value_size = value_size
         self.board_size = board_size
         self.action_size = action_size
 
@@ -81,7 +83,7 @@ class AlphaZeroNetwork(nn.Module):
         self.value_conv = nn.Conv2d(num_filters, 1, 1, bias=False)
         self.value_bn   = nn.BatchNorm2d(1)
         self.value_fc1  = nn.Linear(board_size * board_size, 256)
-        self.value_fc2  = nn.Linear(256, 1)
+        self.value_fc2  = nn.Linear(256, value_size)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # x: (B, C, H, W)
@@ -106,6 +108,7 @@ class AlphaZeroNetwork(nn.Module):
     def for_game(cls, game, **kwargs) -> "AlphaZeroNetwork":
         """Construct network sized to match a Game's encoding."""
         # Probe encoding shape with a dummy state
+        kwargs.setdefault("value_size", getattr(game, "value_size", 1))
         dummy = game.initial_state()
         player = game.current_player(dummy)
         tensor = game.encode_state(dummy, player)

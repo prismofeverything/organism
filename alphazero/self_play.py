@@ -39,6 +39,11 @@ def self_play_game(
     temperature_threshold: int = 30,
     players: list[str] | None = None,
     max_steps: int = 400,
+    control=None,
+    truncation: str = "shaped",
+    stats: dict | None = None,
+    repetition_limit: int = 0,
+    observer=None,
 ) -> list[dict]:
     """Play one full game; return a list of training samples.
 
@@ -48,16 +53,33 @@ def self_play_game(
         max_steps: Hard cutoff. Keep this low — Journey rarely terminates with
             random play, and a growing board makes each step progressively slower.
     """
-    mcts = MCTS(game, network, num_simulations=num_simulations)
+    mcts = MCTS(game, network, num_simulations=num_simulations, control=control)
     state = game.initial_state(players)
     samples: list[dict] = []
     step = 0
+    seen = {}
+    repetition_key = getattr(game, "repetition_key", None)
+    reason = "max_steps"
+    if observer:
+        observer(state, step)
 
     while not game.is_terminal(state) and step < max_steps:
+        if control:
+            control()
+        if repetition_limit and repetition_key is not None:
+            key = repetition_key(state)
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] >= repetition_limit:
+                reason = "repetition"
+                break
         player = game.current_player(state)
         if player is None:
+            reason = "no_player"
             break
 
+        if not game.legal_actions(state):
+            reason = "no_legal_actions"
+            break
         temp = 1.0 if step < temperature_threshold else 0.0
         pi = mcts.policy(state, temperature=temp)
 
@@ -73,17 +95,12 @@ def self_play_game(
         action = game.index_to_action(action_idx)
 
         if action not in legal:
-            # Policy index doesn't directly map back to a legal action —
-            # fall back to the legal action whose index is closest.
-            legal_indices = [game.action_to_index(a) for a in legal]
-            action_idx = min(legal_indices, key=lambda i: abs(i - action_idx))
-            action = game.index_to_action(action_idx)
-            if action not in legal:
-                # Last resort: pick any legal action
-                action = next(iter(legal))
+            raise RuntimeError("MCTS selected an illegal action")
 
         state = legal[action]
         step += 1
+        if observer:
+            observer(state, step, action_idx)
 
     # Augment samples with final values.
     # If the game didn't finish, score by beacons placed on the cipher so the
@@ -91,9 +108,21 @@ def self_play_game(
     if game.is_terminal(state):
         rewards = game.rewards(state)
     else:
-        rewards = _partial_rewards(state)
+        rewards = (_partial_rewards(state) if truncation == "shaped"
+                   else {p: 0.0 for p in state["turn_order"]})
+    if stats is not None:
+        stats.update(terminal=game.is_terminal(state), steps=step,
+                     winner=state.get("state", {}).get("winner"),
+                     termination="win" if game.is_terminal(state) else reason)
+    if not game.is_terminal(state) and truncation == "discard":
+        return []
     for sample in samples:
-        sample["value"] = rewards.get(sample["player"], 0.0)
+        if getattr(network, "value_size", 1) > 1:
+            order = state["turn_order"]
+            i = order.index(sample["player"])
+            sample["value"] = [rewards[p] for p in order[i:] + order[:i]]
+        else:
+            sample["value"] = rewards.get(sample["player"], 0.0)
 
     return samples
 
@@ -168,9 +197,9 @@ def _partial_rewards(state: dict) -> dict[str, float]:
     players = state["turn_order"]
     scores = {p: _shaped_score(state, p) for p in players}
     values = list(scores.values())
-    lo, hi = min(values), max(values)
-    spread = max(hi - lo, 1.0)
-    return {p: 2.0 * (scores[p] - lo) / spread - 1.0 for p in players}
+    mean = sum(values) / len(values)
+    scale = max(max(abs(v - mean) for v in values), 1.0)
+    return {p: (scores[p] - mean) / scale for p in players}
 
 
 # ── replay buffer ─────────────────────────────────────────────────────────────

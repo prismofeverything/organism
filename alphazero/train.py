@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 import os
+import json
 import time
 from typing import Any
 
@@ -50,7 +51,7 @@ class SelfPlayDataset(Dataset):
         s = self.samples[idx]
         state  = torch.FloatTensor(s["state"])
         pi     = torch.FloatTensor(s["pi"])
-        value  = torch.FloatTensor([s["value"]])
+        value  = torch.as_tensor(np.atleast_1d(s["value"]), dtype=torch.float32)
         return state, pi, value
 
 
@@ -76,7 +77,16 @@ class Trainer:
         batch_size: int = 512,
         train_steps_per_iter: int = 200,
         device: str = "cpu",
+        control=None,
+        truncation: str = "shaped",
+        repetition_limit: int = 0,
+        record_games: bool = False,
     ):
+        self.control = control
+        self.truncation = truncation
+        self.repetition_limit = repetition_limit
+        self.record_games = record_games
+        self.recorder = None
         self.game = game
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -118,14 +128,19 @@ class Trainer:
             # 1. Self-play
             self._generate_games()
 
+            self_play_seconds = time.time() - t0
+            loss_p = loss_v = None
             # 2. Train (once buffer is large enough)
             if len(self.replay_buffer) >= self.min_buffer_size:
+                if self.recorder:
+                    self.recorder.status("training", buffer=len(self.replay_buffer))
                 loss_p, loss_v = self._train_epoch()
                 print(f"  policy_loss={loss_p:.4f}  value_loss={loss_v:.4f}")
             else:
                 print(f"  Buffer size {len(self.replay_buffer)} < min {self.min_buffer_size}, skipping train")
 
-            self.scheduler.step()
+            if len(self.replay_buffer) >= self.min_buffer_size:
+                self.scheduler.step()
 
             # 3. Checkpoint
             path = os.path.join(
@@ -133,23 +148,82 @@ class Trainer:
                 f"{self.game.name}_iter_{self.iteration:04d}.pt"
             )
             self.network.save(path)
+            self.save_training()
+            if self.recorder:
+                self.recorder.status("iteration_complete", buffer=len(self.replay_buffer))
+            metrics = {"iteration": self.iteration, "game": self.game.name,
+                       "buffer": len(self.replay_buffer), "policy_loss": loss_p,
+                       "value_loss": loss_v, "self_play_seconds": self_play_seconds,
+                       "total_seconds": time.time() - t0, "games": self.game_stats}
+            if self.device.type == "cuda":
+                metrics["peak_cuda_allocated_mib"] = torch.cuda.max_memory_allocated(self.device) / 2**20
+            with open(os.path.join(self.checkpoint_dir, "metrics.jsonl"), "a") as stream:
+                stream.write(json.dumps(metrics) + "\n")
             print(f"  Saved checkpoint: {path}  ({time.time() - t0:.1f}s)")
+
+    def save_training(self):
+        """Atomic local resume snapshot, including replay and optimizer state."""
+        path = os.path.join(self.checkpoint_dir, "latest.pt")
+        torch.save({
+            "version": 1, "game": self.game.name, "iteration": self.iteration,
+            "network": self.network.state_dict(), "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict(), "buffer": self.replay_buffer,
+            "numpy_rng": np.random.get_state(), "torch_rng": torch.get_rng_state(),
+            "cuda_rng": torch.cuda.get_rng_state_all() if self.device.type == "cuda" else None,
+        }, path + ".tmp")
+        os.replace(path + ".tmp", path)
+
+    def resume(self):
+        path = os.path.join(self.checkpoint_dir, "latest.pt")
+        if not os.path.exists(path):
+            return
+        # Only load our own trusted local snapshots (replay contains numpy arrays).
+        data = torch.load(path, map_location=self.device, weights_only=False)
+        if data["version"] != 1 or data["game"] != self.game.name:
+            raise ValueError("Incompatible checkpoint")
+        self.network.load_state_dict(data["network"])
+        self.optimizer.load_state_dict(data["optimizer"])
+        self.scheduler.load_state_dict(data["scheduler"])
+        self.replay_buffer = data["buffer"]
+        self.iteration = data["iteration"]
+        np.random.set_state(data["numpy_rng"])
+        torch.set_rng_state(data["torch_rng"].cpu())
+        if self.device.type == "cuda" and data.get("cuda_rng") is not None:
+            torch.cuda.set_rng_state_all([s.cpu() for s in data["cuda_rng"]])
+        print(f"Resumed {self.game.name} at iteration {self.iteration}")
 
     # ── self-play ──────────────────────────────────────────────────────────────
 
     def _generate_games(self):
         self.network.eval()
         total_steps = 0
+        completed = 0
+        self.game_stats = []
         for g in range(self.games_per_iteration):
+            if self.record_games:
+                from alphazero.telemetry import GameRecorder
+                self.recorder = GameRecorder(self.checkpoint_dir, self.game, self.iteration, g + 1)
             samples = self_play_game(
                 self.game,
                 self.network,
                 num_simulations=self.mcts_simulations,
                 temperature_threshold=self.temperature_threshold,
                 max_steps=self.max_steps_per_game,
+                control=self.control,
+                truncation=self.truncation,
+                stats=(stats := {}),
+                repetition_limit=self.repetition_limit,
+                observer=self.recorder.observe if self.recorder else None,
             )
+            if self.recorder:
+                self.recorder.finish(stats)
+            self.game_stats.append(stats)
+            completed += int(stats["terminal"])
+            print(f"  Game {g + 1}: {stats}", flush=True)
             self.replay_buffer.push(samples)
             total_steps += len(samples)
+        if completed == 0 and self.truncation == "discard":
+            print("  No completed games: no new training data. Increase max-steps or use an explicit bootstrap experiment.", flush=True)
         print(f"  Self-play: {self.games_per_iteration} games, {total_steps} steps → buffer={len(self.replay_buffer)}")
 
     # ── training ───────────────────────────────────────────────────────────────
@@ -167,6 +241,8 @@ class Trainer:
         steps = 0
 
         for state, pi, value in loader:
+            if self.control:
+                self.control()
             state = state.to(self.device)
             pi    = pi.to(self.device)
             value = value.to(self.device)

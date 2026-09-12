@@ -27,7 +27,7 @@ class Node:
         "state", "player", "prior", "visit_count",
         "value_sum",   # dict player -> float
         "children",    # action_index -> Node
-        "is_expanded",
+        "is_expanded", "evaluation",
     ]
 
     def __init__(self, state: Any, player: str | None, prior: float):
@@ -38,6 +38,7 @@ class Node:
         self.value_sum: dict[str, float] = {}
         self.children: dict[int, "Node"] = {}
         self.is_expanded = False
+        self.evaluation = None
 
     def value(self, player: str) -> float:
         if self.visit_count == 0:
@@ -60,7 +61,11 @@ class MCTS:
         c_puct: float = 1.0,
         dirichlet_alpha: float = 0.3,
         dirichlet_eps: float = 0.25,
+        control=None,
     ):
+        if num_simulations < 1:
+            raise ValueError("MCTS needs at least one simulation")
+        self.control = control
         self.game = game
         self.network = network
         self.num_simulations = num_simulations
@@ -77,6 +82,8 @@ class MCTS:
         self._add_dirichlet_noise(root)
 
         for _ in range(self.num_simulations):
+            if self.control:
+                self.control()
             self._simulate(root)
 
         counts = np.zeros(self.game.action_space_size(), dtype=np.float32)
@@ -104,7 +111,7 @@ class MCTS:
         node = root
 
         # Selection
-        while node.is_expanded and not self.game.is_terminal(node.state):
+        while node.is_expanded and node.children and not self.game.is_terminal(node.state):
             action_idx, node = self._select_child(node)
             path.append((node, action_idx))
 
@@ -151,9 +158,10 @@ class MCTS:
             state_tensor = self.game.encode_state(node.state, player)
             import torch
             with torch.no_grad():
-                t = torch.FloatTensor(state_tensor).unsqueeze(0)
-                log_pi, _ = self.network(t)
-                priors = torch.exp(log_pi).squeeze(0).numpy()
+                t = torch.as_tensor(state_tensor, device=next(self.network.parameters()).device).unsqueeze(0)
+                log_pi, value = self.network(t)
+                node.evaluation = self._player_values(node, value.squeeze(0).cpu().numpy())
+                priors = torch.exp(log_pi).squeeze(0).cpu().numpy()
         else:
             priors = np.ones(self.game.action_space_size()) / self.game.action_space_size()
 
@@ -163,27 +171,35 @@ class MCTS:
             child = Node(next_state, self.game.current_player(next_state), prior)
             node.children[action_idx] = child
 
+        total = sum(child.prior for child in node.children.values())
+        for child in node.children.values():
+            child.prior = child.prior / total if total > 0 else 1 / len(node.children)
         node.is_expanded = True
 
     def _evaluate(self, node: Node) -> dict[str, float]:
-        """Use network value head to estimate outcome."""
+        """Reuse the value predicted alongside this node's policy priors."""
+        if node.evaluation is not None:
+            return node.evaluation
         player = self.game.current_player(node.state)
         if player is None:
             return {}
         state_tensor = self.game.encode_state(node.state, player)
         import torch
         with torch.no_grad():
-            t = torch.FloatTensor(state_tensor).unsqueeze(0)
+            t = torch.as_tensor(state_tensor, device=next(self.network.parameters()).device).unsqueeze(0)
             _, value = self.network(t)
-            v = float(value.squeeze())
-        # For multi-player we have a single scalar from the current player's POV.
-        # Distribute: current player gets v, others share -(v / (N-1)).
+            node.evaluation = self._player_values(node, value.squeeze(0).cpu().numpy())
+        return node.evaluation
+
+    def _player_values(self, node: Node, vector: np.ndarray) -> dict[str, float]:
+        player = self.game.current_player(node.state)
         players = node.state["turn_order"]
-        n = len(players)
-        values = {}
-        for p in players:
-            values[p] = v if p == player else -(v / max(n - 1, 1))
-        return values
+        if len(vector) > 1:
+            i = players.index(player)
+            return dict(zip(players[i:] + players[:i], map(float, vector)))
+        # Legacy scalar heads (Journey) estimate only the current player's POV.
+        v = float(vector[0])
+        return {p: v if p == player else -v / max(len(players) - 1, 1) for p in players}
 
     def _add_dirichlet_noise(self, root: Node):
         if not root.children:

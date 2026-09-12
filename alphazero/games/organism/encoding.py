@@ -1,7 +1,8 @@
 """State and action encoding for Organism AlphaZero.
 
-Tensor shape: (NUM_CHANNELS, NUM_RINGS, MAX_STEPS_PER_RING)
-  = (NUM_CHANNELS, 7, 30)   for a 5-player 7-ring board
+Tensor shape: (6 * players + 22, grid_size, grid_size).
+The grid includes every ring position (36 square for the standard sixfold,
+seven-ring board). Twenty context planes encode the active organism/action.
 
 Action space layout:
   0 .. N-1          space selection (N = number of board spaces)
@@ -14,8 +15,11 @@ Action space layout:
   N+11              grow element "grow"
   N+12              grow element "move"
   N+13              pass
-  N+14 .. N+23      grow-from contribution index (slots 0-9)
-  N+24 .. N+33      choose-organism by ID mod 10
+  N+14              zero-cost growth allocation
+  N+15 .. N+23      reserved legacy slots
+  Growth food donors use space indices, one food at a time.
+  N+24 .. N+33      reserved legacy slots
+  Organism selection uses its lowest occupied space index.
 
 Total: N + 34
 """
@@ -25,17 +29,10 @@ import numpy as np
 
 import alphazero.games.organism.choices as ch
 
-NUM_RINGS = 7
-MAX_STEPS = 30   # ring 6 has 6*5=30 spaces
-# Pad to square so the shared AlphaZeroNetwork (which requires H==W) works.
-GRID_SIZE = MAX_STEPS  # 30×30 square grid; ring dimension fits in first 7 rows
-
 # Channels per player: has_element, is_eat, is_grow, is_move, element_food
 CHANNELS_PER_PLAYER = 5
 # Global channels: free_food, is_current_player_space, *capture_progress×num_players
 GLOBAL_CHANNELS = 2  # free_food, current_player indicator
-# Capture progress channels: one per player (broadcasted scalar)
-CAPTURE_CHANNELS = 5  # for 5-player game
 
 
 def build_space_index(all_spaces: list) -> tuple[dict, list]:
@@ -50,7 +47,7 @@ def num_players_from_game(game: dict) -> int:
 
 
 def total_channels(num_players: int) -> int:
-    return num_players * CHANNELS_PER_PLAYER + GLOBAL_CHANNELS + num_players
+    return num_players * CHANNELS_PER_PLAYER + GLOBAL_CHANNELS + num_players + 20
 
 
 def action_space_size(num_spaces: int) -> int:
@@ -58,15 +55,12 @@ def action_space_size(num_spaces: int) -> int:
 
 
 def encode_state(game: dict, player: str) -> np.ndarray:
-    """Encode game state as a (C, GRID_SIZE, GRID_SIZE) float32 tensor.
-
-    Rings are placed in the first NUM_RINGS rows; remaining rows are zero-padded.
-    This produces a square (30×30) grid compatible with AlphaZeroNetwork.
-    """
+    """Encode board and decision context in a square float32 tensor."""
     num_players = num_players_from_game(game)
     turn_order = game["turn_order"]
     C = total_channels(num_players)
-    tensor = np.zeros((C, GRID_SIZE, GRID_SIZE), dtype=np.float32)
+    grid_size = max(len(game["rings"]), max(s[1] for s in game["adjacencies"]) + 1)
+    tensor = np.zeros((C, grid_size, grid_size), dtype=np.float32)
 
     # Reorder turn_order so current player is first
     if player in turn_order:
@@ -80,7 +74,7 @@ def encode_state(game: dict, player: str) -> np.ndarray:
 
     for space, el in elements.items():
         ring_idx, step = space
-        if ring_idx >= NUM_RINGS or step >= MAX_STEPS:
+        if ring_idx >= grid_size or step >= grid_size:
             continue
         if space not in game["adjacencies"]:
             continue  # removed corner
@@ -95,20 +89,20 @@ def encode_state(game: dict, player: str) -> np.ndarray:
         tensor[base + 1, ring_idx, step] = 1.0 if el["type"] == "eat"  else 0.0
         tensor[base + 2, ring_idx, step] = 1.0 if el["type"] == "grow" else 0.0
         tensor[base + 3, ring_idx, step] = 1.0 if el["type"] == "move" else 0.0
-        tensor[base + 4, ring_idx, step] = min(el["food"], 10) / 10.0  # normalized
+        tensor[base + 4, ring_idx, step] = el["food"] / (10.0 + el["food"])  # retain differences above 10
 
     # Free food channel
     free_food_ch = num_players * CHANNELS_PER_PLAYER
     for space, food in food_map.items():
         ring_idx, step = space
-        if ring_idx < NUM_RINGS and step < MAX_STEPS and space in game["adjacencies"]:
-            tensor[free_food_ch, ring_idx, step] = min(food, 5) / 5.0
+        if ring_idx < grid_size and step < grid_size and space in game["adjacencies"]:
+            tensor[free_food_ch, ring_idx, step] = food / (5.0 + food)
 
     # Current player indicator (all spaces where current player has an element)
     curr_player_ch = free_food_ch + 1
     for space, el in elements.items():
         ring_idx, step = space
-        if el["player"] == player and ring_idx < NUM_RINGS and step < MAX_STEPS:
+        if el["player"] == player and ring_idx < grid_size and step < grid_size:
             if space in game["adjacencies"]:
                 tensor[curr_player_ch, ring_idx, step] = 1.0
 
@@ -122,6 +116,47 @@ def encode_state(game: dict, player: str) -> np.ndarray:
         progress = min(len(captures.get(p, [])) / max(limit, 1), 1.0)
         tensor[capture_base + i, :, :] = progress
 
+    # Decision context: identical pieces can be selecting an action, its source,
+    # or its destination. These planes distinguish those positions for the net.
+    context = capture_base + num_players
+    turn = game["state"]["player_turn"]
+    turns = turn["organism_turns"]
+    if turns:
+        current = turns[-1]
+        types = ["eat", "grow", "move", "circulate"]
+        choice = current.get("choice")
+        if choice in types:
+            tensor[context + types.index(choice), :, :] = 1
+        actions = current.get("actions", [])
+        if actions:
+            action = actions[-1]
+            if action.get("type") in types:
+                tensor[context + 4 + types.index(action["type"]), :, :] = 1
+            fields = action.get("action", {})
+            if fields.get("element") in types[:3]:
+                tensor[context + 8 + types.index(fields["element"]), :, :] = 1
+            for offset, key in [(11, "from"), (12, "to")]:
+                value = fields.get(key)
+                if isinstance(value, tuple) and value in game["adjacencies"]:
+                    tensor[context + offset, value[0], value[1]] = 1
+                elif isinstance(value, dict):
+                    for space, amount in value.items():
+                        if space in game["adjacencies"]:
+                            tensor[context + offset, space[0], space[1]] = amount / 10
+            tensor[context + 17, :, :] = float("from" in fields)
+            tensor[context + 18, :, :] = float("to" in fields)
+        acted = {t["organism"] for t in turns[:-1]}
+        for space, element in elements.items():
+            if element["player"] == turn["player"] and space in game["adjacencies"]:
+                if element["organism"] == current["organism"]:
+                    tensor[context + 13, space[0], space[1]] = 1
+                if element["organism"] in acted:
+                    tensor[context + 14, space[0], space[1]] = 1
+        tensor[context + 15, :, :] = len(actions) / 10
+        tensor[context + 16, :, :] = current.get("num_actions", 0) / 10
+    for space, amount in game["state"].get("az_grow_from", {}).items():
+        tensor[context + 11, space[0], space[1]] = amount / 10
+    tensor[context + 19, :, :] = float(bool(turns))
     return tensor
 
 

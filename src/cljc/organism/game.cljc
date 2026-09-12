@@ -698,17 +698,15 @@
     (:adjacencies game)
     spaces)))
 
-(defn add-elements-absorb-food
-  "Add elements at each space, absorbing any free food on that space into
-   the new element's starting food. Each new element starts with `food` + free."
+(defn add-introduction-elements
+  "Clear free food on introduction spaces and place pieces with their normal
+   starting food. Free food on neighboring spaces is left alone."
   [game player organism food elements]
   (reduce
    (fn [game [space type]]
-     (let [free (free-food-present game space)
-           starting-food (+ food free)]
-       (-> game
-           (remove-free-food space)
-           (add-element player organism type space starting-food))))
+     (-> game
+         (remove-free-food space)
+         (add-element player organism type space food)))
    game elements))
 
 (defn add-elements
@@ -723,9 +721,9 @@
   (let [surrounding (surrounding-spaces game [eat grow move])
         spaces {eat :eat grow :grow move :move}]
     (-> game
-        ;; Remove enemy elements from surrounding spaces but PRESERVE free food.
+        ;; Clear surrounding elements, preserve adjacent food, and reset home food.
         (#(reduce remove-element % surrounding))
-        (add-elements-absorb-food player organism 1 spaces)
+        (add-introduction-elements player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
 
 (defn introduce-spaces
@@ -733,9 +731,9 @@
   (let [starting (player-starting-spaces game player)
         surrounding (surrounding-spaces game starting)]
     (-> game
-        ;; Remove enemy elements from surrounding spaces but PRESERVE free food.
+        ;; Clear surrounding elements, preserve adjacent food, and reset home food.
         (#(reduce remove-element % surrounding))
-        (add-elements-absorb-food player organism 1 spaces)
+        (add-introduction-elements player organism 1 spaces)
         (assoc-in [:state :player-turn :introduction] introduction))))
 
 (defn choose-organism

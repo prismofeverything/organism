@@ -13,8 +13,11 @@ Action index layout (encoding.py defines the constants):
   N+11              : grow element "grow"
   N+12              : grow element "move"
   N+13              : pass
-  N+14 .. N+23      : grow-from contribution index (up to 10 distinct dicts)
-  N+24 .. N+33      : choose-organism by organism ID (IDs 0-9)
+  N+14             : zero-cost growth allocation
+  N+15 .. N+23      : reserved legacy slots
+  Nonzero growth allocations select donor space indices, one food at a time.
+  N+24 .. N+33      : reserved legacy slots
+  Choose-organism uses the index of its lowest occupied space.
 """
 
 from __future__ import annotations
@@ -57,7 +60,6 @@ def _intro_idx(perm: tuple) -> int:
 
 _PASS_IDX = lambda: _N + 13
 _GROW_FROM_BASE = lambda: _N + 14
-_ORG_BASE = lambda: _N + 24
 
 
 # ── introduce phase ─────────────────────────────────────────────────────────────
@@ -81,7 +83,10 @@ def _choose_organism_choices(game: Game, organism_ids: list[int]) -> dict[int, G
     choices: dict[int, Game] = {}
     for org_id in organism_ids:
         next_game = gs.choose_organism_action(game, org_id)
-        idx = _ORG_BASE() + (org_id % 10)
+        player = game["state"]["player_turn"]["player"]
+        spaces = [space for space, el in game["state"]["elements"].items()
+                  if el["player"] == player and el["organism"] == org_id]
+        idx = _space_idx(game, min(spaces))
         choices[idx] = next_game
     return choices
 
@@ -137,8 +142,9 @@ def _choose_action_choices(game: Game, action_type: str) -> dict[int, Game]:
     choices: dict[int, Game] = {}
 
     # Option: do the chosen action type
-    next_game = gs.choose_action_action(game, action_type)
-    choices[_type_idx(action_type)] = next_game
+    if _action_type_feasible(game, action_type):
+        next_game = gs.choose_action_action(game, action_type)
+        choices[_type_idx(action_type)] = next_game
 
     # Option: circulate instead (if feasible)
     if _circulate_feasible(game):
@@ -179,14 +185,10 @@ def _eat_from_choices(game: Game) -> dict[int, Game]:
         return {}
     # Adjacent empty spaces (where food comes from)
     open_adjs = gs.open_spaces(game, to_space)
-    # Deduplicate by whether free food is present (prefer food-present)
-    by_food: dict[int, Any] = {}
+    # Match the Clojure engine: keep all choices if any adjacent food exists.
+    spaces = open_adjs if any(gs.free_food_present(game, s) > 0 for s in open_adjs) else open_adjs[:1]
     choices: dict[int, Game] = {}
-    for space in open_adjs:
-        food_key = 1 if gs.free_food_present(game, space) > 0 else 0
-        if food_key not in by_food:
-            by_food[food_key] = space
-    for space in by_food.values():
+    for space in spaces:
         next_game = gs.set_action_field(game, "from", space)
         choices[_space_idx(game, space)] = next_game
     return choices
@@ -214,12 +216,24 @@ def _grow_from_choices(game: Game, elements: list[dict]) -> dict[int, Game]:
     by_type = {t: [e for e in elements if e["type"] == t] for t in ELEMENT_TYPES}
     existing = len(by_type.get(etype, []))
     growers = by_type.get("grow", [])
-    contributions = gs.food_contributions(growers, existing)
-
+    # Allocate food one unit at a time. Enumerating every allocation is
+    # exponential; the old [:10] shortcut silently excluded legal moves.
+    partial = game["state"].get("az_grow_from", {})
+    if existing == 0:
+        return {_GROW_FROM_BASE(): gs.set_action_field(game, "from", {})}
     choices: dict[int, Game] = {}
-    for i, contrib in enumerate(contributions[:10]):
-        next_game = gs.set_action_field(game, "from", contrib)
-        choices[_GROW_FROM_BASE() + i] = next_game
+    for grower in growers:
+        space = grower["space"]
+        if partial.get(space, 0) >= grower["food"]:
+            continue
+        contribution = {**partial, space: partial.get(space, 0) + 1}
+        next_game = gs._deep(game)
+        if sum(contribution.values()) == existing:
+            next_game["state"].pop("az_grow_from", None)
+            next_game = gs.set_action_field(next_game, "from", contribution)
+        else:
+            next_game["state"]["az_grow_from"] = contribution
+        choices[_space_idx(game, space)] = next_game
     return choices
 
 
@@ -301,11 +315,12 @@ def _action_field_choices(game: Game, action_type: str, action_data: dict, eleme
 
 # ── main dispatch ────────────────────────────────────────────────────────────────
 
-def find_state(game: Game) -> tuple[str, dict[int, Game]]:
+def find_state(game: Game, automatic_only: bool = False) -> tuple[str, dict[int, Game]]:
     """Return (phase, {action_idx: next_game}).
 
     Terminal state returns ("game_over", {}).
     Automatic transitions return a single-entry dict.
+    automatic_only skips constructing decision children when only advancing phases.
     """
     state = game["state"]
     player_turn = state["player_turn"]
@@ -317,6 +332,10 @@ def find_state(game: Game) -> tuple[str, dict[int, Game]]:
     if winner:
         return ("game_over", {})
 
+    # Integrity must resolve before declaring a winner, as in Clojure.
+    if advance == "resolve_conflicts":
+        return ("resolve_conflicts", {-1: gs.check_integrity(game, player)})
+
     # ── check victory ──
     w = gs.victory(game)
     if w:
@@ -326,10 +345,6 @@ def find_state(game: Game) -> tuple[str, dict[int, Game]]:
         return ("game_over", {})
 
     # ── advance states (automatic) ──
-    if advance == "resolve_conflicts":
-        next_game = gs.check_integrity(game, player)
-        return ("resolve_conflicts", {-1: next_game})
-
     if advance == "check_integrity":
         next_game = gs.start_next_turn(game)
         return ("check_integrity", {-2: next_game})
@@ -339,11 +354,15 @@ def find_state(game: Game) -> tuple[str, dict[int, Game]]:
     organism_turns = player_turn["organism_turns"]
 
     if not organisms:
+        if automatic_only:
+            return ("introduce", {})
         choices = _introduce_choices(game, player)
         return ("introduce", choices)
 
     # ── choose organism / action type ──
     if not organism_turns:
+        if automatic_only:
+            return ("decision", {})
         game = gs.find_organisms(game)
         organisms = gs.player_organisms(game, player)
 
@@ -367,11 +386,15 @@ def find_state(game: Game) -> tuple[str, dict[int, Game]]:
     elements = organisms_full.get(organism, [])
 
     if choice is None:
+        if automatic_only:
+            return ("choose_action_type", {})
         choices = _choose_action_type_choices(game)
         return ("choose_action_type", choices)
 
     if all(gs.complete_action(a) for a in actions):
         if len(actions) < num_actions:
+            if automatic_only:
+                return ("choose_action", {})
             # Another action slot for this organism
             choices = _choose_action_choices(game, choice)
             if not choices:
@@ -382,6 +405,8 @@ def find_state(game: Game) -> tuple[str, dict[int, Game]]:
             return ("choose_action", choices)
 
         elif len(organism_turns) < len(organisms_full):
+            if automatic_only:
+                return ("choose_organism", {})
             # More organisms to act
             acted = {t["organism"] for t in organism_turns}
             remaining = [o for o in organisms_full if o not in acted]
@@ -404,6 +429,8 @@ def find_state(game: Game) -> tuple[str, dict[int, Game]]:
             next_game = gs.resolve_conflicts(game, player)
             return ("actions_complete", {-3: next_game})
 
+        if automatic_only:
+            return (f"{atype}_{_next_field(atype, adata)}", {})
         choices = _action_field_choices(game, atype, adata, elements)
         if not choices:
             pg = gs.pass_action(game)

@@ -932,7 +932,7 @@
     (fn [event]
       (swap! game-state update :cursor (partial boundary-dec total)))}])
 
-(def history-interval 300)
+(defonce history-speed (r/atom 500))
 
 (defn clear-history-advance!
   [advance]
@@ -952,12 +952,12 @@
     js/window
     (fn []
       (let [cursor (:cursor @game-state)]
-        (if (>= cursor (dec total))
+        (if (or (nil? cursor) (>= cursor (dec total)))
           (do
             (clear-history-advance! @history-advance)
             (swap! game-state assoc :cursor nil))
           (swap! game-state update :cursor (partial boundary-inc total)))))
-    history-interval)))
+    @history-speed)))
 
 (defn history-status-display
   [cursor total]
@@ -999,25 +999,60 @@
       (clear-history-advance! @history-advance)
       (swap! game-state assoc :cursor nil))}])
 
+(defn seek-history!
+  [position]
+  (clear-history-advance! @history-advance)
+  (swap! game-state assoc :cursor position))
+
 (defn history-controls
   [history cursor]
-  (let [total (count history)]
-    [:div
-      {:style
-       {:margin "0px 0px 0px 0px"}}
+  (let [total (count history)
+        position (or cursor (max 0 (dec total)))
+        playing? (some? @history-advance)
+        selected (when (pos? total) (nth history position nil))
+        button-style {:padding "7px 10px" :border-radius "6px"
+                      :border "1px solid #65765d" :background "#253222"
+                      :color "#eee" :cursor "pointer"}]
+    [:div {:style {:margin "12px 0" :max-width "360px"}}
      [:h3 "history"]
-     [:svg
-      {:width 300
-       :height 50
-       :style
-       {:margin "10px 0px 0px 30px"}}
-      [:g
-       {:transform "scale(0.6)"}
-       [history-beginning-control]
-       [history-back-control cursor total]
-       [history-status-display cursor total]
-       [history-forward-control total]
-       [history-end-control total]]]]))
+     [:div {:style {:color "#ddd" :margin-bottom "8px"} :aria-live "polite"}
+      (if (zero? total)
+        "No recorded positions yet"
+        (str (if (nil? cursor) "Latest · " "Position ")
+             (inc position) " / " total
+             (when-let [round (:round selected)] (str " · Round " (inc round)))
+             (when-let [player (get-in selected [:player-turn :player])]
+               (str " · " (name player))))) ]
+     [:input {:type "range" :min 0 :max (max 0 (dec total)) :value position
+              :aria-label "History position" :disabled (zero? total)
+              :style {:width "100%" :accent-color "#b5dca9"}
+              :on-change #(seek-history! (js/parseInt (.. % -target -value) 10))}]
+     [:div {:style {:display "flex" :gap "5px" :flex-wrap "wrap" :margin "8px 0"}}
+      [:button {:style button-style :disabled (or (zero? total) (zero? position))
+                :on-click #(seek-history! 0)} "First"]
+      [:button {:style button-style :disabled (or (zero? total) (zero? position))
+                :on-click #(seek-history! (max 0 (dec position)))} "Back"]
+      [:button {:style button-style :disabled (< total 2)
+                :on-click (fn [_]
+                            (if playing?
+                              (clear-history-advance! @history-advance)
+                              (let [start (if (or (nil? cursor) (= position (dec total))) 0 position)]
+                                (swap! game-state assoc :cursor start)
+                                (set-history-advance! total start))))}
+       (if playing? "Pause" "Play")]
+      [:button {:style button-style :disabled (>= position (dec total))
+                :on-click #(seek-history! (min (dec total) (inc position)))} "Next"]
+      [:button {:style button-style :disabled (nil? cursor)
+                :on-click #(seek-history! nil)} "Latest"]]
+     [:label {:style {:color "#ddd"}} "Playback speed "
+      [:select {:value @history-speed :style button-style
+                :on-change (fn [event]
+                             (reset! history-speed (js/parseInt (.. event -target -value) 10))
+                             (when playing?
+                               (set-history-advance! total (:cursor @game-state))))}
+       [:option {:value 1000} "1 position / sec"]
+       [:option {:value 500} "2 positions / sec"]
+       [:option {:value 200} "5 positions / sec"]]]]))
 
 (defn mutation-display
   [color mutation-key]

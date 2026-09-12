@@ -51,7 +51,9 @@ Game = dict
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def _deep(game: Game) -> Game:
-    return copy.deepcopy(game)
+    # Board geometry and player setup are immutable during play. Copy only
+    # mutable state; copying every adjacency for every MCTS edge dominates CPU.
+    return {**game, "state": copy.deepcopy(game["state"])}
 
 
 def get_state(game: Game) -> dict:
@@ -274,7 +276,7 @@ def can_move(game: Game, space: Space) -> bool:
 
 
 def can_eat(game: Game, element: dict) -> bool:
-    return len(open_spaces(game, element["space"])) > 0
+    return open_element(element) and len(open_spaces(game, element["space"])) > 0
 
 
 def open_element(element: dict) -> bool:
@@ -348,9 +350,11 @@ def introduce_spaces(game: Game, player: str, introduction: dict) -> Game:
     """Place elements on starting spaces. introduction = {"organism": 0, "spaces": {space: type}}."""
     starting = game["players"][player]["starting_spaces"]
     surround = surrounding_spaces(game, starting)
-    game = clear_spaces(game, list(surround))
+    for space in surround:
+        game = remove_element(game, space)
     organism = introduction.get("organism", 0)
     for space, etype in introduction["spaces"].items():
+        game = remove_free_food(game, space)
         game = add_element(game, player, organism, etype, space, 1)
     game = _deep(game)
     game["state"]["player_turn"]["introduction"] = introduction
@@ -406,9 +410,11 @@ def move_action(game: Game, fields: dict) -> Game:
 
 
 def circulate_action(game: Game, fields: dict) -> Game:
-    """circulate: {from: space, to: space}"""
-    game = adjust_food(game, fields["from"], -1)
-    game = adjust_food(game, fields["to"], 1)
+    """Transfer half of the source food, rounded up, to one other element."""
+    source = get_element(game, fields["from"])
+    amount = ((source or {}).get("food", 0) + 1) // 2
+    game = adjust_food(game, fields["from"], -amount)
+    game = adjust_food(game, fields["to"], amount)
     return game
 
 
@@ -566,11 +572,15 @@ def _resolve_one_conflict(game: Game, rise: dict, fall: dict) -> Game:
         game = _award_capture(game, fall["player"], rise)
     else:
         game = lose_element(game, fall["space"])
+        game["state"]["elements"][rise["space"]]["captures"].append(copy.deepcopy(fall))
         game = _award_capture(game, rise["player"], fall)
     return game
 
 
 def resolve_conflicts(game: Game, player: str) -> Game:
+    game = _deep(game)
+    for element in game["state"]["elements"].values():
+        element["captures"] = []
     conflicts = _player_conflicts(game, player)
     # Process annihilations first
     annihilations = [c for c in conflicts if c[0]["type"] == c[1]["type"]]
@@ -583,16 +593,34 @@ def resolve_conflicts(game: Game, player: str) -> Game:
         if rise_el and fall_el:
             game = _resolve_one_conflict(game, rise_el, fall_el)
 
-    # Process heterarchy conflicts (in stable topological order)
-    processed: set[Space] = set()
+    # Resolve downstream captures before removing their captors. Match the
+    # Clojure engine's reverse topological order; cycles have no such order.
+    edges = {}
+    captor = {}
     for rise, fall in others:
-        if fall["space"] in processed or rise["space"] in processed:
-            continue
-        rise_el = get_element(game, rise["space"])
-        fall_el = get_element(game, fall["space"])
-        if rise_el and fall_el:
-            game = _resolve_one_conflict(game, rise_el, fall_el)
-            processed.add(fall["space"])
+        edges.setdefault(rise["space"], set()).add(fall["space"])
+        edges.setdefault(fall["space"], set())
+        captor[fall["space"]] = rise["space"]
+    incoming = {space: 0 for space in edges}
+    for targets in edges.values():
+        for space in targets:
+            incoming[space] += 1
+    ready = sorted(space for space, count in incoming.items() if count == 0)
+    order = []
+    while ready:
+        space = ready.pop()
+        order.append(space)
+        for target in sorted(edges[space]):
+            incoming[target] -= 1
+            if incoming[target] == 0:
+                ready.append(target)
+    if len(order) == len(edges):
+        for fall_space in reversed(order):
+            rise_space = captor.get(fall_space)
+            rise = get_element(game, rise_space) if rise_space is not None else None
+            fall = get_element(game, fall_space)
+            if rise and fall:
+                game = _resolve_one_conflict(game, rise, fall)
 
     game = _deep(game)
     game["state"]["player_turn"]["advance"] = "resolve_conflicts"
@@ -605,17 +633,22 @@ def check_integrity(game: Game, active_player: str) -> Game:
     game = find_organisms(game)
     organisms = group_organisms(game)
 
+    other_players_lost = set()
     for org_id, elements in list(organisms.items()):
         if alive_elements(elements):
             continue
-        # Dead organism: remove elements, award capture to active player
-        # (only for non-active-player organisms)
-        org_players = {el["player"] for el in elements}
-        for space in [el["space"] for el in elements]:
-            game = lose_element(game, space)
-        if active_player not in org_players:
-            fake_el = {"type": "integrity", "player": list(org_players)[0]}
-            game = _award_capture(game, active_player, fake_el)
+        owners = {el["player"] for el in elements}
+        if active_player in owners:
+            victims = {capture["player"] for el in elements for capture in el.get("captures", [])}
+            sacrifice = {**elements[0], "type": "sacrifice"}
+            for victim in sorted(victims):
+                game = _award_capture(game, victim, sacrifice)
+        other_players_lost.update(owners - {active_player})
+        for element in elements:
+            game = lose_element(game, element["space"])
+    # One integrity capture per affected opponent, not per disconnected fragment.
+    for player in sorted(other_players_lost):
+        game = _award_capture(game, active_player, {"type": "integrity", "player": player})
 
     game = _deep(game)
     game["state"]["player_turn"]["advance"] = "check_integrity"
@@ -641,17 +674,30 @@ def player_wins(game: Game, player: str) -> bool:
 
 
 def victory(game: Game) -> str | None:
-    """Return the winning player name, or None."""
-    winners = [p for p in game["turn_order"] if player_wins(game, p)]
-    if not winners:
-        return None
-    if len(winners) == 1:
-        return winners[0]
-    # Tiebreak: most captures, then most living organisms
-    def _score(p):
-        return (len(game["state"]["captures"].get(p, [])),
-                living_organism_count(game, p))
-    return max(winners, key=_score)
+    """Match Clojure victory?: organisms first, then relative captures.
+
+    Causing a tie loses; an unresolved tie between non-acting players continues.
+    """
+    acting = game["state"]["player_turn"]["player"]
+
+    def leader(scores):
+        if not scores:
+            return None
+        highest = max(scores.values())
+        leaders = [p for p, score in scores.items() if score == highest]
+        if len(leaders) == 1:
+            return leaders[0]
+        blameless = [p for p in leaders if p != acting]
+        return blameless[0] if len(blameless) == 1 else None
+
+    organisms = {p: living_organism_count(game, p) for p in game["turn_order"]}
+    winner = leader({p: count for p, count in organisms.items()
+                     if count >= game["organism_victory"]})
+    if winner:
+        return winner
+    captures = {p: len(game["state"]["captures"].get(p, []))
+                - game["players"][p].get("capture_limit", 5) for p in game["turn_order"]}
+    return leader({p: score for p, score in captures.items() if score >= 0})
 
 
 # ── turn flow ────────────────────────────────────────────────────────────────────
