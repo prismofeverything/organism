@@ -145,7 +145,7 @@
   "Build an invocation suitable for an all-bot generated game."
   [players]
   (let [n (count players)
-        ring-count 6
+        ring-count (board/minimum-ring-count n)
         colors (board/generate-colors-buffer board/total-rings ring-count n)
         captures (vec (repeat n board/default-player-captures))]
     {:ring-count ring-count

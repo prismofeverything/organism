@@ -811,6 +811,40 @@
       (find-rain-spaces symmetry rings players)
       (find-starting-spaces symmetry rings players))))
 
+(defn starting-clearance?
+  "True when every starting organism has three empty outer-ring spaces on
+   both sides. This is calculated from the actual placement algorithm instead
+   of a hand-maintained player-count table, so it stays correct if the board
+   symmetry changes."
+  [ring-count player-count]
+  (when (and (pos? player-count)
+             (<= 3 ring-count (count total-rings)))
+    (let [symmetry (player-symmetry player-count)
+          spaces (* (dec ring-count) symmetry)
+          players (mapv str (range player-count))
+          starting (find-starting-spaces symmetry (take ring-count total-rings) players)
+          organisms (mapv second starting)
+          occupied (set (map second (mapcat identity organisms)))
+          empty? (fn [space] (not (contains? occupied (mod space spaces))))]
+      (every?
+       (fn [organism]
+         (let [first-space (first (map second organism))
+               last-space  (last (map second organism))]
+           (and (every? empty? (map #(- first-space %) (range 1 4)))
+                (every? empty? (map #(+ last-space %) (range 1 4))))))
+       organisms))))
+
+(defn available-ring-counts
+  "The legal ring-count choices for a player count. A board must leave at
+   least three open spaces on either side of each three-element organism."
+  [player-count]
+  (vec (filter #(starting-clearance? % player-count)
+               (range 3 (inc (count total-rings))))))
+
+(defn minimum-ring-count
+  [player-count]
+  (first (available-ring-counts player-count)))
+
 (defn generate-board
   [colors players rings mutations]
   (let [player-count (count players)
@@ -836,4 +870,3 @@
      (let [radiate (board-layout symmetry radius buffer colors)
            out (up/html radiate)]
        (spit path out))))
-

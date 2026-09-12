@@ -212,35 +212,50 @@
   [db game-key fallback]
   (or (:created-by (persist/find-open-game db game-key)) fallback))
 
+(defn- enough-starting-clearance?
+  "RAIN uses its own multi-organism placement. Every ordinary game must use a
+   board size that leaves three open spaces on both sides of each start."
+  [{:keys [ring-count player-count mutations]}]
+  (or (:RAIN mutations)
+      (board/starting-clearance? ring-count player-count)))
+
 (defn begin-game!
   "Turn an open lobby into a live game: build the starting position, tell every
    watching tab to switch over, and move the record out of :open-games.
 
    `creator` is whoever set the lobby up, not whoever filled the last seat — a
-   game that starts itself on someone else's join still belongs to its author."
+  game that starts itself on someone else's join still belongs to its author."
   [db game-key creator]
   (let [game-state (get-in @games [:games game-key])
         {:keys [invocation game channels history chat] :as game-state}
         (complete-game-state game-state)]
-    (swap!
-     games
-     assoc-in
-     [:games game-key]
-     game-state)
-    (send-channels!
-     channels
-     {:type "initialize"
-      :invocation invocation
-      :game game
-      :history history
-      :chat chat})
-    (persist/remove-open-game! db game-key)
-    (persist/create-game! db (assoc (dissoc game-state :channels)
-                                    :created-by creator
-                                    :game-type "organism"))
-    ;; If the first player is a bot, kick off bot turns immediately
-    (maybe-run-bot-turns! db game-key)
-    game-state))
+    (if-not (enough-starting-clearance? invocation)
+      (do
+        (log/warn "refusing to start undersized board" game-key invocation)
+        (send-channels! channels
+                        {:type "error"
+                         :message "Choose more rings: each organism needs three open spaces on either side."})
+        nil)
+      (do
+        (swap!
+         games
+         assoc-in
+         [:games game-key]
+         game-state)
+        (send-channels!
+         channels
+         {:type "initialize"
+          :invocation invocation
+          :game game
+          :history history
+          :chat chat})
+        (persist/remove-open-game! db game-key)
+        (persist/create-game! db (assoc (dissoc game-state :channels)
+                                        :created-by creator
+                                        :game-type "organism"))
+        ;; If the first player is a bot, kick off bot turns immediately
+        (maybe-run-bot-turns! db game-key)
+        game-state))))
 
 (defn trigger-creation
   [db player game-key channel message]
@@ -277,8 +292,7 @@
     {:invocation invocation
      :begun? (boolean
               (when begin?
-                (begin-game! db game-key (lobby-creator db game-key actor))
-                true))}))
+                (begin-game! db game-key (lobby-creator db game-key actor))))}))
 
 (defn set-slot!
   "Put `player-name` in seat `index` of an open lobby.

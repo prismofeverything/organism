@@ -3298,7 +3298,8 @@
 
 (defn ring-count-input
   [color]
-  (let [invocation @board-invocation]
+  (let [invocation @board-invocation
+        ring-counts (board/available-ring-counts (:player-count invocation))]
     [:div
      [:select
       {:id "ring-count"
@@ -3324,7 +3325,7 @@
          [:option
           {:value n}
           n])
-       (range 3 8))]
+       ring-counts)]
      [:label
       {:for "ring-count"
        :style
@@ -3344,11 +3345,15 @@
        :on-change
        (fn [event]
          (let [value (-> event .-target .-value js/parseInt)
+               ring-counts (board/available-ring-counts value)
+               ring-count (if (some #{(:ring-count invocation)} ring-counts)
+                            (:ring-count invocation)
+                            (first ring-counts))
                order @player-order
                captures-order @player-captures-order
                colors (board/generate-colors-buffer
                        board/total-rings
-                       (:ring-count invocation)
+                       ring-count
                        max-players)
                players (vec
                         (take
@@ -3365,6 +3370,7 @@
            (-> invocation
                (assoc :colors colors)
                (assoc :player-count value)
+               (assoc :ring-count ring-count)
                (assoc :players players)
                (assoc :player-captures captures)
                send-create!)))}
@@ -3374,7 +3380,8 @@
          [:option
           {:value n}
           n])
-       (range 1 11))]
+       (filter #(seq (board/available-ring-counts %))
+               (range 1 (inc max-players))))]
      [:label
       {:for "player-count"
        :style
@@ -3741,8 +3748,8 @@
         {:style
          {:margin "40px 60px"}}
         [game-name-input create-color]
-        [ring-count-input select-color]
         [player-count-input select-color]
+        [ring-count-input select-color]
         [description-input invocation select-color inactive-color]
         [players-input js/playerKey invocation]
         [:div
