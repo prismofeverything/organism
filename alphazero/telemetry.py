@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import time
 import uuid
-from pieces.organism_format import ring_label, ring_palette, COORDINATES
+from pieces.organism_format import ring_label, random_ring_palette, COORDINATES
 
 
 def space_id(space):
@@ -26,15 +26,16 @@ class GameRecorder:
         self.game = game
         self.started = time.time()
         self.identity = f'{iteration:06d}-{number:02d}-{uuid.uuid4().hex[:8]}'
+        palette = random_ring_palette(game.num_rings, self.identity, len(game._turn_order))
         self.data = {
             'format': 'organism', 'version': 2, 'profile': 'view', 'name': f'{game.name}-{self.identity}',
             'id': self.identity, 'iteration': iteration, 'number': number,
             'started': self.started, 'players': game._turn_order,
             'symmetry': game.symmetry,
             'board': {'center': space_id(game.center),
-                      'ring-colors': ring_palette(game.num_rings),
+                      'ring-colors': palette[:game.num_rings],
                       'coordinates': COORDINATES,
-                      **({'palette-tail': ring_palette(len(game._turn_order))[game.num_rings:]} if len(game._turn_order)>game.num_rings else {}),
+                      **({'palette-tail': palette[game.num_rings:]} if len(game._turn_order)>game.num_rings else {}),
                       'spaces': [space_id(s) for s in game.all_spaces],
                       'adjacencies': {space_id(s): [space_id(a) for a in adj]
                                       for s, adj in game.adjacencies.items()}},

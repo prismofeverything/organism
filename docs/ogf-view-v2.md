@@ -46,9 +46,11 @@ just the extra palette entries needed by the existing derivation. These are not
 additional board rings. Ordinary training setups do not need this field.
 
 The site exporter saves its actual configured palette. Native and Python training
-have no visual palette in their game state, so they export the same standard
-palette (yellow, red, blue, orange, green, purple, dark grey; deterministic HSL
-entries beyond seven). The viewer's Change colors button uses the existing site
+generate a random palette for each game using the creation page's hue/saturation/
+lightness recipe (lighter inner rings, darker outer rings). Presentation randomness
+is derived from the game identity, independently of search/training randomness.
+Native checkpoints persist the palette; older unfinished episodes acquire a stable
+palette on resume. Completed recordings keep their saved colors. The viewer's Change colors button uses the existing site
 palette generator, changes the recording's palette and updates its download.
 Changing colors cannot change space identity, geometry, rules or actions.
 

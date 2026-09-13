@@ -14,6 +14,7 @@ per-turn board snapshots). See organism.format (Clojure) for the writer/spec.
 import json
 import math
 import re
+import random
 
 
 STANDARD_RING_COLORS = ['#fff88c', '#da6558', '#849cd5', '#febe48', '#a6cd7a', '#9c6d8e', '#3b545c']
@@ -48,6 +49,22 @@ def ring_index(label):
 def ring_palette(count):
     return [STANDARD_RING_COLORS[i] if i < len(STANDARD_RING_COLORS)
             else f'hsl({(i * 137) % 360},55%,65%)' for i in range(count)]
+
+def random_ring_palette(rings, identity, players=0):
+    """Creation-page palette recipe, using presentation-only randomness."""
+    rng = random.Random(identity)
+    hue = rng.random()
+    band = 0.7 / rings
+    palette = []
+    for i in range(rings):
+        saturation = 0.3 + rng.random() * 0.6
+        lightness = 0.1 + band * (rings - 1 - i) + rng.random() * band
+        palette.append(f'hsl({hue*360:.3f},{saturation*100:.3f}%,{lightness*100:.3f}%)')
+        hue = (hue + rng.random() * 0.4) % 1
+    for _ in range(max(0, players-rings)):
+        palette.append(f'hsl({rng.random()*360:.3f},{rng.random()*100:.3f}%,{(0.1+rng.random()*0.8)*100:.3f}%)')
+    return palette
+
 
 def player_colors(game):
     if game.get('version') == 2:

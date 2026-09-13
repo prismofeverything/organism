@@ -15,6 +15,9 @@ class RecordingTests(unittest.TestCase):
             game = OrganismGame(num_players=3, num_rings=4, remove_notches=False)
             recorder = GameRecorder(directory, game, 2, 1)
             state = game.initial_state()
+            palette = recorder.data['board']['ring-colors'][:]
+            other = GameRecorder(directory, game, 2, 2)
+            self.assertNotEqual(palette, other.data['board']['ring-colors'])
             recorder.observe(state, 0)
             for step in range(1, 30):
                 legal = game.legal_actions(state)
@@ -28,9 +31,10 @@ class RecordingTests(unittest.TestCase):
             recorded = load_ogf(path)
             self.assertEqual(recorded['format'], 'organism')
             self.assertEqual(recorded['version'], 2)
+            self.assertEqual(recorded['board']['ring-colors'], palette)
             self.assertEqual(recorded['board']['center'], 'A0')
             self.assertNotIn('colors', recorded)
-            self.assertTrue(all(c.startswith('#') for c in recorded['board']['ring-colors']))
+            self.assertTrue(all(c.startswith('hsl(') for c in recorded['board']['ring-colors']))
             self.assertEqual(len(recorded['frames']), step + 1)
             self.assertEqual(set(board_locations(recorded)), set(recorded['board']['spaces']))
             frame = recorded['frames'][-1]

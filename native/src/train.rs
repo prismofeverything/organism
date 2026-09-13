@@ -86,17 +86,22 @@ struct Episode {
     layout_since_round: Option<u32>,
     #[serde(default)]
     longest_layout_rounds: u32,
+    #[serde(default)]
+    palette: Vec<String>,
 }
 impl Episode {
     fn new(board: &Board, iteration: u64, number: usize, rng: &mut Random) -> Self {
         let state = board.initial();
+        let id = format!("{iteration:06}-{number:02}-{:016x}", rng.next());
+        let palette = game_palette(board.rings, &id);
         Self {
             state: state.clone(),
             samples: vec![],
             seen: vec![],
             frames: vec![frame(board, &state, 0, None)],
             result: None,
-            id: format!("{iteration:06}-{number:02}-{:016x}", rng.next()),
+            id,
+            palette,
             started: now(),
             tree: None,
             layout_since_round: Some(0),
@@ -217,20 +222,31 @@ fn view_frame(frame: &Value) -> Value {
     }
     f
 }
-fn ring_palette(count: usize) -> Vec<String> {
-    let base = [
-        "#fff88c", "#da6558", "#849cd5", "#febe48", "#a6cd7a", "#9c6d8e", "#3b545c",
-    ];
+fn game_palette(count: usize, identity: &str) -> Vec<String> {
+    // Presentation randomness is derived from the already-random game identity.
+    // Never consume search/training RNG to choose colors.
+    let seed = identity.bytes().fold(0xcbf29ce484222325u64, |h, byte| {
+        (h ^ byte as u64).wrapping_mul(0x100000001b3)
+    });
+    let mut rng = Random(seed);
+    let mut hue = rng.unit();
+    let band = 0.7 / count as f64;
     (0..count)
         .map(|i| {
-            if i < base.len() {
-                base[i].to_owned()
-            } else {
-                format!("hsl({},55%,65%)", i * 137 % 360)
-            }
+            let saturation = 0.3 + rng.unit() * 0.6;
+            let lightness = 0.1 + band * (count - 1 - i) as f64 + rng.unit() * band;
+            let css = format!(
+                "hsl({:.3},{:.3}%,{:.3}%)",
+                hue * 360.,
+                saturation * 100.,
+                lightness * 100.
+            );
+            hue = (hue + rng.unit() * 0.4) % 1.;
+            css
         })
         .collect()
 }
+
 fn ogf_frames(
     board: &Board,
     e: &Episode,
@@ -240,8 +256,13 @@ fn ogf_frames(
 ) -> Value {
     let names = ["orb", "mass", "brone", "laam", "stuk"];
     let id = |i: usize| format!("{}{}", ring_label(board.spaces[i].0), board.spaces[i].1);
+    let palette = if e.palette.is_empty() {
+        game_palette(board.rings, &e.id)
+    } else {
+        e.palette.clone()
+    };
     json!({"format":"organism","version":2,"profile":"view","name":format!("organism_{}p-{}",board.players,e.id),"id":e.id,"iteration":iteration,"number":number,"source":"rust-self-play","frame-unit":"decision","started":e.started,"finished":if e.result.is_some(){Some(now())}else{None},"players":&names[..board.players],"symmetry":board.symmetry,
-        "board":{"center":id(0),"ring-colors":ring_palette(board.rings),"coordinates":"rings-clockwise-30deg-v1","spaces":(0..board.spaces.len()).map(id).collect::<Vec<_>>(),"adjacencies":board.adj.iter().enumerate().map(|(i,adj)|(id(i),json!(adj.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>()},
+        "board":{"center":id(0),"ring-colors":palette,"coordinates":"rings-clockwise-30deg-v1","spaces":(0..board.spaces.len()).map(id).collect::<Vec<_>>(),"adjacencies":board.adj.iter().enumerate().map(|(i,adj)|(id(i),json!(adj.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>()},
         "homes":board.homes.iter().enumerate().map(|(p,spaces)|(names[p].to_string(),json!(spaces.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>(),"frames":frames.iter().map(view_frame).collect::<Vec<_>>(),"result":e.result})
 }
 fn publish_live(
@@ -363,6 +384,11 @@ fn load(
         1024 * 1024,
         File::open(generation.join("state.json"))?,
     ))?;
+    for episode in &mut saved.episodes {
+        if episode.palette.is_empty() {
+            episode.palette = game_palette(config.rings, &episode.id);
+        }
+    }
     if saved.decisions == usize::MAX {
         saved.decisions = saved.episodes.iter().map(|e| e.samples.len()).sum();
     }
@@ -1349,6 +1375,29 @@ pub fn main(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn game_palettes_are_distinct_durable_and_do_not_consume_search_rng() {
+        let board = Board::new(2, 3, false);
+        let mut rng = Random(17);
+        let mut expected = rng.clone();
+        expected.next();
+        let a = Episode::new(&board, 0, 0, &mut rng);
+        assert_eq!(rng.0, expected.0);
+        let b = Episode::new(&board, 0, 1, &mut rng);
+        assert_ne!(a.palette, b.palette);
+        let restored: Episode = serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
+        assert_eq!(
+            ogf(&board, &a, 0, 0)["board"]["ring-colors"],
+            ogf(&board, &restored, 0, 0)["board"]["ring-colors"]
+        );
+        let mut legacy = serde_json::to_value(&a).unwrap();
+        legacy.as_object_mut().unwrap().remove("palette");
+        let legacy: Episode = serde_json::from_value(legacy).unwrap();
+        assert_eq!(
+            ogf(&board, &a, 0, 0)["board"]["ring-colors"],
+            ogf(&board, &legacy, 0, 0)["board"]["ring-colors"]
+        );
+    }
     #[test]
     fn ogf_view_export_uses_ring_ids_and_saved_palette_without_mutating_checkpoint_frames() {
         assert_eq!(ring_label(0), "A");

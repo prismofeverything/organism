@@ -22,6 +22,23 @@
                     [[] result] front)]
         (recur next-front next-result)))))
 
+(defonce color-context
+  (let [canvas (js/document.createElement "canvas")]
+    (set! (.-width canvas) 1)
+    (set! (.-height canvas) 1)
+    (.getContext canvas "2d" #js {:willReadFrequently true})))
+
+(defn render-color [css]
+  ;; The browser accepts fractional HSL; thi.ng's legacy CSS parser does not.
+  ;; Normalize only rendering colors, preserving the original OGF palette.
+  (.clearRect color-context 0 0 1 1)
+  (set! (.-fillStyle color-context) css)
+  (.fillRect color-context 0 0 1 1)
+  (let [rgba (.-data (.getImageData color-context 0 0 1 1))]
+    (-> (color/rgba (/ (aget rgba 0) 255) (/ (aget rgba 1) 255)
+                    (/ (aget rgba 2) 255) (/ (aget rgba 3) 255))
+        color/as-css :col)))
+
 (defn label-color [css]
   (-> css color/css color/as-hsva
       (update :v * 0.55)
@@ -33,9 +50,9 @@
         labels (mapv ogf/ring-label (range (count (get spec "ring-colors"))))
         radius (board/ring-radius (count labels))
         buffer 2.1
-        palette (get spec "ring-colors")
+        palette (mapv render-color (get spec "ring-colors"))
         colors (mapv vector labels palette)
-        all-colors (concat palette (get spec "palette-tail"))
+        all-colors (concat palette (map render-color (get spec "palette-tail")))
         locations (into {}
                         (map (fn [[s [x y r _]]]
                                [s [x y r (nth palette (ogf/ring-index (first s)))]]))
