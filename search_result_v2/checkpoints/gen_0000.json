@@ -1,0 +1,353 @@
+{
+  "generation": 0,
+  "archive": [
+    {
+      "ruleset": {
+        "board": {
+          "topology": "hex",
+          "size": 4,
+          "symmetry": 4
+        },
+        "pieces": {
+          "num_types": 4,
+          "elements_per_player": 6
+        },
+        "interactions": {
+          "conflict": [
+            1,
+            1,
+            0,
+            1,
+            0,
+            0
+          ],
+          "trigger": "move_into"
+        },
+        "turns": {
+          "structure": "multi",
+          "actions_per_turn": 2,
+          "action_points": 3
+        },
+        "win": {
+          "condition": "score_at_limit",
+          "threshold": 7,
+          "turn_limit": 150
+        },
+        "info": {
+          "visibility": "fog",
+          "fog_radius": 3
+        },
+        "resources": {
+          "system": "energy",
+          "initial_amount": 1,
+          "regen_rate": 1
+        },
+        "num_players": 2,
+        "action_names": [
+          "move",
+          "eat",
+          "snipe"
+        ]
+      },
+      "gen": 0,
+      "richness": 85.06229985029871,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 4.586946591542696,
+        "balance": 0.0,
+        "interaction": 0.09468887848437345,
+        "mechanism": 1.0,
+        "simplicity": -53.171553102098926
+      },
+      "summary": "term=0.00 bal=0.00 B=16.6 len=200 interact=0.09 mech=1.00 KR=53.2b logGT=243.9 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "board": {
+          "topology": "torus_square",
+          "size": 4,
+          "symmetry": 4
+        },
+        "pieces": {
+          "num_types": 1,
+          "elements_per_player": 2
+        },
+        "interactions": {
+          "conflict": [],
+          "trigger": "adjacency"
+        },
+        "turns": {
+          "structure": "action_points",
+          "actions_per_turn": 1,
+          "action_points": 3
+        },
+        "win": {
+          "condition": "score_at_limit",
+          "threshold": 7,
+          "turn_limit": 100
+        },
+        "info": {
+          "visibility": "fog",
+          "fog_radius": 2
+        },
+        "resources": {
+          "system": "food",
+          "initial_amount": 2,
+          "regen_rate": 0
+        },
+        "num_players": 2,
+        "action_names": [
+          "place",
+          "capture",
+          "swap",
+          "convert"
+        ]
+      },
+      "gen": 0,
+      "richness": 95.09257386600947,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 7.572445220199833,
+        "balance": 0.0,
+        "interaction": 0.008119361549313824,
+        "mechanism": 0.5,
+        "simplicity": -39.586590601377765
+      },
+      "summary": "term=0.00 bal=0.00 B=31.5 len=200 interact=0.01 mech=0.50 KR=39.6b logGT=299.8 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "board": {
+          "topology": "petersen",
+          "size": 4,
+          "symmetry": 4
+        },
+        "pieces": {
+          "num_types": 4,
+          "elements_per_player": 3
+        },
+        "interactions": {
+          "conflict": [
+            2,
+            3,
+            2,
+            0,
+            2,
+            0
+          ],
+          "trigger": "adjacency"
+        },
+        "turns": {
+          "structure": "multi",
+          "actions_per_turn": 2,
+          "action_points": 1
+        },
+        "win": {
+          "condition": "population",
+          "threshold": 5,
+          "turn_limit": 100
+        },
+        "info": {
+          "visibility": "perfect",
+          "fog_radius": 2
+        },
+        "resources": {
+          "system": "energy",
+          "initial_amount": 3,
+          "regen_rate": 1
+        },
+        "num_players": 2,
+        "action_names": [
+          "place",
+          "push"
+        ]
+      },
+      "gen": 0,
+      "richness": 17.17712629790672,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.12142055931500005,
+        "balance": 0.6666666666666666,
+        "interaction": 0.09823455796907124,
+        "mechanism": 1.0,
+        "simplicity": -51.586590601377765
+      },
+      "summary": "term=1.00 bal=0.67 B=8.9 len=7 interact=0.10 mech=1.00 KR=51.6b logGT=6.3 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "board": {
+          "topology": "ring",
+          "size": 5,
+          "symmetry": 5
+        },
+        "pieces": {
+          "num_types": 2,
+          "elements_per_player": 2
+        },
+        "interactions": {
+          "conflict": [
+            2
+          ],
+          "trigger": "explicit"
+        },
+        "turns": {
+          "structure": "single",
+          "actions_per_turn": 1,
+          "action_points": 2
+        },
+        "win": {
+          "condition": "elimination",
+          "threshold": 2,
+          "turn_limit": 50
+        },
+        "info": {
+          "visibility": "perfect",
+          "fog_radius": 1
+        },
+        "resources": {
+          "system": "energy",
+          "initial_amount": 2,
+          "regen_rate": 0
+        },
+        "num_players": 2,
+        "action_names": [
+          "move",
+          "eat",
+          "circulate",
+          "place",
+          "push",
+          "swap",
+          "snipe"
+        ]
+      },
+      "gen": 0,
+      "richness": 78.20036488503102,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 5.045009709441233,
+        "balance": 0.8,
+        "interaction": 0.03153892054926601,
+        "mechanism": 1.0,
+        "simplicity": -42.00162810065661
+      },
+      "summary": "term=1.00 bal=0.80 B=119.5 len=102 interact=0.03 mech=1.00 KR=42.0b logGT=211.9 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "board": {
+          "topology": "ring",
+          "size": 3,
+          "symmetry": 3
+        },
+        "pieces": {
+          "num_types": 4,
+          "elements_per_player": 1
+        },
+        "interactions": {
+          "conflict": [
+            2,
+            2,
+            3,
+            2,
+            2,
+            2
+          ],
+          "trigger": "explicit"
+        },
+        "turns": {
+          "structure": "multi",
+          "actions_per_turn": 1,
+          "action_points": 1
+        },
+        "win": {
+          "condition": "population",
+          "threshold": 2,
+          "turn_limit": 150
+        },
+        "info": {
+          "visibility": "perfect",
+          "fog_radius": 3
+        },
+        "resources": {
+          "system": "energy",
+          "initial_amount": 0,
+          "regen_rate": 0
+        },
+        "num_players": 2,
+        "action_names": [
+          "move",
+          "grow",
+          "push",
+          "leap",
+          "charge"
+        ]
+      },
+      "gen": 0,
+      "richness": 26.348889773880522,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.56570344321844,
+        "balance": 0.8666666666666667,
+        "interaction": 0.14606603982431485,
+        "mechanism": 1.0,
+        "simplicity": -53.586590601377765
+      },
+      "summary": "term=1.00 bal=0.87 B=7.7 len=34 interact=0.15 mech=1.00 KR=53.6b logGT=30.3 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "board": {
+          "topology": "square",
+          "size": 3,
+          "symmetry": 4
+        },
+        "pieces": {
+          "num_types": 2,
+          "elements_per_player": 2
+        },
+        "interactions": {
+          "conflict": [
+            2
+          ],
+          "trigger": "explicit"
+        },
+        "turns": {
+          "structure": "single",
+          "actions_per_turn": 2,
+          "action_points": 2
+        },
+        "win": {
+          "condition": "elimination",
+          "threshold": 3,
+          "turn_limit": 50
+        },
+        "info": {
+          "visibility": "perfect",
+          "fog_radius": 2
+        },
+        "resources": {
+          "system": "none",
+          "initial_amount": 0,
+          "regen_rate": 0
+        },
+        "num_players": 2,
+        "action_names": [
+          "move",
+          "push"
+        ]
+      },
+      "gen": 0,
+      "richness": 37.02302636864201,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 2.1392658887903555,
+        "balance": 0.0,
+        "interaction": 0.18257736091069426,
+        "mechanism": 1.0,
+        "simplicity": -36.416665599935456
+      },
+      "summary": "term=1.00 bal=0.00 B=5.8 len=102 interact=0.18 mech=1.00 KR=36.4b logGT=77.9 | elo=0 tvr=0.00 hard=0.000"
+    }
+  ]
+}

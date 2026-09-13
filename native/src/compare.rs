@@ -17,8 +17,8 @@ pub fn main(args: &[String]) -> Result<()> {
     let output = manifest.parent().context("manifest directory")?;
     let config: Config = serde_json::from_value(spec["config"].clone())?;
     anyhow::ensure!(
-        config.players == 2,
-        "head-to-head comparison currently requires two players"
+        (2..=3).contains(&config.players),
+        "comparison supports two or three players"
     );
     let board = Board::new(config.players, config.rings, false);
     tch::set_num_threads(2);

@@ -1,0 +1,2356 @@
+{
+  "generation": 2,
+  "archive": [
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "radial",
+          "topology_size": 4,
+          "topology_symmetry": 3,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 2,
+          "num_global_counters": 4
+        },
+        "conflict_table": [
+          3,
+          1,
+          3,
+          1,
+          1,
+          1
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  8,
+                  2,
+                  2
+                ],
+                [
+                  21,
+                  [
+                    8,
+                    3,
+                    5
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                1,
+                0
+              ],
+              [
+                20,
+                [
+                  3,
+                  0,
+                  1
+                ],
+                [
+                  4
+                ]
+              ]
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                3,
+                1,
+                0
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                6,
+                0,
+                0,
+                -1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    7,
+                    1,
+                    1,
+                    2
+                  ],
+                  [
+                    10
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    7,
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    8,
+                    1,
+                    2
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                8,
+                3,
+                2
+              ]
+            ],
+            "effect": [
+              1,
+              0
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                8,
+                1,
+                5
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                7,
+                0,
+                1,
+                0,
+                1
+              ],
+              [
+                9,
+                0,
+                1
+              ]
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              7
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              32,
+              0,
+              7
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 3,
+        "turn_limit": 50,
+        "placement": "spread"
+      },
+      "gen": 0,
+      "richness": 120.61274369532923,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 1.092574080434386,
+        "balance": 0.0,
+        "interaction": 0.005594285575103585,
+        "mechanism": 0.0,
+        "simplicity": -367.6359651997797
+      },
+      "summary": "term=1.00 bal=0.00 B=21.4 len=302 interact=0.01 mech=0.00 KR=367.6b logGT=401.7 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "triangle",
+          "topology_size": 3,
+          "topology_symmetry": 3,
+          "num_piece_types": 2,
+          "num_players": 2,
+          "num_resource_slots": 1,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          2
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    3,
+                    1,
+                    0
+                  ],
+                  [
+                    3,
+                    0,
+                    0
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    10
+                  ],
+                  [
+                    8,
+                    1,
+                    2
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              0
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                21,
+                [
+                  21,
+                  [
+                    10
+                  ],
+                  [
+                    0
+                  ]
+                ],
+                [
+                  9
+                ]
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                6,
+                0,
+                0,
+                -1
+              ],
+              [
+                20,
+                [
+                  9,
+                  1,
+                  1
+                ],
+                [
+                  7,
+                  0,
+                  1,
+                  0,
+                  1
+                ]
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    7,
+                    0,
+                    0,
+                    2
+                  ],
+                  [
+                    8,
+                    0,
+                    3
+                  ]
+                ],
+                [
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                4
+              ],
+              [
+                2,
+                1,
+                0,
+                -10
+              ]
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              32,
+              0,
+              10
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              0,
+              7
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 30,
+        "placement": "spread"
+      },
+      "gen": 0,
+      "richness": 54.02822278527081,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.5900526637484017,
+        "balance": 0.0,
+        "interaction": 0.032945819580898095,
+        "mechanism": 0.0,
+        "simplicity": -301.49459346343764
+      },
+      "summary": "term=1.00 bal=0.00 B=28.7 len=122 interact=0.03 mech=0.00 KR=301.5b logGT=177.9 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "triangle",
+          "topology_size": 4,
+          "topology_symmetry": 5,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 0,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          0,
+          0,
+          1,
+          3,
+          1,
+          2
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    0
+                  ],
+                  [
+                    10
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              9,
+              1,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              1,
+              0
+            ],
+            "requires_piece": false
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              1,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 75,
+        "placement": "cluster"
+      },
+      "gen": 0,
+      "richness": 8.487880428447692,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.07763358369801224,
+        "balance": 0.9333333333333333,
+        "interaction": 0.0,
+        "mechanism": 0.0,
+        "simplicity": -164.07047825441154
+      },
+      "summary": "term=1.00 bal=0.93 B=21.0 len=10 interact=0.00 mech=0.00 KR=164.1b logGT=12.7 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "hex",
+          "topology_size": 5,
+          "topology_symmetry": 3,
+          "num_piece_types": 1,
+          "num_players": 2,
+          "num_resource_slots": 2,
+          "num_global_counters": 4
+        },
+        "conflict_table": [],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                21,
+                [
+                  8,
+                  3,
+                  5
+                ],
+                [
+                  20,
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              0
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    2,
+                    1
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  0
+                ]
+              ]
+            ],
+            "effect": [
+              6,
+              0,
+              0,
+              -1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  3,
+                  1,
+                  0
+                ],
+                [
+                  20,
+                  [
+                    8,
+                    2,
+                    3
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              6,
+              1,
+              0,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                20,
+                [
+                  1,
+                  1
+                ],
+                [
+                  8,
+                  1,
+                  3
+                ]
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                9,
+                0,
+                1
+              ],
+              [
+                20,
+                [
+                  7,
+                  0,
+                  1,
+                  0,
+                  1
+                ],
+                [
+                  7,
+                  0,
+                  1,
+                  1,
+                  1
+                ]
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    3,
+                    0,
+                    0
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    0
+                  ],
+                  [
+                    3,
+                    1,
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              0
+            ],
+            "requires_piece": false
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              34
+            ],
+            "winner_mode": 3,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 100,
+        "placement": "random"
+      },
+      "gen": 0,
+      "richness": 216.14979623578435,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 1.8822935719054479,
+        "balance": 0.0,
+        "interaction": 0.0,
+        "mechanism": 0.0,
+        "simplicity": -382.7773369361218
+      },
+      "summary": "term=1.00 bal=0.00 B=62.0 len=402 interact=0.00 mech=0.00 KR=382.8b logGT=720.5 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "triangle",
+          "topology_size": 6,
+          "topology_symmetry": 3,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 1,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          0,
+          2,
+          3,
+          1,
+          2,
+          1
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                8,
+                0,
+                5
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                2,
+                1,
+                0,
+                -10
+              ],
+              [
+                20,
+                [
+                  3,
+                  0,
+                  1
+                ],
+                [
+                  6,
+                  0,
+                  0,
+                  -1
+                ]
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    0,
+                    0
+                  ],
+                  [
+                    11
+                  ]
+                ],
+                [
+                  20,
+                  [
+                    9
+                  ],
+                  [
+                    8,
+                    1,
+                    5
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              2,
+              1,
+              0,
+              3
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                1,
+                1
+              ],
+              [
+                20,
+                [
+                  2,
+                  1,
+                  0,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  0
+                ]
+              ]
+            ],
+            "requires_piece": false
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              34
+            ],
+            "winner_mode": 3,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 1,
+        "turn_limit": 100,
+        "placement": "random"
+      },
+      "gen": 0,
+      "richness": 17.932037167289476,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.21939198796073478,
+        "balance": 0.0,
+        "interaction": 0.010192776689432208,
+        "mechanism": 0.0,
+        "simplicity": -269.3532217270957
+      },
+      "summary": "term=0.00 bal=0.00 B=1.3 len=600 interact=0.01 mech=0.00 KR=269.4b logGT=59.1 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "square",
+          "topology_size": 3,
+          "topology_symmetry": 6,
+          "num_piece_types": 2,
+          "num_players": 2,
+          "num_resource_slots": 2,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          0
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                8,
+                0,
+                5
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                2,
+                1,
+                0,
+                -10
+              ],
+              [
+                20,
+                [
+                  3,
+                  0,
+                  1
+                ],
+                [
+                  6,
+                  0,
+                  0,
+                  -1
+                ]
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    0,
+                    0
+                  ],
+                  [
+                    11
+                  ]
+                ],
+                [
+                  20,
+                  [
+                    9
+                  ],
+                  [
+                    8,
+                    1,
+                    5
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              2,
+              1,
+              0,
+              3
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                7,
+                0,
+                1,
+                1,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                1,
+                1
+              ],
+              [
+                20,
+                [
+                  2,
+                  1,
+                  0,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  0
+                ]
+              ]
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                4,
+                0,
+                0
+              ]
+            ],
+            "effect": [
+              6,
+              0,
+              0,
+              -1
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              34
+            ],
+            "winner_mode": 3,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 3,
+        "turn_limit": 50,
+        "placement": "random"
+      },
+      "gen": 1,
+      "richness": 15.248634232779844,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.08472021565158405,
+        "balance": 0.9655172413793103,
+        "interaction": 0.08441859035363074,
+        "mechanism": 0.0,
+        "simplicity": -343.58884128766573
+      },
+      "summary": "term=0.97 bal=0.97 B=13.5 len=26 interact=0.08 mech=0.00 KR=343.6b logGT=29.1 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "radial",
+          "topology_size": 4,
+          "topology_symmetry": 3,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 2,
+          "num_global_counters": 4
+        },
+        "conflict_table": [
+          3,
+          1,
+          3,
+          1,
+          1,
+          1
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  8,
+                  2,
+                  2
+                ],
+                [
+                  21,
+                  [
+                    8,
+                    3,
+                    5
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                1,
+                0
+              ],
+              [
+                20,
+                [
+                  3,
+                  0,
+                  1
+                ],
+                [
+                  4
+                ]
+              ]
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                3,
+                1,
+                0
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                6,
+                0,
+                0,
+                -1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    7,
+                    1,
+                    1,
+                    2
+                  ],
+                  [
+                    10
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    7,
+                    0,
+                    0,
+                    1
+                  ],
+                  [
+                    8,
+                    1,
+                    2
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                8,
+                3,
+                2
+              ]
+            ],
+            "effect": [
+              1,
+              0
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                8,
+                1,
+                5
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                7,
+                0,
+                1,
+                0,
+                1
+              ],
+              [
+                9,
+                0,
+                1
+              ]
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              7
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              32,
+              0,
+              7
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 3,
+        "turn_limit": 50,
+        "placement": "spread"
+      },
+      "gen": 1,
+      "richness": 118.48162348309323,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 1.0732221510886935,
+        "balance": 0.0,
+        "interaction": 0.005755253315527073,
+        "mechanism": 0.0,
+        "simplicity": -367.6359651997797
+      },
+      "summary": "term=1.00 bal=0.00 B=20.3 len=302 interact=0.01 mech=0.00 KR=367.6b logGT=394.6 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "triangle",
+          "topology_size": 4,
+          "topology_symmetry": 5,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 0,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          0,
+          0,
+          1,
+          3,
+          1,
+          2
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    0
+                  ],
+                  [
+                    10
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              9,
+              1,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              1,
+              0
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    3,
+                    1,
+                    0
+                  ],
+                  [
+                    3,
+                    0,
+                    0
+                  ]
+                ],
+                [
+                  3,
+                  1,
+                  0
+                ]
+              ]
+            ],
+            "effect": [
+              1,
+              1
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              1,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 75,
+        "placement": "cluster"
+      },
+      "gen": 1,
+      "richness": 9.391028881622354,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.07202154136983083,
+        "balance": 0.8,
+        "interaction": 0.026198966463052337,
+        "mechanism": 0.0,
+        "simplicity": -225.25897390286764
+      },
+      "summary": "term=1.00 bal=0.80 B=23.7 len=12 interact=0.03 mech=0.00 KR=225.3b logGT=16.2 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "square",
+          "topology_size": 3,
+          "topology_symmetry": 6,
+          "num_piece_types": 2,
+          "num_players": 2,
+          "num_resource_slots": 2,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          0
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                7,
+                0,
+                1,
+                1,
+                1
+              ],
+              [
+                1,
+                0
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                4,
+                0,
+                0
+              ]
+            ],
+            "effect": [
+              6,
+              0,
+              0,
+              -1
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              1,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 1,
+        "turn_limit": 100,
+        "placement": "random"
+      },
+      "gen": 2,
+      "richness": 10.49744439097256,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.22984448582494613,
+        "balance": 0.0,
+        "interaction": 0.004356408723416396,
+        "mechanism": 0.0,
+        "simplicity": -150.9762304301835
+      },
+      "summary": "term=0.00 bal=0.00 B=1.1 len=600 interact=0.00 mech=0.00 KR=151.0b logGT=34.7 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "radial",
+          "topology_size": 5,
+          "topology_symmetry": 5,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 1,
+          "num_global_counters": 3
+        },
+        "conflict_table": [
+          2,
+          1,
+          1,
+          0,
+          2,
+          1
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    2,
+                    1
+                  ],
+                  [
+                    8,
+                    2,
+                    3
+                  ]
+                ],
+                [
+                  8,
+                  1,
+                  5
+                ]
+              ]
+            ],
+            "effect": [
+              5,
+              1,
+              0
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                20,
+                [
+                  11
+                ],
+                [
+                  21,
+                  [
+                    9
+                  ],
+                  [
+                    4,
+                    0,
+                    2
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              9,
+              2,
+              1
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                11
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              0
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                9
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                9,
+                0,
+                1
+              ],
+              [
+                3,
+                0,
+                1
+              ]
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  21,
+                  [
+                    3,
+                    0,
+                    0
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  20,
+                  [
+                    2,
+                    1
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                7,
+                0,
+                1,
+                0,
+                1
+              ],
+              [
+                8,
+                0,
+                0
+              ]
+            ],
+            "requires_piece": false
+          }
+        ],
+        "interactions": [
+          {
+            "trigger": "adjacency",
+            "predicate": [
+              9
+            ],
+            "effect": [
+              20,
+              [
+                1,
+                1
+              ],
+              [
+                9,
+                0,
+                1
+              ]
+            ]
+          }
+        ],
+        "terminations": [
+          {
+            "predicate": [
+              34
+            ],
+            "winner_mode": 3,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              1,
+              3
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 100,
+        "placement": "spread"
+      },
+      "gen": 2,
+      "richness": 126.37377646180454,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 1.1592567517009553,
+        "balance": 0.0,
+        "interaction": 0.001055269753330695,
+        "mechanism": 0.0,
+        "simplicity": -363.315175524729
+      },
+      "summary": "term=1.00 bal=0.00 B=11.2 len=402 interact=0.00 mech=0.00 KR=363.3b logGT=421.2 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "triangle",
+          "topology_size": 4,
+          "topology_symmetry": 5,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 0,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          0,
+          0,
+          3,
+          1,
+          1,
+          1
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                1,
+                1
+              ]
+            ],
+            "effect": [
+              20,
+              [
+                1,
+                1
+              ],
+              [
+                20,
+                [
+                  2,
+                  1,
+                  0,
+                  2
+                ],
+                [
+                  8,
+                  0,
+                  0
+                ]
+              ]
+            ],
+            "requires_piece": false
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    3,
+                    1,
+                    0
+                  ],
+                  [
+                    3,
+                    0,
+                    0
+                  ]
+                ],
+                [
+                  3,
+                  1,
+                  0
+                ]
+              ]
+            ],
+            "effect": [
+              1,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    0
+                  ],
+                  [
+                    10
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              9,
+              1,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    0,
+                    0
+                  ],
+                  [
+                    11
+                  ]
+                ],
+                [
+                  20,
+                  [
+                    9
+                  ],
+                  [
+                    8,
+                    1,
+                    5
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              2,
+              1,
+              0,
+              3
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              1,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 75,
+        "placement": "random"
+      },
+      "gen": 2,
+      "richness": 13.165230514809945,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.05737290962913923,
+        "balance": 0.8666666666666667,
+        "interaction": 0.16139517156202954,
+        "mechanism": 0.0,
+        "simplicity": -325.58884128766573
+      },
+      "summary": "term=1.00 bal=0.87 B=31.8 len=12 interact=0.16 mech=0.00 KR=325.6b logGT=18.7 | elo=0 tvr=0.00 hard=0.000"
+    },
+    {
+      "ruleset": {
+        "schema": {
+          "topology_type": "triangle",
+          "topology_size": 4,
+          "topology_symmetry": 5,
+          "num_piece_types": 4,
+          "num_players": 2,
+          "num_resource_slots": 0,
+          "num_global_counters": 2
+        },
+        "conflict_table": [
+          2,
+          0,
+          1,
+          2,
+          1,
+          0
+        ],
+        "rules": [
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  3,
+                  1,
+                  0
+                ],
+                [
+                  20,
+                  [
+                    8,
+                    2,
+                    3
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              6,
+              1,
+              0,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                21,
+                [
+                  8,
+                  3,
+                  5
+                ],
+                [
+                  20,
+                  [
+                    1,
+                    1
+                  ],
+                  [
+                    0
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              8,
+              0,
+              0
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                5
+              ],
+              [
+                21,
+                [
+                  20,
+                  [
+                    3,
+                    1,
+                    1
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  21,
+                  [
+                    0
+                  ],
+                  [
+                    10
+                  ]
+                ]
+              ]
+            ],
+            "effect": [
+              9,
+              1,
+              1
+            ],
+            "requires_piece": true
+          },
+          {
+            "predicate": [
+              20,
+              [
+                6,
+                2
+              ],
+              [
+                20,
+                [
+                  21,
+                  [
+                    2,
+                    1
+                  ],
+                  [
+                    2,
+                    1
+                  ]
+                ],
+                [
+                  0
+                ]
+              ]
+            ],
+            "effect": [
+              6,
+              0,
+              0,
+              -1
+            ],
+            "requires_piece": true
+          }
+        ],
+        "interactions": [],
+        "terminations": [
+          {
+            "predicate": [
+              30,
+              0,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              30,
+              1,
+              5
+            ],
+            "winner_mode": 0,
+            "winner_arg": 0
+          },
+          {
+            "predicate": [
+              33,
+              100
+            ],
+            "winner_mode": 1,
+            "winner_arg": 0
+          }
+        ],
+        "actions_per_turn": 2,
+        "turn_limit": 75,
+        "placement": "cluster"
+      },
+      "gen": 2,
+      "richness": 13.767795125834017,
+      "objectives": {
+        "depth": 0.0,
+        "complexity": 0.1105609717032729,
+        "balance": 0.7333333333333333,
+        "interaction": 0.0,
+        "mechanism": 0.0,
+        "simplicity": -304.5417173755517
+      },
+      "summary": "term=1.00 bal=0.73 B=45.0 len=20 interact=0.00 mech=0.00 KR=304.5b logGT=33.7 | elo=0 tvr=0.00 hard=0.000"
+    }
+  ]
+}

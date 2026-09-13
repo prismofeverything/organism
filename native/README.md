@@ -6,6 +6,10 @@ Python is needed only for the existing reference tests, optional weight import,
 and the lightweight local dashboard server. It does not execute native self-play
 or training.
 
+Large training artifacts are stored on `/mnt/data/archive/organism-training`,
+with symlinks preserving the paths below. See [storage details](../docs/training-storage.md)
+and the [opponent-diversity experiment](../docs/opponent-diversity-experiment.md).
+
 ## Run, pause and resume
 
 From the repository root:

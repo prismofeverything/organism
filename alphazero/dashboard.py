@@ -46,6 +46,8 @@ def make_handler(root, examples):
                     return self.send_bytes(asset.read_bytes(), 'text/javascript; charset=utf-8')
                 except OSError:
                     return self.send_error(503, 'Build the shared renderer: npx shadow-cljs release ogf-viewer')
+            if path == '/api/benchmarks':
+                return self.send_json(read_json(root / 'benchmarks.json', {'models': {}}))
             if path == '/api/status':
                 models = []
                 for directory in sorted(root.glob('[2-5]p*')):

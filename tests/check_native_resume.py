@@ -18,7 +18,12 @@ try:
         if p.poll() is not None:raise RuntimeError((root/'log.txt').read_text())
         time.sleep(.01)
     else:raise TimeoutError('no self-play status')
-    time.sleep(.1)
+    deadline=time.monotonic()+30
+    while time.monotonic()<deadline:
+        if json.loads(status.read_text()).get('step',0)>0:break
+        if p.poll() is not None:raise RuntimeError('Trainer exited before mid-game stop')
+        time.sleep(.02)
+    else:raise TimeoutError('No decision before mid-game stop')
     (root/'resume/STOP').touch()
     assert p.wait(timeout=30)==0
     stopped=saved('resume')

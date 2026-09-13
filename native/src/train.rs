@@ -88,6 +88,12 @@ struct Episode {
     longest_layout_rounds: u32,
     #[serde(default)]
     palette: Vec<String>,
+    #[serde(default)]
+    learner_seat: Option<usize>,
+    #[serde(default)]
+    opponent_index: Option<usize>,
+    #[serde(default)]
+    tree_owner: usize,
 }
 impl Episode {
     fn new(board: &Board, iteration: u64, number: usize, rng: &mut Random) -> Self {
@@ -102,6 +108,9 @@ impl Episode {
             result: None,
             id,
             palette,
+            learner_seat: None,
+            opponent_index: None,
+            tree_owner: 0,
             started: now(),
             tree: None,
             layout_since_round: Some(0),
@@ -158,8 +167,23 @@ struct SearchSettings {
     replay_game_cap: usize,
     #[serde(default)]
     mask_cutoffs: bool,
+    #[serde(default)]
+    opponent_pool: Vec<String>,
 }
 impl SearchSettings {
+    fn assign_opponent(&self, episode: &mut Episode, players: usize) {
+        // Presentation/game ID already contains random bits; assignment must not
+        // consume additional search RNG merely because this treatment is enabled.
+        let bits = u64::from_str_radix(episode.id.rsplit('-').next().unwrap_or("0"), 16).unwrap_or(0);
+        let historical = !self.opponent_pool.is_empty() && bits & 1 == 1;
+        let learner = historical.then_some(((bits >> 1) as usize) % players);
+        let opponent = historical.then(|| ((bits >> 8) as usize) % self.opponent_pool.len());
+        if episode.learner_seat != learner || episode.opponent_index != opponent {
+            episode.tree = None;
+        }
+        episode.learner_seat = learner;
+        episode.opponent_index = opponent;
+    }
     fn sample(&self, state: &State, choices: usize) -> bool {
         if self.exploration_rounds == 0 {
             choices < 30
@@ -448,16 +472,17 @@ fn game_sample_indices(length: usize, cap: usize, rng: &mut Random) -> Vec<usize
 fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str) -> Result<()> {
     let e = &mut s.episodes[i];
     let names = ["orb", "mass", "brone", "laam", "stuk"];
-    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds});
+    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds,"learner_seat":e.learner_seat,"opponent_index":e.opponent_index});
     e.result = Some(result.clone());
     let settings = s.search_settings.as_ref().unwrap();
-    let cap = if settings.replay_game_cap == 0 {
-        e.samples.len()
-    } else {
-        settings.replay_game_cap.min(e.samples.len())
-    };
-    let selected = game_sample_indices(e.samples.len(), cap, &mut s.rng);
-    for index in selected {
+    // Never teach the learner to imitate a frozen opponent's policy targets.
+    let eligible: Vec<usize> = e.samples.iter().enumerate()
+        .filter(|(_, sample)| e.learner_seat.is_none_or(|seat| sample.state.player == seat))
+        .map(|(index, _)| index).collect();
+    let cap = if settings.replay_game_cap == 0 { eligible.len() } else { settings.replay_game_cap.min(eligible.len()) };
+    let selected = game_sample_indices(eligible.len(), cap, &mut s.rng);
+    for selected_index in selected {
+        let index = eligible[selected_index];
         let sample = &mut e.samples[index];
         sample.game_id = Some(e.id.clone());
         sample.termination = Some(reason.to_owned());
@@ -741,6 +766,15 @@ fn iteration(
     settings: &SearchSettings,
     evaluation: &mut Option<EvaluationJob>,
 ) -> Result<()> {
+    anyhow::ensure!(!settings.legacy || settings.opponent_pool.is_empty(), "historical opponents require queued search");
+    let mut opponents = Vec::new();
+    for path in &settings.opponent_pool {
+        let mut opponent = Network::new(board.players, board.grid(), board.action_size(), s.config.blocks, s.config.filters, net.vs.device());
+        opponent.vs.load(path)?;
+        opponent.vs.freeze();
+        opponents.push(opponent);
+    }
+    for episode in &mut s.episodes { settings.assign_opponent(episode, board.players); }
     while s.episodes.iter().filter(|e| e.result.is_some()).count() < s.config.actors
         && s.episodes.iter().filter(|e| e.result.is_none()).count() < concurrent_games
     {
@@ -823,12 +857,18 @@ fn iteration(
                 )?;
                 telemetry = Instant::now();
             }
+            for &i in &active { settings.assign_opponent(&mut s.episodes[i], board.players); }
+            let owners: Vec<usize> = active.iter().map(|&i| {
+                let e = &s.episodes[i];
+                if e.learner_seat.is_some_and(|seat| seat != e.state.player) { e.opponent_index.unwrap() + 1 } else { 0 }
+            }).collect();
             let saved_rng = s.rng.clone();
             // Transactional search: unfinished work cannot alter a durable episode.
             let mut trees: Vec<_> = active
                 .iter()
-                .map(|&i| {
-                    s.episodes[i].tree.clone().unwrap_or_else(|| {
+                .zip(&owners)
+                .map(|(&i, &owner)| {
+                    s.episodes[i].tree.clone().filter(|_| s.episodes[i].tree_owner == owner).unwrap_or_else(|| {
                         search::Tree::new(s.episodes[i].state.clone(), board.players)
                     })
                 })
@@ -865,25 +905,35 @@ fn iteration(
                         bootstrap_horizon: settings.mask_cutoffs,
                     })
                     .collect();
-                if let Err(e) = search::queued(
-                    board,
-                    &mut trees,
-                    &limits,
-                    net,
-                    s.config.sims,
-                    &mut s.rng,
-                    true,
-                    settings.gpu_batch,
-                    || control.checkpoint(),
-                    &mut s.search_timings,
-                ) {
-                    s.rng = saved_rng;
-                    return Err(e);
+                if opponents.is_empty() {
+                    if let Err(e) = search::queued(board, &mut trees, &limits, net, s.config.sims,
+                        &mut s.rng, true, settings.gpu_batch, || control.checkpoint(), &mut s.search_timings) {
+                        s.rng = saved_rng;
+                        return Err(e);
+                    }
+                } else {
+                for owner in 0..=opponents.len() {
+                    let indices: Vec<_> = owners.iter().enumerate().filter_map(|(i, &o)| (o == owner).then_some(i)).collect();
+                    if indices.is_empty() { continue; }
+                    let mut owned_trees: Vec<_> = indices.iter().map(|&i| trees[i].clone()).collect();
+                    let owned_limits: Vec<_> = indices.iter().map(|&i| search::Limits {
+                        seen: limits[i].seen, steps: limits[i].steps, max_steps: limits[i].max_steps,
+                        repetition: limits[i].repetition, bootstrap_horizon: limits[i].bootstrap_horizon,
+                    }).collect();
+                    let evaluator = if owner == 0 { net } else { &opponents[owner - 1] };
+                    if let Err(e) = search::queued(board, &mut owned_trees, &owned_limits, evaluator,
+                        s.config.sims, &mut s.rng, true, settings.gpu_batch,
+                        || control.checkpoint(), &mut s.search_timings) {
+                        s.rng = saved_rng;
+                        return Err(e);
+                    }
+                    for (i, tree) in indices.into_iter().zip(owned_trees) { trees[i] = tree; }
+                }
                 }
                 trees.iter().map(|t| t.policy(board)).collect()
             };
             s.decisions += active.len();
-            for ((&i, pi), mut tree) in active.iter().zip(policies).zip(trees) {
+            for (((&i, pi), mut tree), owner) in active.iter().zip(policies).zip(trees).zip(owners) {
                 let e = &mut s.episodes[i];
                 *seen[i].entry(repetition_state(&e.state)).or_default() += 1;
                 let action = if settings.sample(&e.state, e.samples.len()) {
@@ -903,6 +953,7 @@ fn iteration(
                     let next = tree.state().clone();
                     if settings.reuse {
                         e.tree = Some(tree);
+                        e.tree_owner = owner;
                     }
                     next
                 };
@@ -1133,6 +1184,9 @@ pub fn main(args: &[String]) -> Result<()> {
         reuse: !args.iter().any(|a| a == "--no-tree-reuse"),
         legacy: args.iter().any(|a| a == "--legacy-search"),
         protocol: 3,
+        opponent_pool: if let Some(i) = args.iter().position(|a| a == "--opponent-pool") {
+            serde_json::from_reader(File::open(args.get(i + 1).context("missing opponent pool path")?)?)?
+        } else { vec![] },
         replay_game_cap: argument(args, "--replay-game-cap", "256").parse()?,
         mask_cutoffs: match argument(args, "--cutoff-value", "mask").as_str() {
             "mask" => true,
@@ -1164,6 +1218,14 @@ pub fn main(args: &[String]) -> Result<()> {
             if let Some(c) = &curriculum {
                 atomic_json(&root.join("curriculum.json"), c)?;
             }
+            // Per-player overrides allow a tested 2p recipe without changing 3p.
+            let mut settings = settings.clone();
+            settings.replay_game_cap = argument(args, &format!("--replay-game-cap-{players}p"), &settings.replay_game_cap.to_string()).parse()?;
+            settings.mask_cutoffs = match argument(args, &format!("--cutoff-value-{players}p"), if settings.mask_cutoffs { "mask" } else { "draw" }).as_str() {
+                "mask" => true,
+                "draw" => false,
+                _ => anyhow::bail!("per-player cutoff value must be mask or draw"),
+            };
             let config = Config {
                 players,
                 rings: if let Some(c) = &curriculum {
@@ -1182,7 +1244,7 @@ pub fn main(args: &[String]) -> Result<()> {
                 actors: argument(args, "--actors", "16").parse()?,
                 max_steps: argument(args, "--max-steps", "4000").parse()?,
                 repetition: argument(args, "--repetition", "3").parse()?,
-                replay: argument(args, "--buffer", "5000").parse()?,
+                replay: argument(args, &format!("--buffer-{players}p"), &argument(args, "--buffer", "5000")).parse()?,
                 batch: argument(args, "--batch-size", "64").parse()?,
                 train_steps: argument(args, "--train-steps", "100").parse()?,
             };
@@ -1499,6 +1561,7 @@ mod tests {
             protocol: 3,
             replay_game_cap: 256,
             mask_cutoffs: true,
+            opponent_pool: vec![],
         };
         state.round = 9;
         assert!(settings.sample(&state, 1000));
@@ -1533,6 +1596,7 @@ mod tests {
             protocol: 3,
             replay_game_cap: 256,
             mask_cutoffs: true,
+            opponent_pool: vec![],
         };
         let mut job =
             EvaluationJob::create(&root, &board, &config, &net, 7, 1, false, &settings).unwrap();

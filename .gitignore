@@ -20,7 +20,7 @@ backup/
 __pycache__/
 .venv/
 .cache/
-checkpoints/
+/checkpoints
 output/
 run*.sh
 auto.save
@@ -41,5 +41,5 @@ bonus-coverage/
 .nix-mongo/
 /pieces/stl
 
-.venv-training/
-/native/target/
+/.venv-training
+/native/target

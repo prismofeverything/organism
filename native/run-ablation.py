@@ -214,10 +214,10 @@ def main():
     milestones = sorted(set(map(int, args.milestones.split(','))))
     if args.rounds < 1 or not milestones or min(milestones) < 1 or max(milestones) > args.rounds or args.evaluation_games_per_seat < 1 or not 0 < args.duty <= 1:
         parser.error('Invalid round, milestone, evaluation or duty settings')
-    root = args.root.resolve(); root.mkdir(parents=True, exist_ok=True)
+    root = args.root.absolute(); root.mkdir(parents=True, exist_ok=True)
     with (root / 'orchestrator.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        spec = prepare(root, args.source.resolve(), args.rounds, milestones,
+        spec = prepare(root, args.source.absolute(), args.rounds, milestones,
                        args.evaluation_games_per_seat, args.duty, args.cpu)
         if not args.prepare_only:
             run(root, spec)
