@@ -14,7 +14,9 @@ try:
         metrics=root/'2p-r3/metrics.jsonl'
         if pointer.exists() and progress.exists() and metrics.exists():
             pr=json.loads(progress.read_text())
-            rows=[json.loads(l) for l in metrics.read_text().splitlines()]
+            # A writer may be partway through the final JSONL record.
+            rows=[json.loads(l) for l in metrics.read_text().splitlines(keepends=True) if l.endswith('\n')]
+            if not rows: continue
             if pr['stage'].startswith('running') and max(pr['choices'])>0 and rows[-1]['iteration']>pr['iteration']:break
         if p.poll() is not None:raise RuntimeError((root/'log.txt').read_text())
         time.sleep(.01)

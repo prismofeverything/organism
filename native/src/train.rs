@@ -55,11 +55,21 @@ pub struct Config {
     pub batch: usize,
     pub train_steps: usize,
 }
+fn supervised() -> f32 {
+    1.
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Sample {
     state: State,
     pi: Vec<f32>,
     value: Vec<f32>,
+    #[serde(default)]
+    game_id: Option<String>,
+    #[serde(default)]
+    termination: Option<String>,
+    #[serde(default = "supervised")]
+    value_weight: f32,
 }
 #[derive(Serialize, Deserialize)]
 struct Episode {
@@ -117,6 +127,14 @@ struct Saved {
     search_settings: Option<SearchSettings>,
 }
 // Fast draw-only iterations must not anneal learning away before competence.
+fn masked_value_loss(v: &Tensor, target: &Tensor, weights: &Tensor) -> Tensor {
+    ((v - target)
+        .square()
+        .mean_dim(&[-1i64][..], false, Kind::Float)
+        * weights)
+        .sum(Kind::Float)
+        / weights.sum(Kind::Float).clamp_min(1.)
+}
 fn learning_rate(iteration: u64) -> f64 {
     (1e-3 * 0.5f64.powi((iteration / 20).min(4) as i32)).max(1e-4)
 }
@@ -129,6 +147,12 @@ struct SearchSettings {
     gpu_batch: usize,
     reuse: bool,
     legacy: bool,
+    #[serde(default)]
+    protocol: u32,
+    #[serde(default)]
+    replay_game_cap: usize,
+    #[serde(default)]
+    mask_cutoffs: bool,
 }
 impl SearchSettings {
     fn sample(&self, state: &State, choices: usize) -> bool {
@@ -158,6 +182,55 @@ fn frame(board: &Board, s: &State, step: usize, action: Option<usize>) -> Value 
 fn ogf(board: &Board, e: &Episode, iteration: u64, number: usize) -> Value {
     ogf_frames(board, e, iteration, number, &e.frames)
 }
+fn ring_label(mut index: usize) -> String {
+    let mut letters = vec![];
+    loop {
+        letters.push((b'A' + (index % 26) as u8) as char);
+        if index < 26 {
+            break;
+        }
+        index = index / 26 - 1;
+    }
+    letters.into_iter().rev().collect()
+}
+fn ogf_space(id: &str) -> String {
+    if let Some((ring, index)) = id.split_once(':') {
+        if let Ok(ring) = ring.parse::<usize>() {
+            return format!("{}{index}", ring_label(ring));
+        }
+    }
+    id.to_owned()
+}
+fn view_frame(frame: &Value) -> Value {
+    let mut f = frame.clone();
+    if let Some(elements) = f["elements"].as_array_mut() {
+        for e in elements {
+            e[2] = json!(ogf_space(e[2].as_str().unwrap()));
+        }
+    }
+    if let Some(food) = f["food"].as_object() {
+        f["food"] = json!(
+            food.iter()
+                .map(|(s, n)| (ogf_space(s), n.clone()))
+                .collect::<serde_json::Map<_, _>>()
+        );
+    }
+    f
+}
+fn ring_palette(count: usize) -> Vec<String> {
+    let base = [
+        "#fff88c", "#da6558", "#849cd5", "#febe48", "#a6cd7a", "#9c6d8e", "#3b545c",
+    ];
+    (0..count)
+        .map(|i| {
+            if i < base.len() {
+                base[i].to_owned()
+            } else {
+                format!("hsl({},55%,65%)", i * 137 % 360)
+            }
+        })
+        .collect()
+}
 fn ogf_frames(
     board: &Board,
     e: &Episode,
@@ -166,11 +239,10 @@ fn ogf_frames(
     frames: &[Value],
 ) -> Value {
     let names = ["orb", "mass", "brone", "laam", "stuk"];
-    let colors = ["orange", "blue", "purple", "red", "yellow"];
-    let id = |i: usize| format!("{}:{}", board.spaces[i].0, board.spaces[i].1);
-    json!({"format":"organism","version":1,"name":format!("organism_{}p-{}",board.players,e.id),"id":e.id,"iteration":iteration,"number":number,"source":"rust-self-play","frame-unit":"decision","started":e.started,"finished":if e.result.is_some(){Some(now())}else{None},"players":&names[..board.players],"colors":(0..board.players).map(|p|(names[p].to_string(),json!(colors[p]))).collect::<serde_json::Map<_,_>>(),"symmetry":board.symmetry,
-        "board":{"center":id(0),"ring-colors":(0..board.rings).map(|r|r.to_string()).collect::<Vec<_>>(),"spaces":(0..board.spaces.len()).map(id).collect::<Vec<_>>(),"adjacencies":board.adj.iter().enumerate().map(|(i,adj)|(id(i),json!(adj.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>()},
-        "homes":board.homes.iter().enumerate().map(|(p,spaces)|(names[p].to_string(),json!(spaces.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>(),"frames":frames,"result":e.result})
+    let id = |i: usize| format!("{}{}", ring_label(board.spaces[i].0), board.spaces[i].1);
+    json!({"format":"organism","version":2,"profile":"view","name":format!("organism_{}p-{}",board.players,e.id),"id":e.id,"iteration":iteration,"number":number,"source":"rust-self-play","frame-unit":"decision","started":e.started,"finished":if e.result.is_some(){Some(now())}else{None},"players":&names[..board.players],"symmetry":board.symmetry,
+        "board":{"center":id(0),"ring-colors":ring_palette(board.rings),"coordinates":"rings-clockwise-30deg-v1","spaces":(0..board.spaces.len()).map(id).collect::<Vec<_>>(),"adjacencies":board.adj.iter().enumerate().map(|(i,adj)|(id(i),json!(adj.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>()},
+        "homes":board.homes.iter().enumerate().map(|(p,spaces)|(names[p].to_string(),json!(spaces.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>(),"frames":frames.iter().map(view_frame).collect::<Vec<_>>(),"result":e.result})
 }
 fn publish_live(
     dir: &Path,
@@ -294,6 +366,17 @@ fn load(
     if saved.decisions == usize::MAX {
         saved.decisions = saved.episodes.iter().map(|e| e.samples.len()).sum();
     }
+    let old_capacity = saved.config.replay;
+    saved.config.replay = config.replay;
+    if old_capacity != config.replay {
+        if saved.replay.len() == old_capacity {
+            saved.replay.rotate_left(saved.replay_pos);
+        }
+        if saved.replay.len() > config.replay {
+            saved.replay.drain(..saved.replay.len() - config.replay);
+        }
+        saved.replay_pos = saved.replay.len() % config.replay;
+    }
     anyhow::ensure!(
         saved.version == 1 && saved.config == config,
         "incompatible native checkpoint configuration"
@@ -326,12 +409,37 @@ fn status(dir: &Path, s: &Saved, stage: &str, index: usize, extra: Value) -> Res
     }
     atomic_json(&dir.join("status.json"), &value)
 }
+fn game_sample_indices(length: usize, cap: usize, rng: &mut Random) -> Vec<usize> {
+    let count = cap.min(length);
+    (0..count)
+        .map(|j| {
+            let lo = j * length / count;
+            let hi = (j + 1) * length / count;
+            lo + rng.index(hi - lo)
+        })
+        .collect()
+}
 fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str) -> Result<()> {
     let e = &mut s.episodes[i];
     let names = ["orb", "mass", "brone", "laam", "stuk"];
     let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds});
     e.result = Some(result.clone());
-    for sample in &mut e.samples {
+    let settings = s.search_settings.as_ref().unwrap();
+    let cap = if settings.replay_game_cap == 0 {
+        e.samples.len()
+    } else {
+        settings.replay_game_cap.min(e.samples.len())
+    };
+    let selected = game_sample_indices(e.samples.len(), cap, &mut s.rng);
+    for index in selected {
+        let sample = &mut e.samples[index];
+        sample.game_id = Some(e.id.clone());
+        sample.termination = Some(reason.to_owned());
+        sample.value_weight = if settings.mask_cutoffs && reason == "max_steps" {
+            0.
+        } else {
+            1.
+        };
         sample.value = (0..board.players)
             .map(|j| {
                 let p = (sample.state.player + j) % board.players;
@@ -375,6 +483,7 @@ struct EvaluationJob {
     saved: PendingEvaluation,
     candidate: Network,
     opponent: Network,
+    historical: Option<Network>,
     path: PathBuf,
 }
 impl EvaluationJob {
@@ -402,11 +511,31 @@ impl EvaluationJob {
             File::open(path.join("state.json"))?,
         ))?;
         anyhow::ensure!(saved.iteration == iteration, "evaluation identity mismatch");
+        if saved.session.opponent_ids.is_empty() {
+            atomic_json(
+                &path.join("interrupted-protocol-upgrade.json"),
+                &json!({"reason":"search protocol upgraded to 3; partial legacy results excluded"}),
+            )?;
+            fs::remove_file(dir.join("pending-evaluation.json"))?;
+            atomic_json(
+                &dir.join("evaluation-progress.json"),
+                &json!({"stage":"interrupted by search protocol upgrade", "iteration": iteration}),
+            )?;
+            return Ok(None);
+        }
         let mut candidate = Self::network(board, config, device);
         candidate.vs.load(path.join("candidate.ot"))?;
         let mut opponent = Self::network(board, config, device);
         opponent.vs.load(path.join("opponent.ot"))?;
+        let historical = if path.join("historical.ot").exists() {
+            let mut n = Self::network(board, config, device);
+            n.vs.load(path.join("historical.ot"))?;
+            Some(n)
+        } else {
+            None
+        };
         Ok(Some(Self {
+            historical,
             saved,
             candidate,
             opponent,
@@ -433,11 +562,54 @@ impl EvaluationJob {
         opponent.vs.save(path.join("opponent.ot"))?;
         File::open(path.join("candidate.ot"))?.sync_all()?;
         File::open(path.join("opponent.ot"))?.sync_all()?;
-        let saved = PendingEvaluation {
+        let mut historical = None;
+        let mut historical_id = String::new();
+        let archive = dir.join("opponent-archive");
+        fs::create_dir_all(&archive)?;
+        if fs::read_dir(&archive)?.next().is_none() {
+            let mut old: Vec<_> = fs::read_dir(dir.join("evaluation-jobs"))?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().join("candidate.ot").exists() && e.path() != path)
+                .collect();
+            old.sort_by_key(|e| e.file_name().to_string_lossy().parse::<u64>().unwrap_or(0));
+            if let Some(previous) = old.last() {
+                let n = previous.file_name().to_string_lossy().parse::<u64>()?;
+                fs::copy(
+                    previous.path().join("candidate.ot"),
+                    archive.join(format!("{n:09}.ot")),
+                )?;
+            }
+        }
+        let mut entries: Vec<_> = fs::read_dir(&archive)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "ot"))
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        if !entries.is_empty() {
+            let chosen = &entries[(iteration as usize / 5) % entries.len()];
+            let mut n = Self::network(board, config, net.vs.device());
+            n.vs.load(chosen.path())?;
+            n.vs.save(path.join("historical.ot"))?;
+            File::open(path.join("historical.ot"))?.sync_all()?;
+            historical_id = chosen.file_name().to_string_lossy().into_owned();
+            historical = Some(n);
+        }
+        let archive_file = archive.join(format!("{iteration:09}.ot"));
+        candidate.vs.save(&archive_file)?;
+        File::open(&archive_file)?.sync_all()?;
+        // Preserve the oldest anchor and seven recent versions.
+        for entry in entries.iter().skip(1).take(entries.len().saturating_sub(7)) {
+            fs::remove_file(entry.path())?;
+        }
+        let mut saved = PendingEvaluation {
             session: crate::evaluate::Session::new(
                 board,
                 config.sims,
-                per_seat,
+                if historical.is_some() {
+                    per_seat.max(2).div_ceil(2) * 2
+                } else {
+                    per_seat
+                },
                 config.max_steps,
                 config.repetition,
                 9917,
@@ -446,7 +618,17 @@ impl EvaluationJob {
             iteration,
             promotion_candidate,
         };
+        saved.session.bootstrap_horizon = settings.mask_cutoffs;
+        saved.session.mixed(
+            board,
+            if historical.is_some() {
+                vec!["baseline".into(), historical_id]
+            } else {
+                vec!["baseline".into()]
+            },
+        );
         let job = Self {
+            historical,
             saved,
             candidate,
             opponent,
@@ -474,13 +656,13 @@ fn service_evaluation(
     let Some(eval) = job.as_mut() else {
         return Ok(());
     };
-    eval.saved.session.tick(
-        board,
-        &eval.candidate,
-        &eval.opponent,
-        settings.gpu_batch,
-        || control.checkpoint(),
-    )?;
+    let mut models = vec![&eval.candidate, &eval.opponent];
+    if let Some(n) = &eval.historical {
+        models.push(n);
+    }
+    eval.saved
+        .session
+        .tick_many(board, &models, settings.gpu_batch, || control.checkpoint())?;
     atomic_json(
         &dir.join("evaluation-progress.json"),
         &json!({"iteration":eval.saved.iteration,"updated":now(),"completed":eval.saved.session.results.iter().filter(|r|r.is_some()).count(),"games":eval.saved.session.results.len(),"choices":eval.saved.session.steps,"stage":if eval.saved.session.done(){"complete"}else{"running alongside self-play"}}),
@@ -488,7 +670,7 @@ fn service_evaluation(
     if eval.saved.session.done() {
         let mut report = eval.saved.session.report();
         report["iteration"] = json!(eval.saved.iteration);
-        report["opponent"] = json!("frozen starting weights");
+        report["opponent"] = json!(eval.saved.session.opponent_ids);
         atomic_json(&dir.join("evaluation.json"), &report)?;
         fs::create_dir_all(dir.join("evaluations"))?;
         atomic_json(
@@ -654,6 +836,7 @@ fn iteration(
                         steps: s.episodes[i].samples.len(),
                         max_steps: s.config.max_steps,
                         repetition: s.config.repetition,
+                        bootstrap_horizon: settings.mask_cutoffs,
                     })
                     .collect();
                 if let Err(e) = search::queued(
@@ -680,11 +863,7 @@ fn iteration(
                 let action = if settings.sample(&e.state, e.samples.len()) {
                     s.rng.sample(&pi)
                 } else {
-                    pi.iter()
-                        .enumerate()
-                        .max_by(|a, b| a.1.total_cmp(b.1))
-                        .unwrap()
-                        .0
+                    s.rng.argmax(&pi)
                 };
                 let next = if settings.legacy {
                     board
@@ -712,6 +891,9 @@ fn iteration(
                     state: e.state.clone(),
                     pi,
                     value: vec![],
+                    game_id: None,
+                    termination: None,
+                    value_weight: 1.,
                 });
                 e.state = next;
                 e.frames
@@ -752,11 +934,13 @@ fn iteration(
                 let mut input = vec![];
                 let mut pi = vec![];
                 let mut value = vec![];
+                let mut weights = vec![];
                 for _ in 0..count {
                     let sample = &s.replay[s.rng.index(s.replay.len())];
                     input.extend(board.encode(&sample.state, sample.state.player));
                     pi.extend_from_slice(&sample.pi);
                     value.extend_from_slice(&sample.value);
+                    weights.push(sample.value_weight);
                 }
                 let (p, v) = net.forward(&net.input(&input, count), true);
                 let target = Tensor::from_slice(&pi)
@@ -768,7 +952,8 @@ fn iteration(
                 let pl = -(p * target)
                     .sum_dim_intlist(&[-1i64][..], false, Kind::Float)
                     .mean(Kind::Float);
-                let vl = v.mse_loss(&target_v, tch::Reduction::Mean);
+                let weights = Tensor::from_slice(&weights).to_device(net.vs.device());
+                let vl = masked_value_loss(&v, &target_v, &weights);
                 let p_value = f64::try_from(&pl)?;
                 let v_value = f64::try_from(&vl)?;
                 anyhow::ensure!(p_value.is_finite() && v_value.is_finite(), "nonfinite loss");
@@ -792,7 +977,7 @@ fn iteration(
     let decisions = s.decisions;
     let victories = stats.iter().filter(|g| g["termination"] == "win").count();
     let seconds = s.elapsed.max(1e-9);
-    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration)});
+    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"replay_distinct_games":s.replay.iter().filter_map(|x|x.game_id.as_ref()).collect::<std::collections::HashSet<_>>().len(),"replay_value_supervised_fraction":s.replay.iter().map(|x|x.value_weight as f64).sum::<f64>()/s.replay.len().max(1) as f64,"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration)});
     atomic_json(
         &dir.join("live.json"),
         &ogf(
@@ -921,6 +1106,13 @@ pub fn main(args: &[String]) -> Result<()> {
         gpu_batch: argument(args, "--gpu-batch", "16").parse()?,
         reuse: !args.iter().any(|a| a == "--no-tree-reuse"),
         legacy: args.iter().any(|a| a == "--legacy-search"),
+        protocol: 3,
+        replay_game_cap: argument(args, "--replay-game-cap", "256").parse()?,
+        mask_cutoffs: match argument(args, "--cutoff-value", "mask").as_str() {
+            "mask" => true,
+            "draw" => false,
+            _ => anyhow::bail!("--cutoff-value must be mask or draw"),
+        },
     };
     anyhow::ensure!(settings.gpu_batch > 0, "GPU batch must be positive");
     let mut resident: HashMap<usize, (PathBuf, Network, Adam, Saved, Option<EvaluationJob>)> =
@@ -1050,6 +1242,17 @@ pub fn main(args: &[String]) -> Result<()> {
                 for e in &mut saved.episodes {
                     e.tree = None;
                 }
+                for sample in &mut saved.replay {
+                    sample.value_weight = if settings.mask_cutoffs
+                        && (sample.termination.as_deref() == Some("max_steps")
+                            || (sample.termination.is_none()
+                                && sample.value.iter().all(|v| *v == 0.)))
+                    {
+                        0.
+                    } else {
+                        1.
+                    };
+                }
                 saved.search_settings = Some(settings.clone());
             }
             atomic_json(&dir.join("config.json"), &config)?;
@@ -1147,6 +1350,53 @@ pub fn main(args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn ogf_view_export_uses_ring_ids_and_saved_palette_without_mutating_checkpoint_frames() {
+        assert_eq!(ring_label(0), "A");
+        assert_eq!(ring_label(26), "AA");
+        for players in [2, 3, 5] {
+            let board = Board::new(players, 7, false);
+            let episode = Episode::new(&board, 0, 0, &mut Random(17));
+            let record = ogf(&board, &episode, 0, 0);
+            assert_eq!(record["version"], 2);
+            assert_eq!(record["profile"], "view");
+            assert_eq!(record["board"]["center"], "A0");
+            assert_eq!(record["board"]["ring-colors"].as_array().unwrap().len(), 7);
+            assert!(record.get("colors").is_none());
+            let old = json!({"elements":[["orb","eat","2:3",4]],"food":{"0:0":2}});
+            let converted = view_frame(&old);
+            assert_eq!(converted["elements"][0][2], "C3");
+            assert_eq!(converted["food"]["A0"], 2);
+            assert_eq!(old["elements"][0][2], "2:3");
+        }
+    }
+    #[test]
+    fn capped_game_sampling_covers_entire_game_and_resumes() {
+        let a = game_sample_indices(4000, 256, &mut Random(17));
+        assert_eq!(a.len(), 256);
+        for (j, &i) in a.iter().enumerate() {
+            assert!(i >= j * 4000 / 256 && i < (j + 1) * 4000 / 256);
+        }
+        assert_eq!(a, game_sample_indices(4000, 256, &mut Random(17)));
+        assert_eq!(game_sample_indices(3, 256, &mut Random(17)), vec![0, 1, 2]);
+        assert!(game_sample_indices(0, 256, &mut Random(17)).is_empty());
+    }
+    #[test]
+    fn unknown_outcomes_have_no_value_gradient() {
+        let v = Tensor::from_slice(&[0.5f32, -0.5, 0.8, -0.8])
+            .view([2, 2])
+            .set_requires_grad(true);
+        let target = Tensor::zeros_like(&v);
+        let loss = masked_value_loss(&v, &target, &Tensor::from_slice(&[1f32, 0.]));
+        assert!((f64::try_from(&loss).unwrap() - 0.25).abs() < 1e-6);
+        loss.backward();
+        let gradient: Vec<f32> = Vec::try_from(v.grad().view([-1])).unwrap();
+        assert_eq!(gradient, vec![0.5, -0.5, 0., 0.]);
+        let empty = masked_value_loss(&v, &target, &Tensor::from_slice(&[0f32, 0.]));
+        assert_eq!(f64::try_from(empty).unwrap(), 0.);
+        let draw = masked_value_loss(&v, &target, &Tensor::from_slice(&[1f32, 1.]));
+        assert!((f64::try_from(draw).unwrap() - 0.445).abs() < 1e-6);
+    }
+    #[test]
     fn live_feed_bounds_history_without_truncating_recordings() {
         let root = std::env::temp_dir().join(format!("organism-live-test-{}", std::process::id()));
         let dir = root.join("2p");
@@ -1197,6 +1447,9 @@ mod tests {
             gpu_batch: 2,
             reuse: true,
             legacy: false,
+            protocol: 3,
+            replay_game_cap: 256,
+            mask_cutoffs: true,
         };
         state.round = 9;
         assert!(settings.sample(&state, 1000));
@@ -1228,6 +1481,9 @@ mod tests {
             gpu_batch: 2,
             reuse: true,
             legacy: false,
+            protocol: 3,
+            replay_game_cap: 256,
+            mask_cutoffs: true,
         };
         let mut job =
             EvaluationJob::create(&root, &board, &config, &net, 7, 1, false, &settings).unwrap();

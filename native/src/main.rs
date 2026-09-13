@@ -9,6 +9,10 @@ fn main() -> anyhow::Result<()> {
     if std::env::args().nth(1).as_deref() == Some("benchmark") {
         return organism_train::benchmark::main(&std::env::args().collect::<Vec<_>>());
     }
+    #[cfg(feature = "gpu")]
+    if std::env::args().nth(1).as_deref() == Some("compare") {
+        return organism_train::compare::main(&std::env::args().collect::<Vec<_>>());
+    }
     for line in io::stdin().lock().lines() {
         let request: serde_json::Value = serde_json::from_str(&line?)?;
         let players = request["players"].as_u64().unwrap_or(2) as usize;

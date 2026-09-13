@@ -27,6 +27,10 @@ class RecordingTests(unittest.TestCase):
             path = next((Path(directory) / 'games').glob('*.json'))
             recorded = load_ogf(path)
             self.assertEqual(recorded['format'], 'organism')
+            self.assertEqual(recorded['version'], 2)
+            self.assertEqual(recorded['board']['center'], 'A0')
+            self.assertNotIn('colors', recorded)
+            self.assertTrue(all(c.startswith('#') for c in recorded['board']['ring-colors']))
             self.assertEqual(len(recorded['frames']), step + 1)
             self.assertEqual(set(board_locations(recorded)), set(recorded['board']['spaces']))
             frame = recorded['frames'][-1]

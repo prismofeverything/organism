@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Random(pub u64);
 impl Random {
     pub fn next(&mut self) -> u64 {
@@ -42,6 +42,16 @@ impl Random {
             }
         }
         weights.len() - 1
+    }
+    pub fn argmax(&mut self, values: &[f32]) -> usize {
+        let best = values.iter().copied().max_by(f32::total_cmp).unwrap();
+        let ties: Vec<_> = values
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v == best)
+            .map(|(i, _)| i)
+            .collect();
+        ties[self.index(ties.len())]
     }
     fn normal(&mut self) -> f64 {
         (-2. * self.unit().ln()).sqrt() * (std::f64::consts::TAU * self.unit()).cos()
@@ -84,6 +94,8 @@ struct Node {
     values: Vec<f32>,
     children: Vec<(usize, usize)>,
     expanded: bool,
+    #[serde(default)]
+    horizon_value: Option<Vec<f32>>,
 }
 impl Node {
     fn new(state: State, prior: f32, players: usize) -> Self {
@@ -95,22 +107,27 @@ impl Node {
             values: vec![0.; players],
             children: vec![],
             expanded: false,
+            horizon_value: None,
         }
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Tree {
     nodes: Vec<Node>,
+    #[serde(default)]
+    tie_rng: Random,
 }
 struct Request {
     path: Vec<usize>,
     legal: Vec<(usize, State)>,
     input: Vec<f32>,
+    horizon: bool,
 }
 impl Tree {
     pub fn new(s: State, players: usize) -> Self {
         Self {
             nodes: vec![Node::new(s, 1., players)],
+            tie_rng: Random::default(),
         }
     }
     fn backup(&mut self, path: &[usize], v: &[f32]) {
@@ -134,22 +151,27 @@ impl Tree {
                 }
                 let parent = &self.nodes[i];
                 let actor = parent.state.player;
-                i = parent
+                let mut scored: Vec<_> = parent
                     .children
                     .iter()
-                    .max_by(|(_, a), (_, b)| {
-                        let score = |n: &Node| {
-                            let q = if n.visits > 0 {
-                                n.values[actor] / n.visits as f32
-                            } else {
-                                0.
-                            };
-                            q + n.prior * (parent.visits as f32).sqrt() / (1. + n.visits as f32)
+                    .map(|&(action, index)| {
+                        let n = &self.nodes[index];
+                        let q = if n.visits > 0 {
+                            n.values[actor] / n.visits as f32
+                        } else {
+                            0.
                         };
-                        score(&self.nodes[*a]).total_cmp(&score(&self.nodes[*b]))
+                        (
+                            action,
+                            index,
+                            q + n.prior * (parent.visits.max(1) as f32).sqrt()
+                                / (1. + n.visits as f32),
+                        )
                     })
-                    .unwrap()
-                    .1;
+                    .collect();
+                scored.sort_by_key(|x| x.0);
+                let scores: Vec<_> = scored.iter().map(|x| x.2).collect();
+                i = scored[self.tie_rng.argmax(&scores)].1;
                 path.push(i);
             }
         }
@@ -159,6 +181,19 @@ impl Tree {
             v[winner] = 1.;
             self.backup(&path, &v);
             return None;
+        }
+        if limits.bootstrap_horizon && limits.horizon(&path) && !limits.repeated(&self.nodes, &path)
+        {
+            if let Some(v) = self.nodes[i].horizon_value.clone() {
+                self.backup(&path, &v);
+                return None;
+            }
+            return Some(Request {
+                input: board.encode(s, s.player),
+                path,
+                legal: vec![],
+                horizon: true,
+            });
         }
         if limits.cutoff(&self.nodes, &path) {
             self.backup(&path, &vec![0.; board.players]);
@@ -174,6 +209,7 @@ impl Tree {
             path,
             legal,
             input: board.encode(s, s.player),
+            horizon: false,
         })
     }
     fn finish(&mut self, board: &Board, r: Request, priors: &[f32], values: &[f32], root: bool) {
@@ -182,6 +218,11 @@ impl Tree {
         let mut v = vec![0.; board.players];
         for (j, &value) in values.iter().enumerate() {
             v[(actor + j) % board.players] = value;
+        }
+        if r.horizon {
+            self.nodes[i].horizon_value = Some(v.clone());
+            self.backup(&r.path, &v);
+            return;
         }
         let sum: f32 = r.legal.iter().map(|(a, _)| priors[*a]).sum();
         let count = r.legal.len();
@@ -219,6 +260,7 @@ pub struct Limits<'a> {
     pub steps: usize,
     pub max_steps: usize,
     pub repetition: u32,
+    pub bootstrap_horizon: bool,
 }
 pub fn repetition_state(s: &State) -> State {
     let mut s = s.clone();
@@ -231,9 +273,12 @@ pub fn repetition_state(s: &State) -> State {
 }
 impl Limits<'_> {
     fn cutoff(&self, nodes: &[Node], path: &[usize]) -> bool {
-        if self.max_steps > 0 && self.steps + path.len() - 1 >= self.max_steps {
-            return true;
-        }
+        self.horizon(path) || self.repeated(nodes, path)
+    }
+    fn horizon(&self, path: &[usize]) -> bool {
+        self.max_steps > 0 && self.steps + path.len() - 1 >= self.max_steps
+    }
+    fn repeated(&self, nodes: &[Node], path: &[usize]) -> bool {
         if self.repetition == 0 {
             return false;
         }
@@ -324,6 +369,9 @@ pub fn queued<E: Evaluator, F: FnMut() -> Result<()>>(
     );
     let start = Instant::now();
     let seeds: Vec<_> = trees.iter().map(|_| rng.next()).collect();
+    for (tree, seed) in trees.iter_mut().zip(&seeds) {
+        tree.tie_rng = Random(*seed);
+    }
     struct Job<'a> {
         trees: &'a mut [Tree],
         limits: &'a [Limits<'a>],
@@ -569,6 +617,75 @@ mod tests {
         fn evaluate(&self, _: &[f32], n: usize) -> Result<(Vec<f32>, Vec<f32>)> {
             Ok((vec![1. / self.0 as f32; n * self.0], vec![0.; n * self.1]))
         }
+    }
+    #[test]
+    fn first_simulation_uses_prior_and_ties_ignore_child_order() {
+        let b = Board::new(2, 3, false);
+        let mut base = Tree::new(b.initial(), 2);
+        let r = base.prepare(&b, true).unwrap();
+        let favored = r.legal[0].0;
+        let mut priors = vec![0.01; b.action_size()];
+        priors[favored] = 0.9;
+        base.finish(&b, r, &priors, &[0., 0.], true);
+        let r = base.prepare(&b, false).unwrap();
+        assert_eq!(
+            r.path[1],
+            base.nodes[0]
+                .children
+                .iter()
+                .find(|x| x.0 == favored)
+                .unwrap()
+                .1
+        );
+        for n in base.nodes.iter_mut().skip(1) {
+            n.prior = 1.;
+        }
+        let mut counts = HashMap::new();
+        for seed in 0..1000 {
+            let mut a = base.clone();
+            let mut c = base.clone();
+            a.tie_rng = Random(seed);
+            c.tie_rng = Random(seed);
+            c.nodes[0].children.reverse();
+            let ar = a.prepare(&b, false).unwrap();
+            let cr = c.prepare(&b, false).unwrap();
+            assert_eq!(ar.path, cr.path);
+            *counts.entry(ar.path[1]).or_insert(0) += 1;
+        }
+        assert_eq!(counts.len(), base.nodes[0].children.len());
+        assert!(counts.values().all(|&n| n > 100));
+    }
+    #[test]
+    fn horizon_bootstraps_but_repetition_still_has_neutral_value() {
+        let b = Board::new(2, 3, false);
+        let mut t = Tree::new(b.initial(), 2);
+        let limits = Limits {
+            steps: 10,
+            max_steps: 10,
+            bootstrap_horizon: true,
+            ..Limits::default()
+        };
+        let r = t.prepare_limited(&b, false, &limits).unwrap();
+        assert!(r.horizon && r.legal.is_empty());
+        t.finish(&b, r, &[], &[0.8, -0.8], false);
+        assert_eq!(t.nodes[0].values, vec![0.8, -0.8]);
+        assert!(t.prepare_limited(&b, false, &limits).is_none());
+        assert_eq!(t.nodes[0].values, vec![1.6, -1.6]);
+        let seen = HashMap::from([(repetition_state(&b.initial()), 2)]);
+        let mut t = Tree::new(b.initial(), 2);
+        assert!(
+            t.prepare_limited(
+                &b,
+                false,
+                &Limits {
+                    seen: Some(&seen),
+                    repetition: 3,
+                    ..limits
+                }
+            )
+            .is_none()
+        );
+        assert_eq!(t.nodes[0].values, vec![0., 0.]);
     }
     #[test]
     fn cyclic_values_backup_without_two_player_sign_flip() {

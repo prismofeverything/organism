@@ -599,20 +599,31 @@
        [:g icon food]
        [:g icon]))))
 
+(defn orient-content [rotation [x y] content]
+  (when content
+    (if (zero? rotation) content
+        [:g {:transform (str "rotate(" rotation " " x " " y ")")
+             :data-content-rotation rotation}
+         content])))
+
 (defn render-organism
-  [locations color food-color radius elements]
-  (vec
-   (concat
-    [:g]
-    (map
-     (fn [{:keys [space] :as element}]
-       (let [location (get locations space)]
-         ^{:key space}
-         (render-element color food-color location radius element)))
-     elements))))
+  ([locations color food-color radius elements]
+   (render-organism locations color food-color radius elements 0))
+  ([locations color food-color radius elements rotation]
+   (vec
+    (concat
+     [:g]
+     (map
+      (fn [{:keys [space] :as element}]
+        (let [location (get locations space)]
+          ^{:key space}
+          (orient-content rotation location
+                          (render-element color food-color location radius element))))
+      elements)))))
 
 (defn render-game
-  [{:keys [colors radius layout background locations player-colors] :as board} game]
+  [{:keys [colors radius layout background locations player-colors content-rotation]
+    :or {content-rotation 0} :as board} game]
   (let [all-elements (-> game :state :elements vals)
         food-color (-> colors first last)
         organisms (group-by
@@ -625,16 +636,17 @@
          (fn [[[player organism] elements]]
            ^{:key [player organism]}
            (let [color (get player-colors player)]
-             (render-organism locations color food-color radius elements)))
+             (render-organism locations color food-color radius elements content-rotation)))
          organisms)
 
         free-food
         (mapv
          (fn [[space food]]
            ^{:key [space food]}
-           (render-food
-            (get locations space)
-            (* radius 0.3) (* radius 0.2) food-color food))
+           (orient-content content-rotation (get locations space)
+                           (render-food
+                            (get locations space)
+                            (* radius 0.3) (* radius 0.2) food-color food)))
          (get-in game [:state :food]))
 
         svg (apply conj layout (concat element-icons free-food))]

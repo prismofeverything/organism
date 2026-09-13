@@ -1,0 +1,2982 @@
+{
+  "2p": {
+    "budgets": {
+      "eat_slots": 2767,
+      "grow_slots": 3173,
+      "move_slots": 3315
+    },
+    "counts": {
+      "circulate_with_primary_available": 269,
+      "circulate_without_primary_available": 106,
+      "eat_mode_slots": 907,
+      "eat_slot_action_available": 907,
+      "eat_slot_chose_circulate": 47,
+      "eat_slot_chose_eat": 759,
+      "eat_slot_chose_pass": 101,
+      "games": 30,
+      "grow_mode_slots": 1506,
+      "grow_slot_action_available": 856,
+      "grow_slot_chose_circulate": 223,
+      "grow_slot_chose_grow": 156,
+      "grow_slot_chose_pass": 1127,
+      "mode_chose_maximum_slots": 1399,
+      "mode_decisions": 2426,
+      "mode_eat_available": 2426,
+      "mode_eat_chosen": 851,
+      "mode_grow_available": 1169,
+      "mode_grow_chosen": 1161,
+      "mode_grow_chosen_unavailable": 538,
+      "mode_move_available": 2296,
+      "mode_move_chosen": 414,
+      "mode_move_chosen_unavailable": 30,
+      "move_available_chosen": 384,
+      "move_available_declined": 1912,
+      "move_destination_forced_pass": 13,
+      "move_mode_slots": 555,
+      "move_slot_action_available": 514,
+      "move_slot_chose_circulate": 105,
+      "move_slot_chose_move": 334,
+      "move_slot_chose_pass": 116,
+      "pass_no_executable_alternative": 76,
+      "pass_only_menu_option": 76,
+      "pass_other_menu_options": 1268,
+      "pass_with_eat_available": 101,
+      "pass_with_grow_available": 572,
+      "pass_with_move_available": 91,
+      "pass_with_only_circulate_alternative": 504
+    },
+    "examples": [
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                0
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 2,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 2,
+        "step_before": 19
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                0
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 4,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 4,
+        "step_before": 36
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 4,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                11
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 5,
+        "step_before": 41
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                1,
+                3
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 4,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                11
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 6,
+        "step_before": 50
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                1,
+                3
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 4,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                11
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 9,
+        "step_before": 72
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "move"
+            },
+            {
+              "food": 5,
+              "player": "mass",
+              "space": [
+                1,
+                3
+              ],
+              "type": "move"
+            },
+            {
+              "food": 17,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 15,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 2,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                11
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 34,
+        "step_before": 242
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 12,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 6,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 6,
+              "player": "orb",
+              "space": [
+                2,
+                3
+              ],
+              "type": "move"
+            },
+            {
+              "food": 6,
+              "player": "mass",
+              "space": [
+                2,
+                5
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 47,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                11
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 67,
+        "step_before": 469
+      },
+      {
+        "board": {
+          "captures": {
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                1,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 12,
+              "player": "orb",
+              "space": [
+                2,
+                1
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 6,
+              "player": "orb",
+              "space": [
+                2,
+                2
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 6,
+              "player": "orb",
+              "space": [
+                2,
+                3
+              ],
+              "type": "move"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                2,
+                5
+              ],
+              "type": "move"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 47,
+              "player": "mass",
+              "space": [
+                2,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                8
+              ],
+              "type": "move"
+            }
+          ],
+          "food": [
+            [
+              [
+                1,
+                0
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                9
+              ],
+              2
+            ],
+            [
+              [
+                2,
+                11
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "round": 67,
+        "step_before": 472
+      }
+    ],
+    "first_simulation_probe": {
+      "eat_visits_fraction": 0.0,
+      "network_favored_action": "eat",
+      "pass_visits_fraction": 1.0,
+      "simulations": 1
+    },
+    "games": [
+      {
+        "actions": {
+          "circulate": 15,
+          "eat": 78,
+          "grow": 5,
+          "move": 10,
+          "pass": 47
+        },
+        "game": "organism_2p-000371-75-691dbed9ce357aa7",
+        "result": {
+          "longest_unchanged_layout_rounds": 29,
+          "steps": 527,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 6,
+          "eat": 3,
+          "grow": 4,
+          "move": 8,
+          "pass": 12
+        },
+        "game": "organism_2p-000373-78-b1fa8257fc0ea285",
+        "result": {
+          "longest_unchanged_layout_rounds": 2,
+          "steps": 107,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 3,
+          "eat": 2,
+          "grow": 1,
+          "move": 1,
+          "pass": 6
+        },
+        "game": "organism_2p-000375-72-015532f697dda168",
+        "result": {
+          "longest_unchanged_layout_rounds": 3,
+          "steps": 43,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 3,
+          "eat": 3,
+          "grow": 5,
+          "move": 3,
+          "pass": 19
+        },
+        "game": "organism_2p-000376-69-5daa6a250ef65a47",
+        "result": {
+          "longest_unchanged_layout_rounds": 3,
+          "steps": 94,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 5,
+          "eat": 2,
+          "grow": 1,
+          "move": 6,
+          "pass": 12
+        },
+        "game": "organism_2p-000375-70-5b079761b5c3c5d0",
+        "result": {
+          "longest_unchanged_layout_rounds": 2,
+          "steps": 84,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 5,
+          "eat": 1,
+          "grow": 3,
+          "move": 9,
+          "pass": 15
+        },
+        "game": "organism_2p-000375-77-3a4d6f797b1b3b24",
+        "result": {
+          "longest_unchanged_layout_rounds": 4,
+          "steps": 105,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 12,
+          "eat": 146,
+          "grow": 7,
+          "move": 9,
+          "pass": 146
+        },
+        "game": "organism_2p-000367-67-411a2c804e94256b",
+        "result": {
+          "longest_unchanged_layout_rounds": 90,
+          "steps": 931,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 13,
+          "eat": 4,
+          "grow": 5,
+          "move": 13,
+          "pass": 11
+        },
+        "game": "organism_2p-000373-75-6f37323392aa336b",
+        "result": {
+          "longest_unchanged_layout_rounds": 5,
+          "steps": 164,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 50,
+          "eat": 25,
+          "grow": 10,
+          "move": 15,
+          "pass": 69
+        },
+        "game": "organism_2p-000369-78-9e4c302665cdf425",
+        "result": {
+          "longest_unchanged_layout_rounds": 19,
+          "steps": 507,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 5,
+          "eat": 7,
+          "grow": 2,
+          "move": 6,
+          "pass": 10
+        },
+        "game": "organism_2p-000374-76-e4f8a73c5df0e16a",
+        "result": {
+          "longest_unchanged_layout_rounds": 7,
+          "steps": 102,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 6,
+          "eat": 3,
+          "grow": 2,
+          "move": 3,
+          "pass": 7
+        },
+        "game": "organism_2p-000374-78-8e56ce8fbef40ae9",
+        "result": {
+          "longest_unchanged_layout_rounds": 2,
+          "steps": 70,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 17,
+          "eat": 27,
+          "grow": 6,
+          "move": 19,
+          "pass": 51
+        },
+        "game": "organism_2p-000374-66-06ca6539aac23250",
+        "result": {
+          "longest_unchanged_layout_rounds": 29,
+          "steps": 373,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 3,
+          "eat": 4,
+          "grow": 2,
+          "pass": 12
+        },
+        "game": "organism_2p-000376-75-36478a19f2aabcec",
+        "result": {
+          "longest_unchanged_layout_rounds": 6,
+          "steps": 59,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 10,
+          "eat": 27,
+          "grow": 5,
+          "pass": 72
+        },
+        "game": "organism_2p-000372-68-3535e7569e2bb986",
+        "result": {
+          "longest_unchanged_layout_rounds": 30,
+          "steps": 281,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 19,
+          "eat": 4,
+          "grow": 5,
+          "move": 18,
+          "pass": 26
+        },
+        "game": "organism_2p-000374-73-0e3fe732e3fd7b20",
+        "result": {
+          "longest_unchanged_layout_rounds": 8,
+          "steps": 234,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 27,
+          "eat": 26,
+          "grow": 10,
+          "move": 15,
+          "pass": 104
+        },
+        "game": "organism_2p-000371-73-ca434b0d053eca15",
+        "result": {
+          "longest_unchanged_layout_rounds": 22,
+          "steps": 478,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 11,
+          "eat": 10,
+          "grow": 5,
+          "move": 19,
+          "pass": 20
+        },
+        "game": "organism_2p-000374-65-847d91287ddbd5dd",
+        "result": {
+          "longest_unchanged_layout_rounds": 5,
+          "steps": 219,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 13,
+          "eat": 19,
+          "grow": 5,
+          "move": 19,
+          "pass": 50
+        },
+        "game": "organism_2p-000372-77-567945f35bf674f4",
+        "result": {
+          "longest_unchanged_layout_rounds": 10,
+          "steps": 326,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 23,
+          "eat": 49,
+          "grow": 8,
+          "move": 13,
+          "pass": 80
+        },
+        "game": "organism_2p-000371-72-6c623f49a6aabebe",
+        "result": {
+          "longest_unchanged_layout_rounds": 52,
+          "steps": 530,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 22,
+          "eat": 25,
+          "grow": 9,
+          "move": 20,
+          "pass": 61
+        },
+        "game": "organism_2p-000372-74-739cb22abea7d389",
+        "result": {
+          "longest_unchanged_layout_rounds": 16,
+          "steps": 418,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 22,
+          "eat": 18,
+          "grow": 8,
+          "move": 25,
+          "pass": 49
+        },
+        "game": "organism_2p-000372-67-4540827fa0ed3ce6",
+        "result": {
+          "longest_unchanged_layout_rounds": 7,
+          "steps": 384,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 20,
+          "eat": 60,
+          "grow": 11,
+          "move": 16,
+          "pass": 85
+        },
+        "game": "organism_2p-000369-70-68edebd624f49309",
+        "result": {
+          "longest_unchanged_layout_rounds": 29,
+          "steps": 590,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 8,
+          "eat": 2,
+          "grow": 5,
+          "move": 11,
+          "pass": 19
+        },
+        "game": "organism_2p-000375-73-6fd6b210f5c0ca68",
+        "result": {
+          "longest_unchanged_layout_rounds": 3,
+          "steps": 140,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 7,
+          "eat": 49,
+          "grow": 8,
+          "move": 26,
+          "pass": 111
+        },
+        "game": "organism_2p-000371-70-acbd5003d4d4f8da",
+        "result": {
+          "longest_unchanged_layout_rounds": 17,
+          "steps": 555,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 15,
+          "eat": 101,
+          "grow": 8,
+          "move": 13,
+          "pass": 129
+        },
+        "game": "organism_2p-000367-66-c09c983317519b0b",
+        "result": {
+          "longest_unchanged_layout_rounds": 54,
+          "steps": 804,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 10,
+          "eat": 1,
+          "grow": 4,
+          "move": 4,
+          "pass": 14
+        },
+        "game": "organism_2p-000374-68-0009c67008ead50d",
+        "result": {
+          "longest_unchanged_layout_rounds": 2,
+          "steps": 98,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 10,
+          "eat": 41,
+          "grow": 3,
+          "move": 10,
+          "pass": 35
+        },
+        "game": "organism_2p-000373-65-44f3871f38749cb8",
+        "result": {
+          "longest_unchanged_layout_rounds": 35,
+          "steps": 330,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 1,
+          "grow": 1,
+          "move": 1,
+          "pass": 6
+        },
+        "game": "organism_2p-000376-68-8d480d94421e521b",
+        "result": {
+          "longest_unchanged_layout_rounds": 2,
+          "steps": 25,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 8,
+          "eat": 19,
+          "grow": 5,
+          "move": 10,
+          "pass": 50
+        },
+        "game": "organism_2p-000373-73-a8ee316cc2c3b08f",
+        "result": {
+          "longest_unchanged_layout_rounds": 29,
+          "steps": 275,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 6,
+          "eat": 3,
+          "grow": 3,
+          "move": 12,
+          "pass": 16
+        },
+        "game": "organism_2p-000374-74-58437c60c25d92a4",
+        "result": {
+          "longest_unchanged_layout_rounds": 3,
+          "steps": 127,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      }
+    ],
+    "policy_mass": {
+      "pending_choose_action_circulate": 2089.1337336741854,
+      "pending_choose_action_eat": 2138.4469139501452,
+      "pending_choose_action_grow": 471.4347609928809,
+      "pending_choose_action_move": 615.2108968780376,
+      "pending_choose_action_pass": 4256.773709346773,
+      "pending_choose_action_type_circulate": 0.0,
+      "pending_choose_action_type_eat": 2737.717701887479,
+      "pending_choose_action_type_grow": 3315.400353888981,
+      "pending_choose_action_type_move": 1654.881955720717,
+      "pending_choose_action_type_pass": 0.0,
+      "replay_choose_action_circulate": 287.1644349116832,
+      "replay_choose_action_eat": 391.35473991557956,
+      "replay_choose_action_grow": 89.22916327323765,
+      "replay_choose_action_move": 133.47246092092246,
+      "replay_choose_action_pass": 738.7792033574078,
+      "replay_choose_action_type_circulate": 0.0,
+      "replay_choose_action_type_eat": 506.875359877944,
+      "replay_choose_action_type_grow": 561.2619812907651,
+      "replay_choose_action_type_move": 328.8626615786925,
+      "replay_choose_action_type_pass": 0.0
+    },
+    "samples": {
+      "pending_all_samples": 28385,
+      "pending_choose_action": 9571,
+      "pending_choose_action_greedy": 8107,
+      "pending_choose_action_greedy_tie": 24,
+      "pending_choose_action_greedy_tie_pass_wins": 19,
+      "pending_choose_action_type": 7708,
+      "pending_choose_action_type_greedy": 6480,
+      "pending_choose_action_type_greedy_tie": 27,
+      "replay_all_draw_targets": 1226,
+      "replay_all_samples": 5000,
+      "replay_choose_action": 1640,
+      "replay_choose_action_draw_target": 395,
+      "replay_choose_action_greedy": 1337,
+      "replay_choose_action_greedy_tie": 4,
+      "replay_choose_action_greedy_tie_pass_wins": 4,
+      "replay_choose_action_type": 1397,
+      "replay_choose_action_type_draw_target": 366,
+      "replay_choose_action_type_greedy": 1154,
+      "replay_choose_action_type_greedy_tie": 5
+    },
+    "mean_policy_targets": {
+      "replay_choose_action_type": {
+        "eat": 0.36283132417891484,
+        "grow": 0.4017623344958948,
+        "move": 0.2354063432918343,
+        "circulate": 0.0,
+        "pass": 0.0
+      },
+      "replay_choose_action": {
+        "eat": 0.23863093897291437,
+        "grow": 0.054408026386120516,
+        "move": 0.0813856469030015,
+        "circulate": 0.17510026519005073,
+        "pass": 0.4504751239984194
+      },
+      "pending_choose_action_type": {
+        "eat": 0.35517873662266203,
+        "grow": 0.43012459183821755,
+        "move": 0.21469667303071058,
+        "circulate": 0.0,
+        "pass": 0.0
+      },
+      "pending_choose_action": {
+        "eat": 0.22342983115141002,
+        "grow": 0.04925658353284724,
+        "move": 0.06427864349368274,
+        "circulate": 0.21827747713657772,
+        "pass": 0.44475746623621076
+      }
+    },
+    "outcomes": {
+      "win": 21,
+      "repetition": 9
+    }
+  },
+  "3p": {
+    "budgets": {
+      "eat_slots": 20752,
+      "grow_slots": 23190,
+      "move_slots": 18502
+    },
+    "counts": {
+      "circulate_with_primary_available": 8648,
+      "circulate_without_primary_available": 4359,
+      "eat_mode_slots": 3877,
+      "eat_slot_action_available": 3874,
+      "eat_slot_chose_circulate": 2304,
+      "eat_slot_chose_eat": 786,
+      "eat_slot_chose_pass": 787,
+      "games": 30,
+      "grow_mode_slots": 14640,
+      "grow_slot_action_available": 6283,
+      "grow_slot_chose_circulate": 7835,
+      "grow_slot_chose_grow": 328,
+      "grow_slot_chose_pass": 6477,
+      "mode_chose_maximum_slots": 9084,
+      "mode_decisions": 12804,
+      "mode_eat_available": 12793,
+      "mode_eat_chosen": 2595,
+      "mode_eat_chosen_unavailable": 3,
+      "mode_grow_available": 7409,
+      "mode_grow_chosen": 6827,
+      "mode_grow_chosen_unavailable": 3287,
+      "mode_move_available": 11223,
+      "mode_move_chosen": 3382,
+      "mode_move_chosen_unavailable": 231,
+      "move_available_chosen": 3151,
+      "move_available_declined": 8072,
+      "move_destination_forced_pass": 22,
+      "move_mode_slots": 4720,
+      "move_slot_action_available": 4415,
+      "move_slot_chose_circulate": 2868,
+      "move_slot_chose_move": 572,
+      "move_slot_chose_pass": 1280,
+      "pass_no_executable_alternative": 872,
+      "pass_only_menu_option": 872,
+      "pass_other_menu_options": 7672,
+      "pass_with_eat_available": 786,
+      "pass_with_grow_available": 2359,
+      "pass_with_move_available": 1094,
+      "pass_with_only_circulate_alternative": 3433
+    },
+    "examples": [
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 2,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 0,
+        "step_before": 13
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 2,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                1
+              ],
+              3
+            ],
+            [
+              [
+                3,
+                2
+              ],
+              1
+            ],
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 3,
+        "step_before": 44
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 4,
+        "step_before": 49
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 2,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 2,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 5,
+        "step_before": 59
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 2,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 2,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 2,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 6,
+        "step_before": 69
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 2,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 2,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 3,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 7,
+        "step_before": 82
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 2,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 3,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "pass",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 7,
+        "step_before": 88
+      },
+      {
+        "board": {
+          "captures": {
+            "brone": [],
+            "mass": [],
+            "orb": []
+          },
+          "elements": [
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                2,
+                6
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 2,
+              "player": "orb",
+              "space": [
+                3,
+                0
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 1,
+              "player": "orb",
+              "space": [
+                3,
+                1
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "orb",
+              "space": [
+                3,
+                2
+              ],
+              "type": "move"
+            },
+            {
+              "food": 1,
+              "player": "mass",
+              "space": [
+                3,
+                6
+              ],
+              "type": "move"
+            },
+            {
+              "food": 3,
+              "player": "mass",
+              "space": [
+                3,
+                7
+              ],
+              "type": "eat"
+            },
+            {
+              "food": 0,
+              "player": "mass",
+              "space": [
+                3,
+                8
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 3,
+              "player": "brone",
+              "space": [
+                3,
+                12
+              ],
+              "type": "grow"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                13
+              ],
+              "type": "move"
+            },
+            {
+              "food": 0,
+              "player": "brone",
+              "space": [
+                3,
+                14
+              ],
+              "type": "eat"
+            }
+          ],
+          "food": [
+            [
+              [
+                3,
+                17
+              ],
+              2
+            ]
+          ],
+          "winner": null
+        },
+        "chosen": "circulate",
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "round": 8,
+        "step_before": 90
+      }
+    ],
+    "first_simulation_probe": {
+      "eat_visits_fraction": 0.0,
+      "network_favored_action": "eat",
+      "pass_visits_fraction": 1.0,
+      "simulations": 1
+    },
+    "games": [
+      {
+        "actions": {
+          "circulate": 588,
+          "eat": 31,
+          "grow": 11,
+          "move": 8,
+          "pass": 460
+        },
+        "game": "organism_3p-000374-70-eea6f3e5165094f2",
+        "result": {
+          "longest_unchanged_layout_rounds": 53,
+          "steps": 2943,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 39,
+          "eat": 8,
+          "grow": 3,
+          "move": 5,
+          "pass": 48
+        },
+        "game": "organism_3p-000378-73-a35a0085fe5e59ee",
+        "result": {
+          "longest_unchanged_layout_rounds": 10,
+          "steps": 302,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 71,
+          "eat": 8,
+          "grow": 5,
+          "move": 4,
+          "pass": 130
+        },
+        "game": "organism_3p-000378-64-71c91ee62dc53e97",
+        "result": {
+          "longest_unchanged_layout_rounds": 25,
+          "steps": 543,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 716,
+          "eat": 36,
+          "grow": 10,
+          "move": 26,
+          "pass": 684
+        },
+        "game": "organism_3p-000372-73-d0c966d778c0ec72",
+        "result": {
+          "longest_unchanged_layout_rounds": 162,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 650,
+          "eat": 49,
+          "grow": 11,
+          "move": 16,
+          "pass": 187
+        },
+        "game": "organism_3p-000374-65-4bd96c85e05eed01",
+        "result": {
+          "longest_unchanged_layout_rounds": 34,
+          "steps": 2816,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 255,
+          "eat": 8,
+          "grow": 7,
+          "move": 8,
+          "pass": 138
+        },
+        "game": "organism_3p-000376-67-7ebd8d0db49bf564",
+        "result": {
+          "longest_unchanged_layout_rounds": 46,
+          "steps": 1279,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 350,
+          "eat": 12,
+          "grow": 10,
+          "move": 27,
+          "pass": 76
+        },
+        "game": "organism_3p-000376-69-2af46855867c73c3",
+        "result": {
+          "longest_unchanged_layout_rounds": 49,
+          "steps": 1591,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 266,
+          "eat": 2,
+          "grow": 9,
+          "move": 8,
+          "pass": 203
+        },
+        "game": "organism_3p-000376-68-e6e45bfd4cc2a885",
+        "result": {
+          "longest_unchanged_layout_rounds": 40,
+          "steps": 1325,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 829,
+          "eat": 40,
+          "grow": 20,
+          "move": 41,
+          "pass": 423
+        },
+        "game": "organism_3p-000372-74-7a5fdd326f3b4822",
+        "result": {
+          "longest_unchanged_layout_rounds": 45,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 2,
+          "eat": 1,
+          "pass": 7
+        },
+        "game": "organism_3p-000378-76-4cde1490ee773ba4",
+        "result": {
+          "longest_unchanged_layout_rounds": 3,
+          "steps": 29,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 172,
+          "eat": 11,
+          "grow": 7,
+          "move": 10,
+          "pass": 128
+        },
+        "game": "organism_3p-000377-67-a36a2da6a3d7a190",
+        "result": {
+          "longest_unchanged_layout_rounds": 28,
+          "steps": 936,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 268,
+          "eat": 55,
+          "grow": 6,
+          "move": 14,
+          "pass": 212
+        },
+        "game": "organism_3p-000377-75-9c2fda46591ae14b",
+        "result": {
+          "longest_unchanged_layout_rounds": 34,
+          "steps": 1604,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 454,
+          "eat": 10,
+          "grow": 10,
+          "move": 21,
+          "pass": 315
+        },
+        "game": "organism_3p-000375-75-d8d556e7b3d548b0",
+        "result": {
+          "longest_unchanged_layout_rounds": 32,
+          "steps": 2224,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 44,
+          "eat": 2,
+          "grow": 7,
+          "move": 9,
+          "pass": 71
+        },
+        "game": "organism_3p-000378-70-ce527d930d646105",
+        "result": {
+          "longest_unchanged_layout_rounds": 5,
+          "steps": 362,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 908,
+          "eat": 34,
+          "grow": 17,
+          "move": 12,
+          "pass": 488
+        },
+        "game": "organism_3p-000372-70-984737777ca01b15",
+        "result": {
+          "longest_unchanged_layout_rounds": 81,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 769,
+          "eat": 63,
+          "grow": 20,
+          "move": 55,
+          "pass": 341
+        },
+        "game": "organism_3p-000371-70-2167ffe8dfe8a66d",
+        "result": {
+          "longest_unchanged_layout_rounds": 18,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 25,
+          "eat": 4,
+          "grow": 2,
+          "move": 4,
+          "pass": 35
+        },
+        "game": "organism_3p-000379-74-fd0282db2208c340",
+        "result": {
+          "longest_unchanged_layout_rounds": 13,
+          "steps": 213,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 318,
+          "eat": 24,
+          "grow": 9,
+          "move": 15,
+          "pass": 147
+        },
+        "game": "organism_3p-000376-77-4e800ca0fa3e26e0",
+        "result": {
+          "longest_unchanged_layout_rounds": 25,
+          "steps": 1556,
+          "terminal": true,
+          "termination": "win",
+          "winner": "mass"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 305,
+          "eat": 27,
+          "grow": 9,
+          "move": 20,
+          "pass": 184
+        },
+        "game": "organism_3p-000377-70-e7493ade07aa6ac8",
+        "result": {
+          "longest_unchanged_layout_rounds": 22,
+          "steps": 1633,
+          "terminal": true,
+          "termination": "win",
+          "winner": "orb"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 796,
+          "eat": 100,
+          "grow": 20,
+          "move": 45,
+          "pass": 353
+        },
+        "game": "organism_3p-000372-68-ac554271915462f7",
+        "result": {
+          "longest_unchanged_layout_rounds": 47,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 891,
+          "eat": 38,
+          "grow": 15,
+          "move": 27,
+          "pass": 416
+        },
+        "game": "organism_3p-000372-69-1f2257e5789e8886",
+        "result": {
+          "longest_unchanged_layout_rounds": 44,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 787,
+          "eat": 62,
+          "grow": 17,
+          "move": 28,
+          "pass": 580
+        },
+        "game": "organism_3p-000372-78-70b7dbdc81eb2d51",
+        "result": {
+          "longest_unchanged_layout_rounds": 31,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 439,
+          "eat": 13,
+          "grow": 9,
+          "move": 18,
+          "pass": 323
+        },
+        "game": "organism_3p-000375-70-a2ce9ad2ba0686d8",
+        "result": {
+          "longest_unchanged_layout_rounds": 19,
+          "steps": 2236,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 512,
+          "eat": 13,
+          "grow": 14,
+          "move": 16,
+          "pass": 644
+        },
+        "game": "organism_3p-000373-71-a22550886ca0c64a",
+        "result": {
+          "longest_unchanged_layout_rounds": 60,
+          "steps": 2941,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 145,
+          "eat": 11,
+          "grow": 8,
+          "move": 9,
+          "pass": 219
+        },
+        "game": "organism_3p-000377-73-edf1fb21a81c3f63",
+        "result": {
+          "longest_unchanged_layout_rounds": 18,
+          "steps": 980,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 499,
+          "eat": 15,
+          "grow": 9,
+          "move": 28,
+          "pass": 136
+        },
+        "game": "organism_3p-000374-74-8aa8bd7bc0beaea3",
+        "result": {
+          "longest_unchanged_layout_rounds": 14,
+          "steps": 2229,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 275,
+          "eat": 26,
+          "grow": 15,
+          "move": 21,
+          "pass": 175
+        },
+        "game": "organism_3p-000377-71-56c3a15602db8651",
+        "result": {
+          "longest_unchanged_layout_rounds": 17,
+          "steps": 1540,
+          "terminal": true,
+          "termination": "win",
+          "winner": "brone"
+        }
+      },
+      {
+        "actions": {
+          "circulate": 580,
+          "eat": 23,
+          "grow": 13,
+          "move": 29,
+          "pass": 400
+        },
+        "game": "organism_3p-000373-78-67fce3b400990619",
+        "result": {
+          "longest_unchanged_layout_rounds": 44,
+          "steps": 3109,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 683,
+          "eat": 39,
+          "grow": 23,
+          "move": 28,
+          "pass": 836
+        },
+        "game": "organism_3p-000372-67-e0392e4a5117e087",
+        "result": {
+          "longest_unchanged_layout_rounds": 46,
+          "steps": 4000,
+          "terminal": false,
+          "termination": "max_steps",
+          "winner": null
+        }
+      },
+      {
+        "actions": {
+          "circulate": 371,
+          "eat": 21,
+          "grow": 12,
+          "move": 20,
+          "pass": 185
+        },
+        "game": "organism_3p-000376-70-8b26bec951b2530b",
+        "result": {
+          "longest_unchanged_layout_rounds": 19,
+          "steps": 1813,
+          "terminal": false,
+          "termination": "repetition",
+          "winner": null
+        }
+      }
+    ],
+    "policy_mass": {
+      "pending_choose_action_circulate": 14935.48197057331,
+      "pending_choose_action_eat": 2374.7674888931215,
+      "pending_choose_action_grow": 1469.20348345628,
+      "pending_choose_action_move": 1824.3018428473733,
+      "pending_choose_action_pass": 13018.245302632451,
+      "pending_choose_action_type_circulate": 0.0,
+      "pending_choose_action_type_eat": 5693.633603390306,
+      "pending_choose_action_type_grow": 8068.384913273156,
+      "pending_choose_action_type_move": 6415.9815364181995,
+      "pending_choose_action_type_pass": 0.0,
+      "replay_choose_action_circulate": 732.5555472150445,
+      "replay_choose_action_eat": 73.13112520426512,
+      "replay_choose_action_grow": 65.79848702251911,
+      "replay_choose_action_move": 52.78754576295614,
+      "replay_choose_action_pass": 958.7272983640432,
+      "replay_choose_action_type_circulate": 0.0,
+      "replay_choose_action_type_eat": 274.4724480807781,
+      "replay_choose_action_type_grow": 494.31060571968555,
+      "replay_choose_action_type_move": 318.2169481664896,
+      "replay_choose_action_type_pass": 0.0
+    },
+    "samples": {
+      "pending_all_samples": 98917,
+      "pending_choose_action": 33622,
+      "pending_choose_action_greedy": 31546,
+      "pending_choose_action_greedy_tie": 398,
+      "pending_choose_action_greedy_tie_pass_wins": 259,
+      "pending_choose_action_type": 20178,
+      "pending_choose_action_type_greedy": 18316,
+      "pending_choose_action_type_greedy_tie": 293,
+      "replay_all_draw_targets": 5000,
+      "replay_all_samples": 5000,
+      "replay_choose_action": 1883,
+      "replay_choose_action_draw_target": 1883,
+      "replay_choose_action_greedy": 1820,
+      "replay_choose_action_greedy_tie": 17,
+      "replay_choose_action_greedy_tie_pass_wins": 13,
+      "replay_choose_action_type": 1087,
+      "replay_choose_action_type_draw_target": 1087,
+      "replay_choose_action_type_greedy": 1027,
+      "replay_choose_action_type_greedy_tie": 11
+    },
+    "mean_policy_targets": {
+      "replay_choose_action_type": {
+        "eat": 0.25250455205223377,
+        "grow": 0.45474756735941635,
+        "move": 0.2927478823978745,
+        "circulate": 0.0,
+        "pass": 0.0
+      },
+      "replay_choose_action": {
+        "eat": 0.038837559853566184,
+        "grow": 0.03494343442512964,
+        "move": 0.028033747086009635,
+        "circulate": 0.3890364031943943,
+        "pass": 0.5091488573361886
+      },
+      "pending_choose_action_type": {
+        "eat": 0.2821703639305336,
+        "grow": 0.39986048732645235,
+        "move": 0.3179691513736842,
+        "circulate": 0.0,
+        "pass": 0.0
+      },
+      "pending_choose_action": {
+        "eat": 0.0706313571141848,
+        "grow": 0.0436976825726096,
+        "move": 0.05425917086572403,
+        "circulate": 0.44421753526183183,
+        "pass": 0.387194256814956
+      }
+    },
+    "outcomes": {
+      "repetition": 16,
+      "max_steps": 8,
+      "win": 6
+    }
+  }
+}

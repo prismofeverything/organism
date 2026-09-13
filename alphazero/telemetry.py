@@ -4,10 +4,11 @@ import os
 from pathlib import Path
 import time
 import uuid
+from pieces.organism_format import ring_label, ring_palette, COORDINATES
 
 
 def space_id(space):
-    return f'{space[0]}:{space[1]}'
+    return f'{ring_label(int(space[0]))}{space[1]}'
 
 
 def atomic_json(path, data):
@@ -26,13 +27,14 @@ class GameRecorder:
         self.started = time.time()
         self.identity = f'{iteration:06d}-{number:02d}-{uuid.uuid4().hex[:8]}'
         self.data = {
-            'format': 'organism', 'version': 1, 'name': f'{game.name}-{self.identity}',
+            'format': 'organism', 'version': 2, 'profile': 'view', 'name': f'{game.name}-{self.identity}',
             'id': self.identity, 'iteration': iteration, 'number': number,
             'started': self.started, 'players': game._turn_order,
             'symmetry': game.symmetry,
-            'colors': dict(zip(game._turn_order, ['orange', 'blue', 'purple', 'red', 'yellow'])),
             'board': {'center': space_id(game.center),
-                      'ring-colors': [str(i) for i in range(game.num_rings)],
+                      'ring-colors': ring_palette(game.num_rings),
+                      'coordinates': COORDINATES,
+                      **({'palette-tail': ring_palette(len(game._turn_order))[game.num_rings:]} if len(game._turn_order)>game.num_rings else {}),
                       'spaces': [space_id(s) for s in game.all_spaces],
                       'adjacencies': {space_id(s): [space_id(a) for a in adj]
                                       for s, adj in game.adjacencies.items()}},

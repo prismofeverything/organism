@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OGF v2 view profile",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "profile",
+    "symmetry",
+    "players",
+    "board",
+    "frames"
+  ],
+  "properties": {
+    "format": {
+      "const": "organism"
+    },
+    "version": {
+      "const": 2
+    },
+    "profile": {
+      "const": "view"
+    },
+    "symmetry": {
+      "type": "integer",
+      "minimum": 3
+    },
+    "players": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "board": {
+      "type": "object",
+      "required": [
+        "coordinates",
+        "center",
+        "ring-colors",
+        "spaces",
+        "adjacencies"
+      ],
+      "properties": {
+        "coordinates": {
+          "const": "rings-clockwise-30deg-v1"
+        },
+        "center": {
+          "const": "A0"
+        },
+        "ring-colors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "palette-tail": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "spaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]+(0|[1-9][0-9]*)$"
+          }
+        },
+        "adjacencies": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Z]+(0|[1-9][0-9]*)$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z]+(0|[1-9][0-9]*)$"
+            }
+          }
+        }
+      }
+    },
+    "homes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^[A-Z]+(0|[1-9][0-9]*)$"
+        }
+      }
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "elements",
+          "food",
+          "captures"
+        ],
+        "properties": {
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "enum": [
+                    "eat",
+                    "grow",
+                    "move"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[A-Z]+(0|[1-9][0-9]*)$"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              ]
+            }
+          },
+          "food": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Z]+(0|[1-9][0-9]*)$"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "captures": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

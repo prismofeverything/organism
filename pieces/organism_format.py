@@ -13,6 +13,49 @@ per-turn board snapshots). See organism.format (Clojure) for the writer/spec.
 """
 import json
 import math
+import re
+
+
+STANDARD_RING_COLORS = ['#fff88c', '#da6558', '#849cd5', '#febe48', '#a6cd7a', '#9c6d8e', '#3b545c']
+COORDINATES = 'rings-clockwise-30deg-v1'
+
+def ring_label(index):
+    if index < 0:
+        raise ValueError('Negative ring')
+    label = ''
+    while True:
+        index, letter = divmod(index, 26)
+        label = chr(65 + letter) + label
+        if index == 0:
+            return label
+        index -= 1
+
+def split_space(space):
+    if ':' in space:
+        label, index = space.rsplit(':', 1)
+        return label, int(index)
+    match = re.fullmatch(r'([A-Z]+)(0|[1-9][0-9]*)', space)
+    if not match:
+        raise ValueError(f'Invalid space: {space}')
+    return match[1], int(match[2])
+
+def ring_index(label):
+    value = 0
+    for c in label:
+        value = value * 26 + ord(c) - 64
+    return value - 1
+
+def ring_palette(count):
+    return [STANDARD_RING_COLORS[i] if i < len(STANDARD_RING_COLORS)
+            else f'hsl({(i * 137) % 360},55%,65%)' for i in range(count)]
+
+def player_colors(game):
+    if game.get('version') == 2:
+        palette = game['board']['ring-colors'] + game['board'].get('palette-tail', [])
+        if len(palette) < len(game['players']):
+            raise ValueError('Palette does not cover all player seats')
+        return dict(zip(game['players'], reversed(palette[:len(game['players'])])))
+    return game.get('colors', {})
 
 
 def load_ogf(path):
@@ -22,11 +65,13 @@ def load_ogf(path):
 
 def color_of(game, player):
     """The piece color for a player."""
-    return game["colors"].get(player)
+    return player_colors(game).get(player)
 
 
 def ring_distances(game):
     """Graph distance of every space from the center (BFS over adjacencies)."""
+    if game.get("version") == 2:
+        return {s: ring_index(split_space(s)[0]) for s in game["board"]["spaces"]}
     adj = game["board"]["adjacencies"]
     center = game["board"]["center"]
     dist = {center: 0}
@@ -47,6 +92,8 @@ def layout(game):
     ring distance from the center, angle = the cell's index around its ring. Ring r
     has symmetry*r cells, so index n -> angle 2*pi*n/(symmetry*r); notched corner
     cells just leave gaps. This reproduces the board's cell arrangement."""
+    if game.get("version") == 2:
+        return board_locations(game)
     sym = game.get("symmetry") or 6
     dist = ring_distances(game)
     pos = {}
@@ -54,7 +101,7 @@ def layout(game):
         if d == 0:
             pos[s] = (0.0, 0.0)
         else:
-            n = int(s.split(":")[1])
+            n = split_space(s)[1]
             ang = 2 * math.pi * n / (sym * d)
             pos[s] = (d * math.cos(ang), d * math.sin(ang))
     return pos
@@ -122,7 +169,7 @@ def board_locations(game):
     dist = ring_distances(game)
     bydist = {}
     for s in game["board"]["spaces"]:
-        bydist[dist[s]] = s.split(":")[0]
+        bydist[dist[s]] = split_space(s)[0]
     nrings = max(bydist) + 1
     colors = [bydist[d] for d in range(nrings)]          # ring labels, center -> out
     radius = buffer = 1.0
@@ -152,5 +199,5 @@ def board_locations(game):
     pos, cnt = {}, {}
     for (x, y, c) in seq:                                # ring-map + rings->locations indexing
         n = cnt.get(c, 0); cnt[c] = n + 1
-        pos.setdefault(f"{c}:{n}", (x - off, y - off))
+        pos.setdefault(f"{c}{n}" if game.get("version") == 2 else f"{c}:{n}", (x - off, y - off))
     return {s: pos[s] for s in game["board"]["spaces"] if s in pos}

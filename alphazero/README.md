@@ -124,9 +124,9 @@ Training and the dashboard are separate processes; neither auto-starts on reboot
 The viewer calls `organism.board/render-game`, the same SVG renderer as the site:
 element shapes, held/free food, board coordinates and gradient backgrounds are
 shared source, not a Python/JavaScript redraw. `organism.viewer` adapts OGF display
-snapshots without initializing the multiplayer app. OGF colors are ignored for
-display. The creation page's palette generator supplies board colors and derives
-player colors from them. Change colors regenerates the board, pieces and score
+snapshots without initializing the multiplayer app. V2 records preserve ring colors;
+player colors are derived from that palette. The creation page's palette generator
+supplies colors for legacy imports and the Change colors button. Change colors regenerates the board, pieces and score
 legend together; the palette stays fixed while stepping and receiving live updates. Move animations from `organism.play` are not included yet.
 Rebuild `ogf-viewer` after changes to shared rendering code.
 The shared-renderer browser checks cover element SVG paths, food-circle totals,
@@ -145,7 +145,7 @@ An old timestamp means observations are stale, not proof of ongoing activity.
 The viewer supports live following, first/previous/next/last positions, a scrubber,
 play/pause, playback speed, turn jumps, changed-space highlights, local OGF file
 opening, and OGF downloads. The repository's existing `ogf/` exports are listed too.
-New self-play games are saved as OGF v1 JSON in each model's `games/` directory;
+New self-play games are saved as OGF v2 view-profile JSON in each model's `games/` directory;
 the latest 100 are retained. `live.json` is replaced at most every two seconds
 during decisions. Interrupted recordings are explicitly marked `interrupted`.
 Games played before recording was enabled cannot be reconstructed from tensors.
@@ -270,3 +270,5 @@ This is representative base-rule coverage, not proof of equivalence for every
 reachable game. Mutations are outside this training configuration. Web-app
 model serving is not implemented. Strong play must be established through
 completed games and seat-balanced evaluations, not loss curves alone.
+
+OGF ring coordinates and saved palette: see [the v2 view contract](../docs/ogf-view-v2.md). Legacy recordings remain readable; their missing palettes are generated on import.

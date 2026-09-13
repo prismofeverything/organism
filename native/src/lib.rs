@@ -13,3 +13,6 @@ pub mod benchmark;
 
 #[cfg(feature = "gpu")]
 pub mod curriculum;
+
+#[cfg(feature = "gpu")]
+pub mod compare;
