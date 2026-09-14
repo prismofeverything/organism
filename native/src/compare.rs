@@ -20,7 +20,7 @@ pub fn main(args: &[String]) -> Result<()> {
         (2..=3).contains(&config.players),
         "comparison supports two or three players"
     );
-    let board = Board::new(config.players, config.rings, false);
+    let board = Board::new(config.players, config.rings, false).with_rules(config.rules());
     tch::set_num_threads(2);
     tch::set_num_interop_threads(1);
     rayon::ThreadPoolBuilder::new()
@@ -59,7 +59,7 @@ pub fn main(args: &[String]) -> Result<()> {
             &board,
             spec["simulations"].as_u64().context("simulations")? as usize,
             spec["games_per_seat"].as_u64().context("games_per_seat")? as usize,
-            config.max_steps,
+            config.evaluation_steps(),
             config.repetition,
             spec["seed"].as_u64().context("seed")?,
             10,
@@ -69,6 +69,9 @@ pub fn main(args: &[String]) -> Result<()> {
             "invalid cutoff mode"
         );
         s.bootstrap_horizon = spec["cutoff_value"] == "mask";
+        // Termination rules travel in the manifest so a series stays comparable
+        // even after the training recipe changes.
+        s.stall_limit = config.stall_limit;
         s.mixed(
             &board,
             vec![

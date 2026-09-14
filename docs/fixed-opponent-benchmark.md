@@ -26,6 +26,14 @@ The executable and weights are copied into the benchmark root and SHA-256 hashes
 recorded. Model replacement or curriculum changes require a new benchmark series;
 iteration numbers alone cannot distinguish training branches.
 
+Termination rules belong to the series, not to the training recipe. `protocol.json`
+records `max_steps`, `repetition`, `stall_limit` and `eval_max_steps`, and every
+manifest is written with those values in place of whatever the training
+`config.json` currently holds. Without this a recipe change would silently give
+later candidates a different game from the one already measured. Series recorded
+before this pinning keep the original rules (4000 choices, repetition 3, no
+no-progress cutoff, no separate evaluation budget).
+
 Files live under `checkpoints/organism-benchmark-20260913`; `protocol.json` is the
 fixed configuration, `status.json` identifies the active batch, and each batch
 has its manifest, resumable session and report. The runner publishes an atomic

@@ -42,7 +42,9 @@ def prepare(args):
   if integer(initial/'state.json','training_step')!=0:raise ValueError('Initial snapshot must precede gradient updates')
   config=read(initial/'config.json');iteration=integer(initial/'state.json','iteration')
   # Match each current production recipe; only history mixing differs within its pair.
-  settings={'buffer':config['replay'],'cap':0 if config['players']==2 else 256,'cutoff':'draw' if config['players']==2 else 'mask'}
+  # An uncapped 2p buffer let single long games crowd the replay down to a handful
+  # of trajectories, which swamped the treatment this experiment is measuring.
+  settings={'buffer':config['replay'],'cap':256,'cutoff':'draw' if config['players']==2 else 'mask'}
   frozen=[]
   for i,path in enumerate(pools[model]):
    dest=initial/f'training-opponent-{i}.ot';shutil.copy2(path,dest);frozen.append({'weights':str(dest),'sha256':digest(dest)})
@@ -63,8 +65,17 @@ def prepare(args):
  write(file,spec)
  return spec
 
+def halt(root,status):
+ # A graceful stop used to return without touching status.json, leaving it
+ # reading as though the arm it was part way through were still running.
+ previous=read(root/'status.json',{}) or {}
+ write(root/'status.json',{'stage':'stopped','reason':previous.get('reason','STOP requested'),
+  'resume':'remove STOP from the experiment root and rerun the same command',
+  'stopped_during':{k:v for k,v in status.items() if k!='stage'},'updated':time.time()})
+ return False
+
 def execute(root,command,stop,log,status):
- if (root/'STOP').exists():return False
+ if (root/'STOP').exists():return halt(root,status)
  stop.unlink(missing_ok=True);write(root/'status.json',{'updated':time.time(),**status})
  with log.open('a') as output:
   p=subprocess.Popen(command,stdout=output,stderr=subprocess.STDOUT)
@@ -77,7 +88,7 @@ def execute(root,command,stop,log,status):
   except BaseException:
    stop.touch();p.wait(timeout=180);raise
   if p.returncode:raise RuntimeError(f'Experiment process failed; see {log}')
- return not (root/'STOP').exists()
+ return True if not (root/'STOP').exists() else halt(root,status)
 
 def main():
  parser=argparse.ArgumentParser(description=__doc__)
@@ -85,6 +96,7 @@ def main():
  parser.add_argument('--training',type=Path,default=Path('checkpoints/organism-native'))
  parser.add_argument('--panel',type=Path,default=Path('checkpoints/organism-benchmark-20260913/protocol.json'))
  parser.add_argument('--training-pools',type=Path)
+ parser.add_argument('--models',default='',help='comma-separated subset to advance; other pairs hold at their current round')
  parser.add_argument('--rounds',type=int,default=50);parser.add_argument('--milestones',default='20,50')
  parser.add_argument('--games-per-seat',type=int,default=16);parser.add_argument('--cpu',action='store_true')
  args=parser.parse_args();args.root=args.root.absolute();args.training=args.training.absolute();args.panel=args.panel.absolute()
@@ -96,7 +108,11 @@ def main():
  for model,setup in spec['models'].items():
   for item in setup['training_opponents']+setup['benchmark_opponents']:
    if digest(Path(item['weights']))!=item['sha256']:raise ValueError('Frozen opponent changed')
- order=[(m,a) for m in spec['models'] for a in ['self_play','history_mix']]
+ selected=[m.strip() for m in args.models.split(',') if m.strip()]
+ unknown=[m for m in selected if m not in spec['models']]
+ if unknown:raise ValueError(f'Unknown models {unknown}; this experiment holds {sorted(spec["models"])}')
+ order=[(m,a) for m in spec['models'] if not selected or m in selected for a in ['self_play','history_mix']]
+ if not order:raise ValueError('No models selected')
  for round_number in range(1,args.rounds+1):
   rotated=order[(round_number-1)%len(order):]+order[:(round_number-1)%len(order)]
   for model,arm in rotated:
@@ -124,7 +140,9 @@ def main():
      if not read(job/'report.json',{}).get('complete'):
       command=[str(exe),'compare',str(manifest)]+(['--cpu'] if args.cpu else [])
       if not execute(root,command,job/'STOP',job/'run.log',{'stage':'evaluation','model':model,'arm':arm,'round':round_number,'opponent':opponent['identity']}):return
-  write(root/'progress.json',{'completed_rounds':round_number,'updates_per_arm':{m:round_number*s['config']['train_steps'] for m,s in spec['models'].items()},'updated':time.time()})
+  advanced={m for m,_ in order}
+  write(root/'progress.json',{'completed_rounds':round_number,'advancing':sorted(advanced),
+   'updates_per_arm':{m:round_number*s['config']['train_steps'] for m,s in spec['models'].items() if m in advanced},'updated':time.time()})
  write(root/'status.json',{'stage':'complete','updated':time.time()})
 
 if __name__=='__main__':main()

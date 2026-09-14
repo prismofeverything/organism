@@ -33,6 +33,11 @@ def freeze(source, target):
     return hashlib.sha256(target.read_bytes()).hexdigest()
 
 
+# The protocol this series was recorded under. Candidates captured later must
+# keep playing it even after the training recipe changes.
+TERMINATION = {'max_steps': 4000, 'repetition': 3, 'stall_limit': 0, 'eval_max_steps': 0}
+
+
 def initialize(root, training, binary):
     if (root / 'protocol.json').exists():
         return read(root / 'protocol.json')
@@ -42,8 +47,12 @@ def initialize(root, training, binary):
         '3p': [('older-385', training / '3p/opponent-archive/000000385.ot'),
                ('older-625', training / '3p/opponent-archive/000000625.ot')],
     }
-    spec = {'version': 1, 'simulations': 64, 'games_per_seat': 16, 'shards': 4,
-            'seed': 730013, 'cutoff_value': 'draw', 'interval': 100, 'opponents': {}}
+    # Termination belongs to the series, not to whatever recipe training happens
+    # to be running: without this the next candidate silently plays a different
+    # game from the one already measured.
+    spec = {'version': 2, 'simulations': 64, 'games_per_seat': 16, 'shards': 4,
+            'seed': 730013, 'cutoff_value': 'draw', 'interval': 100,
+            'termination': TERMINATION, 'opponents': {}}
     for model, sources in anchors.items():
         spec['opponents'][model] = []
         for identity, source in sources:
@@ -67,6 +76,8 @@ def capture(root, training, model, spec):
     config = read(training / model / 'config.json')
     if (config['players'], config['rings']) != ((2, 3) if model == '2p-r3' else (3, 4)):
         raise RuntimeError('Board changed; start a new benchmark protocol for the new board')
+    # Series before this pinning ran the original termination rules; keep them.
+    config = {**config, **spec.get('termination', TERMINATION)}
     base = root / 'candidates' / model / f'{iteration:06d}'
     base.mkdir(parents=True, exist_ok=True)
     try:

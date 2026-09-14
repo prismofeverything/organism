@@ -8,6 +8,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{collections::HashMap, time::Instant};
 
+/// Wilson score interval. Honest at the handful of decisive games these panels
+/// produce, where a normal approximation is not.
+fn wilson(successes: usize, total: usize, z: f64) -> (f64, f64) {
+    if total == 0 {
+        return (0., 1.);
+    }
+    let n = total as f64;
+    let p = successes as f64 / n;
+    let divisor = 1. + z * z / n;
+    let centre = p + z * z / (2. * n);
+    let margin = z * ((p * (1. - p) + z * z / (4. * n)) / n).sqrt();
+    (
+        ((centre - margin) / divisor).max(0.),
+        ((centre + margin) / divisor).min(1.),
+    )
+}
 #[derive(Serialize, Deserialize)]
 pub struct Session {
     pub states: Vec<State>,
@@ -32,6 +48,12 @@ pub struct Session {
     seats: Vec<Vec<usize>>,
     #[serde(default)]
     model_owners: Vec<Option<usize>>,
+    /// Rounds of unchanged layout that end a game as `no_progress`. Zero keeps
+    /// the original protocol, so recorded sessions replay unchanged.
+    #[serde(default)]
+    pub stall_limit: u32,
+    #[serde(default)]
+    layout_since_round: Vec<u32>,
 }
 impl Session {
     pub fn new(
@@ -63,6 +85,8 @@ impl Session {
             bootstrap_horizon: false,
             seats: vec![],
             model_owners: vec![],
+            stall_limit: 0,
+            layout_since_round: vec![],
         }
     }
     pub fn mixed(&mut self, board: &Board, identities: Vec<String>) {
@@ -117,6 +141,11 @@ impl Session {
             self.model_owners = vec![None; self.states.len()];
             self.trees.fill(None);
         }
+        if self.layout_since_round.len() != self.states.len() {
+            // Resuming a session recorded before this rule restarts the progress
+            // counter rather than judging rounds it never observed.
+            self.layout_since_round = self.states.iter().map(|s| s.round).collect();
+        }
         let start = Instant::now();
         let result = (|| -> Result<()> {
             let mut seen: Vec<HashMap<State, u32>> = self
@@ -138,6 +167,13 @@ impl Session {
                     Some("max_steps")
                 } else if self.repetition > 0 && visits >= self.repetition - 1 {
                     Some("repetition")
+                } else if self.stall_limit > 0
+                    && self.states[i]
+                        .round
+                        .saturating_sub(self.layout_since_round[i])
+                        >= self.stall_limit
+                {
+                    Some("no_progress")
                 } else {
                     None
                 };
@@ -208,7 +244,11 @@ impl Session {
                         .entry(search::repetition_state(&self.states[i]))
                         .or_default() += 1;
                     self.seen[i] = seen[i].iter().map(|(s, n)| (s.clone(), *n)).collect();
-                    self.states[i] = tree.state().clone();
+                    let next = tree.state().clone();
+                    if !crate::train::same_progress(board, &self.states[i], &next) {
+                        self.layout_since_round[i] = next.round;
+                    }
+                    self.states[i] = next;
                     self.steps[i] += 1;
                     self.trees[i] = Some(tree);
                     self.model_owners[i] = Some(owner);
@@ -223,9 +263,21 @@ impl Session {
         let games: Vec<_> = self.results.iter().flatten().cloned().collect();
         let wins = games.iter().filter(|g| g["candidate_won"] == true).count();
         let cutoffs = games.iter().filter(|g| g["termination"] != "win").count();
-        json!({"games":games,"wins":wins,"losses":games.len()-wins-cutoffs,"cutoffs":cutoffs,
+        let losses = games.len() - wins - cutoffs;
+        let decisive = wins + losses;
+        // These panels routinely cut off more games than they decide, so report
+        // the interval rather than a bare ratio that reads as precise.
+        let (low, high) = wilson(wins, decisive, 1.96);
+        let players = (self.states.len() / self.per_seat.max(1)).max(2);
+        let score = (wins as f64 + cutoffs as f64 / players as f64) / games.len().max(1) as f64;
+        json!({"games":games,"wins":wins,"losses":losses,"cutoffs":cutoffs,
             "win_rate_all_games":wins as f64/games.len().max(1) as f64,"games_per_seat":self.per_seat,"simulations":self.sims,
-            "max_steps":self.max_steps,"repetition":self.repetition,"seed":self.seed,"opening_sampling_rounds":self.exploration_rounds,
+            "decisive_games":decisive,"decisive_win_rate":if decisive>0 {Value::from(wins as f64/decisive as f64)} else {Value::Null},
+            "decisive_win_rate_interval":if decisive>0 {json!([low,high])} else {Value::Null},
+            "cutoff_fraction":cutoffs as f64/games.len().max(1) as f64,
+            "score":score,"score_reference":1./players as f64,
+            "score_basis":"wins plus an equal share of every cutoff, over all games",
+            "max_steps":self.max_steps,"repetition":self.repetition,"stall_limit":self.stall_limit,"seed":self.seed,"opening_sampling_rounds":self.exploration_rounds,
             "seconds":self.active_seconds,"timing_basis":"active evaluation service time, excludes waiting for self-play","search_version":3,"cutoff_value":if self.bootstrap_horizon {"mask"} else {"draw"},"opponent_ids":self.opponent_ids,"protocol":if self.opponent_ids.len()>1 {"mixed-history"} else {"fixed-baseline"}})
     }
 }
@@ -262,6 +314,47 @@ mod tests {
             }
         }
         assert_eq!(a.report()["games"], c.report()["games"]);
+    }
+    #[test]
+    fn no_progress_cutoff_bounds_games_and_stays_off_by_default() {
+        let b = Board::new(2, 3, false);
+        let net = Uniform(b.action_size(), 2);
+        // Off by default: a recorded session replays under its original protocol.
+        let mut off = Session::new(&b, 4, 1, 4000, 0, 17, 0);
+        off.tick(&b, &net, &net, 2, || Ok(())).unwrap();
+        assert_eq!(off.stall_limit, 0);
+        assert!(off.results.iter().all(Option::is_none));
+        // A limit of one ends any game whose layout did not change this round.
+        let mut on = Session::new(&b, 4, 1, 4000, 0, 17, 0);
+        on.stall_limit = 1;
+        for _ in 0..40 {
+            if on.done() {
+                break;
+            }
+            on.tick(&b, &net, &net, 2, || Ok(())).unwrap();
+        }
+        assert!(on.done(), "no-progress cutoff must terminate a stalling session");
+        let report = on.report();
+        assert_eq!(report["stall_limit"], 1);
+        assert!(report["games"].as_array().unwrap().iter().all(|g| g["steps"]
+            .as_u64()
+            .unwrap()
+            < 4000));
+        // Restarting mid-session never retroactively judges unobserved rounds.
+        let mut resumed: Session =
+            serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert_eq!(resumed.report()["games"], report["games"]);
+    }
+    #[test]
+    fn wilson_interval_brackets_the_ratio_and_widens_when_evidence_is_thin() {
+        let (low, high) = wilson(0, 0, 1.96);
+        assert_eq!((low, high), (0., 1.));
+        let (low, high) = wilson(6, 8, 1.96);
+        assert!(low < 0.75 && 0.75 < high, "{low} {high}");
+        let (wide_low, wide_high) = wilson(3, 4, 1.96);
+        assert!(wide_high - wide_low > high - low, "fewer games must not read as more certain");
+        let (low, high) = wilson(0, 16, 1.96);
+        assert!(low == 0. && high > 0. && high < 0.3, "{low} {high}");
     }
     #[test]
     fn evaluation_slices_resume_without_changing_outcomes() {

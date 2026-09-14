@@ -2,6 +2,35 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+/// The engine's standing food ceiling. An element at this much food may not eat
+/// and may not receive circulated food.
+pub const FOOD_LIMIT: u32 = 111;
+
+/// Rule variations under evaluation. Every field's zero value is the game as
+/// written, so a default `Rules` changes nothing and recorded protocols replay
+/// unaltered.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rules {
+    /// Food at which an EAT element stops being able to eat, though it may still
+    /// hold more that was circulated in. Zero keeps the `FOOD_LIMIT` ceiling.
+    #[serde(default)]
+    pub eat_threshold: u32,
+    /// Require a turn to be able to accomplish something. Unusable action types
+    /// and the deliberate pass stop being offered; passing survives only where
+    /// an organism genuinely has nothing it can do.
+    #[serde(default)]
+    pub require_useful_action: bool,
+}
+impl Rules {
+    fn eat_ceiling(&self) -> u32 {
+        if self.eat_threshold == 0 {
+            FOOD_LIMIT
+        } else {
+            self.eat_threshold
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Kind {
     Eat,
@@ -120,6 +149,7 @@ pub struct Board {
     pub homes: Vec<Vec<usize>>,
     pub capture_limit: u32,
     pub organism_limit: usize,
+    pub rules: Rules,
 }
 impl Board {
     pub fn new(players: usize, rings: usize, notches: bool) -> Self {
@@ -202,7 +232,14 @@ impl Board {
             homes,
             capture_limit: 5,
             organism_limit: 3,
+            rules: Rules::default(),
         }
+    }
+    /// Board topology is immutable; rule variations ride alongside it so that
+    /// search, evaluation and comparison all read the same game.
+    pub fn with_rules(mut self, rules: Rules) -> Self {
+        self.rules = rules;
+        self
     }
     pub fn initial(&self) -> State {
         State {
@@ -337,8 +374,33 @@ impl Board {
             .flat_map(|&i| self.destinations(s, i, true))
             .collect()
     }
+    /// Can this organism actually carry out an action of this type right now?
+    fn feasible(&self, s: &State, ids: &[usize], counts: &[usize; 3], kind: Kind) -> bool {
+        match kind {
+            Kind::Eat => ids
+                .iter()
+                .any(|&i| s.pieces[i].as_ref().unwrap().kind == Kind::Eat && self.can_eat(s, i)),
+            Kind::Move => ids.iter().any(|&i| self.can_move(s, i)),
+            Kind::Grow => {
+                let food: u32 = ids
+                    .iter()
+                    .filter_map(|&i| {
+                        s.pieces[i]
+                            .as_ref()
+                            .filter(|p| p.kind == Kind::Grow)
+                            .map(|p| p.food)
+                    })
+                    .sum();
+                food >= *counts.iter().min().unwrap() as u32 && !self.growable(s, ids).is_empty()
+            }
+            _ => false,
+        }
+    }
     fn can_eat(&self, s: &State, i: usize) -> bool {
-        s.pieces[i].as_ref().is_some_and(|p| p.food < 111) && !self.open(s, i).is_empty()
+        s.pieces[i]
+            .as_ref()
+            .is_some_and(|p| p.food < self.rules.eat_ceiling())
+            && !self.open(s, i).is_empty()
     }
     fn can_move(&self, s: &State, i: usize) -> bool {
         let Some(p) = &s.pieces[i] else { return false };
@@ -696,7 +758,24 @@ impl Board {
                     counts[s.pieces[i].as_ref().unwrap().kind.index()] += 1;
                 }
                 if t.choice.is_none() {
-                    for kind in TYPES {
+                    // An organism with no elements of a type, or no way to use
+                    // them, would take a turn that cannot do anything. Offering
+                    // that is what lets a deliberate pass wear the costume of a
+                    // real decision. Where nothing qualifies the organism truly
+                    // has nothing to do, and the original choice stands so that
+                    // a legal move always exists.
+                    let useful: Vec<_> = TYPES
+                        .into_iter()
+                        .filter(|&kind| {
+                            counts[kind.index()] > 0 && self.feasible(&s, &ids, &counts, kind)
+                        })
+                        .collect();
+                    let offered: Vec<_> = if self.rules.require_useful_action && !useful.is_empty() {
+                        useful
+                    } else {
+                        TYPES.to_vec()
+                    };
+                    for kind in offered {
                         let mut next = s.clone();
                         let t = next.turns.last_mut().unwrap();
                         t.choice = Some(kind);
@@ -705,26 +784,7 @@ impl Board {
                     }
                 } else if t.actions.iter().all(Action::complete) {
                     let kind = t.choice.unwrap();
-                    let feasible = match kind {
-                        Kind::Eat => ids.iter().any(|&i| {
-                            s.pieces[i].as_ref().unwrap().kind == Kind::Eat && self.can_eat(&s, i)
-                        }),
-                        Kind::Move => ids.iter().any(|&i| self.can_move(&s, i)),
-                        Kind::Grow => {
-                            let food: u32 = ids
-                                .iter()
-                                .filter_map(|&i| {
-                                    s.pieces[i]
-                                        .as_ref()
-                                        .filter(|p| p.kind == Kind::Grow)
-                                        .map(|p| p.food)
-                                })
-                                .sum();
-                            food >= *counts.iter().min().unwrap() as u32
-                                && !self.growable(&s, &ids).is_empty()
-                        }
-                        _ => false,
-                    };
+                    let feasible = self.feasible(&s, &ids, &counts, kind);
                     let mut kinds = vec![];
                     if feasible {
                         kinds.push((n + 6 + kind.index(), kind, false));
@@ -732,7 +792,11 @@ impl Board {
                     if ids.iter().any(|&i| s.pieces[i].as_ref().unwrap().food > 0) {
                         kinds.push((n + 9, Kind::Circulate, false));
                     }
-                    kinds.push((n + 13, Kind::Circulate, true));
+                    // Passing is what is left when nothing else can be done, not
+                    // a move to be preferred over doing something.
+                    if !self.rules.require_useful_action || kinds.is_empty() {
+                        kinds.push((n + 13, Kind::Circulate, true));
+                    }
                     for (index, kind, pass) in kinds {
                         let mut next = s.clone();
                         let mut a = Action::new(kind);
@@ -797,7 +861,8 @@ impl Board {
                         ),
                         (Kind::Circulate, "to") => {
                             indices.extend(ids.iter().copied().filter(|&i| {
-                                Some(i) != a.from && s.pieces[i].as_ref().unwrap().food < 111
+                                Some(i) != a.from
+                                    && s.pieces[i].as_ref().unwrap().food < FOOD_LIMIT
                             }))
                         }
                         _ => unreachable!(),
@@ -974,6 +1039,86 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Deterministic walk: always take the lowest-indexed legal action, which
+    /// visits a long, reproducible run of ordinary positions.
+    fn walk(b: &Board, steps: usize) -> Vec<State> {
+        let mut s = b.initial();
+        let mut seen = vec![];
+        for _ in 0..steps {
+            let legal = b.legal(&s);
+            if legal.is_empty() {
+                break;
+            }
+            seen.push(s.clone());
+            s = legal.into_iter().min_by_key(|(a, _)| *a).unwrap().1;
+        }
+        seen
+    }
+    #[test]
+    fn default_rules_are_the_game_as_written() {
+        let plain = Board::new(2, 3, false);
+        let explicit = Board::new(2, 3, false).with_rules(Rules::default());
+        assert_eq!(plain.rules, Rules::default());
+        for s in walk(&plain, 300) {
+            let a: Vec<_> = plain.legal(&s).into_iter().map(|(i, _)| i).collect();
+            let b: Vec<_> = explicit.legal(&s).into_iter().map(|(i, _)| i).collect();
+            assert_eq!(a, b);
+        }
+    }
+    #[test]
+    fn useful_action_rule_removes_deliberate_passing_without_stranding_anyone() {
+        let plain = Board::new(2, 3, false);
+        let strict = Board::new(2, 3, false).with_rules(Rules {
+            require_useful_action: true,
+            ..Rules::default()
+        });
+        let pass = plain.spaces.len() + 13;
+        let (mut offered_plain, mut offered_strict, mut forced) = (0, 0, 0);
+        for s in walk(&plain, 400) {
+            let strict_legal: Vec<_> = strict.legal(&s).into_iter().map(|(i, _)| i).collect();
+            // Every position keeps at least one legal action.
+            assert!(!strict_legal.is_empty());
+            if plain.legal(&s).iter().any(|(i, _)| *i == pass) {
+                offered_plain += 1;
+            }
+            if strict_legal.contains(&pass) {
+                offered_strict += 1;
+                // Passing survives only where it is the whole of the choice.
+                assert_eq!(strict_legal, vec![pass], "pass must not compete with real actions");
+                forced += 1;
+            }
+        }
+        assert!(offered_plain > 0, "the walk must reach positions that offer a pass");
+        assert!(offered_strict < offered_plain, "the rule must remove deliberate passes");
+        assert_eq!(offered_strict, forced);
+    }
+    #[test]
+    fn eat_threshold_stops_eating_without_capping_what_may_be_held() {
+        let b = Board::new(2, 3, false).with_rules(Rules {
+            eat_threshold: 5,
+            ..Rules::default()
+        });
+        let plain = Board::new(2, 3, false);
+        let mut s = b.initial();
+        s = b.legal(&s).into_iter().next().unwrap().1;
+        let eater = s
+            .pieces
+            .iter()
+            .position(|p| p.as_ref().is_some_and(|p| p.kind == Kind::Eat))
+            .expect("introduction places an eater");
+        for (food, can) in [(0, true), (4, true), (5, false), (40, false)] {
+            s.pieces[eater].as_mut().unwrap().food = food;
+            assert_eq!(b.can_eat(&s, eater), can && !b.open(&s, eater).is_empty(), "at {food}");
+            // The ceiling is on eating, not on holding: the unmodified game
+            // still lets the same element eat with far more than the threshold.
+            if food < FOOD_LIMIT {
+                assert_eq!(plain.can_eat(&s, eater), !plain.open(&s, eater).is_empty());
+            }
+        }
+        // Holding above the threshold stays legal; it just cannot be reached by eating.
+        s.pieces[eater].as_mut().unwrap().food = 40;
+        assert_eq!(s.pieces[eater].as_ref().unwrap().food, 40);
+    }
     #[test]
     fn compact_two_player_board_preserves_starting_clearance() {
         let b = Board::new(2, 3, false);

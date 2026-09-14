@@ -8,7 +8,14 @@ The screen returned 6 wins, 2 losses, and 8 cutoffs in 16 games against the
 frozen initial iteration-379 model. This is not a direct comparison against
 the displaced production iteration-819 checkpoint or proof of strong play.
 
-The launcher uses the tested 2p recipe: replay capacity 5000, no per-game
+**Superseded in part.** The replay half of this recipe was withdrawn the same
+day; see `docs/two-player-replay-collapse-20260913.md`. An uncapped 5000-sample
+buffer held only 2-32 distinct games, because a single long game could occupy
+80% of it. The twenty-iteration screen that selected this recipe could not have
+caught it: the collapse first appears around iteration 422. Neutral
+length-cutoff value targets (`--cutoff-value-2p draw`) were kept.
+
+The launcher used the tested 2p recipe: replay capacity 5000, no per-game
 sample cap, and neutral length-cutoff value targets. New per-player options
 `--buffer-2p`, `--replay-game-cap-2p`, and `--cutoff-value-2p` override the
 shared settings; the corresponding `-3p` options are also supported.

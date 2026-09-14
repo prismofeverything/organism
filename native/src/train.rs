@@ -54,6 +54,49 @@ pub struct Config {
     pub replay: usize,
     pub batch: usize,
     pub train_steps: usize,
+    /// Rounds of completely unchanged layout that end a game as `no_progress`.
+    /// Zero disables the rule, preserving every recorded protocol.
+    #[serde(default)]
+    pub stall_limit: u32,
+    /// Choice budget for evaluation and comparison games. Zero falls back to
+    /// `max_steps`, so existing manifests keep their original protocol.
+    #[serde(default)]
+    pub eval_max_steps: usize,
+    /// Halve the learning rate every `lr_anneal` iterations past the warm-up
+    /// decay, bounded below by `lr_floor`. Zero keeps the original schedule.
+    #[serde(default)]
+    pub lr_anneal: u64,
+    #[serde(default)]
+    pub lr_floor: f64,
+    /// Choices advanced per evaluation service call. One call per eight search
+    /// batches left a 4000-choice game needing four hours of wall clock, so a
+    /// single slow evaluation outlived every slot it was meant to fill.
+    #[serde(default)]
+    pub eval_service_ticks: usize,
+    /// Food at which an EAT element can no longer eat. Zero is the game as
+    /// written, whose only ceiling is `FOOD_LIMIT`.
+    #[serde(default)]
+    pub eat_threshold: u32,
+    /// Stop offering unusable action types and the deliberate pass.
+    #[serde(default)]
+    pub require_useful_action: bool,
+}
+impl Config {
+    pub fn rules(&self) -> crate::game::Rules {
+        crate::game::Rules {
+            eat_threshold: self.eat_threshold,
+            require_useful_action: self.require_useful_action,
+        }
+    }
+    /// Games played to measure strength stop earlier than training games so a
+    /// single unresolvable position cannot stall a whole evaluation.
+    pub fn evaluation_steps(&self) -> usize {
+        if self.eval_max_steps == 0 {
+            self.max_steps
+        } else {
+            self.eval_max_steps
+        }
+    }
 }
 fn supervised() -> f32 {
     1.
@@ -87,6 +130,10 @@ struct Episode {
     #[serde(default)]
     longest_layout_rounds: u32,
     #[serde(default)]
+    progress_since_round: Option<u32>,
+    #[serde(default)]
+    longest_progress_rounds: u32,
+    #[serde(default)]
     palette: Vec<String>,
     #[serde(default)]
     learner_seat: Option<usize>,
@@ -115,6 +162,8 @@ impl Episode {
             tree: None,
             layout_since_round: Some(0),
             longest_layout_rounds: 0,
+            progress_since_round: Some(0),
+            longest_progress_rounds: 0,
         }
     }
 }
@@ -139,6 +188,11 @@ struct Saved {
     search_timings: search::Timings,
     #[serde(default)]
     search_settings: Option<SearchSettings>,
+    /// Iteration whose evaluation was most recently started. Scheduling from
+    /// this instead of a modulus stops a slow evaluation from swallowing every
+    /// slot it overlaps.
+    #[serde(default)]
+    last_evaluation: u64,
 }
 // Fast draw-only iterations must not anneal learning away before competence.
 fn masked_value_loss(v: &Tensor, target: &Tensor, weights: &Tensor) -> Tensor {
@@ -149,12 +203,20 @@ fn masked_value_loss(v: &Tensor, target: &Tensor, weights: &Tensor) -> Tensor {
         .sum(Kind::Float)
         / weights.sum(Kind::Float).clamp_min(1.)
 }
-fn learning_rate(iteration: u64) -> f64 {
-    (1e-3 * 0.5f64.powi((iteration / 20).min(4) as i32)).max(1e-4)
+fn learning_rate(iteration: u64, config: &Config) -> f64 {
+    let base = (1e-3 * 0.5f64.powi((iteration / 20).min(4) as i32)).max(1e-4);
+    if config.lr_anneal == 0 {
+        return base;
+    }
+    let halvings = (iteration / config.lr_anneal).min(8) as i32;
+    (base * 0.5f64.powi(halvings)).max(config.lr_floor)
 }
 fn missing_decisions() -> usize {
     usize::MAX
 }
+/// Distinct games below this in a full buffer means the learner is refitting a
+/// handful of trajectories rather than a sample of its own play.
+const REPLAY_DIVERSITY_FLOOR: usize = 50;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct SearchSettings {
     exploration_rounds: u32,
@@ -193,8 +255,26 @@ impl SearchSettings {
     }
 }
 pub(crate) use search::repetition_state;
-// Diagnostic only. Food remains part of the exact repetition key and legal state.
-fn same_layout(a: &State, b: &State) -> bool {
+// Food remains part of the exact repetition key and legal state; this coarser
+// key drives the no-progress cutoff and the stall diagnostic.
+/// The no-progress key. Layout alone is too coarse — two-player games that end
+/// in a win hold their layout for a median of 14 rounds and a p90 of 173 — so
+/// the food each player holds counts too. Circulating inside an organism moves
+/// food without changing any of this; eating, growing and moving do not.
+pub(crate) fn same_progress(board: &Board, a: &State, b: &State) -> bool {
+    if !same_layout(a, b) {
+        return false;
+    }
+    let totals = |s: &State| {
+        let mut held = vec![0u32; board.players];
+        for p in s.pieces.iter().flatten() {
+            held[p.player] += p.food;
+        }
+        held
+    };
+    totals(a) == totals(b)
+}
+pub(crate) fn same_layout(a: &State, b: &State) -> bool {
     a.captures == b.captures
         && a.pieces.len() == b.pieces.len()
         && a.pieces.iter().zip(&b.pieces).all(|(a, b)| {
@@ -393,6 +473,7 @@ fn load(
             decisions: 0,
             search_timings: search::Timings::default(),
             search_settings: None,
+            last_evaluation: 0,
         });
     }
     let index: Value = serde_json::from_reader(std::io::BufReader::new(File::open(
@@ -426,6 +507,23 @@ fn load(
             saved.replay.drain(..saved.replay.len() - config.replay);
         }
         saved.replay_pos = saved.replay.len() % config.replay;
+    }
+    // Operational tuning rather than checkpoint shape: a resume adopts the
+    // launcher's values instead of refusing to start.
+    saved.config.stall_limit = config.stall_limit;
+    saved.config.eval_max_steps = config.eval_max_steps;
+    saved.config.lr_anneal = config.lr_anneal;
+    saved.config.lr_floor = config.lr_floor;
+    saved.config.eval_service_ticks = config.eval_service_ticks;
+    if saved.config.rules() != config.rules() {
+        println!(
+            "{}p rules changed: {:?} -> {:?}; this checkpoint's training so far played the previous game",
+            config.players,
+            saved.config.rules(),
+            config.rules()
+        );
+        saved.config.eat_threshold = config.eat_threshold;
+        saved.config.require_useful_action = config.require_useful_action;
     }
     anyhow::ensure!(
         saved.version == 1 && saved.config == config,
@@ -472,7 +570,7 @@ fn game_sample_indices(length: usize, cap: usize, rng: &mut Random) -> Vec<usize
 fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str) -> Result<()> {
     let e = &mut s.episodes[i];
     let names = ["orb", "mass", "brone", "laam", "stuk"];
-    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds,"learner_seat":e.learner_seat,"opponent_index":e.opponent_index});
+    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds,"longest_unchanged_progress_rounds":e.longest_progress_rounds,"learner_seat":e.learner_seat,"opponent_index":e.opponent_index});
     e.result = Some(result.clone());
     let settings = s.search_settings.as_ref().unwrap();
     // Never teach the learner to imitate a frozen opponent's policy targets.
@@ -486,7 +584,9 @@ fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str)
         let sample = &mut e.samples[index];
         sample.game_id = Some(e.id.clone());
         sample.termination = Some(reason.to_owned());
-        sample.value_weight = if settings.mask_cutoffs && reason == "max_steps" {
+        sample.value_weight = if settings.mask_cutoffs
+            && matches!(reason, "max_steps" | "no_progress")
+        {
             0.
         } else {
             1.
@@ -661,7 +761,7 @@ impl EvaluationJob {
                 } else {
                     per_seat
                 },
-                config.max_steps,
+                config.evaluation_steps(),
                 config.repetition,
                 9917,
                 settings.exploration_rounds,
@@ -670,6 +770,7 @@ impl EvaluationJob {
             promotion_candidate,
         };
         saved.session.bootstrap_horizon = settings.mask_cutoffs;
+        saved.session.stall_limit = config.stall_limit;
         saved.session.mixed(
             board,
             if historical.is_some() {
@@ -703,6 +804,7 @@ fn service_evaluation(
     dir: &Path,
     settings: &SearchSettings,
     control: &mut Control,
+    ticks: usize,
 ) -> Result<()> {
     let Some(eval) = job.as_mut() else {
         return Ok(());
@@ -711,9 +813,14 @@ fn service_evaluation(
     if let Some(n) = &eval.historical {
         models.push(n);
     }
-    eval.saved
-        .session
-        .tick_many(board, &models, settings.gpu_batch, || control.checkpoint())?;
+    for _ in 0..ticks.max(1) {
+        if eval.saved.session.done() {
+            break;
+        }
+        eval.saved
+            .session
+            .tick_many(board, &models, settings.gpu_batch, || control.checkpoint())?;
+    }
     atomic_json(
         &dir.join("evaluation-progress.json"),
         &json!({"iteration":eval.saved.iteration,"updated":now(),"completed":eval.saved.session.results.iter().filter(|r|r.is_some()).count(),"games":eval.saved.session.results.len(),"choices":eval.saved.session.steps,"stage":if eval.saved.session.done(){"complete"}else{"running alongside self-play"}}),
@@ -774,6 +881,7 @@ fn iteration(
         opponent.vs.freeze();
         opponents.push(opponent);
     }
+    let eval_ticks = s.config.eval_service_ticks.max(1);
     for episode in &mut s.episodes { settings.assign_opponent(episode, board.players); }
     while s.episodes.iter().filter(|e| e.result.is_some()).count() < s.config.actors
         && s.episodes.iter().filter(|e| e.result.is_none()).count() < concurrent_games
@@ -811,6 +919,16 @@ fn iteration(
                         >= s.config.repetition - 1
                 {
                     Some("repetition")
+                } else if s.config.stall_limit > 0
+                    && e.state
+                        .round
+                        .saturating_sub(e.progress_since_round.unwrap_or(e.state.round))
+                        >= s.config.stall_limit
+                {
+                    // Food keeps the exact repetition key changing, so shuffling
+                    // it around inside an organism would otherwise run to
+                    // `max_steps` without anything having happened.
+                    Some("no_progress")
                 } else {
                     None
                 };
@@ -964,6 +1082,14 @@ fn iteration(
                 if !same_layout(&e.state, &next) {
                     *since = next.round;
                 }
+                let moved = same_progress(board, &e.state, &next);
+                let since = e.progress_since_round.get_or_insert(e.state.round);
+                e.longest_progress_rounds = e
+                    .longest_progress_rounds
+                    .max(next.round.saturating_sub(*since));
+                if !moved {
+                    *since = next.round;
+                }
                 e.samples.push(Sample {
                     state: e.state.clone(),
                     pi,
@@ -978,7 +1104,7 @@ fn iteration(
             }
             search_batches += 1;
             if search_batches % 8 == 0 {
-                service_evaluation(evaluation, board, dir, settings, control)?;
+                service_evaluation(evaluation, board, dir, settings, control, eval_ticks)?;
             }
             if checkpoint.elapsed().as_secs() >= 120 {
                 for (e, map) in s.episodes.iter_mut().zip(&seen) {
@@ -1034,12 +1160,12 @@ fn iteration(
                 let p_value = f64::try_from(&pl)?;
                 let v_value = f64::try_from(&vl)?;
                 anyhow::ensure!(p_value.is_finite() && v_value.is_finite(), "nonfinite loss");
-                adam.update(net, &(&pl + &vl), learning_rate(s.iteration))?;
+                adam.update(net, &(&pl + &vl), learning_rate(s.iteration, &s.config))?;
                 s.policy_sum += p_value;
                 s.value_sum += v_value;
                 s.training_step += 1;
                 if s.training_step % 20 == 0 {
-                    service_evaluation(evaluation, board, dir, settings, control)?;
+                    service_evaluation(evaluation, board, dir, settings, control, eval_ticks)?;
                 }
             }
         }
@@ -1054,7 +1180,26 @@ fn iteration(
     let decisions = s.decisions;
     let victories = stats.iter().filter(|g| g["termination"] == "win").count();
     let seconds = s.elapsed.max(1e-9);
-    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"replay_distinct_games":s.replay.iter().filter_map(|x|x.game_id.as_ref()).collect::<std::collections::HashSet<_>>().len(),"replay_value_supervised_fraction":s.replay.iter().map(|x|x.value_weight as f64).sum::<f64>()/s.replay.len().max(1) as f64,"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration)});
+    // Replay diversity collapses quietly: one long game can crowd out the rest.
+    let mut per_game: HashMap<&String, usize> = HashMap::new();
+    for sample in &s.replay {
+        if let Some(id) = &sample.game_id {
+            *per_game.entry(id).or_default() += 1;
+        }
+    }
+    let distinct = per_game.len();
+    let largest_game_fraction =
+        per_game.values().copied().max().unwrap_or(0) as f64 / s.replay.len().max(1) as f64;
+    if distinct > 0 && distinct < REPLAY_DIVERSITY_FLOOR && s.replay.len() >= s.config.replay {
+        println!(
+            "{}p replay diversity warning: {} distinct games in {} samples; largest game holds {:.0}%",
+            board.players,
+            distinct,
+            s.replay.len(),
+            largest_game_fraction * 100.
+        );
+    }
+    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"replay_distinct_games":distinct,"replay_largest_game_fraction":largest_game_fraction,"replay_value_supervised_fraction":s.replay.iter().map(|x|x.value_weight as f64).sum::<f64>()/s.replay.len().max(1) as f64,"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration, &s.config)});
     atomic_json(
         &dir.join("live.json"),
         &ogf(
@@ -1247,6 +1392,13 @@ pub fn main(args: &[String]) -> Result<()> {
                 replay: argument(args, &format!("--buffer-{players}p"), &argument(args, "--buffer", "5000")).parse()?,
                 batch: argument(args, "--batch-size", "64").parse()?,
                 train_steps: argument(args, "--train-steps", "100").parse()?,
+                stall_limit: argument(args, &format!("--stall-limit-{players}p"), &argument(args, "--stall-limit", "0")).parse()?,
+                eval_max_steps: argument(args, &format!("--eval-max-steps-{players}p"), &argument(args, "--eval-max-steps", "0")).parse()?,
+                lr_anneal: argument(args, &format!("--lr-anneal-{players}p"), &argument(args, "--lr-anneal", "0")).parse()?,
+                lr_floor: argument(args, &format!("--lr-floor-{players}p"), &argument(args, "--lr-floor", "0")).parse()?,
+                eval_service_ticks: argument(args, "--eval-service-ticks", "1").parse()?,
+                eat_threshold: argument(args, &format!("--eat-threshold-{players}p"), &argument(args, "--eat-threshold", "0")).parse()?,
+                require_useful_action: argument(args, &format!("--require-useful-action-{players}p"), &argument(args, "--require-useful-action", "0")).parse::<u8>()? != 0,
             };
             anyhow::ensure!(
                 (3..=7).contains(&config.rings)
@@ -1258,7 +1410,10 @@ pub fn main(args: &[String]) -> Result<()> {
                     && config.batch > 0
                     && config.train_steps > 0
                     && config.filters > 0
-                    && config.repetition != 1,
+                    && config.repetition != 1
+                    && (config.eval_max_steps == 0 || config.eval_max_steps >= 100)
+                    && (config.lr_anneal == 0 || config.lr_floor > 0.)
+                    && config.eval_service_ticks > 0,
                 "invalid configuration"
             );
             let model_name = if curriculum.is_some() || config.rings == 3 {
@@ -1268,7 +1423,7 @@ pub fn main(args: &[String]) -> Result<()> {
             };
             let dir = root.join(model_name);
             fs::create_dir_all(dir.join("games"))?;
-            let board = Board::new(players, config.rings, false);
+            let board = Board::new(players, config.rings, false).with_rules(config.rules());
             let (net, mut adam, mut saved, mut evaluation) = if let Some((
                 cached_dir,
                 net,
@@ -1332,7 +1487,10 @@ pub fn main(args: &[String]) -> Result<()> {
                 }
                 for sample in &mut saved.replay {
                     sample.value_weight = if settings.mask_cutoffs
-                        && (sample.termination.as_deref() == Some("max_steps")
+                        && (matches!(
+                            sample.termination.as_deref(),
+                            Some("max_steps") | Some("no_progress")
+                        )
                             || (sample.termination.is_none()
                                 && sample.value.iter().all(|v| *v == 0.)))
                     {
@@ -1394,16 +1552,17 @@ pub fn main(args: &[String]) -> Result<()> {
                 }
             }
             let promotion_candidate = curriculum.as_ref().is_some_and(|c| c.rings < c.max_rings)
-                && crate::curriculum::ready_to_test(&dir)?;
+                && crate::curriculum::ready_to_test(&dir, saved.iteration)?;
             let eval_every: u64 = argument(args, "--eval-every", "5").parse()?;
             if evaluation.is_none()
                 && eval_every > 0
-                && (saved.iteration == 1 || saved.iteration % eval_every == 0)
+                && (saved.iteration == 1
+                    || saved.iteration >= saved.last_evaluation + eval_every)
                 && !control.stopping()
             {
                 let per_seat: usize = argument(args, "--eval-games-per-seat", "2").parse()?;
                 let per_seat = if promotion_candidate {
-                    per_seat.max(16)
+                    per_seat.max(crate::curriculum::TEST_GAMES / board.players)
                 } else {
                     per_seat
                 };
@@ -1418,11 +1577,12 @@ pub fn main(args: &[String]) -> Result<()> {
                     promotion_candidate,
                     &settings,
                 )?);
+                saved.last_evaluation = saved.iteration;
             }
             if !forever {
                 // Finite validation runs still produce a complete evaluation report.
                 while evaluation.is_some() && !control.stopping() {
-                    service_evaluation(&mut evaluation, &board, &dir, &settings, &mut control)?;
+                    service_evaluation(&mut evaluation, &board, &dir, &settings, &mut control, config.eval_service_ticks)?;
                 }
             }
             if let Some(job) = evaluation.as_ref() {
@@ -1437,6 +1597,28 @@ pub fn main(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn test_config() -> Config {
+        Config {
+            players: 2,
+            rings: 3,
+            blocks: 1,
+            filters: 8,
+            sims: 2,
+            actors: 2,
+            max_steps: 10,
+            repetition: 3,
+            replay: 20,
+            batch: 4,
+            train_steps: 1,
+            stall_limit: 0,
+            eval_max_steps: 0,
+            lr_anneal: 0,
+            lr_floor: 0.,
+            eval_service_ticks: 1,
+            eat_threshold: 0,
+            require_useful_action: false,
+        }
+    }
     #[test]
     fn game_palettes_are_distinct_durable_and_do_not_consume_search_rng() {
         let board = Board::new(2, 3, false);
@@ -1573,19 +1755,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("organism-eval-job-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let board = Board::new(2, 3, false);
-        let config = Config {
-            players: 2,
-            rings: 3,
-            blocks: 1,
-            filters: 8,
-            sims: 2,
-            actors: 2,
-            max_steps: 10,
-            repetition: 3,
-            replay: 20,
-            batch: 4,
-            train_steps: 1,
-        };
+        let config = test_config();
         let net = EvaluationJob::network(&board, &config, Device::Cpu);
         net.vs.save(root.join("baseline.ot")).unwrap();
         let settings = SearchSettings {
@@ -1634,9 +1804,26 @@ mod tests {
     }
     #[test]
     fn draw_only_iterations_cannot_anneal_learning_to_zero() {
-        assert_eq!(learning_rate(0), 1e-3);
-        assert_eq!(learning_rate(20), 5e-4);
-        assert_eq!(learning_rate(80), 1e-4);
-        assert_eq!(learning_rate(u64::MAX), 1e-4);
+        let off = Config { lr_anneal: 0, lr_floor: 0., ..test_config() };
+        assert_eq!(learning_rate(0, &off), 1e-3);
+        assert_eq!(learning_rate(20, &off), 5e-4);
+        assert_eq!(learning_rate(80, &off), 1e-4);
+        assert_eq!(learning_rate(u64::MAX, &off), 1e-4);
+        // The opt-in anneal never reaches zero and never raises the warm-up rate.
+        let on = Config { lr_anneal: 300, lr_floor: 2.5e-5, ..test_config() };
+        assert_eq!(learning_rate(0, &on), 1e-3);
+        assert_eq!(learning_rate(299, &on), 1e-4);
+        assert_eq!(learning_rate(300, &on), 5e-5);
+        assert_eq!(learning_rate(600, &on), 2.5e-5);
+        assert_eq!(learning_rate(u64::MAX, &on), 2.5e-5);
+        // The schedule the launcher runs: both models reach the same floor, the
+        // more heavily trained one sooner, and neither loses the warm-up.
+        let live = Config { lr_anneal: 500, lr_floor: 2.5e-5, ..test_config() };
+        assert_eq!(learning_rate(0, &live), 1e-3);
+        assert_eq!(learning_rate(80, &live), 1e-4);
+        assert_eq!(learning_rate(499, &live), 1e-4);
+        assert_eq!(learning_rate(580, &live), 5e-5);
+        assert_eq!(learning_rate(1000, &live), 2.5e-5);
+        assert_eq!(learning_rate(u64::MAX, &live), 2.5e-5);
     }
 }

@@ -9,6 +9,16 @@ models remain unchanged while four isolated branches train.
 | 2p / 3 rings | 421 | Capacity 5000, no per-game cap, neutral cutoff values |
 | 3p / 4 rings | 842 | Capacity 32768, cap 256/game, masked length-cutoff values |
 
+**The 2p pair is held after round 7 and its results should not be read.** Both
+2p branches inherited the uncapped production replay recipe, and both collapsed
+to a mean of 5 (`history_mix`) and 7 (`self_play`) distinct games in the buffer
+with mean game lengths of 1448 and 1805 choices. Whatever opponent diversity
+does in 2p is swamped by that; see `docs/two-player-replay-collapse-20260913.md`.
+The 3p pair is unaffected — 172 and 156 distinct games — and continues. Advance a
+subset with `--models`, for example `--models 3p`. Relaunch the 2p pair from a
+fresh root once the corrected 2p recipe has settled; `prepare` now caps every
+pair's per-game sampling at 256.
+
 Within each pair, `self_play` and `history_mix` begin with identical weights,
 Adam optimizer, replay, RNG, and unfinished games. Both run 50 iterations of 100
 updates. Branch order rotates each round; one experiment child runs at a time,

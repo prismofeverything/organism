@@ -114,14 +114,25 @@ The launcher enables `--rings-2p 3 --curriculum-2p`. Two-player training starts 
 19 spaces in `2p-r3`; the original 37-space `2p` checkpoint remains a saved
 comparison. Three-player training continues in `3p` on four rings.
 
-The curriculum considers a one-ring expansion only when each of the last three
-iterations has at least 60% rule victories and those iterations contain at least
-48 completed games. At a scheduled evaluation, it then plays at least 32 games
-against frozen starting weights, balanced across both seats. Expansion requires
-no more than 25% cutoffs and a 95% Wilson lower bound for wins/all games above
-50% (at least 22 wins in a 32-game test). These are initial engineering screening
+The curriculum considers a one-ring expansion only when the last three iterations
+contain at least 48 completed games **and** recent completed evaluations, pooled
+and projected onto the 32-game test size, would themselves pass the expansion
+criteria. At a scheduled evaluation, it then plays at least 32 games against
+frozen starting weights, balanced across both seats. Expansion requires no more
+than 25% cutoffs and a 95% Wilson lower bound for wins/all games above 50% (at
+least 22 wins in a 32-game test). These are initial engineering screening
 thresholds; repeated tests are not independent and do not provide a formal
 95% guarantee of strategic competence. Lower loss alone never triggers expansion.
+
+The readiness screen previously required 60% rule victories in recent self-play
+instead. That measures how decisively the model beats *itself* — both seats share
+one network — which is unrelated to whether it beats anything else, and it spent
+a 32-game test on a model that went on to score 0 wins and 4 losses in its first
+six test games. The screen now reads `evaluations/` and reuses the expansion
+criteria directly, so it can never be looser than the gate it is paying for. With
+no completed evaluation inside the recent window it declines to test, and reports
+from iterations the model has not reached are ignored, because iteration numbers
+restart when a checkpoint is replaced.
 
 On qualification, the next two-player iteration uses the next ring count, up to
 `--curriculum-max-rings 7`. Progress is stored in `curriculum.json`; every stage
