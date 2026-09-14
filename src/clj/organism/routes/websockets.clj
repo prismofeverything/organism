@@ -394,31 +394,61 @@
             ;; If the next player is a bot, run bot turns automatically
             (maybe-run-bot-turns! db game-key)))))))
 
+(defn may-walk-back?
+  "Who holds the undo. It belongs to whoever is on the clock, and it still
+   belongs to the player who just moved for as long as the next player has not
+   touched the position — handing over the turn is not itself a commitment, so
+   a move that ended a turn stays takeable back until someone acts on it.
+
+   `game` rather than `present` answers the touched question, because a turn
+   that is underway only reaches the history once it completes an action: the
+   partial choices live in the game state alone.
+
+   A bot on the clock is never untouched. Its loop runs from its own copy of the
+   state, so anything swapped in underneath it is overwritten on the next step."
+  [game present previous player]
+  (let [on-the-clock (get-in present [:player-turn :player])]
+    (boolean
+     (or
+      (= player on-the-clock)
+      (and
+       (= player (get-in previous [:player-turn :player]))
+       (game/beginning-of-turn? game)
+       (not (bots/bot? "organism" on-the-clock)))))))
+
 (defn walk-history
   [db player game-key channel message]
   (let [{:keys [game history channels invocation]} (get-in (deref games) [:games game-key])
         present (last history)
         previous (last (butlast history))
         previous (if (empty? previous) present previous)]
-    (when (= player (get-in present [:player-turn :player]))
-      (send-channels!
-       channels
-       {:type "game-state"
-        :game previous})
-      (swap!
-       games
-       (fn [games]
-         (-> games
-             (update-in [:games game-key :history] (comp vec butlast))
-             (assoc-in [:games game-key :game :state] previous))))
-      (persist/reset-state! db game-key)
-      (when (not= player (-> previous :player-turn :player))
-        (persist/update-player-games!
-         db game-key
-         (:players invocation)
-         previous))
-      ;; If undoing landed us on a bot's turn, kick them off again
-      (maybe-run-bot-turns! db game-key))))
+    (if (may-walk-back? game present previous player)
+      (do
+        (send-channels!
+         channels
+         {:type "game-state"
+          :game previous})
+        (swap!
+         games
+         (fn [games]
+           (-> games
+               (update-in [:games game-key :history] (comp vec butlast))
+               (assoc-in [:games game-key :game :state] previous))))
+        (persist/reset-state! db game-key)
+        ;; The player list shows whose turn it is, so it needs refreshing
+        ;; whenever the undo crossed a turn boundary — which is no longer the
+        ;; same question as whether the undoing player differs from the one it
+        ;; landed on.
+        (when (not= (get-in present [:player-turn :player])
+                    (get-in previous [:player-turn :player]))
+          (persist/update-player-games!
+           db game-key
+           (:players invocation)
+           previous))
+        ;; If undoing landed us on a bot's turn, kick them off again
+        (maybe-run-bot-turns! db game-key))
+      (log/info "undo refused" game-key player "— on the clock:"
+                (get-in present [:player-turn :player])))))
 
 (defn find-beginning
   [history]
