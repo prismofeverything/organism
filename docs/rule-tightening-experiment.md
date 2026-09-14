@@ -107,6 +107,56 @@ the paired sign test agrees at 0.07, but neither clears a conventional bar. Both
 say the same thing, which is worth something, and the mechanism above is visible
 directly in the paired games rather than inferred from the totals.
 
+## The sacrifice hole
+
+Removing the deliberate pass did not remove idling; it relocated it. Between the
+two arms the action mix moved from `PASS` 17.3% / `MOVE` 10.2% / introduce 2.7%
+to `PASS` 0.4% / **`MOVE` 28.6% / introduce 12.5%**. The replacement strategy was
+to walk an element away, lose integrity, and be wiped off the board.
+
+That is profitable under the rules as written. In `resolve`, an organism that
+loses integrity on its owner's own turn awards captures only to players it had
+*marked*; an organism that never touched an enemy awards nothing. Every element
+is then deconstructed, and `deconstruct` drops `food + 1` onto its space. A
+freshly introduced element holds 1 food, so it pays **2 food** to walk off and
+die — a better return than the 1 food an eat yields — and introducing again is
+free and unlimited.
+
+The data says the learner found it. Across the heavy-wipe games:
+
+| arm | wipes | captures awarded | captures per wipe |
+| --- | --- | --- | --- |
+| baseline, games with >= 50 wipes | 490 | 21 | 0.043 |
+| tightened, games with >= 50 wipes | 12,412 | 226 | **0.018** |
+
+98% of wipes cost the opponent nothing. Free food accumulated at about four per
+round, correlating with re-introductions at **+0.99**, and that — not hoarding —
+is where an 880-food pile and a 641-food single bite came from.
+
+`--sacrifice-yields-nothing` closes it: being wiped off the board by your own
+integrity loss, on your own turn, removes the food from every space you held
+instead of leaving it behind. Legitimate deaths are untouched — being captured,
+or losing integrity because of an opponent's action, still drop their food.
+
+## Exploits checked and not found
+
+- **Introduce annihilates neighbours.** Introducing deletes every piece adjacent
+  to your home spaces outright, with no capture and no food dropped, including
+  an opponent's. Real but unused: 1 and 2 opponent elements removed across
+  roughly a thousand introduce events in each arm.
+- **Free growth of a missing type.** Growing an element type the organism has
+  none of costs no donor food at all. Never once chosen in either arm.
+
+## Still open: the eat threshold covers only one of three paths
+
+`--eat-threshold` gates eating, and the gate holds exactly — of 2,827
+board-sourced food gains in the tightened arm, not one began at or above the
+threshold. But moving or growing onto a space takes its whole pile with no gate
+of any kind. Of 21 piles of 20 or more absorbed in one step, GROW took 8, EAT 8
+and MOVE 5; a 93-food pile went to a single GROW. If piles stop forming once the
+sacrifice hole is closed this may not matter, which is the cheaper thing to find
+out first.
+
 ## A training ablation needs a different evaluation design
 
 Arms playing different games cannot share the frozen-opponent panel the way the

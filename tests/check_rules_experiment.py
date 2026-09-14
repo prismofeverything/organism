@@ -17,6 +17,7 @@ with (root/'run.log').open('w') as log:
   assert report['manifest']['config']['require_useful_action']==(name=='tightened'),name
   assert report['manifest']['config']['eat_threshold']==(5 if name=='tightened' else 0),name
   assert report['manifest']['config']['stall_limit']==(8 if name=='tightened' else 0),name
+  assert report['manifest']['config']['sacrifice_yields_nothing']==(name=='tightened'),name
  # Both arms must have taken exactly one iteration from the shared seed.
  spec=json.loads((root/'experiment/experiment.json').read_text())
  for arm in ('baseline','tightened'):
@@ -27,6 +28,7 @@ with (root/'run.log').open('w') as log:
   want=(5 if arm=='tightened' else 0)
   assert state['config']['eat_threshold']==want,(arm,state['config'])
   assert state['config']['require_useful_action']==(arm=='tightened'),(arm,state['config'])
+  assert state['config']['sacrifice_yields_nothing']==(arm=='tightened'),(arm,state['config'])
  before=json.loads((root/'experiment/progress.json').read_text())
  subprocess.run(command,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=300)
  after=json.loads((root/'experiment/progress.json').read_text())

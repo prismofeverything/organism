@@ -80,12 +80,16 @@ pub struct Config {
     /// Stop offering unusable action types and the deliberate pass.
     #[serde(default)]
     pub require_useful_action: bool,
+    /// A self-inflicted wipe takes its food with it instead of feeding the board.
+    #[serde(default)]
+    pub sacrifice_yields_nothing: bool,
 }
 impl Config {
     pub fn rules(&self) -> crate::game::Rules {
         crate::game::Rules {
             eat_threshold: self.eat_threshold,
             require_useful_action: self.require_useful_action,
+            sacrifice_yields_nothing: self.sacrifice_yields_nothing,
         }
     }
     /// Games played to measure strength stop earlier than training games so a
@@ -524,6 +528,7 @@ fn load(
         );
         saved.config.eat_threshold = config.eat_threshold;
         saved.config.require_useful_action = config.require_useful_action;
+        saved.config.sacrifice_yields_nothing = config.sacrifice_yields_nothing;
     }
     anyhow::ensure!(
         saved.version == 1 && saved.config == config,
@@ -1399,6 +1404,7 @@ pub fn main(args: &[String]) -> Result<()> {
                 eval_service_ticks: argument(args, "--eval-service-ticks", "1").parse()?,
                 eat_threshold: argument(args, &format!("--eat-threshold-{players}p"), &argument(args, "--eat-threshold", "0")).parse()?,
                 require_useful_action: argument(args, &format!("--require-useful-action-{players}p"), &argument(args, "--require-useful-action", "0")).parse::<u8>()? != 0,
+                sacrifice_yields_nothing: argument(args, &format!("--sacrifice-yields-nothing-{players}p"), &argument(args, "--sacrifice-yields-nothing", "0")).parse::<u8>()? != 0,
             };
             anyhow::ensure!(
                 (3..=7).contains(&config.rings)
@@ -1617,6 +1623,7 @@ mod tests {
             eval_service_ticks: 1,
             eat_threshold: 0,
             require_useful_action: false,
+            sacrifice_yields_nothing: false,
         }
     }
     #[test]

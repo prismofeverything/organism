@@ -20,6 +20,10 @@ pub struct Rules {
     /// an organism genuinely has nothing it can do.
     #[serde(default)]
     pub require_useful_action: bool,
+    /// Being wiped off the board by your own integrity loss, on your own turn,
+    /// takes your food with you instead of leaving it on the spaces you held.
+    #[serde(default)]
+    pub sacrifice_yields_nothing: bool,
 }
 impl Rules {
     fn eat_ceiling(&self) -> u32 {
@@ -474,7 +478,7 @@ impl Board {
             s.captures[a.player].push(cap);
         }
     }
-    fn resolve(&self, s: &mut State) {
+    pub(crate) fn resolve(&self, s: &mut State) {
         for p in s.pieces.iter_mut().flatten() {
             p.marks.clear()
         }
@@ -543,6 +547,12 @@ impl Board {
                 .or_insert_with(Vec::new)
                 .push(i);
         }
+        // A self-inflicted integrity loss deconstructs every element, dropping
+        // `food + 1` each onto the board, and awards captures only to players the
+        // organism had marked. An organism that touched nobody therefore pays its
+        // owner food and costs the opponent nothing, which makes introducing and
+        // walking off a better food source than eating.
+        let mut surrendered = vec![];
         for ids in all.values() {
             if self.alive(s, ids) {
                 continue;
@@ -559,11 +569,20 @@ impl Board {
                         kind: Kind::Sacrifice,
                     });
                 }
+                surrendered.extend(ids.iter().copied());
             } else {
                 lost.insert(owner);
             }
             for &i in ids {
                 self.deconstruct(s, i)
+            }
+        }
+        if self.rules.sacrifice_yields_nothing
+            && !surrendered.is_empty()
+            && !s.pieces.iter().flatten().any(|p| p.player == s.player)
+        {
+            for i in surrendered {
+                s.food[i] = 0;
             }
         }
         for p in lost {
@@ -1091,6 +1110,37 @@ mod tests {
         assert!(offered_plain > 0, "the walk must reach positions that offer a pass");
         assert!(offered_strict < offered_plain, "the rule must remove deliberate passes");
         assert_eq!(offered_strict, forced);
+    }
+    #[test]
+    fn a_self_wipe_takes_its_food_with_it() {
+        // Introducing costs nothing and a fresh element holds 1 food, so a
+        // deliberate integrity loss used to pay 2 food per element onto the
+        // board -- a better return than eating, repeatable every turn.
+        for (rule, expected) in [(false, true), (true, false)] {
+            let b = Board::new(2, 3, false).with_rules(Rules {
+                sacrifice_yields_nothing: rule,
+                ..Rules::default()
+            });
+            let mut s = b.initial();
+            s = b.legal(&s).into_iter().next().unwrap().1;
+            let held: Vec<_> = (0..s.pieces.len())
+                .filter(|&i| s.pieces[i].is_some())
+                .collect();
+            assert!(!held.is_empty());
+            // Break integrity by removing every element but one, then resolve.
+            for &i in held.iter().skip(1) {
+                s.pieces[i] = None;
+            }
+            let player = s.pieces[held[0]].as_ref().unwrap().player;
+            s.player = player;
+            b.resolve(&mut s);
+            assert!(
+                !s.pieces.iter().flatten().any(|p| p.player == player),
+                "the organism should not survive losing its other kinds"
+            );
+            let dropped: u32 = held.iter().map(|&i| s.food[i]).sum();
+            assert_eq!(dropped > 0, expected, "rule={rule} dropped={dropped}");
+        }
     }
     #[test]
     fn eat_threshold_stops_eating_without_capping_what_may_be_held() {

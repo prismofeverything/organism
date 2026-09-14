@@ -15,10 +15,10 @@ write,digest,snapshot,integer=ablation.atomic,ablation.digest,ablation.snapshot,
 
 # Zero is the game as written; the tightened arm is the combination that moved
 # the screen, since each rule alone left an escape route.
-ARMS={'baseline': {'require-useful-action':0,'eat-threshold':0,'stall-limit':0},
-      'tightened':{'require-useful-action':1,'eat-threshold':5,'stall-limit':8}}
-RULESETS={'original':{'require_useful_action':False,'eat_threshold':0,'stall_limit':0},
-          'tightened':{'require_useful_action':True,'eat_threshold':5,'stall_limit':8}}
+ARMS={'baseline': {'require-useful-action':0,'eat-threshold':0,'stall-limit':0,'sacrifice-yields-nothing':0},
+      'tightened':{'require-useful-action':1,'eat-threshold':5,'stall-limit':8,'sacrifice-yields-nothing':1}}
+RULESETS={'original':{'require_useful_action':False,'eat_threshold':0,'stall_limit':0,'sacrifice_yields_nothing':False},
+          'tightened':{'require_useful_action':True,'eat_threshold':5,'stall_limit':8,'sacrifice_yields_nothing':True}}
 
 def read(path,default=None):
  try:return json.loads(path.read_text())
@@ -46,7 +46,7 @@ def prepare(args):
  if integer(initial/'state.json','training_step')!=0:raise ValueError('Initial snapshot must precede gradient updates')
  config=read(initial/'config.json')
  if (config['players'],config['rings'])!=(2,3):raise ValueError('This experiment is two-player, three rings')
- if any(config.get(k) for k in ['eat_threshold','require_useful_action','stall_limit']):
+ if any(config.get(k) for k in ['eat_threshold','require_useful_action','stall_limit','sacrifice_yields_nothing']):
   raise ValueError('Seed checkpoint already plays a tightened game; both arms must start from the same one')
  shutil.copy2('native/target/release/organism-train',root/'organism-train')
  spec={'options':options,'config':config,'arms':ARMS,'rulesets':RULESETS,
