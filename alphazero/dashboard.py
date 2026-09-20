@@ -1,4 +1,5 @@
 """Local, read-only training dashboard. python -m alphazero.dashboard"""
+import gzip
 import argparse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -96,8 +97,19 @@ def make_handler(root, examples):
             self.send_bytes(json.dumps(data).encode(), 'application/json')
 
         def send_bytes(self, data, mime):
+            # A frame is a whole board snapshot and successive frames repeat most
+            # of it, so game documents are highly compressible. Nothing about the
+            # format changes; only what goes over the socket.
+            encoding = None
+            if len(data) > 1024 and 'gzip' in self.headers.get('Accept-Encoding', ''):
+                packed = gzip.compress(data, 6)
+                if len(packed) < len(data):
+                    data, encoding = packed, 'gzip'
             self.send_response(200)
             self.send_header('Content-Type', mime)
+            if encoding:
+                self.send_header('Content-Encoding', encoding)
+                self.send_header('Vary', 'Accept-Encoding')
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')

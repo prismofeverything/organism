@@ -35,13 +35,27 @@ def freeze(source, target):
 
 # The protocol this series was recorded under. Candidates captured later must
 # keep playing it even after the training recipe changes.
-TERMINATION = {'max_steps': 4000, 'repetition': 3, 'stall_limit': 0, 'eval_max_steps': 0}
+PROTOCOL_KEYS = ['max_steps', 'repetition', 'stall_limit', 'eval_max_steps', 'sims',
+                 'eat_threshold', 'require_useful_action', 'sacrifice_yields_nothing']
+# Series created before this pinning ran the original rules at 64 simulations.
+TERMINATION = {'max_steps': 4000, 'repetition': 3, 'stall_limit': 0, 'eval_max_steps': 0,
+               'sims': 64, 'eat_threshold': 0, 'require_useful_action': False,
+               'sacrifice_yields_nothing': False}
 
 
-def initialize(root, training, binary):
+def protocol_for(spec, model):
+    """Version 2 and earlier pinned one block for every model."""
+    block = spec.get('termination') or TERMINATION
+    return block.get(model, block) if spec.get('version', 2) >= 3 else block
+
+
+def initialize(root, training, binary, anchor_file=None, overrides=None):
     if (root / 'protocol.json').exists():
         return read(root / 'protocol.json')
-    anchors = {
+    # An anchor may be [identity, weights] or a dict that also names the network
+    # shape it was trained at, so models of different sizes can still be compared.
+    anchors = {m: [(e['identity'], Path(e['weights']), e) if isinstance(e, dict) else (e[0], Path(e[1]), {})
+                   for e in v] for m, v in read(anchor_file).items()} if anchor_file else {
         '2p-r3': [('initial-379', Path('checkpoints/organism-ablation-20260912/initial/model.ot')),
                   ('control-399', Path('checkpoints/organism-ablation-20260912/control/evaluation-020/candidate.ot'))],
         '3p': [('older-385', training / '3p/opponent-archive/000000385.ot'),
@@ -50,15 +64,29 @@ def initialize(root, training, binary):
     # Termination belongs to the series, not to whatever recipe training happens
     # to be running: without this the next candidate silently plays a different
     # game from the one already measured.
-    spec = {'version': 2, 'simulations': 64, 'games_per_seat': 16, 'shards': 4,
+    # Pin the game each model is playing, once, at series creation. Models carry
+    # their own per-player settings, so a single shared block would let whichever
+    # config was read last silently decide the protocol for both.
+    pinned = {}
+    for model in anchors:
+        config = read(training / model / 'config.json') or {}
+        entry = dict(TERMINATION)
+        entry.update({k: config[k] for k in PROTOCOL_KEYS if k in config})
+        if overrides:
+            entry.update(overrides)
+        pinned[model] = entry
+    spec = {'version': 3, 'games_per_seat': 16, 'shards': 4,
+            'simulations': max(e['sims'] for e in pinned.values()),
             'seed': 730013, 'cutoff_value': 'draw', 'interval': 100,
-            'termination': TERMINATION, 'opponents': {}}
+            'termination': pinned, 'opponents': {}}
     for model, sources in anchors.items():
         spec['opponents'][model] = []
-        for identity, source in sources:
+        for entry in sources:
+            identity, source, extra = entry if len(entry) == 3 else (entry[0], entry[1], {})
             path = root / 'opponents' / model / (identity + '.ot')
             sha = freeze(source, path)
-            spec['opponents'][model].append({'identity': identity, 'weights': str(path), 'sha256': sha})
+            shape = {k: extra[k] for k in ('blocks', 'filters') if k in extra}
+            spec['opponents'][model].append({'identity': identity, 'weights': str(path), 'sha256': sha, **shape})
     spec['binary_sha256'] = freeze(binary, root / 'organism-train')
     write(root / 'protocol.json', spec)
     return spec
@@ -77,7 +105,7 @@ def capture(root, training, model, spec):
     if (config['players'], config['rings']) != ((2, 3) if model == '2p-r3' else (3, 4)):
         raise RuntimeError('Board changed; start a new benchmark protocol for the new board')
     # Series before this pinning ran the original termination rules; keep them.
-    config = {**config, **spec.get('termination', TERMINATION)}
+    config = {**config, **protocol_for(spec, model)}
     base = root / 'candidates' / model / f'{iteration:06d}'
     base.mkdir(parents=True, exist_ok=True)
     try:
@@ -85,14 +113,15 @@ def capture(root, training, model, spec):
     except FileNotFoundError:
         return  # Trainer pruned the generation; retry its next completed snapshot.
     candidate = {'identity': f'{model}-iteration-{iteration}', 'iteration': iteration,
-                 'weights': str(base / 'candidate.ot'), 'sha256': sha}
+                 'weights': str(base / 'candidate.ot'), 'sha256': sha,
+                 'blocks': config['blocks'], 'filters': config['filters']}
     # Interleave opponents within each shard; seats remain balanced in each batch.
     for shard in range(spec['shards']):
         for opponent in spec['opponents'][model]:
             job = base / f"batch-{shard}-{opponent['identity']}"
             job.mkdir(exist_ok=True)
             manifest = {'config': config, 'candidate': candidate, 'opponent': opponent,
-                        'simulations': spec['simulations'], 'games_per_seat': spec['games_per_seat']//spec['shards'],
+                        'simulations': protocol_for(spec, model)['sims'], 'games_per_seat': spec['games_per_seat']//spec['shards'],
                         'seed': spec['seed'] + shard * 1000, 'cutoff_value': spec['cutoff_value']}
             write(job / 'manifest.json', manifest)
     write(base / 'candidate.json', candidate)
@@ -131,6 +160,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path('checkpoints/organism-benchmark-20260913'))
     parser.add_argument('--training', type=Path, default=Path('checkpoints/organism-native'))
+    parser.add_argument('--anchors', type=Path, help='JSON of model -> [[identity, weights], ...]')
+    parser.add_argument('--protocol-sims', type=int, help='pin the series search budget explicitly')
     parser.add_argument('--watch', action='store_true')
     args = parser.parse_args()
     root, training = args.root.absolute(), args.training.absolute()
@@ -138,7 +169,9 @@ def main():
     lock = (root / 'runner.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     os.nice(10)
-    spec = initialize(root, training, Path('native/target/release/organism-train').resolve())
+    spec = initialize(root, training, Path('native/target/release/organism-train').resolve(),
+                      args.anchors.absolute() if args.anchors else None,
+                      {'sims': args.protocol_sims} if args.protocol_sims else None)
     if hashlib.sha256((root / 'organism-train').read_bytes()).hexdigest() != spec['binary_sha256']:
         raise RuntimeError('Frozen benchmark executable changed')
     while not (root / 'STOP').exists():

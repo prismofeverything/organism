@@ -83,6 +83,14 @@ pub struct Config {
     /// A self-inflicted wipe takes its food with it instead of feeding the board.
     #[serde(default)]
     pub sacrifice_yields_nothing: bool,
+    /// Skip positions with a single legal action, buying search depth.
+    #[serde(default)]
+    pub elide_forced: bool,
+    /// Advance `baseline.ot` to the candidate once it convincingly beats it.
+    /// Written once and never refreshed, the baseline stays the randomly
+    /// initialised network and silently consumes half of every evaluation.
+    #[serde(default)]
+    pub baseline_ratchet: bool,
 }
 impl Config {
     pub fn rules(&self) -> crate::game::Rules {
@@ -90,6 +98,7 @@ impl Config {
             eat_threshold: self.eat_threshold,
             require_useful_action: self.require_useful_action,
             sacrifice_yields_nothing: self.sacrifice_yields_nothing,
+            elide_forced: self.elide_forced,
         }
     }
     /// Games played to measure strength stop earlier than training games so a
@@ -235,6 +244,12 @@ struct SearchSettings {
     mask_cutoffs: bool,
     #[serde(default)]
     opponent_pool: Vec<String>,
+    /// Decisions sampled at the start of a game when `exploration_rounds` is 0.
+    #[serde(default = "default_exploration_choices")]
+    exploration_choices: usize,
+}
+fn default_exploration_choices() -> usize {
+    30
 }
 impl SearchSettings {
     fn assign_opponent(&self, episode: &mut Episode, players: usize) {
@@ -250,11 +265,20 @@ impl SearchSettings {
         episode.learner_seat = learner;
         episode.opponent_index = opponent;
     }
+    /// Should this decision be sampled from the visit distribution rather than
+    /// played as the search's best move?
+    ///
+    /// Counting in rounds is a trap: the window is fixed while game length is
+    /// not, so as the model improves and games shorten, a round-based window
+    /// swallows more and more of each game. At ten rounds it had reached 65% of
+    /// two-player and 75% of three-player decisions, and a third of three-player
+    /// games never left exploration at all. Counting decisions holds the opening
+    /// at a fixed size no matter how long the game runs.
     fn sample(&self, state: &State, choices: usize) -> bool {
-        if self.exploration_rounds == 0 {
-            choices < 30
-        } else {
+        if self.exploration_rounds > 0 {
             state.round < self.exploration_rounds
+        } else {
+            choices < self.exploration_choices
         }
     }
 }
@@ -381,11 +405,12 @@ fn publish_live(
     number: usize,
     stage: &str,
 ) -> Result<()> {
-    let frames = &e.frames[e.frames.len().saturating_sub(64)..];
-    let mut data = ogf_frames(board, e, iteration, number, frames);
+    // A game in progress is the same sequence as a finished one, so it is
+    // published whole rather than as a truncated window in its own format.
+    // Following the tail is a viewer mode, not a different document.
+    let mut data = ogf(board, e, iteration, number);
     data["live-stage"] = json!(stage);
     data["updated"] = json!(now());
-    data["live-window"] = json!(true);
     atomic_json(&dir.join("live.json"), &data)?;
     atomic_json(&dir.parent().unwrap().join("current.json"), &data)
 }
@@ -519,6 +544,10 @@ fn load(
     saved.config.lr_anneal = config.lr_anneal;
     saved.config.lr_floor = config.lr_floor;
     saved.config.eval_service_ticks = config.eval_service_ticks;
+    saved.config.baseline_ratchet = config.baseline_ratchet;
+    // Search budget per move is how hard the model thinks, not how its weights
+    // are shaped, so a resume may deepen or shorten it.
+    saved.config.sims = config.sims;
     if saved.config.rules() != config.rules() {
         println!(
             "{}p rules changed: {:?} -> {:?}; this checkpoint's training so far played the previous game",
@@ -529,6 +558,7 @@ fn load(
         saved.config.eat_threshold = config.eat_threshold;
         saved.config.require_useful_action = config.require_useful_action;
         saved.config.sacrifice_yields_nothing = config.sacrifice_yields_nothing;
+        saved.config.elide_forced = config.elide_forced;
     }
     anyhow::ensure!(
         saved.version == 1 && saved.config == config,
@@ -803,6 +833,28 @@ impl EvaluationJob {
         atomic_json(&self.path.join("state.json"), &self.saved)
     }
 }
+/// The candidate's record against one opponent slot of a completed session.
+/// Seat assignments record which model played each seat, so games against the
+/// fixed baseline can be separated from games against the rotating archive.
+fn record_against(report: &Value, slot: u64) -> (usize, usize) {
+    let mut wins = 0;
+    let mut losses = 0;
+    for game in report["games"].as_array().into_iter().flatten() {
+        let seats = game["seat_models"].as_array();
+        if !seats.into_iter().flatten().any(|s| s.as_u64() == Some(slot)) {
+            continue;
+        }
+        if game["termination"] != "win" {
+            continue;
+        }
+        if game["candidate_won"] == true {
+            wins += 1
+        } else {
+            losses += 1
+        }
+    }
+    (wins, losses)
+}
 fn service_evaluation(
     job: &mut Option<EvaluationJob>,
     board: &Board,
@@ -810,6 +862,7 @@ fn service_evaluation(
     settings: &SearchSettings,
     control: &mut Control,
     ticks: usize,
+    ratchet: bool,
 ) -> Result<()> {
     let Some(eval) = job.as_mut() else {
         return Ok(());
@@ -834,6 +887,20 @@ fn service_evaluation(
         let mut report = eval.saved.session.report();
         report["iteration"] = json!(eval.saved.iteration);
         report["opponent"] = json!(eval.saved.session.opponent_ids);
+        if ratchet {
+            // Slot 1 is the fixed baseline; slot 2, when present, is the archive.
+            let (wins, losses) = record_against(&report, 1);
+            if wins + losses >= 4 && crate::curriculum::lower_bound(wins, wins + losses) > 0.5 {
+                let tmp = dir.join("baseline.tmp.ot");
+                eval.candidate.vs.save(&tmp)?;
+                File::open(&tmp)?.sync_all()?;
+                fs::rename(tmp, dir.join("baseline.ot"))?;
+                println!(
+                    "{}p baseline advanced to iteration {} ({wins}W-{losses}L against the previous one)",
+                    board.players, eval.saved.iteration
+                );
+            }
+        }
         atomic_json(&dir.join("evaluation.json"), &report)?;
         fs::create_dir_all(dir.join("evaluations"))?;
         atomic_json(
@@ -961,7 +1028,7 @@ fn iteration(
             if active.is_empty() {
                 break;
             }
-            if telemetry.elapsed().as_secs_f64() >= 0.25 {
+            if telemetry.elapsed().as_secs_f64() >= 1.0 {
                 let i = active[0];
                 publish_live(
                     dir,
@@ -1109,7 +1176,7 @@ fn iteration(
             }
             search_batches += 1;
             if search_batches % 8 == 0 {
-                service_evaluation(evaluation, board, dir, settings, control, eval_ticks)?;
+                service_evaluation(evaluation, board, dir, settings, control, eval_ticks, s.config.baseline_ratchet)?;
             }
             if checkpoint.elapsed().as_secs() >= 120 {
                 for (e, map) in s.episodes.iter_mut().zip(&seen) {
@@ -1170,7 +1237,7 @@ fn iteration(
                 s.value_sum += v_value;
                 s.training_step += 1;
                 if s.training_step % 20 == 0 {
-                    service_evaluation(evaluation, board, dir, settings, control, eval_ticks)?;
+                    service_evaluation(evaluation, board, dir, settings, control, eval_ticks, s.config.baseline_ratchet)?;
                 }
             }
         }
@@ -1184,6 +1251,24 @@ fn iteration(
     let stats: Vec<_> = s.episodes.iter().filter_map(|e| e.result.clone()).collect();
     let decisions = s.decisions;
     let victories = stats.iter().filter(|g| g["termination"] == "win").count();
+    let sampled: usize = s
+        .episodes
+        .iter()
+        .filter(|e| e.result.is_some())
+        .map(|e| {
+            e.samples
+                .iter()
+                .enumerate()
+                .filter(|(i, sample)| settings.sample(&sample.state, *i))
+                .count()
+        })
+        .sum();
+    let decided: usize = s
+        .episodes
+        .iter()
+        .filter(|e| e.result.is_some())
+        .map(|e| e.samples.len())
+        .sum();
     let seconds = s.elapsed.max(1e-9);
     // Replay diversity collapses quietly: one long game can crowd out the rest.
     let mut per_game: HashMap<&String, usize> = HashMap::new();
@@ -1204,16 +1289,7 @@ fn iteration(
             largest_game_fraction * 100.
         );
     }
-    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"replay_distinct_games":distinct,"replay_largest_game_fraction":largest_game_fraction,"replay_value_supervised_fraction":s.replay.iter().map(|x|x.value_weight as f64).sum::<f64>()/s.replay.len().max(1) as f64,"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration, &s.config)});
-    atomic_json(
-        &dir.join("live.json"),
-        &ogf(
-            board,
-            s.episodes.last().unwrap(),
-            s.iteration + 1,
-            s.episodes.len(),
-        ),
-    )?;
+    let metrics = json!({"iteration":s.iteration+1,"game":format!("organism_{}p",board.players),"backend":"rust-libtorch","buffer":s.replay.len(),"replay_distinct_games":distinct,"replay_largest_game_fraction":largest_game_fraction,"replay_value_supervised_fraction":s.replay.iter().map(|x|x.value_weight as f64).sum::<f64>()/s.replay.len().max(1) as f64,"policy_loss":s.policy_sum/s.training_step.max(1) as f64,"value_loss":s.value_sum/s.training_step.max(1) as f64,"total_seconds":s.elapsed,"games":stats,"optimizer_step":adam.step,"updates":s.training_step,"decisions":decisions,"games_per_hour":stats.len() as f64*3600./seconds,"exploration_fraction":sampled as f64/decided.max(1) as f64,"rule_victories_per_hour":victories as f64*3600./seconds,"decisions_per_second":decisions as f64/seconds,"updates_per_hour":s.training_step as f64*3600./seconds,"search_timings":s.search_timings,"concurrent_games":concurrent_games,"search_settings":settings,"learning_rate":learning_rate(s.iteration, &s.config)});
     // Commit model/state first; reconcile the corresponding metric on load below.
     s.last_metrics = Some(metrics.clone());
     s.iteration += 1;
@@ -1330,6 +1406,7 @@ pub fn main(args: &[String]) -> Result<()> {
     );
     let settings = SearchSettings {
         exploration_rounds: argument(args, "--exploration-rounds", "10").parse()?,
+        exploration_choices: argument(args, "--exploration-choices", "30").parse()?,
         gpu_batch: argument(args, "--gpu-batch", "16").parse()?,
         reuse: !args.iter().any(|a| a == "--no-tree-reuse"),
         legacy: args.iter().any(|a| a == "--legacy-search"),
@@ -1388,9 +1465,12 @@ pub fn main(args: &[String]) -> Result<()> {
                     )
                     .parse()?
                 },
-                blocks: argument(args, "--blocks", "4").parse()?,
-                filters: argument(args, "--filters", "64").parse()?,
-                sims: argument(args, "--sims", "64").parse()?,
+                // Network shape is per player count: the two models can be sized
+                // independently, and unlike search budget it cannot be changed on
+                // a resume, since the saved weights have the old shape.
+                blocks: argument(args, &format!("--blocks-{players}p"), &argument(args, "--blocks", "4")).parse()?,
+                filters: argument(args, &format!("--filters-{players}p"), &argument(args, "--filters", "64")).parse()?,
+                sims: argument(args, &format!("--sims-{players}p"), &argument(args, "--sims", "64")).parse()?,
                 actors: argument(args, "--actors", "16").parse()?,
                 max_steps: argument(args, "--max-steps", "4000").parse()?,
                 repetition: argument(args, "--repetition", "3").parse()?,
@@ -1405,6 +1485,8 @@ pub fn main(args: &[String]) -> Result<()> {
                 eat_threshold: argument(args, &format!("--eat-threshold-{players}p"), &argument(args, "--eat-threshold", "0")).parse()?,
                 require_useful_action: argument(args, &format!("--require-useful-action-{players}p"), &argument(args, "--require-useful-action", "0")).parse::<u8>()? != 0,
                 sacrifice_yields_nothing: argument(args, &format!("--sacrifice-yields-nothing-{players}p"), &argument(args, "--sacrifice-yields-nothing", "0")).parse::<u8>()? != 0,
+                elide_forced: argument(args, &format!("--elide-forced-{players}p"), &argument(args, "--elide-forced", "0")).parse::<u8>()? != 0,
+                baseline_ratchet: argument(args, &format!("--baseline-ratchet-{players}p"), &argument(args, "--baseline-ratchet", "0")).parse::<u8>()? != 0,
             };
             anyhow::ensure!(
                 (3..=7).contains(&config.rings)
@@ -1588,7 +1670,7 @@ pub fn main(args: &[String]) -> Result<()> {
             if !forever {
                 // Finite validation runs still produce a complete evaluation report.
                 while evaluation.is_some() && !control.stopping() {
-                    service_evaluation(&mut evaluation, &board, &dir, &settings, &mut control, config.eval_service_ticks)?;
+                    service_evaluation(&mut evaluation, &board, &dir, &settings, &mut control, config.eval_service_ticks, config.baseline_ratchet)?;
                 }
             }
             if let Some(job) = evaluation.as_ref() {
@@ -1624,6 +1706,8 @@ mod tests {
             eat_threshold: 0,
             require_useful_action: false,
             sacrifice_yields_nothing: false,
+            elide_forced: false,
+            baseline_ratchet: false,
         }
     }
     #[test]
@@ -1697,7 +1781,7 @@ mod tests {
         assert!((f64::try_from(draw).unwrap() - 0.445).abs() < 1e-6);
     }
     #[test]
-    fn live_feed_bounds_history_without_truncating_recordings() {
+    fn live_feed_publishes_the_same_document_a_finished_game_uses() {
         let root = std::env::temp_dir().join(format!("organism-live-test-{}", std::process::id()));
         let dir = root.join("2p");
         fs::create_dir_all(&dir).unwrap();
@@ -1709,8 +1793,12 @@ mod tests {
             File::open(root.join("current.json")).unwrap(),
         ))
         .unwrap();
-        assert_eq!(live["frames"].as_array().unwrap().len(), 64);
-        assert_eq!(live["frames"][63]["step"], 99);
+        // The live document carries the whole game, in the same shape a finished
+        // recording uses, so the viewer can scrub it like any other.
+        assert_eq!(live["frames"].as_array().unwrap().len(), 100);
+        assert_eq!(live["frames"][0]["step"], 0);
+        assert_eq!(live["frames"][99]["step"], 99);
+        assert!(live.get("live-window").is_none(), "live is not a separate format");
         assert_eq!(live["live-stage"], "evaluation");
         assert_eq!(
             ogf(&board, &e, 1, 1)["frames"].as_array().unwrap().len(),
@@ -1751,11 +1839,44 @@ mod tests {
             replay_game_cap: 256,
             mask_cutoffs: true,
             opponent_pool: vec![],
+            exploration_choices: 30,
         };
         state.round = 9;
         assert!(settings.sample(&state, 1000));
         state.round = 10;
         assert!(!settings.sample(&state, 2));
+        // With rounds disabled the opening is a fixed number of decisions, so
+        // it cannot grow to cover the whole game as games get shorter.
+        let by_choices = SearchSettings {
+            exploration_rounds: 0,
+            exploration_choices: 30,
+            ..settings.clone()
+        };
+        state.round = 99;
+        assert!(by_choices.sample(&state, 29), "the opening ignores how late the round is");
+        assert!(!by_choices.sample(&state, 30));
+        state.round = 0;
+        assert!(!by_choices.sample(&state, 500), "a long game stops sampling at the same point");
+    }
+    #[test]
+    fn baseline_record_separates_the_fixed_opponent_from_the_archive() {
+        // seat_models records which model played each seat: 0 is the candidate,
+        // 1 the fixed baseline, 2 the rotating archive entry.
+        let report = json!({"games":[
+            {"seat_models":[0,1],"termination":"win","candidate_won":true},
+            {"seat_models":[1,0],"termination":"win","candidate_won":true},
+            {"seat_models":[0,1],"termination":"win","candidate_won":false},
+            {"seat_models":[0,1],"termination":"repetition","candidate_won":false},
+            {"seat_models":[0,2],"termination":"win","candidate_won":false},
+            {"seat_models":[2,0],"termination":"win","candidate_won":false},
+        ]});
+        assert_eq!(record_against(&report, 1), (2, 1), "cutoffs are not losses");
+        assert_eq!(record_against(&report, 2), (0, 2));
+        // The ratchet threshold: a bare majority is not enough to advance.
+        assert!(crate::curriculum::lower_bound(2, 3) < 0.5);
+        assert!(crate::curriculum::lower_bound(8, 8) > 0.5);
+        assert!(crate::curriculum::lower_bound(4, 4) > 0.5);
+        assert_eq!(record_against(&json!({"games":[]}), 1), (0, 0));
     }
     #[test]
     fn background_candidate_is_frozen_and_job_is_durable() {
@@ -1774,6 +1895,7 @@ mod tests {
             replay_game_cap: 256,
             mask_cutoffs: true,
             opponent_pool: vec![],
+            exploration_choices: 30,
         };
         let mut job =
             EvaluationJob::create(&root, &board, &config, &net, 7, 1, false, &settings).unwrap();

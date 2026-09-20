@@ -1269,8 +1269,9 @@
 
 (defn introduce-highlights
   "Click a starting space → popup with available element types appears next
-   to it. Pick a type → element placed there. After two are placed, the
-   third space gets the remaining type automatically. No left-panel needed."
+   to it. Pick a type → element placed there. Once an organism has two of its
+   three spaces placed, the third gets the remaining type automatically. No
+   left-panel needed."
   [game board turn choices]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
@@ -1282,16 +1283,33 @@
         starting-spaces (get-in game [:players player :starting-spaces])
         {:keys [chosen-space progress]} @introduction
         all-types [:eat :grow :move]
-        used-types (set (vals progress))
-        available-types (vec (remove used-types all-types))
+        ;; A player can start with more than one organism: organisms are dealt
+        ;; round robin over the roster, so a solo player — or anyone on a RAIN
+        ;; board that carries more organisms than players — holds several at
+        ;; once. The starting spaces arrive grouped in consecutive threes, one
+        ;; organism each, which is the same grouping choice/introduce-choices
+        ;; builds its permutations from, and every organism needs its own eat,
+        ;; grow and move. Counting the types used across the whole roster left
+        ;; every space after the first three with nothing left to offer, which
+        ;; is what made a second organism impossible to place.
+        organism-groups (partition-all (count all-types) starting-spaces)
+        group-of (into {} (for [group organism-groups
+                                space group]
+                            [space group]))
+        types-left (fn [group prog]
+                     (vec (remove (set (keep prog group)) all-types)))
+        available-types (if chosen-space
+                          (types-left (group-of chosen-space) progress)
+                          [])
 
-        ;; Place element at space, auto-completing if only one type remains
+        ;; Place element at space, auto-completing the organism it belongs to
+        ;; once one of its spaces and one of its types are all that is left
         place-at!
         (fn [space type]
           (let [new-progress (assoc progress space type)
-                ;; If 2 placed and 1 starting space + 1 type remain, auto-place
-                remaining-spaces (remove (set (keys new-progress)) starting-spaces)
-                remaining-types (remove (set (vals new-progress)) all-types)
+                group (group-of space)
+                remaining-spaces (remove (set (keys new-progress)) group)
+                remaining-types (types-left group new-progress)
                 final-progress
                 (if (and (= 1 (count remaining-spaces))
                          (= 1 (count remaining-types)))
@@ -3634,21 +3652,37 @@
      last
      (:colors invocation)))))
 
+(def rain-player-name
+  "The rain holds a seat like anyone else — a colour, a place in the turn order,
+   and a turn, which game/start-next-turn plays for it. Nobody is ever going to
+   type a name into that seat, so the seat names itself."
+  "RAIN")
+
 (defn adjust-players
   [invocation player-count]
   (-> invocation
-      (assoc :players (take player-count @player-order))
-      (assoc :player-captures (take player-count @player-captures-order))))
+      (assoc :players (vec (take player-count @player-order)))
+      (assoc :player-captures (vec (take player-count @player-captures-order)))))
 
 (defn increase-players
+  "Open the rain's seat, with the rain already in it.
+
+   The name has to go into player-order and not just the invocation, because
+   players-input renders the roster out of the atom — leaving it blank there is
+   what made every RAIN game an invalid invocation, so CREATE stayed greyed out
+   as \"incomplete\" and a solo game could not be started at all."
   [invocation]
-  (let [player-count (inc (:player-count invocation))]
-    (adjust-players invocation player-count)))
+  (let [rain-index (:player-count invocation)]
+    (swap! player-order assoc rain-index rain-player-name)
+    (adjust-players invocation (inc rain-index))))
 
 (defn decrease-players
+  "Take the rain's seat back out, and forget the name along with it — otherwise
+   it turns up again in whatever ordinary seat that index later becomes."
   [invocation]
-  (let [player-count (:player-count invocation)]
-    (adjust-players invocation player-count)))
+  (let [rain-index (:player-count invocation)]
+    (swap! player-order assoc rain-index "")
+    (adjust-players invocation rain-index)))
 
 (def invocation-mutations
   {:RAIN

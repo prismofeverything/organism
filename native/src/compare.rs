@@ -33,16 +33,26 @@ pub fn main(args: &[String]) -> Result<()> {
     };
     let mut nets = vec![];
     for key in ["candidate", "opponent"] {
+        // Each side may carry its own network shape, so a model can be compared
+        // against one of a different size. Without this a change of architecture
+        // silently ends the series it was being measured in.
+        let blocks = spec[key]["blocks"]
+            .as_u64()
+            .map_or(config.blocks, |v| v as usize);
+        let filters = spec[key]["filters"].as_i64().unwrap_or(config.filters);
         let mut net = Network::new(
             config.players,
             board.grid(),
             board.action_size(),
-            config.blocks,
-            config.filters,
+            blocks,
+            filters,
             device,
         );
         net.vs
-            .load(output.join(spec[key]["weights"].as_str().context("weight path")?))?;
+            .load(output.join(spec[key]["weights"].as_str().context("weight path")?))
+            .with_context(|| {
+                format!("loading {key} as a {blocks}x{filters} network; set its blocks/filters in the manifest if it was trained at another size")
+            })?;
         net.vs.freeze();
         nets.push(net);
     }

@@ -13,7 +13,9 @@ exec native/target/release/organism-train train \
   --forever --players 2,3 --rings-2p 3 --curriculum-2p \
   --buffer 32768 --replay-game-cap 256 --cutoff-value mask --cutoff-value-2p draw \
   --require-useful-action 1 --eat-threshold 5 --sacrifice-yields-nothing 1 --stall-limit 15 \
-  --actors 16 --concurrent-games 96 --gpu-batch 96 --exploration-rounds 10 --sims 64 --threads 8 \
-  --eval-every 20 --eval-games-per-seat 4 --eval-service-ticks 6 --eval-max-steps 1500 \
+  --actors 16 --concurrent-games 96 --gpu-batch 96 --exploration-rounds 0 --exploration-choices 30 --threads 8 \
+  --sims 128 --sims-3p 64 --baseline-ratchet 1 \
+  --blocks 8 --filters 128 \
+  --eval-every 20 --eval-games-per-seat 8 --eval-service-ticks 6 --eval-max-steps 1500 \
   --duty 1 --vram-fraction 0.60 \
   --checkpoint checkpoints/organism-native "$@"
