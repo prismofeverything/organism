@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn the hand-inked source PNGs into clean, colourisable alpha mattes.
+"""Turn the hand-inked source PNGs into clean, colorisable alpha mattes.
 
 The sources are black ink on white at 3000x3000.  We invert luminance into an
 alpha channel (so the antialiased brush edges survive), drop any stroke that

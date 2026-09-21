@@ -3,11 +3,11 @@
 
 The deck is a 3 x 4 x 5 block of cards.  A hand's suit grade is nothing more
 than the smallest axis-aligned sub-block it fits inside: the whole block, a
-colour slab, a shape slab, or one line of five.  That sub-block's cross-section
+color slab, a shape slab, or one line of five.  That sub-block's cross-section
 -- how many cards share a number, 12 or 4 or 3 or 1 -- is what decides both
 which number patterns can exist in it and how rare they are.
 
-So the four sub-blocks are the columns and rarity is the height.  Every colour
+So the four sub-blocks are the columns and rarity is the height.  Every color
 flush in the deck stands in one column, every shape flush in another, and the
 number patterns are the links across.  The columns climb and shorten to the
 right, ending in a single hand.
@@ -39,9 +39,9 @@ HAIR = (234, 232, 239)
 # column, x position, block, cards per number
 COLUMNS = [
     ("mixed",   420, (3, 4, 5), "ANY SUITS",            "the whole deck"),
-    ("colour",  990, (1, 4, 5), "ALL ONE COLOUR",       "a colour slab"),
+    ("color",  990, (1, 4, 5), "ALL ONE COLOR",       "a color slab"),
     ("shape",  1560, (3, 1, 5), "ALL ONE SHAPE",        "a shape slab"),
-    ("perfect", 2090, (1, 1, 5), "ONE COLOUR + SHAPE",  "a single suit"),
+    ("perfect", 2090, (1, 1, 5), "ONE COLOR + SHAPE",  "a single suit"),
 ]
 XOF = {c[0]: c[1] for c in COLUMNS}
 SHORT = {"one pair": "Pair", "two pair": "Two Pair", "three of a kind": "Three of a Kind",
@@ -54,7 +54,7 @@ ORDER = ["one pair", "two pair", "three of a kind", "full house", "straight",
 def block(d, x, y, dims, unit=17):
     """An isometric solid standing on (x, y): the sub-deck as a shape."""
     a, b, c = dims
-    u = (-unit * 1.30 * a, -unit * 0.72 * a)      # colours, back-left
+    u = (-unit * 1.30 * a, -unit * 0.72 * a)      # colors, back-left
     v = (unit * 1.30 * b, -unit * 0.72 * b)       # shapes, back-right
     w = (0.0, -unit * 1.10 * c)                   # numbers, up
 
@@ -155,15 +155,15 @@ def main():
                font=f_small, fill=LINE, anchor="ms")
 
     notes = [
-        "Every colour flush in the deck stands in the second column, every shape flush "
+        "Every color flush in the deck stands in the second column, every shape flush "
         "in the third.  The links across are the number patterns — each one drawn "
         "wherever it can live.",
-        "A column stops where its block runs out of thickness.  A colour slab is four "
+        "A column stops where its block runs out of thickness.  A color slab is four "
         "shapes thick, so nothing in it can beat four of a kind; a shape slab is three "
-        "colours thick, so it stops at a full house;",
+        "colors thick, so it stops at a full house;",
         "a single suit is one card thick, so the only hand in it is the straight.  That "
         "is why the rarest hand in the deck is the only one in its column.",
-        "Colour and shape are incomparable as constraints — neither implies the other "
+        "Color and shape are incomparable as constraints — neither implies the other "
         "— but as blocks they are simply 4 thick and 3 thick, which is why they still "
         "fall in an order.",
         "Nothing here is chosen: 7 number patterns across 4 sub-blocks, less the 9 that "

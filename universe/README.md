@@ -2,7 +2,7 @@
 
 An ordinary deck varies on two axes: suit × rank. This one adds a third.
 
-    3 colours  ×  4 shapes  ×  5 numbers  =  60 cards
+    3 colors  ×  4 shapes  ×  5 numbers  =  60 cards
 
 Every combination appears exactly once, so the deck is a complete 3×4×5
 lattice — the same structure that makes SET work, with one more value on the
@@ -10,7 +10,7 @@ number axis and one fewer on the shape axis.
 
 | axis | values |
 |---|---|
-| colour | purple · green · yellow |
+| color | purple · green · yellow |
 | shape | eye · helix · pyramid · star |
 | number | 1 · 2 · 3 · 4 · 5 |
 
@@ -49,9 +49,9 @@ handled differently. The pyramid's four light rays are decoration, so they are
 simply dropped. The star's lower-left arm is one of its five points, so it is
 reconstructed — see below.
 
-## Colour, and reading it without colour
+## Color, and reading it without color
 
-The colour axis runs **purple → green → yellow**, darkest to lightest, and it
+The color axis runs **purple → green → yellow**, darkest to lightest, and it
 is that order which actually carries it.
 
 | | hex | L\* | C | h | as grey |
@@ -64,9 +64,9 @@ Read as greys those are 66, 119, 182 against paper at 255 — three steps of 53,
 63 and 73. Encoding the axis as brightness is what makes it survive any of the
 three dichromacies: there is no hue pair left to confuse, because the
 information is not in the hue. `proof/contact-grey.png` is the whole deck with
-the colour thrown away.
+the color thrown away.
 
-Within that ordering each colour is pushed as far as it will go. The purple is
+Within that ordering each color is pushed as far as it will go. The purple is
 the most saturated violet that still sits clearly darkest — chroma peaks at
 middling lightness, so being the dark one costs it something, and dropping it
 further turns it to near-black or, at the hues where chroma is highest, to
@@ -117,12 +117,12 @@ Three details that took a couple of passes to get right:
 
 Two concentric rings on a violet-black ground: four green eyes inside, and
 twelve of the other three shapes outside, alternating yellow and purple, with
-a thin gold ring between them. All three of the deck's colours appear.
+a thin gold ring between them. All three of the deck's colors appear.
 
-The shapes repeat every three places around the outer ring and the colours
+The shapes repeat every three places around the outer ring and the colors
 every two, so the whole pattern comes back around every six — half of twelve.
 Turn the card end over end and every symbol lands on a copy of itself in the
-same colour. That is the symmetry that matters, a card being a rectangle:
+same color. That is the symmetry that matters, a card being a rectangle:
 there is no way to tell from the back which way up one is being held.
 
 It holds exactly, not approximately, and the build checks it: the trimmed back
@@ -152,12 +152,12 @@ Splitting the suit in two changes the shape of the game:
 - **There is no high-card hand.** Only five numbers exist, so any hand without
   a repeat is already the whole run 1–2–3–4–5. Half of all poker hands are
   nothing; here none are.
-- **A colour-and-shape flush is always a straight.** A suit holds exactly five
+- **A color-and-shape flush is always a straight.** A suit holds exactly five
   cards, so taking five takes them all. There are exactly 12 such hands — the
   rarest thing in the deck at 1 in 455,126.
 - **Five of a kind can never be a flush**, and there is no shape four of a
-  kind: a colour holds only four shapes and a shape only three colours.
-- **Every flush beats four of a kind.** With 20 cards in a colour and 15 in a
+  kind: a color holds only four shapes and a shape only three colors.
+- **Every flush beats four of a kind.** With 20 cards in a color and 15 in a
   shape, even the commonest flush (a pair all in one shape, 1 in 843) is far
   rarer than four of a kind (1 in 46).
 
@@ -190,7 +190,7 @@ first, with a real example hand beside each.
 
 `out/universe-hand-lattice.png` (`make lattice`) shows the families. Seven rows,
 one per number pattern, rarity running left to right so position is the ranking;
-each row branches up into its colour flush and down into its shape flush. Colour
+each row branches up into its color flush and down into its shape flush. Color
 and shape are **incomparable** — neither implies the other — so the suit axis is
 a diamond, not a ladder.
 
@@ -204,19 +204,19 @@ than **the smallest axis-aligned sub-block it fits inside**:
 | grade | block | cards | to a number | caps at | hands |
 |---|---|---|---|---|---|
 | any suits | 3×4×5 | 60 | 12 | five of a kind | 7 |
-| all one colour | 1×4×5 | 20 | 4 | four of a kind | 6 |
+| all one color | 1×4×5 | 20 | 4 | four of a kind | 6 |
 | all one shape | 3×1×5 | 15 | 3 | full house | 5 |
-| one colour + shape | 1×1×5 | 5 | 1 | straight | 1 |
+| one color + shape | 1×1×5 | 5 | 1 | straight | 1 |
 
-That single column — *cards to a number* — decides everything. A colour slab is
+That single column — *cards to a number* — decides everything. A color slab is
 four shapes thick, so nothing in it can beat four of a kind. A shape slab is
-three colours thick, so it stops at a full house. A single suit is one card
+three colors thick, so it stops at a full house. A single suit is one card
 thick, so the only hand in it is the straight, which is why the rarest hand in
 the deck is the only one of its kind. **The nine impossible cells are not a
 quirk; they are the blocks being too thin to hold those patterns.**
 
 So the hand space is drawn as four columns, one per sub-block, with rarity as
-the height: every colour flush in the deck stands in one column, every shape
+the height: every color flush in the deck stands in one column, every shape
 flush in another, and the number patterns are the links across. The columns
 climb and shorten to the right, ending in a single hand.
 
@@ -230,7 +230,7 @@ Two consequences worth knowing:
 - **The straight's diamond closes exactly.** 244,800 ÷ 80 = 3,060 ÷ 255 = 12,
   and 244,800 ÷ 255 = 960 ÷ 80 = 12. Both routes land on 20,400, so for a
   straight the two constraints are exactly independent.
-- **Across the other rows they compound.** A colour flush costs a pair 98×, two
+- **Across the other rows they compound.** A color flush costs a pair 98×, two
   pair 120×, trips 164×, a full house 200× and four of a kind 494×. The
   better your numbers, the dearer the flush on top, because a strong number
   pattern has already spent your shapes.
@@ -240,24 +240,35 @@ Two consequences worth knowing:
 Poker's names carry no structure. These do: a group of matching cards is named
 for its size, and a hand made of two groups is *split*.
 
-| pattern | name | in a colour | in a shape |
+| pattern | name | in a color | in a shape |
 |---|---|---|---|
-| one pair | **dyad** | colour dyad | shape dyad |
-| two pair | **split tetrad** | colour split tetrad | shape split tetrad |
-| three of a kind | **triad** | colour triad | shape triad |
-| full house | **split pentad** | colour split pentad | shape split pentad |
-| four of a kind | **tetrad** | colour tetrad | — |
+| one pair | **dyad** | color dyad | shape dyad |
+| two pair | **split tetrad** | color split tetrad | shape split tetrad |
+| three of a kind | **triad** | color triad | shape triad |
+| full house | **split pentad** | color split pentad | shape split pentad |
+| four of a kind | **tetrad** | color tetrad | — |
 | five of a kind | **pentad** | — | — |
-| all five numbers | **sequence** | colour sequence | shape sequence |
+| all five numbers | **sequence** | color sequence | shape sequence |
 | … and both at once | **singularity** | | |
 
 So every hand in the deck is said in two words, and the words tell you what it
 is: a *shape split pentad* is three and two, all of one shape.
 
+## The key
+
+`out/universe-key.svg` (`make key`) is the deck stated in one card: the title,
+then three colors, four shapes, five numbers, then all sixty of them.
+
+The grid is six rows of ten, and it is laid out so the lattice shows. Color
+bands the rows two at a time, number bands the columns two at a time, and the
+shape steps on by one with every color *and* every number, which sets the whole
+field shimmering diagonally. Every one of the 3 × 4 × 5 combinations lands
+exactly once — the build asserts it rather than trusting the arithmetic.
+
 ## The figure
 
 `out/universe-pyramid.svg` (`make pyramid`) is the whole deck as one figure:
-shape down the left, any-suits up the middle, colour down the right, the three
+shape down the left, any-suits up the middle, color down the right, the three
 leaning in towards the singularity at the top. Arrows run from the middle out
 to either side — that is the constraint being applied — and the two sequences
 sweep up to the apex, the only place both constraints can hold at once.
@@ -268,6 +279,24 @@ joined dots, a triad three, a tetrad four, a pentad five; a split pattern is
 two rings side by side; and the sequence is five loose dots, because nothing
 matches. Under the glyph are the name, the odds, the rank, and a real example
 hand.
+
+Each axis stops at its own best hand rather than running past it, and that
+hand is drawn a size up — bigger glyph, bigger name, bigger cards — so the
+three pinnacles read as pinnacles: **shape split pentad**, **color tetrad**,
+and **pentad**, the most any one sub-block can hold. Two of them are the same
+hand twice over: both land on 1 in 22,756, which is why the figure has two
+shoulders at one height. The singularity above them is shown as the purple eye,
+the deck's own mark; any of the twelve suits would serve equally.
+
+**Vertical position is probability.** Every hand sits above every hand more
+likely than it, across all three axes, so the figure can be read straight off:
+higher beats lower, wherever it stands. Spacing is logarithmic in rarity, but
+opened out to a floor wherever two hands sit so close together that their
+blocks would collide — the *order* is exact everywhere, and only the spacing
+gives, and only where it must. That leaves the nodes unevenly spaced along any
+one axis, which is the honest result: hands do not come at regular intervals.
+A rule is drawn at each distinct probability, and the two that are exactly tied
+— color tetrad and shape split pentad, both 1 in 22,756 — share one.
 
 It is **vector throughout**. `trace_shapes.py` traces the four inked mattes
 with marching squares, simplifies them, and normalises each to the unit
@@ -283,7 +312,7 @@ off. Three axes converging on a circle rather than a point.
     make all                    # everything, MPC preset
     make faces PRESET=tgc       # faces at Game Crafter size
     make sheets PAPER=a4        # print-at-home imposition
-    make proof                  # contact sheets, colour and greyscale
+    make proof                  # contact sheets, color and greyscale
 
 | | |
 |---|---|

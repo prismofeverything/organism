@@ -14,9 +14,9 @@ SRC    := $(wildcard $(ROOT)/inputs/*.png)
 MATTES := $(patsubst $(ROOT)/inputs/%.png,$(ROOT)/shapes/%.png,$(SRC))
 RINGS  := $(ROOT)/shapes/rings.json
 
-.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid clean distclean
+.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid key clean distclean
 
-all: faces back sheets proof palette chart lattice space pyramid
+all: faces back sheets proof palette chart lattice space pyramid key
 
 shapes: $(MATTES)
 
@@ -53,6 +53,10 @@ $(ROOT)/shapes/paths.json: trace_shapes.py $(ROOT)/shapes/shapes.json
 pyramid: $(ROOT)/hands.json $(ROOT)/shapes/paths.json $(RINGS) make_pyramid.py
 	$(PY) make_pyramid.py
 	rsvg-convert -w 3700 $(ROOT)/out/universe-pyramid.svg -o $(ROOT)/out/universe-pyramid.png
+
+key: $(ROOT)/shapes/paths.json $(RINGS) make_key.py make_pyramid.py
+	$(PY) make_key.py
+	rsvg-convert -w 3200 $(ROOT)/out/universe-key.svg -o $(ROOT)/out/universe-key.png
 
 clean:
 	rm -rf $(ROOT)/out

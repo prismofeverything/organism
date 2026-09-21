@@ -15,19 +15,19 @@ GOTHIC = "/usr/share/fonts/opentype/urw-base35/URWGothic-Demi.otf"
 
 # (number pattern, suit pattern) -> name, what it is
 NAMES = {
-    ("straight", "perfect"):        ("Singularity", "all five of one colour and shape — a whole suit"),
-    ("four of a kind", "colour"):   ("Colour Four of a Kind", "four of one number in one colour, so all four shapes"),
+    ("straight", "perfect"):        ("Singularity", "all five of one color and shape — a whole suit"),
+    ("four of a kind", "color"):   ("Color Four of a Kind", "four of one number in one color, so all four shapes"),
     ("full house", "shape"):        ("Shape Full House", "three and two, all one shape"),
     ("straight", "shape"):          ("Shape Straight", "all five numbers, all one shape"),
     ("three of a kind", "shape"):   ("Shape Three of a Kind", "three of one number, all one shape"),
-    ("full house", "colour"):       ("Colour Full House", "three and two, all one colour"),
-    ("straight", "colour"):         ("Colour Straight", "all five numbers, all one colour"),
+    ("full house", "color"):       ("Color Full House", "three and two, all one color"),
+    ("straight", "color"):         ("Color Straight", "all five numbers, all one color"),
     ("two pair", "shape"):          ("Shape Two Pair", "two pairs, all one shape"),
     ("five of a kind", "mixed"):    ("Five of a Kind", "five of one number"),
-    ("three of a kind", "colour"):  ("Colour Three of a Kind", "three of one number, all one colour"),
+    ("three of a kind", "color"):  ("Color Three of a Kind", "three of one number, all one color"),
     ("one pair", "shape"):          ("Shape Pair", "a pair, all one shape"),
-    ("two pair", "colour"):         ("Colour Two Pair", "two pairs, all one colour"),
-    ("one pair", "colour"):         ("Colour Pair", "a pair, all one colour"),
+    ("two pair", "color"):         ("Color Two Pair", "two pairs, all one color"),
+    ("one pair", "color"):         ("Color Pair", "a pair, all one color"),
     ("four of a kind", "mixed"):    ("Four of a Kind", "four of one number"),
     ("straight", "mixed"):          ("Straight", "all five numbers"),
     ("full house", "mixed"):        ("Full House", "three of one number, two of another"),
@@ -39,12 +39,12 @@ NAMES = {
 FOOTNOTES = [
     "There is no high-card hand.  Only five numbers exist, so any hand without a repeat"
     " is already the whole run 1–2–3–4–5.",
-    "A colour-and-shape flush is always a straight, because a suit holds exactly five"
+    "A color-and-shape flush is always a straight, because a suit holds exactly five"
     " cards and taking five takes them all.",
-    "Five of a kind can never be a flush — a colour holds only four shapes and a shape"
-    " only three colours.  For the same reason there is no shape four of a kind.",
+    "Five of a kind can never be a flush — a color holds only four shapes and a shape"
+    " only three colors.  For the same reason there is no shape four of a kind.",
     "Every flush of either kind beats four of a kind: splitting the suit leaves only 20"
-    " cards in a colour and 15 in a shape.  Ranks 2 and 3 are exactly tied, at 240 hands each.",
+    " cards in a color and 15 in a shape.  Ranks 2 and 3 are exactly tied, at 240 hands each.",
 ]
 
 CW = 92                      # example card width
@@ -95,7 +95,7 @@ def main():
            f"{money(total)} possible hands from 60 cards.",
            font=f_sub, fill=grey)
     d.text((MARGIN, 182),
-           "the suit is split in two, so there are three kinds of flush: one colour, "
+           "the suit is split in two, so there are three kinds of flush: one color, "
            "one shape, or both at once.",
            font=f_sub, fill=grey)
     d.line((MARGIN, 248, W - MARGIN, 248), fill=ink, width=3)
@@ -127,7 +127,7 @@ def main():
         for j, (c, s, n) in enumerate(sorted(r["example"], key=lambda t: (t[2], t[0], t[1]))):
             key = (c, s, n)
             if key not in cache:
-                face = deck.render_face(deck.COLOUR_ORDER[c], deck.SHAPES[s], n + 1,
+                face = deck.render_face(deck.COLOR_ORDER[c], deck.SHAPES[s], n + 1,
                                         spec, table)
                 cache[key] = face.resize((CW, CH), Image.LANCZOS)
             x = cards_x + j * (CW + GAP)

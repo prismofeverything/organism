@@ -4,7 +4,7 @@
   python make_cards.py all                 everything, MPC preset
   python make_cards.py faces --preset tgc  just the faces, Game Crafter size
   python make_cards.py sheets --paper a4   print-at-home imposition
-  python make_cards.py proof               contact sheets, colour and grey
+  python make_cards.py proof               contact sheets, color and grey
 """
 import argparse
 import csv
@@ -26,8 +26,8 @@ PAPER = {  # width, height in inches
 }
 
 
-def tag(colour, shape, number):
-    return f"{colour}-{shape}-{number}"
+def tag(color, shape, number):
+    return f"{color}-{shape}-{number}"
 
 
 # ----------------------------------------------------------------- the cards
@@ -42,9 +42,9 @@ def build_faces(preset="mpc"):
         img = deck.render_face(c, s, n, spec, table)
         name = f"{i:02d}_{tag(c, s, n)}.png"
         img.save(dst / name)
-        rows.append({"n": i, "file": name, "colour": c, "shape": s, "number": n})
+        rows.append({"n": i, "file": name, "color": c, "shape": s, "number": n})
     with open(OUT / preset / "manifest.csv", "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=["n", "file", "colour", "shape", "number"])
+        w = csv.DictWriter(fh, fieldnames=["n", "file", "color", "shape", "number"])
         w.writeheader()
         w.writerows(rows)
     print(f"  {len(rows)} faces -> {dst}  ({spec})")
@@ -60,13 +60,13 @@ def build_back(preset="mpc"):
 
 # ------------------------------------------------------------- print at home
 
-def crop_marks(d, xs, ys, x0, y0, x1, y1, length=28, colour=(120, 120, 120)):
+def crop_marks(d, xs, ys, x0, y0, x1, y1, length=28, color=(120, 120, 120)):
     for x in xs:
-        d.line((x, y0 - length, x, y0 - 4), fill=colour, width=2)
-        d.line((x, y1 + 4, x, y1 + length), fill=colour, width=2)
+        d.line((x, y0 - length, x, y0 - 4), fill=color, width=2)
+        d.line((x, y1 + 4, x, y1 + length), fill=color, width=2)
     for y in ys:
-        d.line((x0 - length, y, x0 - 4, y), fill=colour, width=2)
-        d.line((x1 + 4, y, x1 + length, y), fill=colour, width=2)
+        d.line((x0 - length, y, x0 - 4, y), fill=color, width=2)
+        d.line((x1 + 4, y, x1 + length, y), fill=color, width=2)
 
 
 def build_sheets(paper="letter", dpi=300, cols=3, rows=3):
@@ -135,12 +135,12 @@ def build_proof():
     sc = 0.30
     cw, ch = round(spec.cut_w * sc), round(spec.cut_h * sc)
     gap, pad, head = 9, 24, 54
-    cols, rows = 5, 12                       # number across, colour x shape down
+    cols, rows = 5, 12                       # number across, color x shape down
     W = pad * 2 + cols * cw + (cols - 1) * gap
     H = head + pad * 2 + rows * ch + (rows - 1) * gap
     sheet = Image.new("RGB", (W, H), (245, 245, 247))
     d = ImageDraw.Draw(sheet)
-    d.text((pad, 20), "UNIVERSE  ·  3 colours × 4 shapes × 5 numbers = 60 cards",
+    d.text((pad, 20), "UNIVERSE  ·  3 colors × 4 shapes × 5 numbers = 60 cards",
            font=ImageFont.truetype(UI, 26), fill=(40, 40, 46))
     for i, (c, s, n) in enumerate(deck.deck()):
         r, col = divmod(i, cols)
@@ -152,7 +152,7 @@ def build_proof():
 
 
 def build_palette_proof():
-    """Show the lightness staircase that carries the colour axis."""
+    """Show the lightness staircase that carries the color axis."""
     from PIL import ImageFont
     f = ImageFont.truetype(UI, 24)
     fb = ImageFont.truetype(UI, 30)
@@ -164,7 +164,7 @@ def build_palette_proof():
         c = np.asarray(c, float) / 255
         return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
 
-    for i, (name, hx) in enumerate(deck.COLOURS.items()):
+    for i, (name, hx) in enumerate(deck.COLORS.items()):
         rgb = deck.hex_rgb(hx)
         y = lin(rgb) @ np.array([0.2126, 0.7152, 0.0722])
         g = int(round((y * 12.92 if y <= 0.0031308 else 1.055 * y ** (1 / 2.4) - 0.055) * 255))
@@ -174,7 +174,7 @@ def build_palette_proof():
         d.rectangle((x, 196, x + sw, 252), fill=(g, g, g))
         d.text((x, 40), f"{name}  {hx}", font=fb, fill=(30, 30, 36))
         d.text((x + 8, 262), f"L* {L:4.1f}   as grey {g}", font=f, fill=(90, 90, 96))
-    d.text((20, 8), "the colour axis is a lightness staircase — lower band is the "
+    d.text((20, 8), "the color axis is a lightness staircase — lower band is the "
                     "same swatch desaturated", font=f, fill=(140, 140, 146))
     img.save(PROOF / "palette.png")
     print(f"  palette -> {PROOF}/palette.png")

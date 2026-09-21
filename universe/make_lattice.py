@@ -3,12 +3,12 @@
 
 They are seven number patterns crossed with four suit grades, nine of the
 twenty-eight cells being impossible.  And the suit grade is itself two
-independent questions -- all one colour?  all one shape? -- which makes it a
+independent questions -- all one color?  all one shape? -- which makes it a
 diamond rather than a ladder, because neither implies the other.
 
 This draws that lattice with rarity along the horizontal axis, so position is
 the ranking: anything further right beats anything further left, whatever row
-it sits in.  Each row is one family, branching up into its colour flush and
+it sits in.  Each row is one family, branching up into its color flush and
 down into its shape flush.
 """
 import json
@@ -32,13 +32,13 @@ ROWS = [
     ("two pair", "Two Pair"),
     ("one pair", "Pair"),
 ]
-GRADE = {"mixed": "", "colour": "ONE COLOUR", "shape": "ONE SHAPE", "perfect": "COLOUR + SHAPE"}
+GRADE = {"mixed": "", "color": "ONE COLOR", "shape": "ONE SHAPE", "perfect": "COLOR + SHAPE"}
 
 # impossible upgrades, and why
 BLOCKED = {
-    ("four of a kind", "shape"): "no shape flush: a shape holds only 3 colours",
-    ("five of a kind", "colour"): "no flush at all: a colour holds only 4 shapes,"
-                                  " a shape only 3 colours",
+    ("four of a kind", "shape"): "no shape flush: a shape holds only 3 colors",
+    ("five of a kind", "color"): "no flush at all: a color holds only 4 shapes,"
+                                  " a shape only 3 colors",
     ("full house", "perfect"): None, ("three of a kind", "perfect"): None,
     ("two pair", "perfect"): None, ("one pair", "perfect"): None,
     ("four of a kind", "perfect"): None, ("five of a kind", "perfect"): None,
@@ -99,7 +99,7 @@ def main():
         d.ellipse((px - 11, py - 11, px + 11, py + 11),
                   fill=INK if k != "p" else "white", outline=INK, width=3)
     d.text((pts["m"][0] - 22, pts["m"][1]), "the hand", font=f_mult, fill=GREY, anchor="rm")
-    d.text((pts["c"][0], pts["c"][1] - 26), "ONE COLOUR", font=f_grade, fill=GREY, anchor="ms")
+    d.text((pts["c"][0], pts["c"][1] - 26), "ONE COLOR", font=f_grade, fill=GREY, anchor="ms")
     d.text((pts["s"][0], pts["s"][1] + 40), "ONE SHAPE", font=f_grade, fill=GREY, anchor="ms")
     d.text((pts["p"][0] + 22, pts["p"][1]), "both — straight only",
            font=f_mult, fill=GREY, anchor="lm")
@@ -116,7 +116,7 @@ def main():
         d.text((130, y), label, font=f_row, fill=INK, anchor="lm")
 
         pos = {}
-        for suit, dy in (("mixed", 0), ("colour", -BRANCH), ("shape", BRANCH), ("perfect", 0)):
+        for suit, dy in (("mixed", 0), ("color", -BRANCH), ("shape", BRANCH), ("perfect", 0)):
             if (num, suit) in cell:
                 pos[suit] = (x_of(cell[(num, suit)][0]), y + dy)
 
@@ -130,9 +130,9 @@ def main():
             d.text(((x1 + x2) / 2, (y1 + y2) / 2 - 16),
                    f"÷{mult:,.0f}", font=f_mult, fill=GREY, anchor="ms")
 
-        edge("mixed", "colour")
+        edge("mixed", "color")
         edge("mixed", "shape")
-        edge("colour", "perfect")
+        edge("color", "perfect")
         edge("shape", "perfect")
 
         for suit, (px, py) in pos.items():
@@ -159,7 +159,7 @@ def main():
         "Seven number patterns, the ones you already know, crossed with four suit grades.  "
         "Nine of the twenty-eight cells are impossible, which leaves nineteen.",
         "\u00f7 marks what an upgrade costs.  The numbers in the dots are the ranks from "
-        "the hand chart.  Colour and shape are independent, neither implying the other, "
+        "the hand chart.  Color and shape are independent, neither implying the other, "
         "so the suit axis is a diamond rather than a ladder.",
         "The straight's diamond closes exactly: 80 \u00d7 255 and 255 \u00d7 80 both land "
         "on 20,400, so it costs the same whichever constraint you add first.",

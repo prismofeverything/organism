@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UNIVERSE -- a 60 card deck on three axes: 3 colours x 4 shapes x 5 numbers.
+"""UNIVERSE -- a 60 card deck on three axes: 3 colors x 4 shapes x 5 numbers.
 
 Every card carries its number and shape in the top-left and bottom-right
 corners (the second copy rotated 180 degrees), and in the middle that many
@@ -21,9 +21,9 @@ HERE = pathlib.Path(__file__).parent
 SHAPES = ["eye", "helix", "pyramid", "star"]
 NUMBERS = [1, 2, 3, 4, 5]
 
-# The colour axis runs purple -> green -> yellow, darkest to lightest, and it
+# The color axis runs purple -> green -> yellow, darkest to lightest, and it
 # is that lightness order that carries it: read as greys the three are 66, 119
-# and 182 against paper at 255, so they stay apart for a colourblind player
+# and 182 against paper at 255, so they stay apart for a colorblind player
 # with no hue to go on.  Within that each is pushed as far as it will go --
 # the purple to the most saturated violet that still sits clearly darkest
 # (chroma peaks at middling lightness, so being the dark one costs it
@@ -31,15 +31,15 @@ NUMBERS = [1, 2, 3, 4, 5]
 # forest green rather than the teal an evenly spaced hue triad would force,
 # and the yellow left exactly where it was.  Chroma is held at 88 per cent of
 # the sRGB gamut edge so CMYK has somewhere to land.
-COLOURS = {
+COLORS = {
     "purple": "#651694",   # L* 28, C 75, h 316
     "green":  "#26883F",   # L* 50, C 54, h 145
     "yellow": "#E6AD24",   # L* 74, C 72, h  82
 }
 
-# Index order for the colour axis, shared with hands.py so a card index means
+# Index order for the color axis, shared with hands.py so a card index means
 # the same thing in the enumeration and on the page.
-COLOUR_ORDER = list(COLOURS)
+COLOR_ORDER = list(COLORS)
 
 # Each shape's own resting orientation, applied before anything else.
 BASE_ROTATION = {"eye": 0.0, "helix": 0.0, "pyramid": 0.0, "star": 0.0}
@@ -231,9 +231,9 @@ def rosette(name, n, out_diameter, table=None):
 
 # -------------------------------------------------------------------- drawing
 
-def stamp(card, mask, colour, cx, cy):
-    """Paste `mask` as flat `colour`, centred on (cx, cy) in card pixels."""
-    ink = Image.new("RGB", mask.size, colour)
+def stamp(card, mask, color, cx, cy):
+    """Paste `mask` as flat `color`, centred on (cx, cy) in card pixels."""
+    ink = Image.new("RGB", mask.size, color)
     card.paste(ink, (round(cx - mask.width / 2), round(cy - mask.height / 2)), mask)
 
 
@@ -249,7 +249,7 @@ def digit_mask(d, cap_px, font_path=FONT):
     return glyph.resize((max(1, round(glyph.width * s)), round(cap_px)), Image.LANCZOS)
 
 
-def index_block(shape_mask, meta, number, colour, L):
+def index_block(shape_mask, meta, number, color, L):
     """The corner index -- number over shape -- on its own transparent tile."""
     num = digit_mask(number, L["num_cap"])
     glyph = _tile(shape_mask, meta, L["glyph_d"] / 2).crop(
@@ -257,25 +257,25 @@ def index_block(shape_mask, meta, number, colour, L):
     w = max(L["index_w"], glyph.width)
     h = L["num_cap"] + L["num_gap"] + glyph.height
     tile = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ink = Image.new("RGB", num.size, colour)
+    ink = Image.new("RGB", num.size, color)
     tile.paste(ink, (round((w - num.width) / 2), 0), num)
-    ink = Image.new("RGB", glyph.size, colour)
+    ink = Image.new("RGB", glyph.size, color)
     tile.paste(ink, (round((w - glyph.width) / 2), L["num_cap"] + L["num_gap"]), glyph)
     return tile
 
 
-def render_face(colour_name, shape, number, spec, table=None, bg="#FFFFFF"):
+def render_face(color_name, shape, number, spec, table=None, bg="#FFFFFF"):
     L = LAYOUT
-    colour = hex_rgb(COLOURS[colour_name])
+    color = hex_rgb(COLORS[color_name])
     card = Image.new("RGB", (spec.w, spec.h), hex_rgb(bg))
 
     ros, (rx, ry) = rosette(shape, number, L["field_d"], table)
     fx, fy = spec.at(spec.cut_w / 2, spec.cut_h / 2)
-    ink = Image.new("RGB", ros.size, colour)
+    ink = Image.new("RGB", ros.size, color)
     card.paste(ink, (round(fx - rx), round(fy - ry)), ros)
 
     shape_mask, shape_meta = load_shape(shape)
-    tile = index_block(shape_mask, shape_meta, number, colour, L)
+    tile = index_block(shape_mask, shape_meta, number, color, L)
     x, y = spec.at(L["margin_x"], L["margin_y"])
     card.paste(tile, (round(x), round(y)), tile)
     x, y = spec.at(spec.cut_w - L["margin_x"] - tile.width,
@@ -285,7 +285,7 @@ def render_face(colour_name, shape, number, spec, table=None, bg="#FFFFFF"):
     return card
 
 
-def _ring(card, names, colours, centre, ring_r, rho, phase=0.0):
+def _ring(card, names, colors, centre, ring_r, rho, phase=0.0):
     """One ring of shapes, each turned to face outward."""
     cx, cy = centre
     n = len(names)
@@ -296,7 +296,7 @@ def _ring(card, names, colours, centre, ring_r, rho, phase=0.0):
         if phi:
             tile = tile.rotate(-phi, resample=Image.BICUBIC,
                                center=(tile.width / 2, tile.height / 2))
-        stamp(card, tile, hex_rgb(COLOURS[colours[k % len(colours)]]),
+        stamp(card, tile, hex_rgb(COLORS[colors[k % len(colors)]]),
               cx + ring_r * math.sin(math.radians(phi)),
               cy - ring_r * math.cos(math.radians(phi)))
 
@@ -322,9 +322,9 @@ def render_back(spec, ground="#191324"):
     """Two concentric rings: four eyes inside, and twelve of the remaining
     three shapes outside, alternating yellow and purple.
 
-    The shapes repeat every three places and the colours every two, so the
+    The shapes repeat every three places and the colors every two, so the
     pattern comes back around every six -- half of twelve.  Turn the card end
-    over end and every symbol lands on a copy of itself in the same colour,
+    over end and every symbol lands on a copy of itself in the same color,
     which is the symmetry that matters, a card being a rectangle: there is no
     way to tell from the back which way up one is being held.
 
@@ -344,7 +344,7 @@ def render_back(spec, ground="#191324"):
           centre, ring_r, rho)
 
     gap = ring_r - rho / 0.92
-    stamp(face, annulus(2 * gap + 16, gap, 4.0), hex_rgb(COLOURS["yellow"]), *centre)
+    stamp(face, annulus(2 * gap + 16, gap, 4.0), hex_rgb(COLORS["yellow"]), *centre)
 
     inner = gap * 0.90
     r_in = inner / (1 + math.sin(math.pi / 4))
@@ -359,4 +359,4 @@ def render_back(spec, ground="#191324"):
 
 
 def deck():
-    return [(c, s, n) for c in COLOURS for s in SHAPES for n in NUMBERS]
+    return [(c, s, n) for c in COLORS for s in SHAPES for n in NUMBERS]

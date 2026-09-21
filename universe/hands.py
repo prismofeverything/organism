@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exact hand frequencies for the UNIVERSE deck.
 
-A card is (colour, shape, number) over 3 x 4 x 5 = 60.  Splitting the suit in
+A card is (color, shape, number) over 3 x 4 x 5 = 60.  Splitting the suit in
 two gives three kinds of flush instead of one, and because there are only five
 numbers, any hand without a repeat is automatically the full run 1-2-3-4-5.
 
@@ -17,7 +17,7 @@ from collections import Counter
 HERE = pathlib.Path(__file__).parent
 import deck as _deck
 
-COLOURS = _deck.COLOUR_ORDER          # index order, shared with the renderer
+COLORS = _deck.COLOR_ORDER          # index order, shared with the renderer
 SHAPES = _deck.SHAPES
 NUMBERS = _deck.NUMBERS
 
@@ -45,12 +45,12 @@ def classify(hand):
         cols |= 1 << c
         shps |= 1 << s
         tally[n] += 1
-    one_colour = cols in (1, 2, 4)
+    one_color = cols in (1, 2, 4)
     one_shape = shps in (1, 2, 4, 8)
-    if one_colour and one_shape:
+    if one_color and one_shape:
         suit = "perfect"
-    elif one_colour:
-        suit = "colour"
+    elif one_color:
+        suit = "color"
     elif one_shape:
         suit = "shape"
     else:

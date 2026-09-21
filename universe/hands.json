@@ -35,7 +35,7 @@
   },
   {
    "numbers": "four of a kind",
-   "suit": "colour",
+   "suit": "color",
    "count": 240,
    "example": [
     [
@@ -163,7 +163,7 @@
   },
   {
    "numbers": "full house",
-   "suit": "colour",
+   "suit": "color",
    "count": 1440,
    "example": [
     [
@@ -195,7 +195,7 @@
   },
   {
    "numbers": "straight",
-   "suit": "colour",
+   "suit": "color",
    "count": 3060,
    "example": [
     [
@@ -291,7 +291,7 @@
   },
   {
    "numbers": "three of a kind",
-   "suit": "colour",
+   "suit": "color",
    "count": 5760,
    "example": [
     [
@@ -355,7 +355,7 @@
   },
   {
    "numbers": "two pair",
-   "suit": "colour",
+   "suit": "color",
    "count": 12960,
    "example": [
     [
@@ -387,7 +387,7 @@
   },
   {
    "numbers": "one pair",
-   "suit": "colour",
+   "suit": "color",
    "count": 23040,
    "example": [
     [
