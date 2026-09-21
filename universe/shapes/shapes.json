@@ -1,0 +1,124 @@
+{
+  "eye": {
+    "size": [
+      2360,
+      1358
+    ],
+    "circle_centre": [
+      1181.5,
+      576.5
+    ],
+    "circle_radius": 1181.49,
+    "centroid": [
+      1257.49,
+      664.16
+    ],
+    "dropped_components": [],
+    "ink_fraction": 0.4507
+  },
+  "helix": {
+    "size": [
+      1713,
+      2528
+    ],
+    "circle_centre": [
+      672.86,
+      1226.71
+    ],
+    "circle_radius": 1328.89,
+    "centroid": [
+      853.4,
+      1422.29
+    ],
+    "dropped_components": [
+      [
+        "speck",
+        5
+      ],
+      [
+        "speck",
+        1
+      ]
+    ],
+    "ink_fraction": 0.2496
+  },
+  "pyramid": {
+    "size": [
+      2445,
+      2017
+    ],
+    "circle_centre": [
+      1228.37,
+      1361.25
+    ],
+    "circle_radius": 1352.72,
+    "centroid": [
+      1168.36,
+      1293.36
+    ],
+    "dropped_components": [
+      [
+        "clipped",
+        57234
+      ],
+      [
+        "clipped",
+        14717
+      ],
+      [
+        "clipped",
+        51678
+      ],
+      [
+        "clipped",
+        39412
+      ],
+      [
+        "speck",
+        1
+      ],
+      [
+        "speck",
+        1
+      ],
+      [
+        "speck",
+        1
+      ],
+      [
+        "speck",
+        1
+      ],
+      [
+        "speck",
+        1
+      ],
+      [
+        "speck",
+        2
+      ],
+      [
+        "speck",
+        1
+      ]
+    ],
+    "ink_fraction": 0.2717
+  },
+  "star": {
+    "size": [
+      2990,
+      2544
+    ],
+    "circle_centre": [
+      1520.6,
+      1483.48
+    ],
+    "circle_radius": 1713.39,
+    "centroid": [
+      1504.34,
+      1388.28
+    ],
+    "dropped_components": [],
+    "ink_fraction": 0.3249
+  }
+}
