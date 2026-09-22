@@ -10,6 +10,11 @@
         {:games {play-key {... :channels #{channel ...}}}}
       — `find-game!` / `append-channel!` / `remove-channel!`.
 
+   Games that hide information from their own players (universe, so far) also
+   record who is on the other end of each socket — `watch!` — and broadcast a
+   separately built message per watcher with `send-views!` instead of one
+   shared state with `send-channels!`.
+
    Each game keeps its OWN `games` atom (the per-game game record differs —
    bots/history/ruleset/etc.) and supplies the game-specific lifecycle
    (`connect!` / `disconnect!` / `notify-clients!`) plus `broadcast-state!`.
@@ -83,6 +88,33 @@
       (do (append-channel! games-atom play-key channel)
           (update existing :channels conj channel)))))
 
+(defn watch!
+  "Register `channel` as a watcher of play-key on behalf of `player`.
+
+   Every game here until now has broadcast one identical state to every
+   channel, which works because none of them hide anything.  A game with
+   private information -- a hand of cards -- has to know who is on the other
+   end of each socket, and a bare set of channels cannot say.  `player` is nil
+   for an observer."
+  [games-atom play-key channel player]
+  (swap! games-atom update-in [:games play-key]
+         (fn [game]
+           (-> game
+               (update :channels (fnil conj #{}) channel)
+               (assoc-in [:watchers channel] player)))))
+
+(defn send-views!
+  "Send every watcher its own view of the state.
+
+   `message-for` is called once per watcher with that watcher's player name
+   (nil for an observer) and returns the message to send them.  A game that
+   hides nothing should keep using `send-channels!` -- this exists so the one
+   that does hide something can cut the state down per person at the edge,
+   rather than trusting every client not to look."
+  [watchers message-for]
+  (doseq [[channel player] watchers]
+    (send! channel (message-for player))))
+
 (defn remove-channel!
   "Drop channel from play-key; remove the game entirely when no channels remain."
   [games-atom play-key channel]
@@ -92,7 +124,9 @@
                                    (get-in gs [:games play-key :channels]))]
              (if (empty? remaining)
                (update gs :games dissoc play-key)
-               (assoc-in gs [:games play-key :channels] (set remaining)))))))
+               (-> gs
+                   (assoc-in [:games play-key :channels] (set remaining))
+                   (update-in [:games play-key :watchers] dissoc channel)))))))
 
 ;; ── Route wiring ────────────────────────────────────────────────────────────
 

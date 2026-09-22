@@ -1,6 +1,6 @@
 ;; shadow-cljs configuration
-;; Run:  npx shadow-cljs watch organism journey oroboros eridu future   (dev)
-;;       npx shadow-cljs release organism journey oroboros eridu future (prod)
+;; Run:  npx shadow-cljs watch organism journey oroboros eridu future universe   (dev)
+;;       npx shadow-cljs release organism journey oroboros eridu future universe (prod)
 
 {;; Pull deps + source-paths from project.clj
  :lein true
@@ -49,6 +49,13 @@
    :asset-path "/js"
    :modules {:eridu {:init-fn eridu.play/init!}}
    :devtools {:after-load eridu.play/mount-components}}
+
+  :universe
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:universe {:init-fn universe.play/init!}}
+   :devtools {:after-load universe.play/mount-components}}
 
   :future
   {:target :browser

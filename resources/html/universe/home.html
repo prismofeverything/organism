@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html style="background-color:#12101c">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UNIVERSE</title>
+    {% style "/css/screen.css" %}
+    <style>
+      body { background:#12101c; color:#d8d2e8; font-family: monospace; margin:0; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 72px 24px; }
+      h1 { color:#E6AD24; letter-spacing: 8px; font-size: 42px; margin:0 0 8px 0; }
+      .sub { color:#6b6480; margin-bottom: 40px; }
+      .axes { display:flex; gap:28px; margin: 28px 0 40px 0; }
+      .axis { flex:1; }
+      .axis b { color:#E6AD24; display:block; margin-bottom:6px; }
+      .axis span { color:#8f89a6; font-size: 13px; }
+      a.nav { display:inline-block; color:#12101c; background:#E6AD24;
+              padding:10px 22px; border-radius:6px; text-decoration:none;
+              margin-right:10px; margin-bottom:10px; }
+      a.alt { background:#2b2740; color:#d8d2e8; }
+      p { line-height: 1.6; color:#b6afc9; }
+      .swatch { display:inline-block; width:14px; height:14px; border-radius:3px;
+                vertical-align:-2px; margin-right:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>UNIVERSE</h1>
+      <div class="sub">hold&rsquo;em, played with a deck on three axes</div>
+
+      <p>An ordinary deck varies on two axes: suit &times; rank. This one adds a
+      third &mdash; three colors, four shapes, five numbers, sixty cards, every
+      combination exactly once.</p>
+
+      <div class="axes">
+        <div class="axis"><b>color</b><span>
+          <span class="swatch" style="background:#651694"></span>purple ·
+          <span class="swatch" style="background:#26883F"></span>green ·
+          <span class="swatch" style="background:#E6AD24"></span>yellow</span></div>
+        <div class="axis"><b>shape</b><span>eye · helix · pyramid · star</span></div>
+        <div class="axis"><b>number</b><span>1 · 2 · 3 · 4 · 5</span></div>
+      </div>
+
+      <p>Two cards to you, three to the table, turned one at a time. Your hand is
+      your two and all three &mdash; five cards, never a choice of which five, so
+      every hand you hold is one of the nineteen on the chart at exactly the
+      rarity printed beside it.</p>
+
+      <p style="color:#6b6480">There is no high-card hand. Only five numbers
+      exist, so five cards without a repeat are already the whole run.</p>
+
+      <div style="margin-top:36px">
+        {% if session-player %}
+        <a class="nav" href="/universe/create">new table</a>
+        <a class="nav alt" href="/universe/play">your tables</a>
+        {% else %}
+        <a class="nav" href="/login?redirect=/universe/create">sign in to play</a>
+        {% endif %}
+        <a class="nav alt" href="/universe/observe">watch</a>
+        <a class="nav alt" href="/universe/rules">the chart</a>
+      </div>
+    </div>
+  </body>
+</html>

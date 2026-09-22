@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html style="background-color:#12101c">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UNIVERSE</title>
+  </head>
+  <body>
+    <div id="universe"></div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{player|js}};
+      var playKey = {{play|js}};
+    </script>
+    {% script "/js/universe.js" %}
+  </body>
+</html>

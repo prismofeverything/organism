@@ -45,8 +45,8 @@
   :min-lein-version "2.0.0"
 
   ;; ClojureScript is built by shadow-cljs, not Leiningen.
-  ;; Dev:   npx shadow-cljs watch organism journey oroboros eridu future
-  ;; Prod:  npx shadow-cljs release organism journey oroboros eridu future
+  ;; Dev:   npx shadow-cljs watch organism journey oroboros eridu future universe
+  ;; Prod:  npx shadow-cljs release organism journey oroboros eridu future universe
   ;; See shadow-cljs.edn for build configuration.
 
   :source-paths ["src/clj" "src/cljs" "src/cljc" "src/java"]
@@ -69,7 +69,7 @@
 
   :profiles
   {;; ClojureScript is built by shadow-cljs out of band (see deploy.sh or
-   ;; `npx shadow-cljs release organism journey oroboros eridu future`). Shadow
+   ;; `npx shadow-cljs release organism journey oroboros eridu future universe`). Shadow
    ;; writes to resources/public/js/, which is already on the resource
    ;; path, so the uberjar picks it up automatically.
    :uberjar {:omit-source true

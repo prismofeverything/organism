@@ -14,6 +14,8 @@
    [organism.routes.eridu :refer [eridu-routes]]
    [organism.routes.eridu-ws :refer [eridu-ws-routes]]
    [organism.routes.future :refer [future-routes]]
+   [organism.routes.universe :refer [universe-routes]]
+   [organism.routes.universe-ws :refer [universe-ws-routes]]
    [organism.routes.future-ws :refer [future-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
@@ -46,11 +48,13 @@
        
        (eridu-routes db)
        (future-routes db)
+       (universe-routes db)
        (websocket-routes db)
        (journey-ws-routes db)
        (oroboros-ws-routes)
        (eridu-ws-routes db)
-       (future-ws-routes)]))
+       (future-ws-routes)
+       (universe-ws-routes db)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})

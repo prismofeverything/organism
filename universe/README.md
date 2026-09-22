@@ -307,6 +307,90 @@ cards are placed with the identical geometry the printed deck uses, at about
 The silhouette, for the record, is a **frustum**: a pyramid with its point cut
 off. Three axes converging on a circle rather than a point.
 
+## Playing it online
+
+`/universe` on the ORGANISM server is UNIVERSE hold'em: two cards to each
+player, three to the table, turned one at a time, four betting rounds,
+no-limit, everyone starting on the same stack until one player holds them all.
+The rules are `src/cljc/universe/`, and `make web` emits the deck's geometry to
+`resources/public/universe/deck.json` so the browser draws the printed card
+rather than a second approximation of it — the rosette packing and the back's
+emblem are computed by `deck.py` either way.
+
+### Why the hand is five cards and the board is three
+
+Hold'em deals seven and keeps the best five. That does not survive this deck,
+and the reason is the number axis being only five wide. Measured over the best
+five of N, dealt at random:
+
+| N | ranks still reachable | inversions | the worst hand that can exist |
+|---|---|---|---|
+| 5 | 17/18 | 0 | dyad, 41.3% |
+| 6 | 17/18 | 0 | split tetrad, 41.0% |
+| 7 | 16/18 | 2 | split tetrad, 15.2% |
+| 8 | 16/18 | 9 | split tetrad, 2.6% |
+| 9 | 15/18 | 6 | split pentad, 13.0% |
+
+An *inversion* is a pair where the better-ranked hand ends up the more common
+one — zero means the table is still playing the chart. By seven cards the
+pigeonhole has eaten two rows outright: `triad` and `dyad` cannot be made at
+all, because seven cards over five numbers always contain two pairs or better.
+The split pentad, which the chart calls 1 in 19, arrives 38% of the time.
+
+**A draw round is worse, not better.** Each number has twelve cards rather than
+four, so drawing to a pair improves about 46% of the time against 12.5% in a
+real deck, while drawing to a flush is as hard as ever. All the improvement
+runs along the number axis and the sequence — which nobody draws toward —
+falls behind hands it is supposed to beat: 7 to 12 inversions at every discard
+cap, including a cap of one.
+
+Shortening the hand instead is worse still, and for a reason the deck already
+states. At three cards 42% of hands are `mixed all distinct` and at four cards
+20% are — pure nothing. *There is no high-card hand* only at five, because five
+is where having no repeat means holding all five numbers. Three- and four-card
+charts exist and are perfectly countable (34,220 and 487,635 hands, 10 and 15
+kinds); they simply give the deck back the junk hand it does not currently have.
+
+So the hand is five cards and nobody selects, which leaves only the question of
+how many of the five are shared. More shared cards make split pots; more
+private cards make decisions:
+
+| split | chop, 2 / 3 / 6 players | spread of starting-hand equity |
+|---|---|---|
+| 5+0 | 0.07 / 0.13 / 0.23% | sd 28.9%, 10–90 band 1–76% |
+| 4+1 | 0.18 / 0.25 / 0.35% | sd 17.9%, 18–64% |
+| 3+2 | 0.36 / 0.43 / 0.76% | sd 12.3%, 21–48% |
+| **2+3** | **1.06 / 1.38 / 2.68%** | **sd 8.67%, 23.2–45.0%** |
+| 1+4 | 5.3 / 7.6 / 14.2% | sd 9.4%, 22–47% |
+| *real Texas hold'em* | *3.78 / 4.58 / 7.39%* | *sd 9.01%, 23.1–45.2%* |
+
+Two hole cards and three shared is Texas hold'em's game to within a third of a
+percent on starting-hand spread, with a third of the split pots — because with
+five cards total no best-of-seven selection ever collapses two different
+holdings onto the same board hand. Every card you hold counts. And each player's
+five cards are a uniform five-card hand, so **all nineteen rows occur at exactly
+the frequency printed against them**: the chart is the game, not a summary of it.
+
+### Breaking ties
+
+Chart rank first. Then the numbers, the way poker reads them — group size, then
+number, five high. Then the colors, purple over green over yellow.
+
+Numbers alone cannot carry it: five numbers is too few, and a numbers-only
+kicker splits 18% of heads-up pots and 32% of six-handed ones, against 4–7% for
+a real deck. Color brings that to 6% and 11%, which is where poker lives.
+
+Shape never breaks a tie, and that is the point. The deck orders its three
+colors by lightness and gives its four marks no order at all, so using exactly
+the axis that *is* ordered is what lands the chop rate in the right place —
+adding shape as well would drive it to 0.6%, which is fewer split pots than
+poker wants and a ranking the deck deliberately does not have.
+
+One consequence worth knowing: the chart's single tie — a color tetrad and a
+shape split pentad, both 1 in 22,756 — is broken in play by the group-size rule,
+so the tetrad takes it. The cascade has to do something, and comparing the
+bigger group first is what it does everywhere else.
+
 ## Building
 
     make all                    # everything, MPC preset

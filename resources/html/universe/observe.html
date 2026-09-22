@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html style="background-color:#12101c">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UNIVERSE - TABLES</title>
+  </head>
+  <body>
+    <div id="universe"></div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{session-player|js}};
+      var playKey = "";
+      var isObserve = true;
+      var observeGames = {{observe-games|js}};
+    </script>
+    {% script "/js/universe.js" %}
+  </body>
+</html>

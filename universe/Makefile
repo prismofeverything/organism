@@ -14,9 +14,9 @@ SRC    := $(wildcard $(ROOT)/inputs/*.png)
 MATTES := $(patsubst $(ROOT)/inputs/%.png,$(ROOT)/shapes/%.png,$(SRC))
 RINGS  := $(ROOT)/shapes/rings.json
 
-.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid key clean distclean
+.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid key web clean distclean
 
-all: faces back sheets proof palette chart lattice space pyramid key
+all: faces back sheets proof palette chart lattice space pyramid key web
 
 shapes: $(MATTES)
 
@@ -53,6 +53,14 @@ $(ROOT)/shapes/paths.json: trace_shapes.py $(ROOT)/shapes/shapes.json
 pyramid: $(ROOT)/hands.json $(ROOT)/shapes/paths.json $(RINGS) make_pyramid.py
 	$(PY) make_pyramid.py
 	rsvg-convert -w 3700 $(ROOT)/out/universe-pyramid.svg -o $(ROOT)/out/universe-pyramid.png
+
+# the deck's geometry as data for the browser, so the online game draws the
+# same card the printer does -- see src/cljs/universe/card.cljs
+WEB := $(ROOT)/../resources/public/universe/deck.json
+
+web: $(WEB)
+$(WEB): make_web.py deck.py $(ROOT)/shapes/paths.json $(RINGS)
+	$(PY) make_web.py
 
 key: $(ROOT)/shapes/paths.json $(RINGS) make_key.py make_pyramid.py
 	$(PY) make_key.py
