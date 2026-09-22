@@ -146,6 +146,31 @@
   [cards]
   (get chart-index [(number-pattern cards) (suit-grade cards)]))
 
+(defn describe-hand
+  "The hand said the way a player says it out loud: the chart name, then the
+   numbers that actually make it.
+
+     \"dyad of 2s\"                    one pair
+     \"split tetrad, 4s and 2s\"       two groups of the same size
+     \"split pentad, 3s over 5s\"      two groups of different sizes
+     \"color tetrad of 3s\"            the suit grade rides in front
+     \"sequence\"                      nothing repeats, so there is nothing to name
+
+   Equal groups are joined with \"and\" and unequal ones with \"over\", so the
+   bigger group is never in doubt. Kickers are left out: at a showdown the five
+   cards are face up anyway, and with only five numbers in the deck the label
+   would be longer than the hand."
+  [cards]
+  (let [row    (classify cards)
+        groups (filterv (fn [[size _]] (> size 1)) (number-groups cards))]
+    (case (count groups)
+      0 (hand-name row)
+      1 (str (hand-name row) " of " (second (first groups)) "s")
+      (let [[[size-a number-a] [size-b number-b]] groups]
+        (str (hand-name row) ", " number-a "s "
+             (if (= size-a size-b) "and" "over") " "
+             number-b "s")))))
+
 ;; ── Comparing two hands ────────────────────────────────────────────────────
 
 (def ^:private color-rank

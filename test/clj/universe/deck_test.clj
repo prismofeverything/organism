@@ -5,6 +5,7 @@
   (:require
    [clojure.test :refer [deftest testing is]]
    [clojure.math.combinatorics :as combo]
+   [clojure.string :as string]
    [universe.deck :as deck]))
 
 (deftest chart-is-complete
@@ -97,3 +98,64 @@
     (is (= [0] (deck/winners [strong weak])))
     (is (= [1] (deck/winners [weak strong])))
     (is (= [] (deck/winners [])))))
+
+;; ── Saying a hand out loud ─────────────────────────────────────────────────
+
+(deftest hands-are-described-with-their-numbers
+  (testing "one group is named with the number that makes it"
+    (is (= "dyad of 2s"
+           (deck/describe-hand (hand [:purple :eye 2] [:green :helix 2] [:yellow :star 1]
+                                     [:purple :pyramid 3] [:green :eye 4]))))
+    (is (= "triad of 4s"
+           (deck/describe-hand (hand [:purple :eye 4] [:green :helix 4] [:yellow :star 4]
+                                     [:purple :pyramid 1] [:green :eye 3]))))
+    (is (= "tetrad of 3s"
+           (deck/describe-hand (hand [:purple :eye 3] [:green :helix 3] [:yellow :star 3]
+                                     [:purple :pyramid 3] [:green :eye 5]))))
+    (is (= "pentad of 1s"
+           (deck/describe-hand (hand [:purple :eye 1] [:green :helix 1] [:yellow :star 1]
+                                     [:purple :pyramid 1] [:green :eye 1])))))
+  (testing "two groups of the same size are joined with \"and\", higher first"
+    (is (= "split tetrad, 4s and 2s"
+           (deck/describe-hand (hand [:purple :eye 4] [:green :helix 4] [:yellow :star 2]
+                                     [:purple :pyramid 2] [:green :eye 5])))))
+  (testing "two groups of different sizes are joined with \"over\", bigger first"
+    (is (= "split pentad, 3s over 5s"
+           (deck/describe-hand (hand [:purple :eye 3] [:green :helix 3] [:yellow :star 3]
+                                     [:purple :pyramid 5] [:green :eye 5])))))
+  (testing "a hand with nothing repeated has no numbers to name"
+    (is (= "sequence"
+           (deck/describe-hand (hand [:purple :eye 1] [:green :helix 2] [:yellow :star 3]
+                                     [:purple :pyramid 4] [:green :eye 5]))))
+    (is (= "singularity"
+           (deck/describe-hand (hand [:purple :eye 1] [:purple :eye 2] [:purple :eye 3]
+                                     [:purple :eye 4] [:purple :eye 5])))))
+  (testing "the suit grade rides in front"
+    (is (= "color dyad of 5s"
+           (deck/describe-hand (hand [:purple :eye 5] [:purple :helix 5] [:purple :star 1]
+                                     [:purple :pyramid 2] [:purple :eye 3]))))
+    (is (= "shape split pentad, 4s over 1s"
+           (deck/describe-hand (hand [:purple :eye 4] [:green :eye 4] [:yellow :eye 4]
+                                     [:purple :eye 1] [:green :eye 1]))))))
+
+(deftest every-chart-row-can-be-said
+  (testing "one real example of all nineteen rows, and each says itself"
+    ;; a single pass that stops as soon as every row has been seen, rather than
+    ;; nineteen passes hunting one row each
+    (let [wanted   (set (map :name deck/chart))
+          examples (reduce (fn [found h]
+                             (let [nm (:name (deck/classify h))]
+                               (if (contains? found nm)
+                                 found
+                                 (let [found' (assoc found nm h)]
+                                   (if (= (count found') (count wanted))
+                                     (reduced found')
+                                     found')))))
+                           {}
+                           (combo/combinations deck/all-cards 5))]
+      (is (= wanted (set (keys examples))) "every row was reached")
+      (doseq [row deck/chart]
+        (let [said (deck/describe-hand (get examples (:name row)))]
+          (is (string? said))
+          (is (string/starts-with? said (deck/hand-name row))
+              (str (:name row) " was said as " said)))))))

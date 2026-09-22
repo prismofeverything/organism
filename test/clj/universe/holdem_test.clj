@@ -253,3 +253,74 @@
     (is (contains? (:all-in s) 1))
     (is (= 4 (get-in s [:bets 1])) "posted what it had, not what it owed")
     (is (zero? (holdem/stack s 1)))))
+
+;; ── What the table came to ─────────────────────────────────────────────────
+
+(deftest a-finished-table-can-be-summarised
+  (let [end (play-game ["a" "b" "c"] 3)
+        s   (holdem/summary end)]
+    (testing "a hand was recorded for every hand played"
+      (is (pos? (:hands s)))
+      (is (= (:hands s) (count (:history end)))))
+    (testing "the chip lines account for everyone, from the same starting stack"
+      (is (= 3 (count (:series s))))
+      (doseq [line (:series s)]
+        (is (= [0 (:starting-stack end)] (first (:points line)))
+            "every line starts where the player sat down")
+        (is (= (inc (:hands s)) (count (:points line)))
+            "one point per hand, plus the start"))
+      (is (= (* 3 (:starting-stack end))
+             (reduce + 0 (map (comp second last :points) (:series s))))
+          "the last point of every line still sums to the whole table"))
+    (testing "the winner is the one still holding chips"
+      (is (= (:winner end) (:winner s)))
+      (is (= (:winner s)
+             (:player (apply max-key :final (:series s))))))
+    (testing "pots and hands won are counted, not guessed"
+      (is (= (:hands s) (reduce + 0 (map :won (:series s))))
+          "every hand had exactly one winner, or a split counted per winner")
+      (is (pos? (:amount (:biggest-pot s)))))
+    (testing "the best hand shown is really the best that was shown"
+      (when-let [best (:best-hand s)]
+        (let [strengths (for [h (:history end)
+                              [_ {:keys [hand]}] (:shown h)
+                              :when hand]
+                          (:strength hand))]
+          (is (= (apply max strengths) (:strength (:hand best))))
+          (is (string? (deck/hand-name (:hand best)))))))))
+
+(deftest the-history-never-carries-a-hand-that-was-not-shown
+  (testing "folding to a bet keeps your cards, in the record as at the table"
+    (let [s  (holdem/start-hand (holdem/create-game ["a" "b" "c"]) (seeded-deck 5))
+          s1 (holdem/act s 0 {:action :raise :to 200})
+          s2 (holdem/act s1 1 {:action :fold})
+          s3 (holdem/act s2 2 {:action :fold})
+          entry (last (:history s3))]
+      (is (false? (:showdown? entry)))
+      (is (nil? (:shown entry)) "nobody's cards were turned over, so none are kept")
+      (is (seq (:awards entry)) "but who won it is public"))))
+
+(deftest the-history-is-only-sent-once-it-matters
+  (testing "a table in progress does not re-broadcast every hand it has played"
+    (let [mid (holdem/start-hand (holdem/create-game ["a" "b"]) (seeded-deck 2))]
+      (is (nil? (:history (holdem/view mid "a")))
+          "no history mid-game -- it would be re-sent on every action")))
+  (testing "and the finished table hands over the lot"
+    (let [end (play-game ["a" "b"] 1)]
+      (when (holdem/game-over? end)
+        (is (seq (:history (holdem/view end "a"))))))))
+
+(deftest a-busted-player-line-knows-where-it-ended
+  (let [end (play-game ["a" "b" "c"] 3)
+        s   (holdem/summary end)]
+    (testing "the winner never busts"
+      (let [won (first (filter #(= (:winner s) (:player %)) (:series s)))]
+        (is (nil? (:out-at won)))))
+    (testing "everybody else does, and at the hand their stack first hit zero"
+      (doseq [line (remove #(= (:winner s) (:player %)) (:series s))]
+        (is (some? (:out-at line)) (str (:player line) " never busted but did not win"))
+        (is (zero? (:final line)))
+        (is (zero? (second (first (filter #(= (:out-at line) (first %)) (:points line)))))
+            "the hand named is one where they held nothing")
+        (is (pos? (second (nth (:points line) (dec (:out-at line)))))
+            "and the hand before it, they still had chips")))))

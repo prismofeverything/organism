@@ -60,6 +60,7 @@
      :acted           #{}
      :locked          #{}
      :revealed        #{}
+     :history         []
      :deck            []
      :min-raise       0
      :result          nil
@@ -129,8 +130,18 @@
   [state]
   (reduce + 0 (vals (:committed state))))
 
+(def ^:private log-cap
+  "The log is for reading back the hand in play, not the history of the table,
+   and every entry is broadcast to everyone on every message."
+  400)
+
 (defn- note [state entry]
-  (update state :log conj (assoc entry :hand (:hand-number state))))
+  (update state :log
+          (fn [l]
+            (let [l' (conj (or l []) (assoc entry :hand (:hand-number state)))]
+              (if (> (count l') log-cap)
+                (vec (drop (- (count l') log-cap) l'))
+                l')))))
 
 ;; ── Starting a hand ────────────────────────────────────────────────────────
 
@@ -371,6 +382,35 @@
      (assoc state :result {:awards {} :pots (side-pots state)})
      (side-pots state))))
 
+(def ^:private history-cap
+  "A long tournament is a few hundred hands; the summary at the end wants all
+   of them, and each entry is a line of a table."
+  300)
+
+(defn- remember-hand
+  "Record what a hand came to, for the summary when the table finishes.
+
+   Only what was public: who won what, the board, and the hands that were
+   actually turned over. A hand that everybody folded to reveals nothing, and
+   the winner's cards stay theirs."
+  [state]
+  (let [result    (:result state)
+        showdown? (:showdown? result)]
+    (update state :history
+            (fn [h]
+              (let [h' (conj (or h [])
+                             {:hand      (:hand-number state)
+                              :board     (:board state)
+                              :showdown? (boolean showdown?)
+                              :pot       (reduce + 0 (map :amount (:pots result)))
+                              :awards    (:awards result)
+                              :shown     (when showdown?
+                                           (into {} (filter (comp :hand val) (:hands result))))
+                              :stacks    (into {} (map (juxt :seat :stack) (:players state)))})]
+                (if (> (count h') history-cap)
+                  (vec (drop (- (count h') history-cap) h'))
+                  h'))))))
+
 (defn- finish
   "Everyone folded but one, or the last board card has been bet.  Pay out and
    park the table until the next hand is dealt."
@@ -396,6 +436,7 @@
                                                             (concat (get-in state [:hands s])
                                                                     (:board state))))}])
                                             staying))))
+        state   (remember-hand state)
         left    (with-chips state)]
     (cond-> (note state {:event :hand-end})
       (= 1 (count left)) (assoc :winner (player-name state (first left))
@@ -501,6 +542,56 @@
 
 (defn game-over? [state] (some? (:winner state)))
 
+(defn summary
+  "What the table came to, once somebody has all the chips.
+
+   Everything here is read back off `:history`, which only ever held public
+   facts, so a summary gives nothing away that the table did not already show."
+  [state]
+  (let [history (:history state)
+        players (:players state)
+        start   (:starting-stack state)
+        name-of (fn [seat] (get-in state [:players seat :name]))
+        shown   (for [h history
+                      [seat {:keys [cards hand]}] (:shown h)
+                      :when hand]
+                  {:seat seat :player (name-of seat) :cards cards :hand hand
+                   :board (:board h) :at-hand (:hand h)})
+        wins    (frequencies (for [h history seat (keys (:awards h))] seat))
+        taken   (reduce (fn [acc h]
+                          (reduce-kv (fn [m seat amount] (update m seat (fnil + 0) amount))
+                                     acc (:awards h)))
+                        {} history)]
+    {:hands      (count history)
+     :winner     (:winner state)
+     :showdowns  (count (filter :showdown? history))
+     :biggest-pot (when (seq history)
+                    (let [h (apply max-key :pot history)]
+                      {:amount (:pot h) :hand (:hand h)
+                       :players (mapv name-of (keys (:awards h)))}))
+     :best-hand  (when (seq shown)
+                   (apply max-key (comp :strength :hand) shown))
+     ;; one line per player for the chart: where their stack stood after each
+     ;; hand, starting from what everybody sat down with
+     :series     (vec (for [{:keys [seat name]} players]
+                        (let [points (into [[0 start]]
+                                           (map (fn [h] [(:hand h) (get (:stacks h) seat 0)]))
+                                           history)]
+                          {:seat seat
+                           :player name
+                           :won (get wins seat 0)
+                           :taken (get taken seat 0)
+                           :final (get-in state [:players seat :stack])
+                           ;; the hand they busted on, if they did. Everybody but
+                           ;; the winner ends a tournament at zero, so a line drawn
+                           ;; to the right-hand edge would put every loser's label
+                           ;; on the same pixel and say nothing for the fifty hands
+                           ;; they were not in.
+                           :out-at (first (for [[hand v] points
+                                                :when (and (zero? v) (pos? hand))]
+                                            hand))
+                           :points points})))}))
+
 (defn view
   "What one player is allowed to see.
 
@@ -517,6 +608,12 @@
         (assoc :you seat)
         (assoc :pot (pot state))
         (assoc :actions (when (and seat (= seat (:to-act state))) (legal-actions state)))
+        ;; only this hand's log: the rest is nobody's business and would be
+        ;; re-sent in full on every action
+        (update :log (fn [l] (vec (filter #(= (:hand %) (:hand-number state)) l))))
+        ;; the whole history is only wanted once, for the summary at the end --
+        ;; sending it on every action would be a few hundred hands each time
+        (update :history (fn [h] (when (:winner state) h)))
         ;; the undealt deck is nobody's business, and it is the one thing that
         ;; would give the whole hand away
         (dissoc :deck)

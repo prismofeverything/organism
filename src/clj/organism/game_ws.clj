@@ -115,6 +115,26 @@
   (doseq [[channel player] watchers]
     (send! channel (message-for player))))
 
+(defn unwatch!
+  "Drop a channel but KEEP the game.
+
+   `remove-channel!` deletes a game once nobody is looking at it, which is
+   right for a turn-based board — there is nothing to run. A game that keeps
+   moving on its own (a clock, bots, a hand in progress) must outlive its
+   watchers, or closing the last tab silently throws away everything since the
+   last save."
+  [games-atom play-key channel]
+  (swap! games-atom
+         (fn [gs]
+           (-> gs
+               (update-in [:games play-key :channels] #(disj (set %) channel))
+               (update-in [:games play-key :watchers] dissoc channel)))))
+
+(defn forget-game!
+  "Drop a game outright."
+  [games-atom play-key]
+  (swap! games-atom update :games dissoc play-key))
+
 (defn remove-channel!
   "Drop channel from play-key; remove the game entirely when no channels remain."
   [games-atom play-key channel]

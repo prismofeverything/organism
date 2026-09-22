@@ -21,7 +21,9 @@
    [organism.components :as components]
    [organism.websockets :as ws]
    [universe.card :as card]
-   [universe.deck :as deck]))
+   [universe.deck :as deck]
+   [universe.holdem :as holdem]
+   [universe.layout :as layout]))
 
 (defonce game-state (r/atom nil))
 (defonce player-key (r/atom nil))
@@ -84,6 +86,14 @@
 (defn- chips [n]
   [:span {:style {:color gold :font-variant-numeric "tabular-nums"}} (str n)])
 
+(defn- said-hand
+  "A revealed hand, said with the numbers that make it -- \"dyad of 2s\".
+   Nil until there is a showdown to reveal anything."
+  [state seat]
+  (let [shown (get-in state [:result :hands seat])]
+    (when (and (:hand shown) (= 3 (count (:board state))))
+      (deck/describe-hand (concat (:cards shown) (:board state))))))
+
 (defn- pot-total
   "The pot empties into the stacks the moment a hand is paid out, so at the
    showdown read what the layers held instead -- otherwise the table reads
@@ -103,18 +113,55 @@
        [:div {:style {:color gold}}
         (get-in state [:players seat :name])
         " takes " amount
-        (when-let [h (get-in state [:result :hands seat :hand])]
-          (str " with a " (deck/hand-name h)))])]))
+        (when-let [said (said-hand state seat)]
+          (str " with a " said))])]))
 
-(defn- ring-position
-  "Seats evenly spaced around the oval, starting at the top and running
-   clockwise -- the same convention the deck's own rosettes are packed on.
-   The centre sits a little below the middle so the tall seat at the top,
-   which is yours, has somewhere to be."
-  [i n]
-  (let [t (* 2 js/Math.PI (/ i n))]
-    {:left (str (+ 50 (* 40 (js/Math.sin t))) "%")
-     :top  (str (- 52 (* 36 (js/Math.cos t))) "%")}))
+(defonce viewport (r/atom nil))
+
+(defn watch-viewport!
+  "The layout is solved from the space it has, so the space has to be known."
+  []
+  (let [measure! #(reset! viewport {:w (.-innerWidth js/window)
+                                    :h (.-innerHeight js/window)})]
+    (measure!)
+    (.addEventListener js/window "resize" measure!)))
+
+(defonce ^:private viewport-watch (watch-viewport!))
+
+(defonce client-errors (r/atom []))
+
+(defn watch-errors!
+  "Surface client-side failures on the page. A websocket game that throws in a
+   render leaves a table that looks right and does nothing, which is
+   indistinguishable from a rules bug unless the error is put somewhere
+   visible."
+  []
+  (.addEventListener js/window "error"
+                     (fn [e] (swap! client-errors conj
+                                    (str (.-message e) " @ " (.-filename e) ":" (.-lineno e)))))
+  (.addEventListener js/window "unhandledrejection"
+                     (fn [e] (swap! client-errors conj (str "promise: " (.-reason e))))))
+
+(defonce ^:private error-watch (watch-errors!))
+
+(defonce ^:private solve-cache (atom {}))
+
+(defn- solved
+  "The solved layout for this window and this many players. Cached: it is the
+   same answer until one of those changes, and it is asked for on every state
+   message."
+  [n]
+  (let [{:keys [w h]} (or @viewport {:w 1440 :h 900})
+        area (layout/table-area w h)
+        ;; quantised, so dragging a window edge does not re-solve on every
+        ;; pixel and fill the cache with near-identical answers
+        qw   (* 20 (quot (:w area) 20))
+        qh   (* 20 (quot (:h area) 20))
+        k    [qw qh n]]
+    (or (get @solve-cache k)
+        (let [v (layout/solve qw qh n)]
+          (swap! solve-cache assoc k v)
+          v))))
 
 (defn- ring-order
   "Players in seat order, rotated so that you are first and therefore on top.
@@ -126,83 +173,158 @@
     (vec (for [k (range n)] (nth ps (mod (+ start k) n))))))
 
 (defn- seat-view
-  "One player around the rim. Yours draws its cards large, since it is the one
-   hand you actually have to read."
-  [state {:keys [seat name stack]} pos you?]
+  "One player, placed in the rectangle the solver worked out for them."
+  [state {:keys [seat name stack]} rect you?]
   (let [folded?   (contains? (:folded state) seat)
         all-in?   (contains? (:all-in state) seat)
         acting?   (= seat (:to-act state))
         cards     (get-in state [:hands seat])
         dealt?    (contains? (:seated state) seat)
         bet       (get-in state [:bets seat] 0)
-        shown     (get-in state [:result :hands seat])
-        width     (if you? 104 46)
+        said      (said-hand state seat)
+        width     (:card rect)
         remaining (when (and acting? @deadline (pos? @deadline))
-                    (max 0 (int (/ (- @deadline @now-atom) 1000))))]
-    [:div {:style (merge pos
-                         {:position "absolute" :transform "translate(-50%,-50%)"
-                          :text-align "center" :opacity (if folded? 0.38 1)
-                          :transition "opacity 250ms"})}
-     [:div {:style {:display "flex" :justify-content "center" :gap "5px"
-                    :margin-bottom "7px"
-                    ;; reserved whether or not there are cards, so the
-                    ;; nameplates stay put as hands come and go
-                    :min-height (str (js/Math.round (* width 1.4)) "px")}}
-      (when (and dealt? (not folded?))
-        (for [[i c] (map-indexed vector (or cards [nil nil]))]
-          ^{:key i} [card/card {:value c :width width}]))]
-     [:div {:style {:display "inline-block" :padding "5px 12px" :border-radius "14px"
-                    :background (if acting? "#3a2f10" "#221d33")
-                    :border (str "1px solid " (if acting? gold "#322b48"))
-                    :white-space "nowrap" :font-size (if you? "15px" "13px")}}
-      [:span {:style {:color (if you? gold "#d8d2e8") :font-weight (if you? 700 400)}} name]
-      [:span {:style {:color faint :margin "0 7px"}} "\u00b7"]
-      [chips stack]
-      (when (= seat (:button state))
-        [:span {:style {:margin-left "8px" :background gold :color ground
-                        :border-radius "50%" :padding "1px 6px" :font-size "11px"
-                        :font-weight 700}} "D"])]
-     [:div {:style {:font-size "12px" :color (if all-in? gold faint)
-                    :margin-top "5px" :height "16px"}}
-      (cond all-in?          "all in"
-            remaining        (str remaining "s")
-            (and dealt? folded?) "folded"
-            :else            "")]
-     (when (pos? bet)
-       [:div {:style {:margin-top "1px"}} [chips bet]])
-     (when-let [h (:hand shown)]
-       [:div {:style {:color gold :font-size "12px" :margin-top "3px"}}
-        (deck/hand-name h)])]))
+                    (max 0 (int (/ (- @deadline @now-atom) 1000))))
+        cards-el
+        [:div {:style {:display "flex" :justify-content "center"
+                       :gap (if you? "8px" "5px")
+                       :height (str (js/Math.round (* 1.4 width)) "px")}}
+         (when (and dealt? (not folded?))
+           (for [[i c] (map-indexed vector (or cards [nil nil]))]
+             ^{:key i} [card/card {:value c :width width}]))]
+        plate-el
+        [:div {:style {:height (str layout/plate-h "px") :display "flex"
+                       :align-items "center" :justify-content "center"}}
+         [:span {:style {:padding "4px 12px" :border-radius "14px"
+                         :background (if acting? "#3a2f10" "#221d33")
+                         :border (str "1px solid " (if acting? gold "#322b48"))
+                         :white-space "nowrap" :font-size (if you? "15px" "13px")}}
+          [:span {:style {:color (if you? gold "#d8d2e8")
+                          :font-weight (if you? 700 400)}} name]
+          [:span {:style {:color faint :margin "0 7px"}} "\u00b7"]
+          [chips stack]
+          (when (= seat (:button state))
+            [:span {:style {:margin-left "8px" :background gold :color ground
+                            :border-radius "50%" :padding "1px 6px"
+                            :font-size "11px" :font-weight 700}} "D"])]]
+        tail-el
+        [:div {:style {:height (str layout/tail "px") :font-size "12px"
+                       :line-height "18px"}}
+         [:div {:style {:color (if all-in? gold faint)}}
+          (cond all-in?              "all in"
+                remaining            (str remaining "s")
+                (and dealt? folded?) "folded"
+                :else                "")]
+         [:div (when (pos? bet) [chips bet])]
+         [:div {:style {:color gold :overflow "hidden" :text-overflow "ellipsis"}}
+          (or said "")]]]
+    (into [:div {:style {:position "absolute"
+                         :left   (str (:left rect) "px")
+                         :top    (str (:top rect) "px")
+                         :width  (str (:width rect) "px")
+                         :text-align "center"
+                         :opacity (if folded? 0.4 1)
+                         :transition "opacity 250ms"}}]
+          (if (:below? rect)
+            [plate-el [:div {:style {:height (str layout/card-gap "px")}}] cards-el tail-el]
+            [cards-el [:div {:style {:height (str layout/card-gap "px")}}] plate-el tail-el]))))
 
 (defn- oval-table
-  "The table itself, dressed like the back of a card: a violet-black ground
-   with a thin gold ring, which is the one piece of the deck that is already
-   about being looked at from the outside."
+  "The table, dressed like the back of a card: a violet-black ground with a
+   thin gold ring, which is the one part of the deck already about being seen
+   from the outside. The seats sit on its rim, where the solver put them."
   [state]
   (let [order (ring-order state)
-        n     (count order)]
-    [:div {:style {:position "relative" :width "100%" :max-width "1060px"
-                   :height "700px" :margin "0 auto"}}
-     [:div {:style {:position "absolute" :left "5%" :top "9%"
-                    :width "90%" :height "86%" :border-radius "50%"
-                    :background "radial-gradient(ellipse at 50% 42%, #221c34 0%, #191324 72%)"
-                    :border "1px solid #2e2743"
-                    :box-shadow "inset 0 0 90px rgba(0,0,0,0.6)"}}]
-     [:div {:style {:position "absolute" :left "11%" :top "16%"
-                    :width "78%" :height "72%" :border-radius "50%"
-                    :border (str "1px solid " gold) :opacity 0.26
-                    :pointer-events "none"}}]
-     [:div {:style {:position "absolute" :left "50%" :top "52%"
-                    :transform "translate(-50%,-50%)" :text-align "center"}}
-      [:div {:style {:display "flex" :gap "9px" :justify-content "center"}}
-       (for [i (range 3)]
-         ^{:key i} [card/card {:value (nth (:board state) i nil) :width 92}])]
-      [:div {:style {:color faint :font-size "15px" :margin-top "14px"}}
-       "pot " [chips (pot-total state)]]
-      [result-view state]]
-     (for [[i p] (map-indexed vector order)]
-       ^{:key (:seat p)}
-       [seat-view state p (ring-position i n) (= (:seat p) (:you state))])]))
+        n     (count order)
+        {:keys [cx cy rx ry board height seats] :as l} (solved n)]
+    (when (seq seats)
+      (into
+       [:div {:style {:position "relative" :width "100%"
+                      :height (str (js/Math.round height) "px")}}
+        ;; the felt, with the nameplates riding its rim
+        [:div {:style {:position "absolute"
+                       :left (str (- cx rx) "px") :top (str (- cy ry) "px")
+                       :width (str (* 2 rx) "px") :height (str (* 2 ry) "px")
+                       :border-radius "50%"
+                       :background "radial-gradient(ellipse at 50% 42%, #221c34 0%, #191324 74%)"
+                       :border "1px solid #2e2743"
+                       :box-shadow "inset 0 0 90px rgba(0,0,0,0.6)"}}]
+        [:div {:style {:position "absolute"
+                       :left (str (- cx (* rx 0.72)) "px")
+                       :top  (str (- cy (* ry 0.72)) "px")
+                       :width (str (* 2 rx 0.72) "px")
+                       :height (str (* 2 ry 0.72) "px")
+                       :border-radius "50%"
+                       :border (str "1px solid " gold) :opacity 0.22
+                       :pointer-events "none"}}]
+        ;; the shared cards, in the middle
+        [:div {:style {:position "absolute"
+                       :left (str (:left board) "px") :top (str (:top board) "px")
+                       :width (str (- (:right board) (:left board)) "px")
+                       :text-align "center"}}
+         [:div {:style {:display "flex" :gap "9px" :justify-content "center"}}
+          (for [i (range 3)]
+            ^{:key i} [card/card {:value (nth (:board state) i nil)
+                                  :width (:board (:sizes l))}])]
+         [:div {:style {:color faint :font-size "15px" :margin-top "12px"}}
+          "pot " [chips (pot-total state)]]
+         [result-view state]]]
+       (map (fn [p rect] ^{:key (:seat p)}
+              [seat-view state p rect (= (:seat p) (:you state))])
+            order seats)))))
+
+;; ── The rail ───────────────────────────────────────────────────────────────
+
+(declare chat-view)
+
+(defn- log-line [state {:keys [event seat to amount card]}]
+  (let [who (get-in state [:players seat :name])]
+    (case event
+      :hand-start "\u2014 new hand \u2014"
+      :fold       (str who " folds")
+      :check      (str who " checks")
+      :call       (str who " calls " amount)
+      :raise      (str who " raises to " to)
+      :board      (str "board: " (deck/describe card))
+      :returned   (str who " takes back " amount)
+      :refund     (str who " takes back " amount)
+      nil)))
+
+(defn- status-rail [state]
+  (let [level (nth (:levels state)
+                   (min (:level state 0) (dec (count (:levels state))))
+                   nil)]
+    [:div {:style {:width (str layout/rail-width "px") :flex-shrink 0
+                   :display "flex" :flex-direction "column" :gap "14px"
+                   :padding "16px" :box-sizing "border-box"
+                   :background "#15121f" :border-left "1px solid #2b2740"
+                   :height "100vh" :overflow-y "auto"}}
+     [:div
+      [:h2 {:style {:color gold :margin "0 0 10px 0" :letter-spacing "3px"
+                    :font-size "20px"}} "UNIVERSE"]
+      [:div {:style {:color faint :font-size "13px" :line-height "20px"}}
+       [:div "hand " (:hand-number state)]
+       (when level [:div "blinds " (str/join "/" level)])
+       [:div "pot " [chips (pot-total state)]]
+       [:a {:href "/universe/rules" :style {:color gold}} "the chart"]]]
+     [:div
+      [:div {:style {:color faint :font-size "12px" :margin-bottom "6px"}} "this hand"]
+      [:div {:style {:background "#1b1828" :border-radius "6px" :padding "8px"
+                     :height "180px" :overflow-y "auto" :font-size "12px"
+                     :line-height "18px"}}
+       (for [[i line] (map-indexed vector (keep #(log-line state %) (:log state)))]
+         ^{:key i} [:div {:style {:color (if (str/starts-with? line "\u2014")
+                                           faint "#b6afc9")}} line])]]
+     (when (seq @client-errors)
+       [:div {:style {:background "#3a1414" :border "1px solid #7a2a2a"
+                      :border-radius "6px" :padding "8px" :font-size "11px"
+                      :color "#ffb4b4" :line-height "16px"}}
+        [:div {:style {:font-weight 700 :margin-bottom "4px"}} "client error"]
+        (for [[i m] (map-indexed vector (take-last 3 @client-errors))]
+          ^{:key i} [:div m])])
+     [:div {:style {:flex 1 :display "flex" :flex-direction "column" :min-height "200px"}}
+      [:div {:style {:color faint :font-size "12px" :margin-bottom "6px"}} "chat"]
+      [chat-view]]]))
 
 (defn- action-bar [state]
   (let [{:keys [check call min-raise-to max-raise-to]} (:actions state)
@@ -240,7 +362,7 @@
   (when-let [five (your-hand state)]
     (let [row (deck/classify five)]
       [:div {:style {:color gold :font-size "15px" :padding "6px 0"}}
-       "you have a " (deck/hand-name row)
+       "you have a " (deck/describe-hand five)
        [:span {:style {:color faint :margin-left "10px" :font-size "13px"}}
         (str "1 in " (js/Math.round (/ deck/total-hands (:count row))))]])))
 
@@ -266,43 +388,285 @@
 
 ;; ── Views ──────────────────────────────────────────────────────────────────
 
+;; ── The summary, once somebody has all the chips ───────────────────────────
+
+(def series-colors
+  "Categorical slots, in fixed order, never cycled. These are the dataviz
+   reference palette's dark steps, validated against this page's own surface
+   (#12101c) rather than assumed: worst adjacent CVD deltaE 8.4, worst
+   normal-vision 19.3, all eight at or above 3:1 contrast.
+
+   Eight slots is the whole palette. A ninth player does not get an invented
+   colour -- the chart becomes small multiples instead."
+  ["#3987e5" "#d95926" "#199e70" "#c98500"
+   "#d55181" "#008300" "#9085e9" "#e66767"])
+
+(def ^:private ink-primary "#e6e2f0")
+(def ^:private ink-second  "#b6afc9")
+(def ^:private grid-ink    "#2b2740")
+
+(defonce ^:private hover-hand (r/atom nil))
+
+(defn- nice-ticks
+  "Four to eight round numbers covering 0..top -- 1/2/5 x a power of ten, which
+   is what reads as round. Doubling from 100 overshoots and leaves three ticks
+   on a four-thousand-chip table."
+  [top]
+  (let [raw  (/ (double top) 5)
+        mag  (js/Math.pow 10 (js/Math.floor (js/Math.log10 (max raw 1))))
+        step (first (filter #(>= % raw) (map #(* % mag) [1 2 5 10])))]
+    (vec (take-while #(<= % top) (iterate #(+ % step) 0)))))
+
+(defn- chips-chart
+  "Every player's stack after every hand. The story is who crossed whom, and
+   when each of them went out."
+  [{:keys [series hands]}]
+  (let [w 900 h 340 ml 62 mr 158 mt 18 mb 40
+        pw (- w ml mr) ph (- h mt mb)
+        top (reduce + 0 (map :final series))
+        xat (fn [i] (+ ml (* pw (/ (double i) (max 1 hands)))))
+        yat (fn [v] (+ mt (* ph (- 1 (/ (double v) (max 1 top))))))
+        ticks (nice-ticks top)]
+    [:div {:style {:position "relative"}}
+     [:svg {:viewBox (str "0 0 " w " " h) :width "100%"
+            :style {:display "block"}
+            :on-mouse-leave #(reset! hover-hand nil)
+            :on-mouse-move
+            (fn [e]
+              (let [r    (.getBoundingClientRect (.-currentTarget e))
+                    frac (/ (- (.-clientX e) (.-left r)) (.-width r))
+                    sx   (* frac w)
+                    i    (js/Math.round (* hands (/ (- sx ml) pw)))]
+                (reset! hover-hand (max 0 (min hands i)))))}
+      ;; recessive grid: hairline, solid, one step off the surface
+      (for [t ticks]
+        ^{:key t}
+        [:g [:line {:x1 ml :y1 (yat t) :x2 (+ ml pw) :y2 (yat t)
+                    :stroke grid-ink :stroke-width 1}]
+         [:text {:x (- ml 10) :y (+ (yat t) 4) :text-anchor "end"
+                 :fill ink-second :font-size 12 :font-family "monospace"} t]])
+      ;; which hand, so "who went out when" reads off the axis
+      (for [k (range 5)]
+        (let [hx (js/Math.round (* hands (/ k 4)))]
+          ^{:key k}
+          [:text {:x (xat hx) :y (+ mt ph 18) :text-anchor "middle"
+                  :fill faint :font-size 11 :font-family "monospace"} hx]))
+      [:text {:x (- ml 10) :y (+ mt ph 18) :text-anchor "end"
+              :fill faint :font-size 11 :font-family "monospace"} "hand"]
+      (when-let [i @hover-hand]
+        [:line {:x1 (xat i) :y1 mt :x2 (xat i) :y2 (+ mt ph)
+                :stroke gold :stroke-width 1 :opacity 0.5}])
+      (for [[idx {:keys [player points final out-at]}] (map-indexed vector series)]
+        (let [colour (nth series-colors (mod idx (count series-colors)))
+              ;; a line stops where its player busted: a flat run along zero for
+              ;; the fifty hands they were not in says nothing, and puts every
+              ;; loser's endpoint on the same pixel
+              drawn  (if out-at (filterv #(<= (first %) out-at) points) points)
+              d (str/join " " (map-indexed
+                               (fn [k [hand v]]
+                                 (str (if (zero? k) "M" "L") (xat hand) "," (yat v)))
+                               drawn))
+              [lh lv] (last drawn)]
+          ^{:key idx}
+          [:g
+           [:path {:d d :fill "none" :stroke colour :stroke-width 2
+                   :stroke-linejoin "round" :stroke-linecap "round"}]
+           ;; end marker, ringed in the surface colour so crossings stay legible
+           [:circle {:cx (xat lh) :cy (yat lv) :r 5 :fill colour
+                     :stroke ground :stroke-width 2}]
+           (when-let [i @hover-hand]
+             (when (or (nil? out-at) (<= i out-at))
+               (let [v (second (nth points (min i (dec (count points))) [0 0]))]
+                 [:circle {:cx (xat i) :cy (yat v) :r 4 :fill colour
+                           :stroke ground :stroke-width 2}])))
+           ;; Only the line still holding chips is labelled. Everybody else ends
+           ;; a tournament on zero, so labelling each endpoint either stacks them
+           ;; all on one pixel or pushes them up over the data; the legend
+           ;; carries them, with the hand they went out on.
+           (when (pos? final)
+             [:g
+              [:circle {:cx (+ (xat lh) 16) :cy (yat lv) :r 4 :fill colour}]
+              [:text {:x (+ (xat lh) 26) :y (+ (yat lv) 4) :fill ink-primary
+                      :font-size 12 :font-family "monospace"}
+               (str player " " final)]])]))]
+     (when-let [i @hover-hand]
+       [:div {:style {:position "absolute" :left (str (* 100 (/ (xat i) w)) "%")
+                      :top "0" :transform (if (> i (/ hands 2))
+                                            "translate(-104%, 0)" "translate(4%, 0)")
+                      :background "#1b1828" :border (str "1px solid " grid-ink)
+                      :border-radius "6px" :padding "8px 10px" :font-size "12px"
+                      :pointer-events "none" :white-space "nowrap" :z-index 3}}
+        [:div {:style {:color faint :margin-bottom "4px"}}
+         (if (zero? i) "before the first hand" (str "after hand " i))]
+        (for [[idx {:keys [player points out-at]}] (map-indexed vector series)]
+          ^{:key idx}
+          [:div {:style {:display "flex" :align-items "center" :gap "6px"}}
+           [:span {:style {:width "8px" :height "8px" :border-radius "50%"
+                           :background (nth series-colors (mod idx (count series-colors)))
+                           :display "inline-block"}}]
+           [:span {:style {:color ink-second}} player]
+           [:span {:style {:color ink-primary :margin-left "auto"}}
+            (if (and out-at (> i out-at))
+              "out"
+              (second (nth points (min i (dec (count points))) [0 0])))]])])]))
+
+(defn- small-multiples
+  "Nine players is more than the palette has slots for, and a ninth invented
+   hue is how a chart starts lying. One panel each instead."
+  [{:keys [series hands]}]
+  (let [top (reduce + 0 (map :final series))]
+    [:div {:style {:display "grid" :grid-template-columns "repeat(3, 1fr)" :gap "10px"}}
+     (for [[idx {:keys [player points final]}] (map-indexed vector series)]
+       (let [w 260 h 90 ml 4 mt 6
+             pw (- w 8) ph (- h 12)
+             xat (fn [i] (+ ml (* pw (/ (double i) (max 1 hands)))))
+             yat (fn [v] (+ mt (* ph (- 1 (/ (double v) (max 1 top))))))]
+         ^{:key idx}
+         [:div {:style {:background "#1b1828" :border-radius "6px" :padding "8px"}}
+          [:div {:style {:display "flex" :justify-content "space-between"
+                         :font-size "12px" :margin-bottom "4px"}}
+           [:span {:style {:color ink-second}} player]
+           [:span {:style {:color ink-primary}} final]]
+          [:svg {:viewBox (str "0 0 " w " " h) :width "100%"
+                 :style {:display "block"}}
+           [:line {:x1 ml :y1 (yat 0) :x2 (+ ml pw) :y2 (yat 0)
+                   :stroke grid-ink :stroke-width 1}]
+           [:path {:d (str/join " " (map-indexed
+                                     (fn [k [hand v]]
+                                       (str (if (zero? k) "M" "L") (xat hand) "," (yat v)))
+                                     points))
+                   :fill "none" :stroke (first series-colors) :stroke-width 2
+                   :stroke-linejoin "round" :stroke-linecap "round"}]]]))]))
+
+(defn- legend
+  "Always present for two or more lines -- identity is never colour alone. It
+   also carries what became of each player, since only the survivor is labelled
+   on the chart itself."
+  [series]
+  [:div {:style {:display "flex" :flex-wrap "wrap" :gap "18px" :margin-top "12px"}}
+   (for [[idx {:keys [player final out-at won]}] (map-indexed vector series)]
+     ^{:key idx}
+     [:div {:style {:display "flex" :align-items "center" :gap "7px"}}
+      [:span {:style {:width "14px" :height "2px" :border-radius "1px"
+                      :background (nth series-colors (mod idx (count series-colors)))
+                      :display "inline-block"}}]
+      [:span {:style {:color ink-second :font-size "12px"}} player]
+      [:span {:style {:color (if (pos? final) gold faint) :font-size "12px"}}
+       (if (pos? final) (str final) (str "out, hand " out-at))]
+      [:span {:style {:color faint :font-size "11px"}}
+       (str "\u00b7 won " won)]])])
+
+(defn- stat-tile [label value sub]
+  [:div {:style {:background "#1b1828" :border-radius "8px" :padding "14px 16px"
+                 :min-width "150px" :flex "1 1 150px"}}
+   [:div {:style {:color faint :font-size "11px" :letter-spacing "1px"
+                  :text-transform "uppercase"}} label]
+   [:div {:style {:color gold :font-size "24px" :margin "4px 0 2px"}} value]
+   (when sub [:div {:style {:color ink-second :font-size "12px"}} sub])])
+
+(defn- hands-table [state]
+  (let [name-of #(get-in state [:players % :name])]
+    [:div {:style {:max-height "320px" :overflow-y "auto"}}
+     [:table {:style {:width "100%" :border-collapse "collapse" :font-size "13px"}}
+      [:thead
+       [:tr {:style {:color faint :text-align "left"}}
+        (for [c ["hand" "board" "pot" "won by" "with"]]
+          ^{:key c} [:th {:style {:padding "6px 8px" :font-weight 400
+                                  :position "sticky" :top 0 :background ground}} c])]]
+      [:tbody
+       (for [h (reverse (:history state))]
+         ^{:key (:hand h)}
+         [:tr {:style {:border-top (str "1px solid " grid-ink)}}
+          [:td {:style {:padding "6px 8px" :color faint}} (:hand h)]
+          [:td {:style {:padding "6px 8px" :color ink-second}}
+           (if (seq (:board h))
+             [:span {:style {:display "flex" :gap "3px"}}
+              (for [[i c] (map-indexed vector (:board h))]
+                ^{:key i} [card/card {:value c :width 22}])]
+             "—")]
+          [:td {:style {:padding "6px 8px"}} [chips (:pot h)]]
+          [:td {:style {:padding "6px 8px" :color ink-primary}}
+           (str/join ", " (map name-of (keys (:awards h))))]
+          [:td {:style {:padding "6px 8px" :color ink-second}}
+           (if-let [shown (seq (:shown h))]
+             (let [[_ {:keys [cards]}] (first (sort-by (fn [[s _]] (- (get (:awards h) s 0))) shown))]
+               (deck/describe-hand (concat cards (:board h))))
+             (if (:showdown? h) "—" "everyone folded"))]])]]]))
+
+(defn summary-view [state]
+  (let [s (holdem/summary state)
+        best (:best-hand s)]
+    [:div {:style {:padding "32px 40px" :max-width "1100px" :margin "0 auto"
+                   :overflow-y "auto" :height "100vh" :box-sizing "border-box"}}
+     [:div {:style {:text-align "center" :margin-bottom "28px"}}
+      [:div {:style {:color faint :font-size "12px" :letter-spacing "3px"}} "UNIVERSE"]
+      [:h2 {:style {:color gold :font-size "30px" :letter-spacing "2px"
+                    :margin "6px 0 0"}}
+       (str (:winner s) " takes the table")]]
+
+     [:div {:style {:display "flex" :gap "12px" :flex-wrap "wrap"
+                    :margin-bottom "28px"}}
+      [stat-tile "hands" (:hands s)
+       (str (:showdowns s) " went to a showdown")]
+      [stat-tile "biggest pot" (:amount (:biggest-pot s))
+       (str "hand " (:hand (:biggest-pot s)) " · "
+            (str/join ", " (:players (:biggest-pot s))))]
+      (if best
+        [stat-tile "best hand shown"
+         (deck/hand-name (:hand best))
+         (str (:player best) " · hand " (:at-hand best) " · 1 in "
+              (js/Math.round (/ deck/total-hands (:count (:hand best)))))]
+        [stat-tile "best hand shown" "—" "no hand was ever turned over"])]
+
+     [:div {:style {:background "#15121f" :border-radius "10px" :padding "18px"
+                    :margin-bottom "24px"}}
+      [:div {:style {:color ink-second :font-size "14px" :margin-bottom "10px"}}
+       "chips over the course of the table"]
+      (if (> (count (:series s)) (count series-colors))
+        [small-multiples s]
+        [:div [chips-chart s] [legend (:series s)]])]
+
+     [:div {:style {:background "#15121f" :border-radius "10px" :padding "18px"}}
+      [:div {:style {:color ink-second :font-size "14px" :margin-bottom "10px"}}
+       "every hand"]
+      [hands-table state]]
+
+     [:div {:style {:text-align "center" :margin "28px 0"}}
+      [:a {:href "/universe/create"
+           :style {:background gold :color ground :padding "12px 28px"
+                   :border-radius "6px" :text-decoration "none"
+                   :letter-spacing "2px"}}
+       "new table"]]]))
+
 (defn table-view []
   (let [state @game-state]
     [:div {:style {:background ground :min-height "100vh" :color "#d8d2e8"
-                   :font-family "monospace" :padding "24px"}}
-     [:div {:style {:display "flex" :justify-content "space-between"
-                    :align-items "baseline" :margin-bottom "16px"}}
-      [:h2 {:style {:color gold :margin 0 :letter-spacing "3px"}} "UNIVERSE"]
-      (when state
-        [:span {:style {:color faint :font-size "13px"}}
-         (str "hand " (:hand-number state)
-              " · blinds " (str/join "/" (nth (:levels state)
-                                              (min (:level state)
-                                                   (dec (count (:levels state))))
-                                              ["" ""])))])]
-     (cond
-       (nil? state)
-       [:div {:style {:color faint}} "connecting…"]
+                   :font-family "monospace" :display "flex"}}
+     [:div {:style {:flex "1 1 auto" :min-width 0 :display "flex"
+                    :flex-direction "column" :padding-top (str layout/top-gap "px")}}
+      (cond
+        (nil? state)
+        [:div {:style {:padding "40px" :color faint}} "connecting\u2026"]
 
-       (:winner state)
-       [:div {:style {:padding "40px" :text-align "center"}}
-        [:h3 {:style {:color gold}} (str (:winner state) " takes the table")]]
+        (:winner state)
+        [summary-view state]
 
-       :else
-       [:div
-        [oval-table state]
-        [:div {:style {:max-width "1060px" :margin "0 auto" :display "flex"
-                       :flex-direction "column" :align-items "center" :gap "12px"}}
-         [your-hand-view state]
-         (if (= :waiting (:street state))
-           [:button {:on-click send-start!
-                     :style {:background gold :color ground :border "none"
-                             :border-radius "6px" :padding "12px 28px"
-                             :cursor "pointer" :font-family "monospace"
-                             :font-size "15px" :letter-spacing "2px"}}
-            "deal"]
-           [action-bar state])]
-        [:div {:style {:margin "28px auto 0" :max-width "440px"}} [chat-view]]])]))
+        :else
+        [:div
+         [oval-table state]
+         [:div {:style {:height (str layout/action-height "px")
+                        :display "flex" :flex-direction "column"
+                        :align-items "center" :justify-content "center" :gap "8px"}}
+          [your-hand-view state]
+          (if (= :waiting (:street state))
+            [:button {:on-click send-start!
+                      :style {:background gold :color ground :border "none"
+                              :border-radius "6px" :padding "12px 28px"
+                              :cursor "pointer" :font-family "monospace"
+                              :font-size "15px" :letter-spacing "2px"}}
+             "deal"]
+            [action-bar state])]])]
+     (when state [status-rail state])]))
 
 (defn create-view []
   [components/create-lobby

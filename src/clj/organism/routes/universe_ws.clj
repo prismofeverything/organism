@@ -40,7 +40,7 @@
 
 (def between-hands-ms
   "A pause at the showdown so everyone can read the cards before the next deal."
-  6000)
+  3000)
 
 (defn- shuffled
   "A fresh deck.  Nothing here is seeded: the server deals, and neither the
@@ -180,18 +180,39 @@
 
 (defn after-action!
   "Everything that follows somebody acting: let the bots move, restart the
-   clock, and if the hand is over, record it and set up the next one."
+   clock, and if the hand is over, record it and set up the next one.
+
+   The state is written on every action, not only at the end of a hand. A
+   table can lose its last watcher or its server at any point, and a snapshot
+   taken only at hand boundaries rewinds play back to the deal."
   [play-key db]
   (run-bots! play-key)
   (let [game (gws/game-record games play-key)]
+    (when db (persist/save-state! db play-key (:state game)))
     (if (holdem/hand-over? (:state game))
-      (do
-        (when db (persist/save-state! db play-key (:state game)))
-        (if (holdem/game-over? (:state game))
-          (do (log/info "Universe table finished" play-key (:winner (:state game)))
-              (when db (persist/complete-game! db play-key (:state game))))
-          (deal-next-hand! play-key db)))
+      (if (holdem/game-over? (:state game))
+        (do (log/info "Universe table finished" play-key (:winner (:state game)))
+            (when db (persist/complete-game! db play-key (:state game))))
+        (deal-next-hand! play-key db))
       (arm-clock! play-key db))))
+
+(defn- resume!
+  "Pick a table back up after everyone had left it.
+
+   Whatever was driving the table -- a bot to move, a clock to run down, a
+   showdown waiting to deal the next hand -- was a thread belonging to the last
+   session, and it is gone. Without this, a reconnected table looks perfectly
+   right and never moves again."
+  [play-key db]
+  (let [state (:state (gws/game-record games play-key))]
+    (when (and state
+               (not (holdem/game-over? state))
+               ;; a table nobody has dealt yet is waiting on a person, not on us
+               (not= :waiting (:street state)))
+      (log/info "Universe resuming" play-key)
+      (future
+        (try (after-action! play-key db)
+             (catch Exception e (log/error "Universe resume failed" play-key (.getMessage e))))))))
 
 ;; ── Messages ───────────────────────────────────────────────────────────────
 
@@ -248,8 +269,12 @@
                         :tick 0}))))
 
 (defn connect! [{:keys [play-key player db]} channel]
-  (load-game! db play-key)
-  (gws/watch! games play-key channel player)
+  (let [before (gws/game-record games play-key)]
+    (load-game! db play-key)
+    (gws/watch! games play-key channel player)
+    ;; first one back through the door restarts whatever was running
+    (when (empty? (:channels before))
+      (resume! play-key db)))
   (log/info "Universe CONNECT" player play-key)
   (let [game (gws/game-record games play-key)]
     (send! channel
@@ -258,7 +283,13 @@
 
 (defn disconnect! [{:keys [play-key player]} channel status]
   (log/info "Universe DISCONNECT" player status)
-  (gws/remove-channel! games play-key channel))
+  (gws/unwatch! games play-key channel)
+  ;; a finished table has nothing left to run, so let it go rather than
+  ;; holding every table ever played in memory
+  (let [game (gws/game-record games play-key)]
+    (when (and (empty? (:channels game))
+               (or (nil? (:state game)) (holdem/game-over? (:state game))))
+      (gws/forget-game! games play-key))))
 
 (defn notify-clients! [{:keys [play-key player db]} _channel raw]
   (let [message (read-json raw)
