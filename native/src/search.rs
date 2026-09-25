@@ -79,7 +79,9 @@ impl Random {
 pub trait Evaluator {
     fn evaluate(&self, inputs: &[f32], batch: usize) -> Result<(Vec<f32>, Vec<f32>)>;
 }
-#[cfg(feature = "gpu")]
+// Wherever the network is compiled in, it can be searched with — the trainer
+// and the move server both do.
+#[cfg(feature = "torch")]
 impl Evaluator for crate::network::Network {
     fn evaluate(&self, inputs: &[f32], batch: usize) -> Result<(Vec<f32>, Vec<f32>)> {
         self.infer(inputs, batch)

@@ -1,21 +1,29 @@
 (ns organism.bots
   "Shared bot registry. Each game registers its bots with a name and an
    `agent-step` function. Bots can be hand-coded heuristics (like OBO) or
-   trained models (alpha-zero style — to be added).
+   trained models served from the native engine (like NEURON).
 
    Bot names are conventionally ALL CAPS to distinguish them from human
    players. Multiple instances of the same bot in one game get auto-suffixed
-   names (OBO-A, OBO-B, etc.) so the game state keys stay unique.")
+   names (OBO-A, OBO-B, etc.) so the game state keys stay unique."
+  (:require
+   [clojure.string :as string]))
 
 (defonce ^{:doc "Registry: {game-type {bot-name {:agent-step fn :description str}}}"}
   registry (atom {}))
 
 (defn register-bot!
-  "Register a bot for a game-type. agent-step is a fn [game] → next-game."
-  [game-type bot-name {:keys [agent-step description] :as bot-def}]
+  "Register a bot for a game-type. agent-step is a fn [game] → next-game.
+
+   A bot may also supply agent-step+key, a fn [game] → [choice-key next-game].
+   Games that replay from choice keys prefer it, since the key a bot picked is
+   what they record."
+  [game-type bot-name {:keys [agent-step agent-step+key plays? description]}]
   (swap! registry assoc-in [game-type bot-name]
-         {:agent-step  agent-step
-          :description (or description "")})
+         {:agent-step     agent-step
+          :agent-step+key agent-step+key
+          :plays?         plays?
+          :description    (or description "")})
   bot-name)
 
 (defn list-bots
@@ -28,14 +36,31 @@
 (defn get-agent-step
   "Look up the agent-step fn for a bot. Strips numeric suffix (OBO-1 → OBO)."
   [game-type instance-name]
-  (let [base-name (clojure.string/replace instance-name #"-(?:[A-Z]|\d+)$" "")]
+  (let [base-name (string/replace instance-name #"-(?:[A-Z]|\d+)$" "")]
     (get-in @registry [game-type base-name :agent-step])))
+
+(defn get-agent-step+key
+  "Look up the agent-step+key fn for a bot, if it registered one. Strips the
+   instance suffix the same way get-agent-step does (NEURON-A → NEURON)."
+  [game-type instance-name]
+  (let [base-name (string/replace instance-name #"-(?:[A-Z]|\d+)$" "")]
+    (get-in @registry [game-type base-name :agent-step+key])))
+
+(defn plays?
+  "Whether a bot will take this game. A bot shaped for one board — a trained
+   network — says no to the others; one that registered no opinion takes any
+   game of its type."
+  [game-type instance-name game]
+  (let [base-name (string/replace (or instance-name "") #"-(?:[A-Z]|\d+)$" "")]
+    (if-let [decide (get-in @registry [game-type base-name :plays?])]
+      (boolean (decide game))
+      true)))
 
 (defn instance-base-name
   "Strip the alphabetic/numeric suffix to recover the base bot name (OBO-A → OBO)."
   [instance-name]
   (when instance-name
-    (clojure.string/replace instance-name #"-(?:[A-Z]|\d+)$" "")))
+    (string/replace instance-name #"-(?:[A-Z]|\d+)$" "")))
 
 (defn bot?
   "True if the player name corresponds to a registered bot for this game-type

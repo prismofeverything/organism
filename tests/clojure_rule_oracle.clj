@@ -32,7 +32,10 @@
     :circulate-choices (vec (sort (keys (c/circulate-to-choices
                                        game (g/current-organism-elements game)
                                        (g/current-organism-elements game)))))
-    :action-choices (vec (sort (conj (mapv name (keys (c/choose-action-choices game (:type request)))) "pass")))
+    ;; Passing is what is left when nothing else can be done, which is how
+    ;; find-state offers it; this mirrors that rather than always appending it.
+    :action-choices (let [choices (mapv name (keys (c/choose-action-choices game (:type request))))]
+                      (vec (sort (if (empty? choices) ["pass"] choices))))
     (snapshot
      (case op
        :circulate (g/circulate game fields)

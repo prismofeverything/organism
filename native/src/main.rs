@@ -1,4 +1,4 @@
-use organism_train::game::Board;
+use organism_train::game::{Board, Rules};
 use std::io::{self, BufRead};
 fn main() -> anyhow::Result<()> {
     #[cfg(feature = "gpu")]
@@ -13,15 +13,32 @@ fn main() -> anyhow::Result<()> {
     if std::env::args().nth(1).as_deref() == Some("compare") {
         return organism_train::compare::main(&std::env::args().collect::<Vec<_>>());
     }
+    #[cfg(feature = "torch")]
+    if std::env::args().nth(1).as_deref() == Some("serve") {
+        return organism_train::serve::main(&std::env::args().collect::<Vec<_>>());
+    }
     for line in io::stdin().lock().lines() {
         let request: serde_json::Value = serde_json::from_str(&line?)?;
         let players = request["players"].as_u64().unwrap_or(2) as usize;
         let rings = request["rings"].as_u64().unwrap_or(4) as usize;
+        // The rules oracle answers for the game as it is played, not the game
+        // as first written. The Clojure and Python engines play these rules
+        // unconditionally; a request may still ask for the older game, which is
+        // what the rule-tightening comparisons do.
+        let rules = Rules {
+            eat_threshold: request["eat_threshold"].as_u64().unwrap_or(5) as u32,
+            require_useful_action: request["require_useful_action"].as_bool().unwrap_or(true),
+            sacrifice_yields_nothing: request["sacrifice_yields_nothing"]
+                .as_bool()
+                .unwrap_or(true),
+            elide_forced: request["elide_forced"].as_bool().unwrap_or(false),
+        };
         let board = Board::new(
             players,
             rings,
             request["notches"].as_bool().unwrap_or(false),
-        );
+        )
+        .with_rules(rules);
         let mut state = board.initial();
         if let Some(actions) = request["actions"].as_array() {
             for action in actions {

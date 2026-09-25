@@ -6,6 +6,13 @@
    [organism.random :as random]))
 
 (def ^:dynamic *food-limit* 111)
+
+;; How much food an element may hold and still eat. Without a ceiling an eater
+;; on a food-rich space can sit and eat for the rest of the game, which is both
+;; a dominant strategy and an endless one; five is enough to feed any growth the
+;; organism can pay for. Rebind to *food-limit* to play the game as it was
+;; written before.
+(def ^:dynamic *eat-threshold* 5)
 (def observer-key "--observer--")
 
 ;; BOARD ----------------------
@@ -642,7 +649,7 @@
 (defn can-eat?
   [game element]
   (and
-   (open-element? element)
+   (> *eat-threshold* (:food element))
    (> (count (open-spaces game (:space element))) 0)))
 
 ;; ACTIONS -----------------------
@@ -1299,11 +1306,26 @@
          game
          organisms-lost)
 
+        ;; Walking yourself off the map used to pay. A lost element leaves its
+        ;; food behind, so surrendering on purpose banked more food per turn
+        ;; than eating did, several turns running. A player who is gone
+        ;; entirely takes their food with them.
+        surrendered (map :space (base/map-cat last (get organisms-lost active-player)))
+
+        emptied
+        (if (and
+             (seq surrendered)
+             (not-any?
+              (fn [element] (= active-player (:player element)))
+              (vals (get-in sacrifice [:state :elements]))))
+          (reduce remove-free-food sacrifice surrendered)
+          sacrifice)
+
         integrity
         (reduce
          (fn [game other-player]
            (award-capture game active-player {:type :integrity :player other-player}))
-         sacrifice other-players)]
+         emptied other-players)]
     integrity))
 
 (defn check-integrity
@@ -1568,11 +1590,102 @@
     (when-not (empty? enough)
       (find-leader enough (current-player game)))))
 
+(defn organism-can-feed?
+  "Whether this organism could ever have food to spend.
+
+   Food is never what permanently stops a player: eating an adjacent space
+   yields a food even when the space is empty, and circulation moves food
+   anywhere within the organism. So the question is only whether it holds any
+   food already or has somewhere to eat from."
+  [game elements]
+  (boolean
+   (or
+    (some (comp pos? :food) elements)
+    (some (fn [{:keys [space]}] (seq (open-spaces game space))) elements))))
+
+(defn organism-can-act?
+  "Whether this organism could ever move an element or grow a new one — the
+   only two things that change which spaces are occupied.
+
+   Both are geometric. Where a piece may move and where one may be grown depend
+   on the layout, and by the time food matters `organism-can-feed?` has already
+   said whether any is reachable. Deliberately generous: saying yes only means
+   the game carries on, while a wrong no would end a game that still had moves
+   in it."
+  [game elements]
+  (cond
+    ;; Not a whole organism — integrity is about to take it off the board,
+    ;; which is itself a change to the layout.
+    (not (alive-elements? elements)) true
+    (not (organism-can-feed? game elements)) false
+    :else
+    (boolean
+     (or
+      ;; Growth reaches out from the grow elements, not from the whole organism.
+      (seq (growable-spaces game (map :space (filter (comp #{:grow} :type) elements))))
+      (some
+       (fn [{:keys [space]}]
+         (and (mobile? game space) (seq (available-spaces game space))))
+       elements)))))
+
+(defn player-can-act?
+  [game player]
+  (let [organisms (player-organisms game player)]
+    (if (empty? organisms)
+      true                              ; still to introduce
+      (boolean (some (fn [elements] (organism-can-act? game elements))
+                     (vals organisms))))))
+
+(defn stalemate?
+  "True when no player can ever change which spaces are occupied again.
+
+   Elements only appear or move through growth and movement; captures and
+   integrity losses follow from those. So when every player is stuck at the
+   same time, the layout can never change — which means nobody ever becomes
+   unstuck. That the condition holds for everyone simultaneously is what makes
+   it permanent rather than one bad turn, and it is why this is checked for the
+   whole table rather than per player.
+
+   The board really does lock like this: a lone mover walled in behind its own
+   organism, the pieces beside it unable to move because an enemy of the same
+   type sits next to the only gap, and the pieces with room to move not mobile
+   because no mover is adjacent to them. Nothing either player does afterwards
+   can change any of it.
+
+   An occupied centre is the exception: its owner is handed a capture at the
+   start of every turn, so that game ends on its own and is not a stalemate
+   however frozen the board looks."
+  [game]
+  (let [game (find-organisms game)]
+    (boolean
+     (and
+      (seq (get-in game [:state :elements]))
+      (nil? (get-element game (:center game)))
+      (not-any? (partial player-can-act? game) (:turn-order game))))))
+
+(defn stalemate-victory?
+  "Who wins a locked board: anybody but whoever locked it.
+
+   The same rule the game already applies to ties. Causing a tie loses, because
+   a player who can see the ending coming should not be able to take everyone
+   down with them; walking the board into a position nothing can ever change is
+   the same act, and costs the same. Among the players left the leader takes it,
+   by the relative-capture count ties are settled on.
+
+   Checked after the real victories, so a game that was won on its merits is
+   never reinterpreted as a lock."
+  [game]
+  (when (stalemate? game)
+    (let [blameless (dissoc (all-relative-captures game) (current-player game))]
+      (when (seq blameless)
+        (find-leader blameless)))))
+
 (defn victory?
   [game]
   (or
    (organism-victory? game)
-   (capture-victory? game)))
+   (capture-victory? game)
+   (stalemate-victory? game)))
 
 (defn declare-victory
   [game winner]

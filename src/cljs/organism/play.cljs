@@ -1104,7 +1104,15 @@
         {:color (get player-colors player)}}
        (get number->word organism-victory organism-victory)]
       " organisms for victory"]
-     [mutations-display mutations (get player-colors player)]]))
+     [mutations-display mutations (get player-colors player)]
+
+     ;; Who won, once someone has. Nothing else in the game view says so: the
+     ;; finished-games list had it right while the board itself stayed silent.
+     (when-let [winner (:winner state)]
+       [:h3
+        {:style {:color (get player-colors winner)
+                 :margin "12px 0px 0px 0px"}}
+        winner " wins!"])]))
 
 (def chat-window 15)
 
@@ -2668,12 +2676,25 @@
   {:pass "pass"
    :actions-complete "resolve conflicts"
    :resolve-conflicts "check integrity"
-   :player-victory "declare victory!"
    :check-integrity "confirm turn"})
+
+(defn turn-description
+  "What the advance button is about to do.
+
+   Victory names its winner. Whoever is on turn is not always the one who won —
+   a move can complete somebody else's victory, or cost you your own last
+   organism — and an unqualified \"declare victory!\" sitting in front of you
+   reads as yours."
+  [turn choices]
+  (if (= turn :player-victory)
+    (if-let [winner (get-in choices [:advance :state :winner])]
+      (str "declare victory for " winner "!")
+      "declare victory!")
+    (get turn-descriptions turn)))
 
 (defn progress-control
   [turn choices advance]
-  (if-let [description (get turn-descriptions turn)]
+  (if-let [description (turn-description turn choices)]
     [:span
      {:style
       {:color "#fff"
@@ -3151,7 +3172,11 @@
             (send-reset! state))))}
      "undo"]]
 
-   (when (= turn :choose-action)
+   ;; Passing is what is left when nothing else can be done, so this follows
+   ;; the choices the rules offer rather than appearing at every action. This
+   ;; button builds the passed state itself instead of taking a choice, so
+   ;; without the guard it would be a way around the rule.
+   (when (and (= turn :choose-action) (contains? choices :pass))
      [:div
       {:style
        {:margin "15px 0px"}}

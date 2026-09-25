@@ -79,17 +79,6 @@
    (partial game/choose-organism game)
    organisms))
 
-(defn choose-action-type-choices
-  [game]
-  (let [elements (game/current-organism-elements game)
-        food (reduce + 0 (map :food elements))
-        types (if (zero? food)
-                [:eat]
-                element-types)])
-  (partial-map
-   (partial game/choose-action-type game)
-   element-types))
-
 (defn eat-filter
   [game]
   (let [elements (game/current-organism-elements game)
@@ -140,6 +129,26 @@
   [game action-type]
   (let [filter-action (get action-filters action-type)]
     (filter-action game)))
+
+(defn choose-action-type-choices
+  "Which action an organism declares for its turn.
+
+   An organism with no elements of a type, or no way to use them, would be
+   declaring a turn that cannot do anything — and that is what lets a
+   deliberate pass wear the costume of a real decision. Only types that could
+   accomplish something are offered. Where nothing qualifies the organism truly
+   has nothing to do, and all three stand again so a legal move always exists."
+  [game]
+  (let [elements (game/current-organism-elements game)
+        present (group-by :type elements)
+        useful (filter
+                (fn [type]
+                  (and (seq (get present type))
+                       (action-filter game type)))
+                element-types)]
+    (partial-map
+     (partial game/choose-action-type game)
+     (if (empty? useful) element-types useful))))
 
 (defn choose-action-choices
   [game action-type]
@@ -353,6 +362,8 @@
           (every? game/complete-action? actions)
           (cond
             (< (count actions) num-actions)
+            ;; Passing is what is left when nothing else can be done, not a
+            ;; move to be preferred over doing something.
             (let [choices (choose-action-choices game choice)
                   pass {:pass
                         (-> game
@@ -360,7 +371,7 @@
                             game/pass-action)}]
               (if (empty? choices)
                 [:pass pass]
-                [:choose-action (merge choices pass)]))
+                [:choose-action choices]))
 
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))

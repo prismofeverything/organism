@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""The deck in one card: three colors, four shapes, five numbers -- and then
-all sixty, laid out so the lattice shows.
+"""The deck in one card: three colors, four shapes, V numbers -- and then all
+of them, laid out so the lattice shows.
 
-Six rows of ten.  Colors band the rows two at a time, numbers band the columns
-two at a time, and the shape steps on by one with every colour and every
-number, which sets the whole field shimmering diagonally.  Every one of the
-3 x 4 x 5 combinations lands exactly once; that is checked, not hoped for.
+Six rows of two-per-number.  Colors band the rows two at a time, numbers band
+the columns two at a time, and the shape steps on by one with every colour and
+every number, which sets the whole field shimmering diagonally.  Every one of
+the 3 x 4 x V combinations lands exactly once; that is checked, not hoped for.
+
+`--values` draws the same key for a deck with a different number of values, for
+comparing one against another; the construction does not change, only how many
+columns there are.
 
 Vector, using the same traced outlines and the same rosette geometry as the
 printed cards.
 """
+import argparse
 import json
 import pathlib
 
 from PIL import ImageFont
 
 import deck
+import rings_n
 from make_pyramid import card, text
 
 HERE = pathlib.Path(__file__).parent
@@ -29,7 +35,9 @@ GREY = "#7c7884"
 SHAPE_ORDER = ["eye", "star", "pyramid", "helix"]
 STEP, RADIUS, SWATCH = 172, 62, 48
 LABEL_GAP, ROW = 78, 210
-COLS, ROWS = 10, 6                 # six rows of ten
+ROWS = 6                           # six rows; the columns follow from V
+NUMWORD = {3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+           8: "eight", 9: "nine", 10: "ten"}
 GW, GGAP = 61, 5                   # grid card width, and the gap between;
                                    # three fifths of full size, so the grid
                                    # reads as one field rather than sixty things
@@ -43,14 +51,16 @@ def grid_card(r, c):
     return k, (2 * h + j + k + n) % 4, n
 
 
-def main():
-    table = deck.ring_table()
+def main(values=5):
+    COLS = 2 * values
+    table = rings_n.ring_table(max(values, 5))
     lab_f = ImageFont.truetype(INTER_R, 46)
     num_f = ImageFont.truetype(GOTHIC_F, 124)
     head_f = ImageFont.truetype(GOTHIC_F, 150)
 
     rows = [("three colors:", 3, SWATCH), ("four shapes:", 4, RADIUS),
-            ("five numbers:", 5, num_f.getlength("5") / 2)]
+            (f"{NUMWORD[values]} numbers:", values,
+             num_f.getlength(str(values)) / 2)]
     widths = [lab_f.getlength(l) + LABEL_GAP + (k - 1) * STEP + 2 * hf
               for l, k, hf in rows]
 
@@ -92,7 +102,8 @@ def main():
                 out.append(text(x, y + 42, str(m + 1), 124, INK, "400", "middle",
                                 DISPLAY))
 
-    out.append(text(CX, count_y, "60 cards", 58, GREY, "400", "middle", INTER, 6))
+    out.append(text(CX, count_y, f"{12 * values} cards", 58, GREY, "400",
+                    "middle", INTER, 6))
 
     seen = set()
     gx0, gh_card = CX - gw / 2, GW * 1050 / 750
@@ -102,15 +113,19 @@ def main():
             seen.add((col, shp, num))
             out.append(card(gx0 + c * (GW + GGAP), grid_y + r * (gh_card + GGAP),
                             col, shp, num, table, GW))
-    assert len(seen) == 60, f"grid covers {len(seen)} of 60"
+    assert len(seen) == 12 * values, \
+        f"grid covers {len(seen)} of {12 * values}"
 
     out.append('</svg>')
-    dst = HERE / "out" / "universe-key.svg"
+    name = "universe-key.svg" if values == 5 else f"universe-key-{values}.svg"
+    dst = HERE / "out" / name
     dst.parent.mkdir(exist_ok=True)
     dst.write_text("\n".join(out))
     print(f"  {W}x{H}  {dst.stat().st_size/1024:.0f} KB  "
-          f"grid covers all 60 -> {dst}")
+          f"grid covers all {12 * values} -> {dst}")
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--values", type=int, default=5)
+    main(ap.parse_args().values)

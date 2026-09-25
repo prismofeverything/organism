@@ -180,6 +180,25 @@ reload between updates. CPU is compared with CPU and CUDA with CUDA: backend
 rounding near activation boundaries can change tiny gradients, so CPU-vs-GPU
 parameter identity is not an appropriate optimizer check.
 
+## Serving a trained model to the website
+
+`organism-train serve` holds a network and answers positions, so a trained model
+can take a seat as the bot **NEURON**. It runs on CPU; no GPU is involved. See
+`docs/playing-a-trained-model.md` for setup, and:
+
+```sh
+bash native/publish-bot.sh 3p
+python3 tests/check_serve_position.py
+lein run -m organism.scripts.check-native-bot
+```
+
+The first publishes the current weights for the website to serve. The second
+checks that a position handed over directly plays the same as one replayed from
+the opening — the website has no move history to replay, so that is the form its
+bot uses. The third walks whole games and checks that the Clojure engine and the
+move server offer the same moves at every decision, and that the move the bot
+picks is one the game is offering.
+
 Reproduce the small search benchmark:
 
 ```sh

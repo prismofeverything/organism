@@ -14,7 +14,7 @@ SRC    := $(wildcard $(ROOT)/inputs/*.png)
 MATTES := $(patsubst $(ROOT)/inputs/%.png,$(ROOT)/shapes/%.png,$(SRC))
 RINGS  := $(ROOT)/shapes/rings.json
 
-.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid key web clean distclean
+.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid key web explore clean distclean
 
 all: faces back sheets proof palette chart lattice space pyramid key web
 
@@ -65,6 +65,20 @@ $(WEB): make_web.py deck.py $(ROOT)/shapes/paths.json $(RINGS)
 key: $(ROOT)/shapes/paths.json $(RINGS) make_key.py make_pyramid.py
 	$(PY) make_key.py
 	rsvg-convert -w 3200 $(ROOT)/out/universe-key.svg -o $(ROOT)/out/universe-key.png
+
+# What a deck with a different number of values would look like. V=5 is the
+# real deck; past it a sequence and a hand of five different numbers stop being
+# the same thing, which is where the junk hand comes from. See README.
+VALUES ?= 7
+
+explore: $(ROOT)/shapes/paths.json $(RINGS) make_pyramid.py make_key.py hands_n.py holdem_n.py
+	$(PY) holdem_n.py --trials 120000
+	$(PY) make_key.py --values $(VALUES)
+	$(PY) make_pyramid.py --values $(VALUES)
+	rsvg-convert -w 3200 $(ROOT)/out/universe-key-$(VALUES).svg \
+	  -o $(ROOT)/out/universe-key-$(VALUES).png
+	rsvg-convert -w 3700 $(ROOT)/out/universe-pyramid-$(VALUES).svg \
+	  -o $(ROOT)/out/universe-pyramid-$(VALUES).png
 
 clean:
 	rm -rf $(ROOT)/out

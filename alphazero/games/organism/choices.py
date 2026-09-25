@@ -117,9 +117,28 @@ def _action_type_feasible(game: Game, atype: str) -> bool:
     return False
 
 
+def _organism_type_counts(game: Game) -> dict[str, int]:
+    player = game["state"]["player_turn"]["player"]
+    organism = game["state"]["player_turn"]["organism_turns"][-1]["organism"]
+    elements = gs.player_organisms(game, player).get(organism, [])
+    return {t: sum(1 for e in elements if e["type"] == t) for t in ELEMENT_TYPES}
+
+
 def _choose_action_type_choices(game: Game) -> dict[int, Game]:
+    """Which action an organism declares for its turn.
+
+    An organism with no elements of a type, or no way to use them, would be
+    declaring a turn that cannot do anything — and that is what lets a
+    deliberate pass wear the costume of a real decision. Only types that could
+    accomplish something are offered. Where nothing qualifies the organism
+    truly has nothing to do, and all three stand again so a legal move always
+    exists.
+    """
+    counts = _organism_type_counts(game)
+    useful = [atype for atype in ELEMENT_TYPES
+              if counts[atype] > 0 and _action_type_feasible(game, atype)]
     choices: dict[int, Game] = {}
-    for atype in ELEMENT_TYPES:
+    for atype in (useful or ELEMENT_TYPES):
         next_game = gs.choose_action_type_action(game, atype)
         idx = _type_idx(atype)
         choices[idx] = next_game
@@ -151,10 +170,12 @@ def _choose_action_choices(game: Game, action_type: str) -> dict[int, Game]:
         circ_game = gs.choose_action_action(game, "circulate")
         choices[_type_idx("circulate")] = circ_game
 
-    # Pass (circulate as pass)
-    pass_game = gs.choose_action_action(game, "circulate")
-    pass_game = gs.pass_action(pass_game)
-    choices[_PASS_IDX()] = pass_game
+    # Passing is what is left when nothing else can be done, not a move to be
+    # preferred over doing something.
+    if not choices:
+        pass_game = gs.choose_action_action(game, "circulate")
+        pass_game = gs.pass_action(pass_game)
+        choices[_PASS_IDX()] = pass_game
 
     return choices
 

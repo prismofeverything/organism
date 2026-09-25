@@ -18,13 +18,16 @@ import pathlib
 from PIL import ImageFont
 
 import deck
+import rings_n
 
 HERE = pathlib.Path(__file__).parent
 
-NAMES = {"one pair": "DYAD", "two pair": "SPLIT TETRAD", "three of a kind": "TRIAD",
+NAMES = {"high card": "SCATTER",
+         "one pair": "DYAD", "two pair": "SPLIT TETRAD", "three of a kind": "TRIAD",
          "full house": "SPLIT PENTAD", "four of a kind": "TETRAD",
          "five of a kind": "PENTAD", "straight": "SEQUENCE"}
-GROUPS = {"one pair": [2], "two pair": [2, 2], "three of a kind": [3],
+GROUPS = {"high card": [1, 1, 1, 1, 1],
+          "one pair": [2], "two pair": [2, 2], "three of a kind": [3],
           "full house": [3, 2], "four of a kind": [4], "five of a kind": [5],
           "straight": [1, 1, 1, 1, 1]}
 PREFIX = {"mixed": "", "color": "COLOR ", "shape": "SHAPE ", "perfect": ""}
@@ -118,13 +121,22 @@ def hand(x, y, cards, table, w=CARD_W):
 
 # ---------------------------------------------------------------- the glyphs
 
-def glyph(x, y, groups, r=26, ink=INK):
+def glyph(x, y, groups, r=26, ink=INK, run=None):
     """Dots are cards; a ring joining them means they share a number.  Five
-    loose dots is the sequence, where nothing matches at all."""
+    loose dots is a hand where nothing matches at all.
+
+    `run` only means anything on a deck with more than five values, where five
+    different numbers and five numbers in a row stop being the same thing: the
+    ones in a row get a rule under them. On the real deck there is nothing to
+    distinguish, so nothing is drawn and the figure is unchanged."""
     out = []
     if groups == [1, 1, 1, 1, 1]:
         for i in range(5):
             out.append(f'<circle cx="{x - 46 + i*23:.1f}" cy="{y:.1f}" r="6" fill="{ink}"/>')
+        if run:
+            out.append(f'<line x1="{x - 46:.1f}" y1="{y + 15:.1f}" '
+                       f'x2="{x + 46:.1f}" y2="{y + 15:.1f}" '
+                       f'stroke="{ink}" stroke-width="2.4"/>')
         return "".join(out)
     span = sum(2 * r + 14 for _ in groups) - 14
     cx = x - span / 2 + r
@@ -149,12 +161,20 @@ def glyph(x, y, groups, r=26, ink=INK):
 
 # ------------------------------------------------------------------ assembly
 
-def main():
-    data = json.loads((HERE / "hands.json").read_text())
+def main(values=5):
+    if values == 5:
+        # the real deck's own file, so this figure comes out exactly as before
+        data = json.loads((HERE / "hands.json").read_text())
+    else:
+        import hands_n
+        data = hands_n.with_examples(values)
     total = data["total"]
     cell = {(r["numbers"], r["suit"]): (r["count"], i, r["example"])
             for i, r in enumerate(data["rows"], start=1)}
-    table = deck.ring_table()
+    table = rings_n.ring_table(max(values, 5))
+    # a run and a scatter are the same hand at five values and different past
+    # it, so the glyph only marks runs where there is something to mark
+    marks_runs = any(k[0] == "high card" for k in cell)
 
     # One vertical level per distinct probability, rarest at the top.  Spacing
     # is logarithmic, but opened out to MINGAP wherever two hands sit so close
@@ -273,7 +293,8 @@ def main():
             up = n == head
             odds = total / count
             txt = f"1 in {odds:,.1f}" if odds < 100 else f"1 in {round(odds):,}"
-            svg.append(glyph(x, y, GROUPS[n], r=33 if up else 26))
+            svg.append(glyph(x, y, GROUPS[n], r=33 if up else 26,
+                             run=marks_runs and n == "straight"))
             svg.append(text(x, y + (74 if up else 60), PREFIX[suit] + NAMES[n],
                             34 if up else 28, INK, "600", "middle", SANS, 1.2))
             svg.append(text(x, y + (106 if up else 88), f"{txt}   ·   #{rank}",
@@ -281,18 +302,28 @@ def main():
             svg.append(hand(x, y + (122 if up else 102), example, table,
                             BIG if up else CARD_W))
 
-    # the apex.  Any of the twelve suits would do; shown as the purple eye,
-    # the deck's own mark.
-    count, rank, _ = cell[("straight", "perfect")]
-    example = [[0, 0, k] for k in range(5)]        # purple, eye, 1..5
+    # the spire.  A single suit is one card thick, so the only hands in it are
+    # the ones with no repeat -- which at five values is the sequence and
+    # nothing else, and past five is a run OR a scatter. So the apex is one
+    # node on the real deck and two on a longer one.
     violet = deck.COLORS["purple"]
-    ax, ay = APEX
-    svg.append(f'<circle cx="{ax}" cy="{ay}" r="104" fill="none" stroke="{violet}" '
-               f'stroke-width="3.5"/>')
-    svg.append(glyph(ax, ay, GROUPS["straight"], ink=violet))
-    svg.append(text(ax, ay + 148, "SINGULARITY", 36, violet, "600", "middle", SANS, 2))
-    svg.append(text(ax, ay + 182, f"1 in {round(total/count):,}   ·   #{rank}", 23, GREY))
-    svg.append(hand(ax, ay + 214, example, table, BIG))
+    perfect = sorted(((n, cell[(n, "perfect")]) for n in NAMES
+                      if (n, "perfect") in cell),
+                     key=lambda t: t[1][0])
+    for i, (n, (count, rank, example)) in enumerate(perfect):
+        ax, ay = CX, ys[count]
+        top = (i == 0)
+        svg.append(f'<circle cx="{ax}" cy="{ay}" r="{104 if top else 84}" fill="none" '
+                   f'stroke="{violet}" stroke-width="{3.5 if top else 2.4}"/>')
+        svg.append(glyph(ax, ay, GROUPS[n], ink=violet,
+                         run=marks_runs and n == "straight"))
+        label = "SINGULARITY" if n == "straight" else "PERFECT " + NAMES[n]
+        svg.append(text(ax, ay + (148 if top else 126), label,
+                        36 if top else 29, violet, "600", "middle", SANS, 2))
+        svg.append(text(ax, ay + (182 if top else 156),
+                        f"1 in {round(total/count):,}   \u00b7   #{rank}", 23, GREY))
+        svg.append(hand(ax, ay + (214 if top else 184), example, table,
+                        BIG if top else CARD_W))
 
     # axis feet
     for suit, label in (("shape", "SHAPE"), ("mixed", "MIX"), ("color", "COLOR")):
@@ -300,11 +331,16 @@ def main():
         svg.append(text(x, y + 268, label, 34, LINE, "600", "middle", SANS, 4))
 
     svg.append('</svg>')
-    out = HERE / "out" / "universe-pyramid.svg"
+    name = "universe-pyramid.svg" if values == 5 else f"universe-pyramid-{values}.svg"
+    out = HERE / "out" / name
     out.parent.mkdir(exist_ok=True)
     out.write_text("\n".join(svg))
-    print(f"  {W}x{H}  {out.stat().st_size/1024:.0f} KB -> {out}")
+    print(f"  {W}x{H}  {out.stat().st_size/1024:.0f} KB  "
+          f"{len(cell)} kinds -> {out}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--values", type=int, default=5)
+    main(ap.parse_args().values)

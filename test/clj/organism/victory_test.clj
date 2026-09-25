@@ -115,3 +115,23 @@
     (let [board (organism-board "alice" {"alice" 2 "bob" 2})
           [phase _] (choice/find-state board)]
       (is (not= :player-victory phase)))))
+
+(deftest the-victory-choice-names-its-winner-not-whoever-is-acting
+  (testing "a player can complete somebody else's victory on their own turn"
+    ;; The board the button reads. Whoever is on turn is handed the victory to
+    ;; declare, and it is not always theirs — the client labelled that button
+    ;; "declare victory!" with no name on it, so finishing a turn that won
+    ;; someone else the game read as winning it yourself.
+    (let [board (organism-board "alice" {"alice" 1 "bob" 3})
+          [phase choices] (choice/find-state board)
+          acting (get-in board [:state :player-turn :player])
+          winner (get-in (:advance choices) [:state :winner])]
+      (is (= :player-victory phase))
+      (is (= "bob" winner))
+      (is (not= acting winner)
+          "the whole point: the advance names a winner other than the actor")))
+
+  (testing "and when it is your own victory the same field names you"
+    (let [board (organism-board "alice" {"alice" 3 "bob" 1})
+          [_ choices] (choice/find-state board)]
+      (is (= "alice" (get-in (:advance choices) [:state :winner]))))))

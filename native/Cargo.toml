@@ -14,7 +14,11 @@ tch = { version = "0.22", optional = true }
 
 [features]
 default = []
-gpu = ["dep:tch"]
+# `torch` links libtorch and nothing more: enough to serve a trained model.
+# `gpu` adds the trainer, which compiles a CUDA shim and links CUDA.
+torch = ["dep:tch"]
+serve = ["torch"]
+gpu = ["torch"]
 
 [profile.release]
 debug = 1

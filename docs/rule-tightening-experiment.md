@@ -166,3 +166,38 @@ against "arm A under rules A" compares nothing. What does work is intrinsic
 measurement — does the game resolve, how long does it run, how much of the
 action budget goes to passing — and head-to-head play with both models under one
 fixed rule set, run once under each set.
+
+## Adopted — September 22, 2026
+
+All three rules are now the game, in all three engines:
+
+| Rule | Website (`organism.game`/`organism.choice`) | Python reference | Rust trainer |
+| --- | --- | --- | --- |
+| eat threshold 5 | `*eat-threshold*` | `state.EAT_THRESHOLD` | `Rules::eat_threshold` |
+| no deliberate passing | `choose-action-type-choices`, `find-state` | `_choose_action_type_choices`, `_choose_action_choices` | `Rules::require_useful_action` |
+| a self-wipe takes its food | `base-integrity` | `check_integrity` | `Rules::sacrifice_yields_nothing` |
+
+Rust keeps them as flags because training compares them against the older game
+and `Rules::default()` stays the game as written; the stdin rules oracle answers
+with them on, since that is the game the other two engines play. The Clojure
+side keeps `*eat-threshold*`, which rebinds to `*food-limit*` for the original
+eating rule.
+
+Two side effects worth recording. `choose-action-type-choices` had been trying
+to filter its offers since it was written — the `let` computing `types` had an
+empty body, so the result was discarded and all three types were always
+offered. And `deliberately leaving food behind` had to be a removal rather than
+a zero: the Clojure and Python food maps treat an absent space as empty, so
+writing `0` produced a board the Rust engine's dense food vector could not
+match. The Python/Rust parity check caught it.
+
+What it changes in play: a network playing itself on the website's engine
+finishes in 269 decisions where the same network under the loose rules took
+674.
+
+### What is not adopted
+
+The no-progress cutoff (`--stall-limit 15`) stays a training device. It bounds
+self-play games that would otherwise run forever; on the website people can see
+a stalemate and agree to stop, and turning it into a draw rule is a separate
+decision about how the game ends rather than about what a turn may do.

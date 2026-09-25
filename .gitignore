@@ -43,3 +43,10 @@ bonus-coverage/
 
 /.venv-training
 /native/target
+# The CPU libtorch the move server is built and shipped against, and its build
+# output. Both are large and machine-local; native/build-serve.sh recreates them.
+/.venv-serve
+/native/target-serve
+# What a deploy writes beside the app to point NEURON at the shipped move
+# server. Machine-local by definition; deploy.sh writes the remote one.
+/bot/

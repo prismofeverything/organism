@@ -426,6 +426,66 @@ impl Board {
             s.food[i] += p.food + 1;
         }
     }
+    /// Could this organism ever have food to spend?
+    ///
+    /// Food is never what permanently stops a player: eating an adjacent space
+    /// yields a food even when the space is empty, and circulation moves it
+    /// anywhere within the organism.
+    fn can_feed(&self, s: &State, ids: &[usize]) -> bool {
+        ids.iter().any(|&i| {
+            s.pieces[i].as_ref().is_some_and(|p| p.food > 0) || !self.open(s, i).is_empty()
+        })
+    }
+    /// Is a mover in this piece's orbit? Mobility without the food it needs —
+    /// the geometry of `can_move`, which food can always be circulated to meet.
+    fn has_mover(&self, s: &State, i: usize) -> bool {
+        let Some(p) = &s.pieces[i] else { return false };
+        p.kind == Kind::Move
+            || self.adj[i].iter().any(|&j| {
+                s.pieces[j]
+                    .as_ref()
+                    .is_some_and(|q| q.player == p.player && q.kind == Kind::Move)
+            })
+    }
+    /// Could this organism ever move an element or grow a new one — the only
+    /// two things that change which spaces are occupied?
+    ///
+    /// Deliberately generous: a yes only means the game carries on, while a
+    /// wrong no would end a game that still had moves in it.
+    fn organism_can_act(&self, s: &State, ids: &[usize]) -> bool {
+        if !self.alive(s, ids) {
+            // Integrity is about to take it off the board, which is a change.
+            return true;
+        }
+        if !self.can_feed(s, ids) {
+            return false;
+        }
+        !self.growable(s, ids).is_empty()
+            || ids
+                .iter()
+                .any(|&i| self.has_mover(s, i) && !self.destinations(s, i, false).is_empty())
+    }
+    /// No player can ever change which spaces are occupied again.
+    ///
+    /// Elements only appear or move through growth and movement; captures and
+    /// integrity losses follow from those. So when every player is stuck at the
+    /// same time the layout is frozen for good, and nobody ever becomes
+    /// unstuck. Holding the whole table to the condition at once is what makes
+    /// it permanent rather than one bad turn.
+    ///
+    /// An occupied centre is the exception: its owner is handed a capture at
+    /// the start of every turn, so that game ends on its own however frozen the
+    /// board looks.
+    pub fn stalemate(&self, s: &State) -> bool {
+        if s.pieces[0].is_some() || s.pieces.iter().all(Option::is_none) {
+            return false;
+        }
+        (0..self.players).all(|p| {
+            let groups = self.groups(s, p);
+            // A player yet to introduce can still act.
+            !groups.is_empty() && groups.values().all(|ids| !self.organism_can_act(s, ids))
+        })
+    }
     pub fn victory(&self, s: &State) -> Option<usize> {
         let leader = |scores: Vec<(usize, i64)>| {
             let best = scores.iter().map(|x| x.1).max()?;
@@ -450,16 +510,31 @@ impl Board {
                 (n >= self.organism_limit).then_some((p, n as i64))
             })
             .collect();
-        leader(alive).or_else(|| {
-            leader(
-                (0..self.players)
-                    .filter_map(|p| {
-                        let n = s.captures[p].len() as i64 - self.capture_limit as i64;
-                        (n >= 0).then_some((p, n))
-                    })
-                    .collect(),
-            )
-        })
+        leader(alive)
+            .or_else(|| {
+                leader(
+                    (0..self.players)
+                        .filter_map(|p| {
+                            let n = s.captures[p].len() as i64 - self.capture_limit as i64;
+                            (n >= 0).then_some((p, n))
+                        })
+                        .collect(),
+                )
+            })
+            .or_else(|| {
+                // Locking the board loses, the same way causing a tie does: a
+                // player who can see the ending coming should not be able to
+                // take everyone down with them. Checked last, so a game won on
+                // its merits is never reinterpreted as a lock.
+                self.stalemate(s).then(|| {
+                    leader(
+                        (0..self.players)
+                            .filter(|&p| p != s.player)
+                            .map(|p| (p, s.captures[p].len() as i64))
+                            .collect(),
+                    )
+                })?
+            })
     }
     fn conflict(&self, s: &mut State, rise: usize, fall: usize) {
         let (Some(a), Some(b)) = (s.pieces[rise].clone(), s.pieces[fall].clone()) else {
@@ -1102,6 +1177,50 @@ mod tests {
         }
         seen
     }
+    /// Every space but the centre taken, each player holding one half of every
+    /// ring so both regions are connected and carry all three types. Types run
+    /// around each ring in order, which puts an eat, a grow and a move of BOTH
+    /// players next to the centre — sealing it, because growing in is blocked
+    /// by the opponent being adjacent and moving in is blocked by the opponent
+    /// having the same type beside the gap.
+    fn packed(board: &Board) -> State {
+        let mut s = board.initial();
+        for i in 1..board.spaces.len() {
+            let (ring, step) = board.spaces[i];
+            let half = ring * board.symmetry / 2;
+            let player = if step < half { 0 } else { 1 };
+            board.add(&mut s, i, player, TYPES[step % 3], 0, 0);
+        }
+        s
+    }
+
+    #[test]
+    fn a_locked_board_is_recognised_and_costs_whoever_locked_it() {
+        let board = Board::new(2, 4, false);
+        let s = packed(&board);
+        assert!(board.stalemate(&s), "nowhere left to move or grow");
+        assert_eq!(
+            board.victory(&s),
+            Some(1),
+            "the player on turn locked it, so the other one takes it"
+        );
+
+        // One empty space anywhere and the board is live again.
+        let mut open = s.clone();
+        let last = open.pieces.len() - 1;
+        open.pieces[last] = None;
+        assert!(!board.stalemate(&open));
+
+        // The centre pays its holder a capture every turn, so a game with the
+        // centre taken ends on its own however frozen the rest of it looks.
+        let mut centre = s.clone();
+        centre.pieces[0] = centre.pieces[1].clone();
+        assert!(!board.stalemate(&centre));
+
+        // An opening position is not a stalemate: nobody has introduced yet.
+        assert!(!board.stalemate(&board.initial()));
+    }
+
     #[test]
     fn default_rules_are_the_game_as_written() {
         let plain = Board::new(2, 3, false);

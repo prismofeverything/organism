@@ -275,8 +275,16 @@ def can_move(game: Game, space: Space) -> bool:
     return fed(game, space) and mobile(game, space) and alive(game, space)
 
 
+# How much food an element may hold and still eat. Without a ceiling an eater on
+# a food-rich space can sit and eat for the rest of the game, which is both a
+# dominant strategy and an endless one; five is enough to feed any growth the
+# organism can pay for. Matches *eat-threshold* in organism/game.cljc and
+# Rules::eat_threshold in native/src/game.rs.
+EAT_THRESHOLD = 5
+
+
 def can_eat(game: Game, element: dict) -> bool:
-    return open_element(element) and len(open_spaces(game, element["space"])) > 0
+    return element["food"] < EAT_THRESHOLD and len(open_spaces(game, element["space"])) > 0
 
 
 def open_element(element: dict) -> bool:
@@ -634,6 +642,7 @@ def check_integrity(game: Game, active_player: str) -> Game:
     organisms = group_organisms(game)
 
     other_players_lost = set()
+    surrendered: list = []
     for org_id, elements in list(organisms.items()):
         if alive_elements(elements):
             continue
@@ -644,8 +653,18 @@ def check_integrity(game: Game, active_player: str) -> Game:
             for victim in sorted(victims):
                 game = _award_capture(game, victim, sacrifice)
         other_players_lost.update(owners - {active_player})
+        if active_player in owners:
+            surrendered.extend(el["space"] for el in elements)
         for element in elements:
             game = lose_element(game, element["space"])
+    # Walking yourself off the map used to pay. A lost element leaves its food
+    # behind, so surrendering on purpose banked more food per turn than eating
+    # did, several turns running. A player who is gone entirely takes their food
+    # with them.
+    if surrendered and not any(el["player"] == active_player
+                               for el in game["state"]["elements"].values()):
+        for space in surrendered:
+            game = remove_free_food(game, space)
     # One integrity capture per affected opponent, not per disconnected fragment.
     for player in sorted(other_players_lost):
         game = _award_capture(game, active_player, {"type": "integrity", "player": player})
@@ -673,6 +692,59 @@ def player_wins(game: Game, player: str) -> bool:
     )
 
 
+def organism_can_feed(game: Game, elements: list[dict]) -> bool:
+    """Could this organism ever have food to spend?
+
+    Food is never what permanently stops a player: eating an adjacent space
+    yields a food even when the space is empty, and circulation moves it
+    anywhere within the organism.
+    """
+    return any(e["food"] > 0 or open_spaces(game, e["space"]) for e in elements)
+
+
+def organism_can_act(game: Game, elements: list[dict]) -> bool:
+    """Could this organism ever move an element or grow a new one — the only two
+    things that change which spaces are occupied?
+
+    Deliberately generous: a yes only means the game carries on, while a wrong
+    no would end a game that still had moves in it.
+    """
+    if not alive_elements(elements):
+        # Integrity is about to take it off the board, which is a change.
+        return True
+    if not organism_can_feed(game, elements):
+        return False
+    growers = [e for e in elements if e["type"] == "grow"]
+    if growable_spaces(game, [e["space"] for e in growers]):
+        return True
+    return any(mobile(game, e["space"]) and available_spaces(game, e["space"])
+               for e in elements)
+
+
+def stalemate(game: Game) -> bool:
+    """No player can ever change which spaces are occupied again.
+
+    Elements only appear or move through growth and movement; captures and
+    integrity losses follow from those. So when every player is stuck at the
+    same time the layout is frozen for good, and nobody ever becomes unstuck.
+    Holding the whole table to the condition at once is what makes it permanent
+    rather than one bad turn.
+
+    An occupied centre is the exception: its owner is handed a capture at the
+    start of every turn, so that game ends on its own however frozen the board
+    looks.
+    """
+    if not game["state"]["elements"] or get_element(game, game["center"]):
+        return False
+    game = find_organisms(game)
+    for player in game["turn_order"]:
+        organisms = player_organisms(game, player)
+        # A player yet to introduce can still act.
+        if not organisms or any(organism_can_act(game, els) for els in organisms.values()):
+            return False
+    return True
+
+
 def victory(game: Game) -> str | None:
     """Match Clojure victory?: organisms first, then relative captures.
 
@@ -697,7 +769,16 @@ def victory(game: Game) -> str | None:
         return winner
     captures = {p: len(game["state"]["captures"].get(p, []))
                 - game["players"][p].get("capture_limit", 5) for p in game["turn_order"]}
-    return leader({p: score for p, score in captures.items() if score >= 0})
+    winner = leader({p: score for p, score in captures.items() if score >= 0})
+    if winner:
+        return winner
+
+    # Locking the board loses, the same way causing a tie does. Checked last, so
+    # a game won on its merits is never reinterpreted as a lock.
+    if stalemate(game):
+        return leader({p: len(game["state"]["captures"].get(p, []))
+                       for p in game["turn_order"] if p != acting})
+    return None
 
 
 # ── turn flow ────────────────────────────────────────────────────────────────────

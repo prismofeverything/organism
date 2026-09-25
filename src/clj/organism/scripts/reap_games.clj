@@ -5,7 +5,15 @@
      lein run -m organism.scripts.reap-games
 
    Run it dry first, and keep running it dry until the list looks right —
-   deletion is not reversible."
+   deletion is not reversible.
+
+   In production this runs nightly from cron, installed by `./deploy.sh ship`;
+   `./deploy.sh reap` shows what the schedule is about to do. Nothing ran it for
+   a long time and deleting a game therefore did nothing visible — the mark went
+   on and stayed on. The box has no Leiningen, so the scheduled job goes through
+   the uberjar instead:
+
+     java -cp organism.jar clojure.main -m organism.scripts.reap-games"
   (:require
    [organism.handler :as handler]
    [organism.mongo :as db]

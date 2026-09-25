@@ -1,4 +1,5 @@
 //! Standalone training, durable generation checkpoints, and OGF telemetry.
+use crate::args::argument;
 use crate::{
     game::{Board, State},
     network::{Adam, Network},
@@ -1333,13 +1334,6 @@ fn reconcile_metric(dir: &Path, metric: &Value) -> Result<()> {
     writeln!(file, "{metric}")?;
     file.sync_all()?;
     Ok(())
-}
-fn argument(args: &[String], name: &str, default: &str) -> String {
-    args.iter()
-        .rposition(|a| a == name)
-        .and_then(|i| args.get(i + 1))
-        .cloned()
-        .unwrap_or_else(|| default.into())
 }
 pub fn main(args: &[String]) -> Result<()> {
     let root = PathBuf::from(argument(

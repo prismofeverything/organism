@@ -377,6 +377,26 @@
 
 ;; ── DB-aware agent step (tries flowchart bots first) ────────────────────────
 
+(defn- resolve-registered-step
+  "Look up a bot that registered its own step function — the trained network
+   plays through this. Returns an agent-step+key fn, or nil when there is none
+   or when the bot will not take this board, in which case the caller falls
+   back to a bot that plays anything.
+
+   A registered bot that cannot answer hands the turn to the heuristic instead
+   of stopping. The trained one answers over a pipe to another process, and a
+   game with people waiting in it is better off played badly than not at all."
+  [player-name game]
+  (when (and player-name (bots/plays? "organism" player-name game))
+    (when-let [step (or (bots/get-agent-step+key "organism" player-name)
+                        (when-let [one (bots/get-agent-step "organism" player-name)]
+                          (when-not (= one agent-step)
+                            (fn [g] (when-let [next-game (one g)] [:step next-game])))))]
+      (fn [g]
+        (or (step g)
+            (do (println "BOT:" player-name "could not answer; playing the heuristic")
+                (agent-step+key g)))))))
+
 (defn- resolve-flowchart-step
   "Look up a saved flowchart bot for the current player. Returns an
    agent-step+key fn or nil."
@@ -402,7 +422,10 @@
           (if (= cached ::none)
             (agent-step+key game)
             (cached game))
-          (let [flow-fn (resolve-flowchart-step db player)]
+          ;; A bot someone built by hand wins over one that registered itself,
+          ;; the same way a saved bot shadows a built-in in the lobby listing.
+          (let [flow-fn (or (resolve-flowchart-step db player)
+                            (resolve-registered-step player game))]
             (swap! cache assoc player (or flow-fn ::none))
             (if flow-fn
               (flow-fn game)
@@ -494,7 +517,12 @@
 
 ;; ── Bot registration ────────────────────────────────────────────────────────
 
+;; Loaded for its registration, not its vars: seating NEURON in a game is what
+;; reaches it, through the registry rather than through a call from here.
+(require 'organism.native-bot)
+
 (bots/register-bot!
  "organism" "OBO"
- {:agent-step  agent-step
+ {:agent-step     agent-step
+  :agent-step+key agent-step+key
   :description "Heuristic organism bot — grows aggressively, captures opportunistically, and circulates food to feed growers."})
