@@ -51,7 +51,11 @@ MODEL_TORCH="${LIBTORCH_SERVE:-$(echo "$PWD"/.venv-serve/lib/python*/site-packag
 # The box has 2 cores, shared with the web app, so it thinks less per move than
 # the trainer does. `./deploy.sh model-check` reports what a decision really
 # costs there rather than leaving it a guess.
-MODEL_SIMS="${MODEL_SIMS:-32}"
+# Measured on the box, not guessed: 16 costs ~1.0s a decision and ~5.4s a
+# three-player turn, where 32 costs ~2.0s and ~11s, which is too slow to sit
+# through. This is the default rather than something you pass, because a plain
+# `ship` writes this file and would otherwise quietly undo whatever was tuned.
+MODEL_SIMS="${MODEL_SIMS:-16}"
 MODEL_THREADS="${MODEL_THREADS:-2}"
 
 # Deleting a game marks it and waits out a grace period; the reaper is what
@@ -200,8 +204,8 @@ ship_model() {
   cat > "$conf" <<CONF
 ;; Written by deploy.sh — read by organism.native-bot at the first move asked of
 ;; NEURON. Absolute paths, because the service's working directory is not this
-;; one. `sims` is how hard it thinks per decision: this box has 2 cores shared
-;; with the web app, so it searches less than the trainer does.
+;; one. The sims count is how hard it thinks per decision: this box has 2 cores
+;; shared with the web app, so it searches less than the trainer does.
 {:serve   "$home/organism/bot/organism-train"
  :torch   "$home/organism/bot/lib"
  :weights "$home/organism/bot/serve.ot"
@@ -253,7 +257,12 @@ model_check() {
   # The request goes over ssh's stdin so neither it nor the reply has to survive
   # a round of shell quoting.
   local answer
-  answer=$(echo '{"actions":[]}' | ssh "$REMOTE_HOST" "$MODEL_DIR/serve.sh" 2>/dev/null | head -1)
+  # Three requests, and the last one is the measurement. The first pays for
+  # loading 2.36M parameters and warming the allocator; timing that and calling
+  # it the cost of a move overstated it fivefold, then advised turning the
+  # search budget down on the strength of the wrong number.
+  answer=$(printf '{"actions":[]}\n{"actions":[]}\n{"actions":[]}\n' \
+    | ssh "$REMOTE_HOST" "$MODEL_DIR/serve.sh" 2>/dev/null | tail -1)
 
   printf '%s\n' "$answer" | python3 -c '
 import json, sys

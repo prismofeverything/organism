@@ -124,6 +124,36 @@ def _organism_type_counts(game: Game) -> dict[str, int]:
     return {t: sum(1 for e in elements if e["type"] == t) for t in ELEMENT_TYPES}
 
 
+def _declarable(game: Game, counts: dict[str, int], atype: str) -> bool:
+    """Could declaring this type still accomplish something this turn?
+
+    NOT `_action_type_feasible`, which asks whether the action can be taken
+    *right now*. A turn is several actions and any of them may be a circulate,
+    so food on the wrong element is a detour and not a wall. Asking the narrow
+    question here took real turns away from real players: an organism with two
+    growers, three spaces to grow into and four food -- all of it on its eat and
+    move elements -- was offered only eat and move.
+    """
+    if counts.get(atype, 0) == 0:
+        return False
+    player = game["state"]["player_turn"]["player"]
+    organism = game["state"]["player_turn"]["organism_turns"][-1]["organism"]
+    elements = gs.player_organisms(game, player).get(organism, [])
+    held = sum(e["food"] for e in elements)
+    if atype == "eat":
+        # Food never stops an eater; the threshold does, and circulating food
+        # off it relieves that.
+        return any(gs.open_spaces(game, e["space"]) for e in elements if e["type"] == "eat")
+    if atype == "grow":
+        growers = [e for e in elements if e["type"] == "grow"]
+        least = min(counts.get(t, 0) for t in ELEMENT_TYPES)
+        return held >= least and bool(gs.growable_spaces(game, [e["space"] for e in growers]))
+    if atype == "move":
+        return held > 0 and any(gs.mobile(game, e["space"]) and gs.available_spaces(game, e["space"])
+                                for e in elements)
+    return False
+
+
 def _choose_action_type_choices(game: Game) -> dict[int, Game]:
     """Which action an organism declares for its turn.
 
@@ -135,8 +165,7 @@ def _choose_action_type_choices(game: Game) -> dict[int, Game]:
     exists.
     """
     counts = _organism_type_counts(game)
-    useful = [atype for atype in ELEMENT_TYPES
-              if counts[atype] > 0 and _action_type_feasible(game, atype)]
+    useful = [atype for atype in ELEMENT_TYPES if _declarable(game, counts, atype)]
     choices: dict[int, Game] = {}
     for atype in (useful or ELEMENT_TYPES):
         next_game = gs.choose_action_type_action(game, atype)

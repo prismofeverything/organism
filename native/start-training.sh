@@ -9,6 +9,13 @@ cd "$(dirname "$0")/.."
 #   --sacrifice-yields-nothing a self-inflicted wipe takes its food with it
 #   --stall-limit 15           rounds with no change in layout or food held; 8 cut
 #                              26% of 3p games and sat inside legitimate play
+#   --max-steps 1500           was 4000, which bought nothing: completed games
+#                              run to a median of 259 (2p) / 279 (3p) choices and
+#                              a p99 of 1324 / 1234, so 1500 truncates 0.6% of
+#                              real games and the other 2500 only ever paid for
+#                              games that were never going to finish. Matches
+#                              --eval-max-steps, so self-play and evaluation now
+#                              abandon a game at the same point.
 exec native/target/release/organism-train train \
   --forever --players 2,3 --rings-2p 3 --curriculum-2p \
   --buffer 32768 --replay-game-cap 256 --cutoff-value mask --cutoff-value-2p draw \
@@ -16,6 +23,7 @@ exec native/target/release/organism-train train \
   --actors 16 --concurrent-games 96 --gpu-batch 96 --exploration-rounds 0 --exploration-choices 30 --threads 8 \
   --sims 128 --sims-3p 64 --baseline-ratchet 1 \
   --blocks 8 --filters 128 \
+  --max-steps 1500 \
   --eval-every 20 --eval-games-per-seat 8 --eval-service-ticks 6 --eval-max-steps 1500 \
   --duty 1 --vram-fraction 0.60 \
   --checkpoint checkpoints/organism-native "$@"

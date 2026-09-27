@@ -398,6 +398,73 @@ fn ogf_frames(
         "board":{"center":id(0),"ring-colors":palette,"coordinates":"rings-clockwise-30deg-v1","spaces":(0..board.spaces.len()).map(id).collect::<Vec<_>>(),"adjacencies":board.adj.iter().enumerate().map(|(i,adj)|(id(i),json!(adj.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>()},
         "homes":board.homes.iter().enumerate().map(|(p,spaces)|(names[p].to_string(),json!(spaces.iter().map(|&i|id(i)).collect::<Vec<_>>()))).collect::<serde_json::Map<_,_>>(),"frames":frames.iter().map(view_frame).collect::<Vec<_>>(),"result":e.result})
 }
+/// Did somebody take this game? A stalemate is a win — the player who did not
+/// lock the board takes it — so anywhere that asks whether a game was decided
+/// means both, and only the reporting tells them apart.
+fn decisive(termination: &Value) -> bool {
+    termination == "win" || termination == "stalemate"
+}
+/// One row per game still being played, newest first.
+///
+/// The live view used to publish whichever game had survived longest, which is
+/// exactly the one that is going nowhere — so a stall in a tenth of games
+/// looked like all of them. Publishing the whole roster lets the viewer choose,
+/// and makes the pool visible: there are `concurrent_games` of these at once.
+fn publish_roster(dir: &Path, board: &Board, s: &Saved, active: &[usize], chosen: usize) -> Result<()> {
+    let names = ["orb", "mass", "brone", "laam", "stuk"];
+    let mut games: Vec<Value> = active
+        .iter()
+        .map(|&i| {
+            let e = &s.episodes[i];
+            let mut held = vec![0u32; board.players];
+            let mut pieces = vec![0u32; board.players];
+            for p in e.state.pieces.iter().flatten() {
+                pieces[p.player] += 1;
+                held[p.player] += p.food;
+            }
+            let loose: u32 = e.state.food.iter().sum();
+            json!({
+                "id": e.id,
+                "chosen": i == chosen,
+                "round": e.state.round,
+                "steps": e.samples.len(),
+                "started": e.started,
+                "turn": names.get(e.state.player).copied().unwrap_or("?"),
+                "phase": board.phase(&e.state),
+                "loose_food": loose,
+                "players": (0..board.players).map(|p| json!({
+                    "name": names.get(p).copied().unwrap_or("?"),
+                    "color": e.palette.get(p).cloned().unwrap_or_default(),
+                    "elements": pieces[p],
+                    "food": held[p],
+                    "captures": e.state.captures[p].len(),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    // Newest first: the roster is read as "what just started", not "what is old".
+    let at = |g: &Value| g["started"].as_f64().unwrap_or(0.);
+    games.sort_by(|a, b| at(b).total_cmp(&at(a)));
+    atomic_json(
+        &dir.join("live-roster.json"),
+        &json!({"updated": now(), "games": games}),
+    )
+}
+
+/// Which game the viewer asked for, if it is still being played.
+///
+/// A file rather than a socket: the dashboard already talks to the trainer only
+/// through the checkpoint directory, and a stale request simply falls back to
+/// the longest-running game the way it always did.
+fn chosen_episode(dir: &Path, s: &Saved, active: &[usize]) -> usize {
+    let wanted = fs::read_to_string(dir.join("live-select.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|v| v["id"].as_str().map(str::to_owned));
+    wanted
+        .and_then(|id| active.iter().copied().find(|&i| s.episodes[i].id == id))
+        .unwrap_or(active[0])
+}
 fn publish_live(
     dir: &Path,
     board: &Board,
@@ -541,6 +608,11 @@ fn load(
     // Operational tuning rather than checkpoint shape: a resume adopts the
     // launcher's values instead of refusing to start.
     saved.config.stall_limit = config.stall_limit;
+    // How long a game may run before it is abandoned is a cutoff like the
+    // others, not a shape: completed games finish well inside it (2p p99 is
+    // 1324 choices, 3p 1234), so the ceiling only decides how much is spent on
+    // the ones that never will.
+    saved.config.max_steps = config.max_steps;
     saved.config.eval_max_steps = config.eval_max_steps;
     saved.config.lr_anneal = config.lr_anneal;
     saved.config.lr_floor = config.lr_floor;
@@ -606,7 +678,11 @@ fn game_sample_indices(length: usize, cap: usize, rng: &mut Random) -> Vec<usize
 fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str) -> Result<()> {
     let e = &mut s.episodes[i];
     let names = ["orb", "mass", "brone", "laam", "stuk"];
-    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"longest_unchanged_layout_rounds":e.longest_layout_rounds,"longest_unchanged_progress_rounds":e.longest_progress_rounds,"learner_seat":e.learner_seat,"opponent_index":e.opponent_index});
+    // Recorded for every game, not just the ones the rule ends: it is the only
+    // way to tell a board nobody CAN change from one nobody chooses to. The
+    // cutoffs fire on the second kind, and knowing the split is what says
+    // whether the stalemate rule is carrying its weight.
+    let result = json!({"terminal":e.state.winner.is_some(),"steps":e.samples.len(),"winner":e.state.winner.map(|p|names[p]),"termination":reason,"locked":board.stalemate(&e.state),"longest_unchanged_layout_rounds":e.longest_layout_rounds,"longest_unchanged_progress_rounds":e.longest_progress_rounds,"learner_seat":e.learner_seat,"opponent_index":e.opponent_index});
     e.result = Some(result.clone());
     let settings = s.search_settings.as_ref().unwrap();
     // Never teach the learner to imitate a frozen opponent's policy targets.
@@ -845,7 +921,7 @@ fn record_against(report: &Value, slot: u64) -> (usize, usize) {
         if !seats.into_iter().flatten().any(|s| s.as_u64() == Some(slot)) {
             continue;
         }
-        if game["termination"] != "win" {
+        if !decisive(&game["termination"]) {
             continue;
         }
         if game["candidate_won"] == true {
@@ -981,7 +1057,15 @@ fn iteration(
                 }
                 let e = &s.episodes[i];
                 let reason = if e.state.winner.is_some() {
-                    Some("win")
+                    // A locked board produces a winner too — whoever did not
+                    // lock it. Worth telling apart: it is the whole point of
+                    // the rule, and folded in with ordinary wins there is no
+                    // way to see whether it ever fires.
+                    if board.stalemate(&e.state) {
+                        Some("stalemate")
+                    } else {
+                        Some("win")
+                    }
                 } else if e.samples.len() >= s.config.max_steps {
                     Some("max_steps")
                 } else if s.config.repetition > 0
@@ -1030,7 +1114,8 @@ fn iteration(
                 break;
             }
             if telemetry.elapsed().as_secs_f64() >= 1.0 {
-                let i = active[0];
+                let i = chosen_episode(&dir, s, &active);
+                publish_roster(&dir, board, s, &active, i)?;
                 publish_live(
                     dir,
                     board,
@@ -1251,7 +1336,10 @@ fn iteration(
     result?;
     let stats: Vec<_> = s.episodes.iter().filter_map(|e| e.result.clone()).collect();
     let decisions = s.decisions;
-    let victories = stats.iter().filter(|g| g["termination"] == "win").count();
+    let victories = stats
+        .iter()
+        .filter(|g| decisive(&g["termination"]))
+        .count();
     let sampled: usize = s
         .episodes
         .iter()

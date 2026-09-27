@@ -69,7 +69,7 @@ def make_handler(root, examples):
                             cached = (stamp, meta)
                             self.server.record_cache[str(file)] = cached
                         records.append(cached[1])
-                    models.append({'model': directory.name, 'config': read_json(directory / 'config.json', {}), 'status': status, 'metrics': history, 'games': records, 'evaluation': read_json(directory / 'evaluation.json'), 'evaluation_progress': read_json(directory / 'evaluation-progress.json'), 'checkpoint_timing': read_json(directory / 'checkpoint-timing.json'), 'load_timing': read_json(directory / 'load-timing.json')})
+                    models.append({'model': directory.name, 'config': read_json(directory / 'config.json', {}), 'status': status, 'metrics': history, 'games': records, 'evaluation': read_json(directory / 'evaluation.json'), 'evaluation_progress': read_json(directory / 'evaluation-progress.json'), 'checkpoint_timing': read_json(directory / 'checkpoint-timing.json'), 'load_timing': read_json(directory / 'load-timing.json'), 'roster': read_json(directory / 'live-roster.json', {})})
                 valid = {str(p) for p in root.glob('[2-5]p*/games/*.json')}
                 self.server.record_cache = {k: v for k, v in self.server.record_cache.items() if k in valid}
                 examples_list = [{'name': p.stem, 'url': f'/api/example/{p.name}'} for p in sorted(examples.glob('*.json'))]
@@ -95,6 +95,31 @@ def make_handler(root, examples):
 
         def send_json(self, data):
             self.send_bytes(json.dumps(data).encode(), 'application/json')
+
+        def do_POST(self):
+            # Choosing which of the ~96 games in flight the live view follows.
+            # It travels as a file in the checkpoint directory because that is
+            # the only channel the trainer reads; a stale or finished choice
+            # just falls back to the longest-running game.
+            path = urlsplit(self.path).path
+            if not path.startswith('/api/select/'):
+                return self.send_error(404)
+            model = path[len('/api/select/'):]
+            directory = root / model
+            if not directory.is_dir():
+                return self.send_error(404, 'no such model')
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                body = json.loads(self.rfile.read(length) or b'{}')
+            except (ValueError, json.JSONDecodeError):
+                return self.send_error(400, 'expected JSON')
+            chosen = body.get('id')
+            target = directory / 'live-select.json'
+            if chosen:
+                target.write_text(json.dumps({'id': chosen}))
+            elif target.exists():
+                target.unlink()          # back to following whatever is oldest
+            return self.send_json({'id': chosen})
 
         def send_bytes(self, data, mime):
             # A frame is a whole board snapshot and successive frames repeat most

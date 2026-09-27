@@ -382,6 +382,43 @@ impl Board {
             .flat_map(|&i| self.destinations(s, i, true))
             .collect()
     }
+    /// Could declaring this type still accomplish something this turn?
+    ///
+    /// NOT `feasible`, which asks whether the action can be taken *right now*.
+    /// A turn is several actions and any of them may be a circulate, so food on
+    /// the wrong element is a detour and not a wall. Asking the narrow question
+    /// here took real turns away from real players: an organism with two
+    /// growers, three spaces to grow into and four food — all of it on its eat
+    /// and move elements — was offered only EAT and MOVE, when it could have
+    /// circulated onto a grower and grown.
+    fn declarable(&self, s: &State, ids: &[usize], counts: &[usize; 3], kind: Kind) -> bool {
+        if counts[kind.index()] == 0 {
+            return false;
+        }
+        let held: u32 = ids
+            .iter()
+            .filter_map(|&i| s.pieces[i].as_ref())
+            .map(|p| p.food)
+            .sum();
+        match kind {
+            // Food never stops an eater; the threshold does, and circulating
+            // food off it relieves that.
+            Kind::Eat => ids.iter().any(|&i| {
+                s.pieces[i].as_ref().is_some_and(|p| p.kind == Kind::Eat)
+                    && !self.open(s, i).is_empty()
+            }),
+            Kind::Grow => {
+                held >= *counts.iter().min().unwrap() as u32 && !self.growable(s, ids).is_empty()
+            }
+            Kind::Move => {
+                held > 0
+                    && ids
+                        .iter()
+                        .any(|&i| self.has_mover(s, i) && !self.destinations(s, i, false).is_empty())
+            }
+            _ => false,
+        }
+    }
     /// Can this organism actually carry out an action of this type right now?
     fn feasible(&self, s: &State, ids: &[usize], counts: &[usize; 3], kind: Kind) -> bool {
         match kind {
@@ -889,9 +926,7 @@ impl Board {
                     // a legal move always exists.
                     let useful: Vec<_> = TYPES
                         .into_iter()
-                        .filter(|&kind| {
-                            counts[kind.index()] > 0 && self.feasible(&s, &ids, &counts, kind)
-                        })
+                        .filter(|&kind| self.declarable(&s, &ids, &counts, kind))
                         .collect();
                     let offered: Vec<_> = if self.rules.require_useful_action && !useful.is_empty() {
                         useful
@@ -1199,6 +1234,23 @@ mod tests {
         let board = Board::new(2, 4, false);
         let s = packed(&board);
         assert!(board.stalemate(&s), "nowhere left to move or grow");
+
+        // Stuck does not mean nothing at all is legal. Everything beside the
+        // empty centre can still eat from it, and food can be circulated
+        // around either organism for the rest of time — none of which changes
+        // which spaces are occupied, so none of it can win. A test that
+        // required total paralysis would never fire in a real game, because
+        // eating is almost always available.
+        assert!(
+            (1..board.spaces.len()).any(|i| !board.open(&s, i).is_empty()),
+            "eating is still possible here"
+        );
+        for player in 0..board.players {
+            for ids in board.groups(&s, player).values() {
+                assert!(board.can_feed(&s, ids), "and food is still reachable");
+                assert!(!board.organism_can_act(&s, ids), "but nothing can move or grow");
+            }
+        }
         assert_eq!(
             board.victory(&s),
             Some(1),

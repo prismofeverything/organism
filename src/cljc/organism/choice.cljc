@@ -130,22 +130,58 @@
   (let [filter-action (get action-filters action-type)]
     (filter-action game)))
 
+(defn declarable?
+  "Whether declaring this type could still accomplish something this turn.
+
+   Not the same question as `action-filter`, which asks whether the action can
+   be taken *right now*. A turn is several actions and any of them may be a
+   circulate, so an organism can move food where it is needed and then act. Food
+   sitting on the wrong element is a detour, not a wall.
+
+   Getting this wrong took a real turn away from a real player: an organism with
+   two growers, three spaces to grow into and four food — all of it on its eat
+   and move elements — was not offered GROW at all, because the food was not yet
+   on a grower. It could have circulated and grown; instead the turn could not
+   be played.
+
+   So the food side of each test is asked of the whole organism:
+
+     eat    an eater with an empty neighbour. Food never stops eating — the
+            threshold does, and circulating food away relieves it.
+     grow   somewhere to grow, and enough food anywhere in the organism.
+     move   something mobile with somewhere to go, and any food at all."
+  [game type]
+  (let [elements (game/current-organism-elements game)
+        present (group-by :type elements)
+        held (reduce + 0 (map :food elements))]
+    (and
+     (seq (get present type))
+     (case type
+       :eat (boolean (some (fn [{:keys [space]}] (seq (game/open-spaces game space)))
+                           (get present :eat)))
+       :grow (let [growers (get present :grow)
+                   least (if (< (count present) 3)
+                           0
+                           (apply min (map count (vals present))))]
+               (and (seq (game/growable-spaces game (map :space growers)))
+                    (>= held least)))
+       :move (boolean (and (pos? held)
+                           (some (fn [{:keys [space]}]
+                                   (and (game/mobile? game space)
+                                        (seq (game/available-spaces game space))))
+                                 elements)))
+       false))))
+
 (defn choose-action-type-choices
   "Which action an organism declares for its turn.
 
-   An organism with no elements of a type, or no way to use them, would be
-   declaring a turn that cannot do anything — and that is what lets a
-   deliberate pass wear the costume of a real decision. Only types that could
-   accomplish something are offered. Where nothing qualifies the organism truly
-   has nothing to do, and all three stand again so a legal move always exists."
+   An organism with no elements of a type, or no way to use them however it
+   moves its food about, would be declaring a turn that cannot do anything —
+   and that is what lets a deliberate pass wear the costume of a real decision.
+   Where nothing qualifies the organism truly has nothing to do, and all three
+   stand again so a legal move always exists."
   [game]
-  (let [elements (game/current-organism-elements game)
-        present (group-by :type elements)
-        useful (filter
-                (fn [type]
-                  (and (seq (get present type))
-                       (action-filter game type)))
-                element-types)]
+  (let [useful (filter (partial declarable? game) element-types)]
     (partial-map
      (partial game/choose-action-type game)
      (if (empty? useful) element-types useful))))

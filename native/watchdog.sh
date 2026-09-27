@@ -96,7 +96,9 @@ supervise() {
 [ -f checkpoints/organism-native/STOP ] || supervise trainer organism-train '--forever' \
   'bash native/start-training.sh >> checkpoints/organism-native/training.log 2>&1'
 
-for root in checkpoints/organism-benchmark-2p-bignet; do
+# A glob, not a name: a new series appears whenever a lineage restarts, and the
+# last one went unsupervised because this line still named the archived root.
+for root in checkpoints/organism-benchmark-*; do
   [ -d "$root" ] || continue
   [ -f "$root/STOP" ] && continue
   supervise "benchmark-$(basename "$root")" python3 "run-benchmarks.py --root $root" \

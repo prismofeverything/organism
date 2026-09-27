@@ -121,6 +121,21 @@
   (swap! player-suggestions dissoc slot-id)
   (when on-select (on-select suggestion)))
 
+(defn bot-instance-name
+  "A free name for another copy of this bot: ORACLE, then ORACLE-A, ORACLE-B.
+
+   Two players at one table cannot share a name — the game keys its state by it
+   — so seating a second copy has to rename it. The server strips the suffix
+   again when it looks the bot up, so every instance plays the same bot."
+  [base taken]
+  (if-not (contains? taken base)
+    base
+    (or (some (fn [c]
+                (let [candidate (str base "-" (char c))]
+                  (when-not (contains? taken candidate) candidate)))
+              (range 65 91))                     ; A-Z
+        base)))
+
 (defn player-search-input
   "Autocomplete player input. Props:
    :slot-id     — unique key for this slot (e.g. index or keyword)
@@ -829,22 +844,26 @@
               [:div {:style {:display "flex" :align-items "center"
                              :gap "8px" :margin-bottom "8px"}}
                [:span {:style {:color "#445566" :width "20px"}} (str (inc i) ".")]
-               (if bot?
-                 [:input {:type "text" :value name
-                          :on-change #(swap! slots assoc-in [i :name] (-> % .-target .-value))
-                          :placeholder "Bot name"
-                          :style (merge input-style {:width "180px"})}]
-                 [player-search-input
-                  {:slot-id     (str game-type "-" i)
-                   :value       name
-                   :color       slot-bg
-                   :search?     true
-                   :game-type   game-type
-                   :placeholder "Player name"
-                   :on-change   (fn [v] (swap! slots assoc-in [i :name] v))
-                   :on-select   (fn [s] (swap! slots update i merge
-                                               {:name (:name s)
-                                                :bot? (boolean (:bot? s))}))}])
+               ;; The same search whether the slot is a person or a bot. It used
+               ;; to be a plain box once you flipped it to bot, which meant the
+               ;; only way to seat one was to already know its name -- the bots
+               ;; were in the search results the whole time and unreachable.
+               [player-search-input
+                {:slot-id     (str game-type "-" i)
+                 :value       name
+                 :color       slot-bg
+                 :search?     true
+                 :game-type   game-type
+                 :placeholder (if bot? "search bots..." "Player name")
+                 :on-change   (fn [v] (swap! slots assoc-in [i :name] v))
+                 :on-select   (fn [picked]
+                                (let [taken (set (map :name (remove #(= % (nth @slots i))
+                                                                    @slots)))]
+                                  (swap! slots update i merge
+                                         {:name (if (:bot? picked)
+                                                  (bot-instance-name (:name picked) taken)
+                                                  (:name picked))
+                                          :bot? (boolean (:bot? picked))})))}]
                [:button
                 {:on-click #(swap! slots update-in [i :bot?] not)
                  :style (merge btn-style
