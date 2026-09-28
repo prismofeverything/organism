@@ -1005,54 +1005,69 @@
   (swap! game-state assoc :cursor position))
 
 (defn history-controls
+  "Stepping through the game, in the site's own buttons.
+
+   The position rides on the heading — \"history : 35 / 144\" — because the round
+   and the player are already in the status bar at the top and saying them twice
+   cost a line that changed height as it wrapped. The speed sits under the play
+   button because that is the only button it affects."
   [history cursor]
   (let [total (count history)
         position (or cursor (max 0 (dec total)))
         playing? (some? @history-advance)
-        selected (when (pos? total) (nth history position nil))
-        button-style {:padding "7px 10px" :border-radius "6px"
-                      :border "1px solid #65765d" :background "#253222"
-                      :color "#eee" :cursor "pointer"}]
+        ;; The site's pill, as a real button rather than a span pretending.
+        pill (fn [hue]
+               {:color "#fff" :cursor "pointer" :border "none"
+                :border-radius "10px" :background (str "hsl(" hue ",40%,42%)")
+                :font-size "1.15em" :line-height "1" :padding "9px 0"
+                :width "100%" :font-family font-choice})
+        step (fn [label title hue disabled? on-click]
+               [:button {:style (cond-> (pill hue) disabled? (assoc :opacity "0.35" :cursor "default"))
+                         :title title :aria-label title
+                         :disabled disabled? :on-click on-click}
+                label])]
     [:div {:style {:margin "12px 0" :max-width "360px"}}
-     [:h3 "history"]
-     [:div {:style {:color "#ddd" :margin-bottom "8px"} :aria-live "polite"}
-      (if (zero? total)
-        "No recorded positions yet"
-        (str (if (nil? cursor) "Latest · " "Position ")
-             (inc position) " / " total
-             (when-let [round (:round selected)] (str " · Round " (inc round)))
-             (when-let [player (get-in selected [:player-turn :player])]
-               (str " · " (name player))))) ]
+     [:h3 {:style {:margin "0 0 6px 0"}}
+      "history"
+      (when (pos? total)
+        [:span {:style {:opacity "0.7" :font-size "0.8em" :letter-spacing "2px"}}
+         (str " : " (inc position) " / " total)])]
      [:input {:type "range" :min 0 :max (max 0 (dec total)) :value position
               :aria-label "History position" :disabled (zero? total)
-              :style {:width "100%" :accent-color "#b5dca9"}
+              :style {:width "100%" :accent-color "#b5dca9" :margin "0 0 8px 0"}
               :on-change #(seek-history! (js/parseInt (.. % -target -value) 10))}]
-     [:div {:style {:display "flex" :gap "5px" :flex-wrap "wrap" :margin "8px 0"}}
-      [:button {:style button-style :disabled (or (zero? total) (zero? position))
-                :on-click #(seek-history! 0)} "First"]
-      [:button {:style button-style :disabled (or (zero? total) (zero? position))
-                :on-click #(seek-history! (max 0 (dec position)))} "Back"]
-      [:button {:style button-style :disabled (< total 2)
-                :on-click (fn [_]
-                            (if playing?
-                              (clear-history-advance! @history-advance)
-                              (let [start (if (or (nil? cursor) (= position (dec total))) 0 position)]
-                                (swap! game-state assoc :cursor start)
-                                (set-history-advance! total start))))}
-       (if playing? "Pause" "Play")]
-      [:button {:style button-style :disabled (>= position (dec total))
-                :on-click #(seek-history! (min (dec total) (inc position)))} "Next"]
-      [:button {:style button-style :disabled (nil? cursor)
-                :on-click #(seek-history! nil)} "Latest"]]
-     [:label {:style {:color "#ddd"}} "Playback speed "
-      [:select {:value @history-speed :style button-style
+     ;; Five fixed cells, so no label or icon can move a button, and the speed
+     ;; dial on a second row directly beneath the one button it belongs to.
+     [:div {:style {:display "grid" :grid-template-columns "repeat(5, 1fr)"
+                    :gap "6px" :align-items "center"}}
+      (step "\u00ab" "First position" 200 (or (zero? total) (zero? position))
+            #(seek-history! 0))
+      (step "\u2039" "Back one" 200 (or (zero? total) (zero? position))
+            #(seek-history! (max 0 (dec position))))
+      (step (if playing? "\u2016" "\u25b6") (if playing? "Pause" "Play") 100 (< total 2)
+            (fn [_]
+              (if playing?
+                (clear-history-advance! @history-advance)
+                (let [start (if (or (nil? cursor) (= position (dec total))) 0 position)]
+                  (swap! game-state assoc :cursor start)
+                  (set-history-advance! total start)))))
+      (step "\u203a" "Forward one" 200 (>= position (dec total))
+            #(seek-history! (min (dec total) (inc position))))
+      (step "\u00bb" "Latest position" 200 (nil? cursor)
+            #(seek-history! nil))
+      [:div {:style {:grid-column "3" :display "flex" :justify-content "center"}}
+       [:input {:type "range" :min 0 :max 2
+                :value (case @history-speed 1000 0 500 1 200 2 1)
+                :title (str "Playback speed: " (case @history-speed 1000 "1" 500 "2" 200 "5")
+                            " positions / sec")
+                :aria-label "Playback speed"
+                :style {:width "100%" :accent-color "#8fb0c9"}
                 :on-change (fn [event]
-                             (reset! history-speed (js/parseInt (.. event -target -value) 10))
+                             (reset! history-speed
+                                     (case (js/parseInt (.. event -target -value) 10)
+                                       0 1000 1 500 2 200))
                              (when playing?
-                               (set-history-advance! total (:cursor @game-state))))}
-       [:option {:value 1000} "1 position / sec"]
-       [:option {:value 500} "2 positions / sec"]
-       [:option {:value 200} "5 positions / sec"]]]]))
+                               (set-history-advance! total (:cursor @game-state))))}]]]]))
 
 (defn mutation-display
   [color mutation-key]
@@ -1079,7 +1094,16 @@
   (let [player (get-in state [:player-turn :player])
         player-colors (into {} (map vector turn-order colors))]
     [:div
-     [:h3 "score"]
+     ;; One line instead of two. The list below counts power toward the limit,
+     ;; and the other way to win rode underneath on a heading of its own —
+     ;; naming both here says the same thing in a third of the height.
+     [:h3 {:style {:margin "0 0 6px 0"}}
+      "power "
+      [:span {:style {:font-size "0.62em" :letter-spacing "2px" :opacity "0.75"}}
+       "(or "
+       [:span {:style {:color (get player-colors player)}}
+        (get number->word organism-victory organism-victory)]
+       " organisms for victory)"]]
      [:ul
       (let [player-captures (if player-captures player-captures (repeat board/default-player-captures))]
         (for [[player captures color] (map vector turn-order player-captures colors)]
@@ -1095,24 +1119,7 @@
                  [:span {:style {:font-size "1.5em"}} "∞"]))
              captures)]))]
 
-     [:h4
-      {:style
-       {:font-size "1.0em"
-        :margin "12px 0px 0px 0px"}}
-      [:span
-       {:style
-        {:color (get player-colors player)}}
-       (get number->word organism-victory organism-victory)]
-      " organisms for victory"]
-     [mutations-display mutations (get player-colors player)]
-
-     ;; Who won, once someone has. Nothing else in the game view says so: the
-     ;; finished-games list had it right while the board itself stayed silent.
-     (when-let [winner (:winner state)]
-       [:h3
-        {:style {:color (get player-colors winner)
-                 :margin "12px 0px 0px 0px"}}
-        winner " wins!"])]))
+     [mutations-display mutations (get player-colors player)]]))
 
 (def chat-window 15)
 
@@ -3118,93 +3125,68 @@
     [:div]))
 
 (defn undo-control
+  "Clear, undo, and whatever the turn is waiting on — a fixed block.
+
+   These sat under the action choices, whose height swings with the phase, so
+   they moved every time anything happened. They live directly above the score
+   now, and their own shape is fixed too: clear and undo share a row, and the
+   row beneath is always there whether it holds pass, an advance, or nothing.
+   A control you have to look for is worse than one you have to reach for."
   [turn choices state]
-  [:div
-   {:style
-    {:font-family font-choice
-     :margin "40px 0px"}}
+  (let [;; Sized by its label, like every other button on the site. Stretching
+        ;; them to the column turned "clear" into a banner and "resolve
+        ;; conflicts" into a bar; nowrap keeps a long label on one line rather
+        ;; than growing the button downward instead.
+        pill (fn [hue]
+               {:color "#fff" :cursor "pointer" :border "none"
+                :border-radius "10px" :background (str "hsl(" hue ",50%,50%)")
+                :font-size "1.05em" :letter-spacing "3px" :padding "8px 22px"
+                :white-space "nowrap" :font-family font-choice})
+        advance (if (= turn :pass) :pass :advance)
+        waiting (turn-description turn choices)]
+    [:div {:style {:font-family font-choice :margin "8px 0 0 0"}}
+     [:div {:style {:display "flex" :gap "8px"}}
+      [:button {:style (pill 200) :title "reset to the beginning of your turn"
+                :on-click (fn [_]
+                            (if (and (= turn :introduce)
+                                     (not= @introduction empty-introduction))
+                              (reset! introduction empty-introduction)
+                              (send-clear!)))}
+       "clear"]
+      [:button {:style (pill 0) :title "take one step back, potentially to previous player's turn"
+                :on-click (fn [_]
+                            (if (and (= turn :introduce)
+                                     (not= @introduction empty-introduction))
+                              (reset! introduction empty-introduction)
+                              (do (reset! food-source {})
+                                  (send-reset! state))))}
+       "undo"]]
+     ;; Always present, so the score below never moves: it carries the pass
+     ;; button, or whatever the turn is waiting on, or nothing at all.
+     ;; Sized to the button it holds, not a comfortable guess: the slack here
+     ;; was showing up as a gap between the last control and the score.
+     [:div {:style {:min-height "38px" :margin "6px 0 0 0"}}
+      (cond
+        ;; Passing is what is left when nothing else can be done, so this
+        ;; follows the choices the rules offer rather than appearing always.
+        (and (= turn :choose-action) (contains? choices :pass))
+        [:button {:style (pill 100) :title "pass this action"
+                  :on-click (fn [_]
+                              (send-state!
+                               (-> {:state state}
+                                   (game/choose-action :circulate)
+                                   (game/pass-action)
+                                   :state)
+                               true))}
+         "pass"]
 
-   [:div
-    {:style
-     {:margin "15px 0px"}}
-    [:span
-     {:title "reset to the beginning of your turn"
-      :style
-      {:color "#fff"
-       :cursor "pointer"
-       :border-radius "10px"
-       :background "hsl(200,50%,80%)"
-       :font-size "1.2em"
-       :letter-spacing "4px"
-       :margin "0px 10px"
-       :padding "5px 20px"}
-      :on-click
-      (fn [event]
-        (if (and
-             (= turn :introduce)
-             (not= @introduction empty-introduction))
-          (reset! introduction empty-introduction)
-          (send-clear!)))}
-     "clear"]]
+        waiting
+        [:button {:style (pill 100) :title waiting
+                  :on-click (fn [_] (send-state! (get-in choices [advance :state]) true))}
+         waiting]
 
-   [:div
-    {:style
-     {:margin "15px 0px"}}
-    [:span
-     {:title "take one step back, potentially to previous player's turn"
-      :style
-      {:color "#fff"
-       :cursor "pointer"
-       :border-radius "10px"
-       :background "hsl(0,50%,50%)"
-       :font-size "1.2em"
-       :letter-spacing "4px"
-       :margin "0px 10px"
-       :padding "5px 20px"}
-      :on-click
-      (fn [event]
-        (if (and
-             (= turn :introduce)
-             (not= @introduction empty-introduction))
-          (reset! introduction empty-introduction)
-          (do
-            (reset! food-source {})
-            (send-reset! state))))}
-     "undo"]]
+        :else nil)]]))
 
-   ;; Passing is what is left when nothing else can be done, so this follows
-   ;; the choices the rules offer rather than appearing at every action. This
-   ;; button builds the passed state itself instead of taking a choice, so
-   ;; without the guard it would be a way around the rule.
-   (when (and (= turn :choose-action) (contains? choices :pass))
-     [:div
-      {:style
-       {:margin "15px 0px"}}
-      [:span
-       {:title "pass this action"
-        :style
-        {:color "#fff"
-         :cursor "pointer"
-         :border-radius "10px"
-         :background "hsl(100,50%,50%)"
-         :font-size "1.2em"
-         :letter-spacing "4px"
-         :margin "0px 10px"
-         :padding "5px 20px"}
-        :on-click
-        (fn [event]
-          (send-state!
-           (-> {:state state}
-               (game/choose-action :circulate)
-               (game/pass-action)
-               :state)
-           true))}
-       "pass"]])
-
-   [:div
-    {:style
-     {:margin "15px 0px"}}
-    [progress-control turn choices (if (= turn :pass) :pass :advance)]]])
 
 (defn organism-controls
   [game board turn choices history]
@@ -3860,12 +3842,15 @@
   "Current-player box for the play page. The player name shrinks/wraps to fit
    the column (never grows the layout), and the phase shows a smaller subphase /
    current choice beside it."
-  [player color turn subphase href]
+  [player color turn subphase href winner winner-color]
   [:div
    {:style
     {:color "#fff"
      :border-radius "40px"
-     :background color
+     ;; The winner's colour, once there is one: the header is the loudest thing
+     ;; on the page and it should be saying who took the game, not whose turn
+     ;; it happened to be when they did.
+     :background (or winner-color color)
      :font-family font-choice
      :margin "20px 0px"
      :padding "18px 30px"
@@ -3890,7 +3875,13 @@
         :gap "10px"
         :flex-wrap "wrap"}}
       [:span {:style {:font-size "1.15em" :letter-spacing "3px"}}
-       (string/join " " (string/split (name turn) #"-"))]
+       ;; "orb victory", not "player victory" — the phase names every other
+       ;; state by what is happening, and this one should name who it happened
+       ;; to. It also belongs here rather than in the scoreboard, where a line
+       ;; that appeared only at the end changed the page's height.
+       (if (and winner (= turn :player-victory))
+         (str winner " victory")
+         (string/join " " (string/split (name turn) #"-")))]
       (when (and subphase (not= subphase turn))
         [:span {:style {:font-size "0.8em" :letter-spacing "2px" :opacity "0.7"}}
          (string/join " " (string/split (name subphase) #"-"))])])])
@@ -3914,19 +3905,43 @@
      [round-banner current-color (:round state)]
      ;; current player + phase + subphase
      (when current-player
-       [play-player-banner current-player current-color turn action-type
-        (str js/playerPath "/" js/playerKey)])
+       ;; At :player-victory the win has been found but not yet recorded — the
+       ;; state only carries :winner once the advance is taken — so ask the
+       ;; rules who it is rather than waiting for the click.
+       (let [winner (or (-> game :state :winner)
+                        (when (= turn :player-victory) (game/victory? game)))]
+         [play-player-banner current-player current-color turn action-type
+          (str js/playerPath "/" js/playerKey)
+          winner (get player-colors winner)]))
      [:div
       {:style {:margin "10px 10px"}}
       ;; description (moved over from the old right column)
       [description-panel current-color description]
-      ;; action / turn controls + clear / undo  (element controls removed)
-      (when current-player
-        [:div
-         (when-not (= turn :choose-organism)
-           [action-controls board-colors turn choices current-color organism-turn])
-         (when-not (-> game :state :winner)
-           [undo-control turn choices (:state game)])])
+      ;; The action choices, and only them, in a box of their own. How tall they
+      ;; are depends on the phase and on how many actions the turn has taken —
+      ;; a turn runs one action per element of the declared type, so up to five.
+      ;; The box holds that many; a turn somehow longer scrolls inside it rather
+      ;; than pushing the rest of the column down the page.
+      [:div {:style {:height "300px" :overflow-y "auto"}}
+       (when (and current-player (not= turn :choose-organism))
+         [action-controls board-colors turn choices current-color organism-turn])]
+      ;; Clear and undo, anchored here: the score below them never changes
+      ;; height, so neither does their position. The slot is kept even when the
+      ;; controls are not — an observer has none, and a finished game has
+      ;; nothing left to undo — because a gap that opens and closes moves
+      ;; everything under it just as surely as a control that does.
+      ;; flow-root, not a plain div: the controls carry a 14px top margin, and
+      ;; an empty block lets a child's margin collapse straight through it. The
+      ;; slot stayed 110px either way and the page still shifted 14px the moment
+      ;; the controls appeared — a margin escaping a box that was holding space
+      ;; precisely so nothing would move.
+      ;; A fixed height, not a minimum: at 110px the controls came to 116 and
+      ;; grew the slot by six, which is the whole failure again in miniature.
+      ;; Trimmed to what the controls actually measure — the difference was
+      ;; empty space between them and the score.
+      [:div {:style {:height "98px" :display "flow-root"}}
+       (when (and current-player (not (-> game :state :winner)))
+         [undo-control turn choices (:state game)])]
       ;; score / history / help / discussion
       [scoreboard turn-order organism-victory colors player-captures mutations state]
       [history-controls history cursor]

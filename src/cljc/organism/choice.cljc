@@ -181,10 +181,11 @@
    Where nothing qualifies the organism truly has nothing to do, and all three
    stand again so a legal move always exists."
   [game]
-  (let [useful (filter (partial declarable? game) element-types)]
+  (let [useful (when game/*require-useful-action*
+                 (seq (filter (partial declarable? game) element-types)))]
     (partial-map
      (partial game/choose-action-type game)
-     (if (empty? useful) element-types useful))))
+     (or useful element-types))))
 
 (defn choose-action-choices
   [game action-type]
@@ -399,15 +400,17 @@
           (cond
             (< (count actions) num-actions)
             ;; Passing is what is left when nothing else can be done, not a
-            ;; move to be preferred over doing something.
+            ;; move to be preferred over doing something — unless the rule is
+            ;; off, which is the original game, where it was always on offer.
             (let [choices (choose-action-choices game choice)
                   pass {:pass
                         (-> game
                             (game/choose-action :circulate)
                             game/pass-action)}]
-              (if (empty? choices)
-                [:pass pass]
-                [:choose-action choices]))
+              (cond
+                (empty? choices) [:pass pass]
+                game/*require-useful-action* [:choose-action choices]
+                :else [:choose-action (merge choices pass)]))
 
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))

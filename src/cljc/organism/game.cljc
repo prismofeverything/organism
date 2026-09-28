@@ -7,12 +7,57 @@
 
 (def ^:dynamic *food-limit* 111)
 
+;; ── Rules ───────────────────────────────────────────────────────────────────
+;;
+;; Four tightenings, each a flag, all on. Three close holes that trained agents
+;; found in the game as first written; the fourth ends a board nothing can
+;; change. Each closed a real exploit and each could be wrong about how it does
+;; it — one of them withheld a legal turn for six days without anything noticing,
+;; because there was nothing to compare the tightened game against.
+;;
+;; That is what these flags are for. Turned off, this is the original game, and a
+;; change to a rule can be diffed against it: every move the tightened game
+;; removes should be attributable to a named rule, and a removal no rule claims
+;; is a regression. A baseline you cannot run is not a baseline.
+;;
+;;   (binding [game/*require-useful-action* false] ...)   one rule off
+;;   (binding-original-rules ...)                        the game as written
+
 ;; How much food an element may hold and still eat. Without a ceiling an eater
 ;; on a food-rich space can sit and eat for the rest of the game, which is both
 ;; a dominant strategy and an endless one; five is enough to feed any growth the
-;; organism can pay for. Rebind to *food-limit* to play the game as it was
-;; written before.
+;; organism can pay for. Set to *food-limit* for the original game.
 (def ^:dynamic *eat-threshold* 5)
+
+;; Whether an organism may declare a turn it cannot use, and pass when it has
+;; something to do. Off, every action type is always offered and passing is
+;; always available — which is how a deliberate pass used to be half of every
+;; action a trained agent selected.
+(def ^:dynamic *require-useful-action* true)
+
+;; Whether a player wiped off the board on their own turn leaves their food
+;; behind. Off, it drops food+1 on every space they held, which made walking
+;; off the map a better food source than eating.
+(def ^:dynamic *sacrifice-yields-nothing* true)
+
+;; Whether a board no player can ever change ends the game, against whoever
+;; locked it. Off, such a game runs forever.
+(def ^:dynamic *stalemate-ends-game* true)
+#?(:clj
+   (defmacro with-original-rules
+     "Run `body` on the game as first written, every tightening off.
+
+      The baseline a rules change is diffed against: a move the tightened game
+      removes should be attributable to a named rule, and one no rule claims is a
+      regression. Clojure-only because the diffing is done by tests and tooling;
+      a browser plays the real game."
+     [& body]
+     `(binding [*eat-threshold* *food-limit*
+                *require-useful-action* false
+                *sacrifice-yields-nothing* false
+                *stalemate-ends-game* false]
+        ~@body)))
+
 (def observer-key "--observer--")
 
 ;; BOARD ----------------------
@@ -1314,6 +1359,7 @@
 
         emptied
         (if (and
+             *sacrifice-yields-nothing*
              (seq surrendered)
              (not-any?
               (fn [element] (= active-player (:player element)))
@@ -1675,7 +1721,7 @@
    Checked after the real victories, so a game that was won on its merits is
    never reinterpreted as a lock."
   [game]
-  (when (stalemate? game)
+  (when (and *stalemate-ends-game* (stalemate? game))
     (let [blameless (dissoc (all-relative-captures game) (current-player game))]
       (when (seq blameless)
         (find-leader blameless)))))
