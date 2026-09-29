@@ -163,7 +163,28 @@
       (send-channels! channels {:type "deleted" :key game-key}))
     (swap! games update :games dissoc game-key)))
 
+(declare update-create-game* update-open-game*)
+
+(defn live?
+  "Whether this name belongs to a game that has begun. A lobby message about
+   it is late -- a create page still open after the game started -- and must
+   not touch it: one such message rewrote a live game's rules in memory, and
+   the CREATE after it built the game a second time, with no name."
+  [db game-key]
+  (boolean
+   (or (get-in @games [:games game-key :invocation :created])
+       (persist/game-exists? db game-key))))
+
 (defn update-create-game
+  [db player game-key channel {:keys [invocation] :as message}]
+  (cond
+    (live? db game-key)
+    (log/info "ignoring lobby settings for a game that has begun" game-key)
+
+    :else
+    (update-create-game* db player game-key channel message)))
+
+(defn- update-create-game*
   [db player game-key channel {:keys [invocation] :as message}]
   (if-let [problem (board/game-key-problem game-key)]
     (do
@@ -172,10 +193,13 @@
                       :message (str (pr-str game-key) " will not work as a game name: "
                                     problem)}))
     (let [invocation (assoc invocation :game-type "organism")]
+      ;; an entry always carries its key, even one this message creates
       (swap!
        games
-       assoc-in [:games game-key :invocation]
-       invocation)
+       update-in [:games game-key]
+       (fn [entry]
+         (assoc (merge {:key game-key :game nil :chat [] :channels #{}} entry)
+                :invocation invocation)))
       (send-channels!
        (get-in @games [:games game-key :channels])
        message)
@@ -191,6 +215,12 @@
 
 (defn update-open-game
   [db player game-key channel {:keys [invocation] :as message}]
+  (if (live? db game-key)
+    (log/info "ignoring an open-game snapshot for a game that has begun" game-key)
+    (update-open-game* db player game-key invocation)))
+
+(defn- update-open-game*
+  [db player game-key invocation]
   (let [players (:players invocation)
         invocation (assoc invocation :game-type "organism")]
     (log/info "OPEN GAME" game-key players invocation)
@@ -237,7 +267,9 @@
    `creator` is whoever set the lobby up, not whoever filled the last seat — a
   game that starts itself on someone else's join still belongs to its author."
   [db game-key creator]
-  (let [game-state (get-in @games [:games game-key])
+  (let [game-state (-> (get-in @games [:games game-key])
+                       ;; the name is the one asked for, never an entry's idea of it
+                       (assoc :key game-key))
         {:keys [invocation game channels chat] :as game-state}
         (complete-game-state game-state)]
     (if-not (enough-starting-clearance? invocation)
@@ -274,7 +306,12 @@
 
 (defn trigger-creation
   [db player game-key channel message]
-  (begin-game! db game-key (lobby-creator db game-key player)))
+  (if (live? db game-key)
+    (do
+      (log/info "CREATE for a game that has begun; sending the page to it" game-key)
+      ;; the create page goes to the play page on this, which loads the real game
+      (send! channel {:type "initialize"}))
+    (begin-game! db game-key (lobby-creator db game-key player))))
 
 (defn ensure-open-game!
   "The registry entry for an open lobby, read out of the database if no tab has
@@ -321,9 +358,10 @@
    completing the roster. A creator typing another player's name is still just
    editing, and does not start the game out from under them."
   [db actor game-key index player-name]
-  (let [record (ensure-open-game! db game-key)
+  (let [record (when-not (live? db game-key) (ensure-open-game! db game-key))
         seats (vec (get-in record [:invocation :players]))]
     (cond
+      (live? db game-key) {:error "that game has already begun"}
       (nil? record) {:error "no such open game"}
       (not (and (integer? index) (<= 0 index) (< index (count seats))))
       {:error "no such seat"}

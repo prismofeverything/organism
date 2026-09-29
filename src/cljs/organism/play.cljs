@@ -3681,11 +3681,16 @@
        {:font-size "1.5em"}}
       "organisms for victory"]]))
 
-(defn send-player-name!
+(defn- set-player-name!
+  "Put a name in a seat on this page only."
   [index player-name]
   (swap! player-order assoc index player-name)
   (swap! board-invocation update :players
-         (fn [players] (assoc (vec players) index player-name)))
+         (fn [players] (assoc (vec players) index player-name))))
+
+(defn send-player-name!
+  [index player-name]
+  (set-player-name! index player-name)
   (components/send-player-name! index player-name))
 
 (defn player-slot-input
@@ -3698,7 +3703,10 @@
     :game-type "organism"
     :search?   in-game?
     :placeholder (if in-game? "search players..." "click to join")
-    :on-change (fn [v] (send-player-name! index v))
+    ;; Typing stays on this page. Each keystroke used to go to the server,
+    ;; which saved the lobby and told every watcher, once per letter; the seat
+    ;; goes when a name is picked or the box is left.
+    :on-change (fn [v] (set-player-name! index v))
     :on-select (fn [{:keys [name bot?]}]
                  (let [existing (->> (:players invocation)
                                      (map-indexed vector)
@@ -3954,7 +3962,16 @@
 (defn connect-create-ws!
   ([game-key] (connect-create-ws! game-key nil))
   ([game-key on-open]
-   (components/connect-create-ws! "/ws/organism/play/" game-key update-messages! on-open)))
+   (components/connect-create-ws!
+    "/ws/organism/play/" game-key update-messages!
+    (fn []
+      ;; Everything set on this page before it had a lobby to talk to -- a
+      ;; mutation ticked before the game was named -- lived only here, and a
+      ;; lobby that filled up and began on its own began without it. A game
+      ;; meant to be FLOW started as an ordinary one that way. So the page
+      ;; says what it holds the moment it connects.
+      (components/send-create! @board-invocation)
+      (when on-open (on-open))))))
 
 (defn game-name-input
   [color]

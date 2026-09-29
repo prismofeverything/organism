@@ -254,8 +254,17 @@
        {:game (:game player-game)}
        (dissoc player-game :game)))))
 
+(defn game-exists?
+  "Whether a game by this name has begun -- live or finished."
+  [db game-key]
+  (some? (db/one db :games {:key game-key})))
+
 (defn create-game!
   [db {:keys [key invocation game chat created-by game-type] :as game-state}]
+  ;; A game with no name cannot be reached, played or deleted, and its history
+  ;; lands in a collection called "history-". One was made that way.
+  (when (or (not (string? key)) (str/blank? key))
+    (throw (ex-info "refusing to create a game with no name" {:key key})))
   (let [game-state (update-in game-state [:game :state] serialize-state)
         game-state (update-in game-state [:game :adjacencies] pr-str)
         game-state (update-in game-state [:game :players] pr-str)

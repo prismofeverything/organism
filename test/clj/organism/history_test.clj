@@ -70,6 +70,7 @@
                                          (-> r# (assoc :history @~'db-log)
                                              (assoc-in [:game :state] (last @~'db-log)))))
                    persist/find-player-game (fn [& _#] {:witness (count @~'db-log)})
+                   persist/game-exists? (fn [_# _#] (some? @~'record))
                    persist/find-open-game (fn [& _#] nil)
                    persist/create-open-game! (fn [& _#])
                    persist/remove-open-game! (fn [& _#])
@@ -81,6 +82,7 @@
 (defn- registry [] (get-in @ws/games [:games "g"]))
 (defn- rules [] (:game (registry)))
 (defn- present-game [log] (assoc (rules) :state (last log)))
+(defn- current-rules [] (assoc (rules) :state nil))
 
 (defn- start!
   "Open a lobby for two, with both browsers watching, and begin it."
@@ -228,3 +230,35 @@
             expected (:state (game-log/apply-path (present-game @db-log) path))]
         (ws/choose! nil "a" "g" :ch-a {:path path})
         (is (= expected (last @db-log)))))))
+
+;; ── flowflow: a live game created a second time ──────────────────────────
+
+(deftest a-late-create-page-cannot-change-or-recreate-a-live-game
+  (testing "the lobby began on its own; the create page, still open, then sent
+            its settings with FLOW and pressed CREATE. That used to rewrite the
+            live game's rules in memory and build it again with no name."
+    (on-a-fake-server
+      (let [created (atom 0)]
+        (with-redefs [persist/create-game! (let [real persist/create-game!]
+                                             (fn [db gs] (swap! created inc) (real db gs)))]
+          (start! {})
+          (let [log @db-log
+                rules-before (rules)
+                invocation (:invocation (registry))
+                late {:ring-count 5 :player-count 2 :players ["a" "b"] :colors []
+                      :organism-victory 3 :player-captures [5 5] :mutations {:FLOW {}}}]
+            (ws/update-create-game nil "a" "g" :ch-a {:invocation late})
+            (ws/update-open-game nil "a" "g" :ch-a {:invocation late})
+            (ws/trigger-creation nil "a" "g" :ch-a {})
+            (is (= 1 @created) "the game is not created a second time")
+            (is (= rules-before (rules)) "its rules are untouched")
+            (is (= invocation (:invocation (registry))) "and so are its settings")
+            (is (not (game/flow? (current-rules)))
+                "it stays the game it began as")
+            (is (= log @db-log) "and its log is untouched")))))))
+
+(deftest a-game-with-no-name-is-never-stored
+  (is (thrown? clojure.lang.ExceptionInfo
+               (persist/create-game! nil {:key nil :invocation {} :game {:state {}}})))
+  (is (thrown? clojure.lang.ExceptionInfo
+               (persist/create-game! nil {:key "" :invocation {} :game {:state {}}}))))
