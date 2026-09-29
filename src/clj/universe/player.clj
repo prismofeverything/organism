@@ -12,7 +12,7 @@
 
      equity   deal the rest of the board and everyone else's cards out a few
               thousand times and count how often you win. This is the real
-              showdown rule — `deck/value`, ties included — not a proxy for it.
+              showdown rule — `holdem/hand-value`, ties included — not a proxy for it.
      price    the pot odds, `call / (pot + call)`: the share of the pot you must
               win to break even on the call.
 
@@ -56,12 +56,17 @@
    unknown hands.
 
    Dealt out `samples` times from the cards nobody can see. A tie counts as its
-   fraction of the split, which is what the showdown actually pays."
+   fraction of the split, which is what the showdown actually pays.
+
+   `table` is the game being played, for how big its board is and how its
+   hands are valued; without one it is the three-card game."
   ([hole board opponents samples] (equity hole board opponents samples (java.util.Random. 20260926)))
-  ([hole board opponents samples ^java.util.Random rng]
+  ([hole board opponents samples rng] (equity hole board opponents samples rng {}))
+  ([hole board opponents samples ^java.util.Random rng table]
    (let [known (into #{} (concat hole board))
          unseen (vec (remove known deck/all-cards))
-         needed (- 3 (count board))
+         needed (- (holdem/board-size table) (count board))
+         value #(holdem/hand-value table %)
          draw (+ needed (* 2 opponents))]
      (if (or (zero? opponents) (> draw (count unseen)))
        ;; Nobody to beat, or a board that cannot be dealt: no information to add.
@@ -77,11 +82,11 @@
                        (aset pool i (aget pool j))
                        (aset pool j a)))
                  rest-board (map #(aget pool %) (range needed))
-                 mine (deck/value (concat hole board rest-board))
+                 mine (value (concat hole board rest-board))
                  others (map (fn [o]
                                (let [at (+ needed (* 2 o))]
-                                 (deck/value (concat [(aget pool at) (aget pool (inc at))]
-                                                     board rest-board))))
+                                 (value (concat [(aget pool at) (aget pool (inc at))]
+                                                board rest-board))))
                              (range opponents))
                  best (reduce (fn [a b] (if (neg? (compare a b)) b a)) others)
                  cmp (compare mine best)]
@@ -111,7 +116,7 @@
         hole (get-in state [:hands seat])
         board (:board state)
         against (opponents-live state seat)
-        eq (equity hole board against samples rng)
+        eq (equity hole board against samples rng state)
         pot (holdem/pot state)
         need (price pot call)
         ;; How far ahead of the asking price this hand is. Everything below

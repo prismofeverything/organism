@@ -30,7 +30,13 @@
                     players
                     (merge {}
                            (when-let [s (:starting-stack params)]
-                             {:starting-stack (if (string? s) (parse-long s) s)}))))
+                             {:starting-stack (if (string? s) (parse-long s) s)})
+                           ;; the lobby's options, which arrive as booleans or,
+                           ;; from a form, as strings
+                           (when (contains? #{true "true"}
+                                            (get-in params [:options :seven]
+                                                    (get-in params ["options" "seven"])))
+                             {:seven? true}))))
     :persist!    (fn [db play-name players bots state]
                    (store/create-game! db play-name players bots state))}
    db request))

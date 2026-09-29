@@ -1266,6 +1266,10 @@
     [game organism]))
 
 (defn find-organisms
+  "Number every organism. Walked in space order, so the numbers are the same
+   wherever this runs: a browser's choice of organism is a number, and the
+   server replays the browser's choices -- hash-map order, which differs
+   between Clojure and ClojureScript, would give the two different numbers."
   [game]
   (let [game (clear-organisms game)
         [game _]
@@ -1273,7 +1277,7 @@
          (fn [[game organism] element]
            (find-organism game element organism))
          [game 0]
-         (-> game :state :elements vals))]
+         (map val (sort-by key (-> game :state :elements))))]
     game))
 
 ;; FLOW ----------------------------

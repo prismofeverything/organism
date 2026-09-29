@@ -650,7 +650,17 @@
                                 [[:pass index] (game/flow-pass game index)])))]
         [:flow-choose (merge offers cancels passes)]))))
 
-(defn find-state
+(declare find-state)
+
+(defn state-path
+  "The choice keys that lead to this state from the position its choices were
+   first asked of -- the present a browser was sent. A browser sends this,
+   never the state: the server replays it through the rules and keeps what
+   the rules make of it (see organism.game-log)."
+  [state]
+  (::path (meta state)))
+
+(defn- find-state*
   [{:keys [state] :as game}]
   (let [{:keys [elements captures player-turn]} state
         {:keys [player introduction organism-turns]} player-turn
@@ -707,6 +717,22 @@
             :else [:actions-complete {:advance (game/resolve-conflicts game player)}])
 
           :else (action-field-state game))))))
+
+(defn find-state
+  "[phase choices] for this game: what may happen next, as a map of key to
+   the game that key leads to. Each of those games' states carries its path --
+   the keys taken to reach it -- so whatever a browser ends up choosing,
+   however many steps deep, knows how it got there."
+  [game]
+  (let [[phase choices] (find-state* game)
+        base (or (state-path (:state game)) [])]
+    [phase
+     (reduce-kv
+      (fn [m k v]
+        (assoc m k (if (map? (:state v))
+                     (update v :state vary-meta assoc ::path (conj base k))
+                     v)))
+      {} choices)]))
 
 (defn find-choices
   [game]

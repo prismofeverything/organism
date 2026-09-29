@@ -12,6 +12,7 @@
    [organism.base :as base]
    [organism.game :as game]
    [organism.choice :as choice]
+   [organism.history :as history]
    [organism.board :as board]
    [organism.dom :as dom]
    [organism.ajax :as ajax]
@@ -789,17 +790,19 @@
       (first el)))))
 
 (defn send-state!
-  [state complete]
-  (ws/send-transit-message!
-   {:type "game-state"
-    :game state
-    :complete complete}))
+  "Make the choice that leads to `state`. What goes to the server is the path
+   of choice keys that reached it, never the state: the server replays the
+   path through the rules and sends back what the rules make of it. A state
+   with no path was not reached by choosing, so it is not sent at all."
+  [state _complete]
+  (if-let [path (choice/state-path state)]
+    (ws/send-transit-message! {:type "choose" :path path})
+    (js/console.error "not sending a state no choice led to")))
 
 (defn send-reset!
-  [state]
-  (ws/send-transit-message!
-   {:type "history"
-    :game state}))
+  "Undo. The server steps its log back; nothing about this page is sent."
+  [_state]
+  (ws/send-transit-message! {:type "history"}))
 
 (defn send-clear!
   []
@@ -869,7 +872,11 @@
         [final-game turn choices] (choice/find-next-choices current-game)
         game-state (assoc game-state :game final-game)]
     (-> game-state
-        (update :history conj (:state final-game))
+        (update :history (fn [history]
+                           (or (history/follow-log history (:length message) state)
+                               ;; update-messages! has already asked for the
+                               ;; log; until it comes, keep what there is
+                               history)))
         (assoc :turn turn)
         (assoc :choices choices))))
 
@@ -4141,7 +4148,13 @@
       ;; Trimmed to what the controls actually measure — the difference was
       ;; empty space between them and the score.
       [:div {:style {:height "98px" :display "flow-root"}}
-       (when (and current-player (not (-> game :state :winner)))
+       (cond
+         cursor
+         [:div {:style {:font-family font-choice :margin "14px 0 0 0" :color current-color
+                        :letter-spacing "2px"}}
+          "viewing history — press » below to return and play"]
+
+         (and current-player (not (-> game :state :winner)))
          [undo-control turn choices (:state game)])]
       ;; score / history / help / discussion
       [scoreboard turn-order organism-victory colors player-captures mutations state]
@@ -4161,7 +4174,11 @@
         state (if cursor (nth history cursor) state)
         game (assoc game :state state)
         invocation-colors (invocation-player-colors (count turn-order) invocation)
-        [turn choices] (if cursor (choice/find-state game) [turn choices])
+        ;; Viewing a past position is looking, not playing. Its choices used to
+        ;; be offered live, so one click on an old position sent it to the
+        ;; server as the new present and rewound the game -- a round-10 game
+        ;; went back to round 0 that way. No choices, nothing to click.
+        [turn choices] (if cursor [:history {}] [turn choices])
         {:keys [player-colors]} board]
     (game-layout
      [:main
@@ -4384,8 +4401,20 @@
     (let [{:keys [index player]} received]
       (swap! player-order assoc index player)
       (swap! board-invocation update :players (fn [players] (assoc (vec players) index player))))
+    "sync"
+    ;; the whole log, replacing whatever this page had
+    (do
+      (swap! game-state
+             (fn [gs]
+               (-> gs
+                   (assoc :history (vec (:history received)) :cursor nil)
+                   (update-game (dissoc received :length))
+                   (assoc :history (vec (:history received))))))
+      (start-transition! (-> @game-state :game :state)))
     "game-state"
     (do
+      (when-not (history/follow-log (:history @game-state) (:length received) (:game received))
+        (ws/send-transit-message! {:type "sync"}))
       (swap! game-state update-game received)
       (start-transition! (-> @game-state :game :state))
       (reset! food-source {})

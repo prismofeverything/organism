@@ -12,6 +12,11 @@
    Four betting rounds, as hold'em has: after the hole cards, then after each
    board card.
 
+   A table can instead be made `:seven?`: Texas hold'em's shape, two to you and
+   five to the board -- a flop of three, a turn, a river -- keeping your best
+   five of seven. It ranks by the seven-card chart (deck/seven-order), which is
+   not the five-card one; see universe/hands7.py for why and what it costs.
+
    This namespace is pure.  The shuffled deck is passed in, so a game replays
    exactly from its seed and the tests can deal whatever they like."
   (:require
@@ -40,8 +45,9 @@
 (defn create-game
   "A table of players, each sat down with the same stack."
   [player-names & [opts]]
-  (let [{:keys [starting-stack hands-per-level levels]} (merge defaults opts)]
-    {:players         (vec (map-indexed (fn [i n] {:name n :seat i :stack starting-stack})
+  (let [{:keys [starting-stack hands-per-level levels seven?]} (merge defaults opts)]
+    {:seven?          (boolean seven?)
+     :players         (vec (map-indexed (fn [i n] {:name n :seat i :stack starting-stack})
                                         player-names))
      :button          (dec (count player-names))
      :hand-number     0
@@ -70,6 +76,34 @@
 ;; ── Seats ──────────────────────────────────────────────────────────────────
 
 (defn seat-count [state] (count (:players state)))
+
+;; ── The board ──────────────────────────────────────────────────────────────
+
+(defn board-size
+  "How many cards the board comes to: three, or five on a seven-card table."
+  [state]
+  (if (:seven? state) 5 3))
+
+(defn- street-cards
+  "How many board cards a street turns: one each, except the seven-card
+   table's flop, which is three at once."
+  [state street]
+  (if (and (:seven? state) (= :first street)) 3 1))
+
+(defn hand-value
+  "How good these cards are at this table, as something `compare` reads:
+   exactly five on the three-card board, the best five of seven otherwise."
+  [state cards]
+  (if (:seven? state)
+    (deck/best-code cards)
+    (deck/value cards)))
+
+(defn hand-row
+  "The chart row these cards make at this table."
+  [state cards]
+  (if (:seven? state)
+    (deck/seven-row cards)
+    (deck/classify cards)))
 
 (defn stack [state seat] (get-in state [:players seat :stack] 0))
 
@@ -347,8 +381,8 @@
    look at, and no five-card hand to speak of."
   [state]
   (let [board    (:board state)
-        showdown (= 3 (count board))
-        value-of (fn [seat] (deck/value (concat (get-in state [:hands seat]) board)))]
+        showdown (= (board-size state) (count board))
+        value-of (fn [seat] (hand-value state (concat (get-in state [:hands seat]) board)))]
     (reduce
      (fn [st {:keys [amount contenders depth paid-in]}]
        (let [contenders (vec contenders)
@@ -431,8 +465,10 @@
                               (into {} (map (fn [s]
                                               [s {:cards (get-in state [:hands s])
                                                   :hand  (when (and showdown?
-                                                                    (= 3 (count (:board state))))
-                                                           (deck/classify
+                                                                    (= (board-size state)
+                                                                       (count (:board state))))
+                                                           (hand-row
+                                                            state
                                                             (concat (get-in state [:hands s])
                                                                     (:board state))))}])
                                             staying))))
@@ -479,13 +515,14 @@
         ;; all-in already: run the rest of the board out and show them down
         (no-more-betting? state)
         (finish (reduce (fn [s _] (reveal s)) state
-                        (range (- 3 (count (:board state))))))
+                        (range (- (board-size state) (count (:board state))))))
 
         :else
-        (-> state
-            (assoc :street (street-after (:street state)))
-            reveal
-            open-street)))))
+        (let [street (street-after (:street state))]
+          (-> (reduce (fn [s _] (reveal s))
+                      (assoc state :street street)
+                      (range (street-cards state street)))
+              open-street))))))
 
 ;; ── Acting ─────────────────────────────────────────────────────────────────
 
@@ -592,6 +629,10 @@
                                             hand))
                            :points points})))}))
 
+(def recent-count
+  "How many finished hands a view carries for the rail."
+  4)
+
 (defn view
   "What one player is allowed to see.
 
@@ -611,6 +652,9 @@
         ;; only this hand's log: the rest is nobody's business and would be
         ;; re-sent in full on every action
         (update :log (fn [l] (vec (filter #(= (:hand %) (:hand-number state)) l))))
+        ;; the last few hands, for the rail to show what was turned over --
+        ;; public already, and too few to weigh anything
+        (assoc :recent (vec (take-last recent-count (:history state))))
         ;; the whole history is only wanted once, for the summary at the end --
         ;; sending it on every action would be a few hundred hands each time
         (update :history (fn [h] (when (:winner state) h)))

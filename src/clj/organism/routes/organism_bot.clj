@@ -445,11 +445,15 @@
             (get-in b [:state :round]))))
 
 (defn- organism-bot-config
-  [games-atom game-key humans delay-ms on-turn & [db]]
+  "`get-game`, when given, is where the game's present comes from -- a live
+   game's log -- and then nothing is written back to memory: the bot's turn
+   reaches the game only through `on-turn`, which appends it to the log."
+  [games-atom game-key humans delay-ms on-turn & [db get-game]]
   {:label          (str "ORGANISM BOT " game-key)
-   :get-game       (fn [] (:game (get-in @games-atom [:games game-key])))
-   :put-game!      (fn [next-game]
-                     (swap! games-atom assoc-in [:games game-key :game] next-game))
+   :get-game       (or get-game (fn [] (:game (get-in @games-atom [:games game-key]))))
+   :put-game!      (when-not get-game
+                     (fn [next-game]
+                       (swap! games-atom assoc-in [:games game-key :game] next-game)))
    :agent-step+key (if db (make-agent-step+key db) agent-step+key)
    :victory?       game/victory?
    :current-player game/current-player
@@ -508,15 +512,16 @@
               [game new-history]))))))
 
 (defn run-bot-until-human!
-  "Mixed game runner — runs bots until a human's turn comes up."
-  [games-atom game-key human-players delay-ms broadcast-fn persist-fn & [db]]
+  "Mixed game runner — runs bots until a human's turn comes up. Returns the
+   loop's future."
+  [games-atom game-key human-players delay-ms broadcast-fn persist-fn & [db get-game]]
   (bots/run-bot-loop!
    (organism-bot-config
     games-atom game-key human-players delay-ms
     (fn [choice-keys next-game]
       (when broadcast-fn (broadcast-fn choice-keys next-game))
       (when persist-fn (persist-fn (:state next-game))))
-    db)))
+    db get-game)))
 
 ;; ── Bot registration ────────────────────────────────────────────────────────
 

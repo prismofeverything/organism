@@ -41,7 +41,7 @@
 
 (def between-hands-ms
   "A pause at the showdown so everyone can read the cards before the next deal."
-  3000)
+  5000)
 
 (defn- shuffled
   "A fresh deck.  Nothing here is seeded: the server deals, and neither the
@@ -120,11 +120,18 @@
   (let [{:keys [check call min-raise-to max-raise-to]} (holdem/legal-actions state)
         seat   (:to-act state)
         cards  (concat (get-in state [:hands seat]) (:board state))
-        ;; strength runs 0..17.  Before the board is complete there is no
-        ;; five-card hand to classify, so fall back on the biggest set of
-        ;; matching numbers among the cards it can actually see.
-        heat   (if (= 5 (count cards))
+        ;; strength runs 0..17 (0..18 on a seven-card table).  With fewer than
+        ;; five cards in view there is no hand to classify, so fall back on the
+        ;; biggest set of matching numbers among the cards it can see; on a
+        ;; seven-card table any five in view make a hand, its best so far.
+        heat   (cond
+                 (and (:seven? state) (>= (count cards) 5))
+                 (/ (:strength (deck/seven-row cards)) (double deck/seven-top))
+
+                 (= 5 (count cards))
                  (/ (:strength (deck/classify cards)) 17.0)
+
+                 :else
                  (let [biggest (apply max (vals (frequencies (map deck/number cards))))]
                    (min 0.85 (* 0.22 biggest))))
         pot    (holdem/pot state)

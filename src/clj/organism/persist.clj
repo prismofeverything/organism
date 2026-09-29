@@ -21,10 +21,18 @@
     (read-string s)
     s))
 
+(defn- keyword-back
+  "Mongo stores a keyword as its name, so a field kept raw comes back a
+   string. The rules compare the stage marker against keywords, and a position
+   read back without it loops between resolving and checking forever."
+  [x]
+  (if (string? x) (keyword x) x))
+
 (defn deserialize-state
   [state]
   (-> state
       (dissoc :_id)
+      (update-in [:player-turn :advance] keyword-back)
       (update :elements read-string)
       (update :food conditional-string) ;; TODO: remove this once migrated
       (update :captures conditional-string) ;; TODO: remove this once migrated

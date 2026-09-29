@@ -5,6 +5,7 @@
    [organism.game :as game]
    [organism.layout :as layout]
    [organism.leaderboard :as leaderboard]
+   [organism.game-log :as game-log]
    [organism.persist :as persist]
    [organism.middleware :as middleware]
    [organism.routes.organism-bot :as bot]
@@ -187,14 +188,16 @@
     ;; find-next-choices into a spin that freezes the tab.
     (bot/run-bot-turns!
      ws/games game-key 200
-     (fn [_choice-keys next-game]
-       (let [channels (get-in @ws/games [:games game-key :channels])]
-         (when (seq channels)
-           (ws/send-channels! channels
-                              {:type "game-state"
-                               :game (:state next-game)}))))
+     nil
+     ;; each turn into the log, then to the watchers with the log's length, so
+     ;; a page just appends it rather than asking for the whole log again
      (fn [next-state]
-       (persist/update-state! db game-key next-state))
+       (let [length (game-log/append! db game-key next-state)
+             channels (get-in @ws/games [:games game-key :channels])]
+         (when (seq channels)
+           (ws/send-channels! channels {:type "game-state"
+                                        :game (game-log/position next-state)
+                                        :length length}))))
      db)
     (layout/render
      request

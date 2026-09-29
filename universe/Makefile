@@ -14,7 +14,7 @@ SRC    := $(wildcard $(ROOT)/inputs/*.png)
 MATTES := $(patsubst $(ROOT)/inputs/%.png,$(ROOT)/shapes/%.png,$(SRC))
 RINGS  := $(ROOT)/shapes/rings.json
 
-.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid key web explore clean distclean
+.PHONY: all shapes faces back sheets proof palette chart lattice space pyramid seven key web explore clean distclean
 
 all: faces back sheets proof palette chart lattice space pyramid key web
 
@@ -53,6 +53,16 @@ $(ROOT)/shapes/paths.json: trace_shapes.py $(ROOT)/shapes/shapes.json
 pyramid: $(ROOT)/hands.json $(ROOT)/shapes/paths.json $(RINGS) make_pyramid.py
 	$(PY) make_pyramid.py
 	rsvg-convert -w 3700 $(ROOT)/out/universe-pyramid.svg -o $(ROOT)/out/universe-pyramid.png
+	cp $(ROOT)/out/universe-pyramid.svg $(ROOT)/../resources/public/universe/hands-five.svg
+
+# best five of seven: sampled (C(60,7) is too many to enumerate), ~2 min at 10M
+$(ROOT)/hands7.json: hands7.py hands_n.py holdem_n.py
+	$(PY) hands7.py --trials 10000000
+
+seven: $(ROOT)/hands7.json $(ROOT)/shapes/paths.json $(RINGS) make_pyramid.py
+	$(PY) make_pyramid.py --seven
+	rsvg-convert -w 3700 $(ROOT)/out/universe-pyramid-seven.svg -o $(ROOT)/out/universe-pyramid-seven.png
+	cp $(ROOT)/out/universe-pyramid-seven.svg $(ROOT)/../resources/public/universe/hands-seven.svg
 
 # the deck's geometry as data for the browser, so the online game draws the
 # same card the printer does -- see src/cljs/universe/card.cljs

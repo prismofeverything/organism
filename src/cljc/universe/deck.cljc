@@ -207,6 +207,168 @@
    (number-key cards)
    (color-key cards)])
 
+(declare best-five)
+
+;; ── Best five of seven ─────────────────────────────────────────────────────
+;;
+;; The seven-card table deals two to you and five to the board and keeps your
+;; best five. That game ranks its hands by a chart of its own, universe/hands7.py:
+;; by how rarely seven cards hold each hand, whatever else they hold. Ranking by
+;; how often a hand is *kept* instead chases its own tail and buries hands -- a
+;; split pentad is common in seven cards, sinks below split tetrad, and every
+;; split pentad holds a split tetrad, so nobody would ever keep one.
+;;
+;; The thirteen colored and shaped rows keep their five-card order exactly; only
+;; the plain rows at the foot move, and the one five-card tie comes apart. Two
+;; rows can never be anyone's best five: seven cards holding a triad or a split
+;; tetrad always hold something better. See out/universe-pyramid-seven.svg.
+
+(def seven-order
+  "Strongest first."
+  [:singularity :color-tetrad :shape-split-pentad :shape-sequence :shape-triad
+   :color-split-pentad :color-sequence :shape-split-tetrad :pentad :color-triad
+   :shape-dyad :color-split-tetrad :color-dyad :tetrad :sequence :split-pentad
+   :dyad :triad :split-tetrad])
+
+(def ^:private seven-strength
+  (zipmap seven-order (range (dec (count seven-order)) -1 -1)))
+
+(def seven-top
+  "The strongest seven-card strength, for scaling one to a fraction."
+  (dec (count seven-order)))
+
+(def seven-odds
+  "How often each row is the best five a seven-card player keeps, as 1 in N.
+   Sampled over ten million deals by universe/hands7.py, so the rare end is
+   good to a few percent; triad and split tetrad never happen."
+  {:singularity 21277 :color-tetrad 1444 :shape-split-pentad 1113
+   :shape-sequence 327 :shape-triad 330 :color-split-pentad 200
+   :color-sequence 115 :shape-split-tetrad 105 :pentad 85 :color-triad 78
+   :shape-dyad 61 :color-split-tetrad 31.4 :color-dyad 22.2 :tetrad 10.1
+   :sequence 4.7 :split-pentad 2.6 :dyad 6.6})
+
+(defn seven-row
+  "The chart row for the best five of these cards on the seven-card table,
+   carrying that table's strength and the five it is made of."
+  [cards]
+  (when-let [five (best-five cards)]
+    (let [row (classify five)]
+      (assoc row :strength (seven-strength (:name row)) :best five))))
+
+(defn value-seven
+  "`value` for the seven-card table: the same number and color tiebreaks, under
+   the seven-card chart's strengths."
+  [cards]
+  (assoc (value cards) 0 (seven-strength (:name (classify cards)))))
+
+;; The fast path. An equity player values tens of thousands of seven-card
+;; deals per decision, each one twenty-one five-card subsets, and the readable
+;; `value-seven` -- frequency maps, sorts, vector compares -- is too slow for
+;; that. So a five-card hand is scored as a single integer instead, from bit
+;; masks and a count per number, packed so that comparing the integers is
+;; comparing `value-seven`:
+;;
+;;   strength (0..18), then the ten number-key digits (base 6), then the five
+;;   color-key digits (base 3)
+;;
+;; which fits in 2^53, so it is exact in a JavaScript number too.
+;; universe.seven-test checks the two agree.
+
+(def ^:private card-color  (int-array (map color-index all-cards)))
+(def ^:private card-shape  (int-array (map shape-index all-cards)))
+(def ^:private card-number (int-array (map number-index all-cards)))
+
+(def ^:private pattern-code
+  "Group sizes, biggest first, as base-10 digits: [2 1 1 1] is 21110."
+  (fn [pattern]
+    (reduce (fn [code size] (+ (* 10 code) size)) 0
+            (take 5 (concat pattern (repeat 0))))))
+
+(def ^:private suit-code {:perfect 0 :color 1 :shape 2 :mixed 3})
+
+(def ^:private strength-by-code
+  (delay
+    (into {} (for [{:keys [pattern suit name]} chart]
+               [(+ (* 4 (pattern-code pattern)) (suit-code suit))
+                (seven-strength name)]))))
+
+(defn- one-bit? [m] (zero? (bit-and m (dec m))))
+
+(defn seven-code
+  "`value-seven` of five cards as one integer: bigger is better, equal ties."
+  [a b c d e]
+  (let [counts (int-array 5)
+        cards [a b c d e]]
+    (loop [i 0 colors 0 shapes 0 purple 0 green 0]
+      (if (< i 5)
+        (let [card (nth cards i)
+              color (aget ^ints card-color card)]
+          (aset ^ints counts (aget ^ints card-number card)
+                (inc (aget ^ints counts (aget ^ints card-number card))))
+          (recur (inc i)
+                 (bit-or colors (bit-shift-left 1 color))
+                 (bit-or shapes (bit-shift-left 1 (aget ^ints card-shape card)))
+                 (if (== color 0) (inc purple) purple)
+                 (if (== color 1) (inc green) green)))
+        (let [suit (cond (and (one-bit? colors) (one-bit? shapes)) 0
+                         (one-bit? colors) 1
+                         (one-bit? shapes) 2
+                         :else 3)
+              ;; the sizes present, biggest first, as a pattern code, and the
+              ;; number key: [size number] pairs by size then number, five high
+              [pattern numbers]
+              (loop [size 5 pattern 0 numbers 0 digits 0]
+                (if (zero? size)
+                  [pattern (loop [numbers numbers digits digits]
+                             (if (< digits 10) (recur (* 6 numbers) (inc digits)) numbers))]
+                  (let [[pattern numbers digits]
+                        (loop [n 4 pattern pattern numbers numbers digits digits]
+                          (if (neg? n)
+                            [pattern numbers digits]
+                            (if (== size (aget ^ints counts n))
+                              (recur (dec n) (+ (* 10 pattern) size)
+                                     (+ (* 36 numbers) (* 6 size) (inc n)) (+ digits 2))
+                              (recur (dec n) pattern numbers digits))))]
+                    (recur (dec size) pattern numbers digits))))
+              pattern (loop [p pattern] (if (< p 10000) (recur (* 10 p)) p))
+              ;; the colors purple first: purple ranks 2, green 1, yellow 0
+              color-key (loop [key 0 i 0]
+                          (if (< i 5)
+                            (recur (+ (* 3 key) (cond (< i purple) 2
+                                                      (< i (+ purple green)) 1
+                                                      :else 0))
+                                   (inc i))
+                            key))
+              strength (get @strength-by-code (+ (* 4 pattern) suit))]
+          (+ (* (+ (* strength 60466176) numbers) 243) color-key))))))
+
+(def ^:private subsets
+  "Every five-of-n choice of positions, for n five to seven."
+  (into {} (for [n [5 6 7]]
+             [n (vec (for [a (range n) b (range (inc a) n) c (range (inc b) n)
+                           d (range (inc c) n) e (range (inc d) n)]
+                       [a b c d e]))])))
+
+(defn best-code
+  "The best `seven-code` among every five of these cards."
+  [cards]
+  (let [cards (vec cards)]
+    (reduce (fn [best [a b c d e]]
+              (max best (seven-code (cards a) (cards b) (cards c) (cards d) (cards e))))
+            -1 (subsets (count cards)))))
+
+(defn best-five
+  "The five of these cards that make the best seven-card-table hand. Five
+   cards are already a hand; fewer are not one."
+  [cards]
+  (when (>= (count cards) 5)
+    (let [cards (vec cards)]
+      (mapv cards
+            (apply max-key
+                   (fn [[a b c d e]]
+                     (seven-code (cards a) (cards b) (cards c) (cards d) (cards e)))
+                   (subsets (count cards)))))))
+
 (defn compare-hands
   "Negative when a loses, positive when a wins, zero when the pot splits."
   [a b]

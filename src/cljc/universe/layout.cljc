@@ -87,11 +87,16 @@
      :left (- x (/ w 2)) :top top :width w :height (- bottom top)
      :right (+ x (/ w 2)) :bottom bottom}))
 
+(def ^:dynamic *board-cards*
+  "How many cards the board holds: three, or five on a seven-card table. Bound
+   by the caller around `solve`."
+  3)
+
 (defn- geometry
   "Place the ring and the board for one set of card sizes, or nil when the area
    cannot hold them."
   [w h {:keys [yours board others]}]
-  (let [board-w (+ (* 3 board) 18)
+  (let [board-w (+ (* *board-cards* board) (* 9 (dec *board-cards*)))
         board-h (* card-ratio board)
         ;; tall enough for your cards to hang from the top of the ring to the
         ;; board, and for the lowest seat's cards to reach up to it from below

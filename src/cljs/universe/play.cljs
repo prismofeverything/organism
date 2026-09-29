@@ -73,13 +73,23 @@
 ;; ── Reading the table ──────────────────────────────────────────────────────
 
 (defn- your-hand
-  "Your five cards, once all three board cards are out."
+  "Your cards once they make a hand: all five once the three board cards are
+   out, or on a seven-card table everything in view from the flop on, of which
+   the best five count."
   [state]
   (let [you (:you state)
         hole (get-in state [:hands you])
         board (:board state)]
-    (when (and hole (= 3 (count board)))
+    (when (and hole (if (:seven? state)
+                      (>= (count board) 3)
+                      (= 3 (count board))))
       (concat hole board))))
+
+(defn- made
+  "The five cards that make the hand: the cards themselves at three board
+   cards, the best five of them on a seven-card table."
+  [state cards]
+  (if (:seven? state) (deck/best-five cards) cards))
 
 ;; ── Pieces of the table ────────────────────────────────────────────────────
 
@@ -91,8 +101,8 @@
    Nil until there is a showdown to reveal anything."
   [state seat]
   (let [shown (get-in state [:result :hands seat])]
-    (when (and (:hand shown) (= 3 (count (:board state))))
-      (deck/describe-hand (concat (:cards shown) (:board state))))))
+    (when (and (:hand shown) (= (holdem/board-size state) (count (:board state))))
+      (deck/describe-hand (made state (concat (:cards shown) (:board state)))))))
 
 (defn- pot-total
   "The pot empties into the stacks the moment a hand is paid out, so at the
@@ -150,16 +160,17 @@
   "The solved layout for this window and this many players. Cached: it is the
    same answer until one of those changes, and it is asked for on every state
    message."
-  [n]
+  [n board-cards]
   (let [{:keys [w h]} (or @viewport {:w 1440 :h 900})
         area (layout/table-area w h)
         ;; quantised, so dragging a window edge does not re-solve on every
         ;; pixel and fill the cache with near-identical answers
         qw   (* 20 (quot (:w area) 20))
         qh   (* 20 (quot (:h area) 20))
-        k    [qw qh n]]
+        k    [qw qh n board-cards]]
     (or (get @solve-cache k)
-        (let [v (layout/solve qw qh n)]
+        (let [v (binding [layout/*board-cards* board-cards]
+                  (layout/solve qw qh n))]
           (swap! solve-cache assoc k v)
           v))))
 
@@ -236,7 +247,7 @@
   [state]
   (let [order (ring-order state)
         n     (count order)
-        {:keys [cx cy rx ry board height seats] :as l} (solved n)]
+        {:keys [cx cy rx ry board height seats] :as l} (solved n (holdem/board-size state))]
     (when (seq seats)
       (into
        [:div {:style {:position "relative" :width "100%"
@@ -263,7 +274,7 @@
                        :width (str (- (:right board) (:left board)) "px")
                        :text-align "center"}}
          [:div {:style {:display "flex" :gap "9px" :justify-content "center"}}
-          (for [i (range 3)]
+          (for [i (range (holdem/board-size state))]
             ^{:key i} [card/card {:value (nth (:board state) i nil)
                                   :width (:board (:sizes l))}])]
          [:div {:style {:color faint :font-size "15px" :margin-top "12px"}}
@@ -290,6 +301,38 @@
       :refund     (str who " takes back " amount)
       nil)))
 
+(defn- recent-hands
+  "The last few hands, newest first, with the cards that were turned over:
+   each player's five -- their two and the board, or on a seven-card table
+   the best five -- and what that makes. Folded hands show nothing, as they
+   showed nothing at the table."
+  [state]
+  (when-let [recent (seq (reverse (:recent state)))]
+    [:div
+     [:div {:style {:color faint :font-size "12px" :margin-bottom "6px"}} "last hands"]
+     [:div {:style {:background "#1b1828" :border-radius "6px" :padding "8px"
+                    :display "flex" :flex-direction "column" :gap "10px"}}
+      (for [h recent
+            :let [winners (set (keys (:awards h)))
+                  name-of #(get-in state [:players % :name])]]
+        ^{:key (:hand h)}
+        [:div
+         [:div {:style {:color faint :font-size "11px" :margin-bottom "4px"}}
+          (str "hand " (:hand h) " · pot " (:pot h))]
+         (if-let [shown (seq (sort-by (fn [[seat _]] (if (winners seat) 0 1)) (:shown h)))]
+           (for [[seat {:keys [cards]}] shown
+                 :let [five (made state (concat cards (:board h)))
+                       won? (winners seat)]]
+             ^{:key seat}
+             [:div {:style {:margin-bottom "6px"}}
+              [:div {:style {:font-size "12px" :color (if won? gold "#b6afc9")}}
+               (name-of seat) (when won? " wins") " · " (deck/describe-hand five)]
+              [:div {:style {:display "flex" :gap "3px" :margin-top "3px"}}
+               (for [[i c] (map-indexed vector five)]
+                 ^{:key i} [card/card {:value c :width 26}])]])
+           [:div {:style {:font-size "12px" :color "#b6afc9"}}
+            (str "everyone folded to " (str/join ", " (map name-of winners)))])])]]))
+
 (defn- status-rail [state]
   (let [level (nth (:levels state)
                    (min (:level state 0) (dec (count (:levels state))))
@@ -315,6 +358,7 @@
        (for [[i line] (map-indexed vector (keep #(log-line state %) (:log state)))]
          ^{:key i} [:div {:style {:color (if (str/starts-with? line "\u2014")
                                            faint "#b6afc9")}} line])]]
+     [recent-hands state]
      (when (seq @client-errors)
        [:div {:style {:background "#3a1414" :border "1px solid #7a2a2a"
                       :border-radius "6px" :padding "8px" :font-size "11px"
@@ -359,12 +403,16 @@
                  true]]))])))
 
 (defn- your-hand-view [state]
-  (when-let [five (your-hand state)]
-    (let [row (deck/classify five)]
+  (when-let [cards (your-hand state)]
+    (let [row  (holdem/hand-row state cards)
+          odds (if (:seven? state)
+                 (get deck/seven-odds (:name row))
+                 (js/Math.round (/ deck/total-hands (:count row))))]
       [:div {:style {:color gold :font-size "15px" :padding "6px 0"}}
-       "you have a " (deck/describe-hand five)
-       [:span {:style {:color faint :margin-left "10px" :font-size "13px"}}
-        (str "1 in " (js/Math.round (/ deck/total-hands (:count row))))]])))
+       "you have a " (deck/describe-hand (made state cards))
+       (when odds
+         [:span {:style {:color faint :margin-left "10px" :font-size "13px"}}
+          (str "1 in " odds)])])))
 
 (defn- chat-view []
   (let [draft (r/atom "")]
@@ -590,7 +638,7 @@
           [:td {:style {:padding "6px 8px" :color ink-second}}
            (if-let [shown (seq (:shown h))]
              (let [[_ {:keys [cards]}] (first (sort-by (fn [[s _]] (- (get (:awards h) s 0))) shown))]
-               (deck/describe-hand (concat cards (:board h))))
+               (deck/describe-hand (made state (concat cards (:board h)))))
              (if (:showdown? h) "—" "everyone folded"))]])]]]))
 
 (defn summary-view [state]
@@ -680,7 +728,17 @@
     :max-players    9
     :accent         gold
     :slot-bg        panel
-    :background     ground}])
+    :background     ground
+    :aside          [:div {:style {:margin "-12px 0 24px 0" :font-size "13px"}}
+                     [:span {:style {:color faint}} "the hands: "]
+                     [:a {:href "/universe/hands-five.svg" :target "_blank"
+                          :style {:color gold}} "five cards"]
+                     [:span {:style {:color faint}} "  ·  "]
+                     [:a {:href "/universe/hands-seven.svg" :target "_blank"
+                          :style {:color gold}} "best five of seven"]]
+    :options        [{:key :seven
+                      :label "best five of seven"
+                      :description "two to you, five to the board, ranked by the seven-card chart"}]}])
 
 (defn observe-view []
   (let [games (safe-read (when (exists? js/observeGames) js/observeGames))]
@@ -705,6 +763,13 @@
           is your two and all three — five cards, never a choice of which five,
           which is why every hand you are dealt is one of the nineteen below at
           exactly the rarity printed against it."]
+     [:p {:style {:color faint}}
+      "A table can be made best-five-of-seven instead: two to you, five to the
+       board as a flop of three, a turn and a river, keeping your best five. It
+       ranks by a chart of its own, by how rarely seven cards hold each hand.
+       The colored and shaped hands keep their order and come ten to twenty
+       times more often; at the foot a dyad beats a split tetrad, and triad
+       and split tetrad are never anyone's best five."]
      [:p {:style {:color faint}}
       "Betting after the hole cards and after each board card. Equal hands are
        settled by the numbers — groups first, five high — and then by color,

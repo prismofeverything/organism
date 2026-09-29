@@ -800,9 +800,12 @@
    :play-url-prefix — redirect prefix on success (default \"/<game-type>/play/\")
    :accent          — accent color for headings/labels (default \"#7AAAE0\")
    :slot-bg         — background for human search inputs (default \"#10182A\")
-   :background      — page background (default \"#04040E\")"
+   :background      — page background (default \"#04040E\")
+   :options         — optional checkboxes, [{:key :label :description}], sent
+                      as {:options {key true|false}} with the rest
+   :aside           — optional hiccup shown under the title"
   [{:keys [game-type title current-player min-players max-players
-           post-url play-url-prefix accent slot-bg background]
+           post-url play-url-prefix accent slot-bg background options aside]
     :or   {title "New Game" min-players 1 max-players 5
            accent "#7AAAE0" slot-bg "#10182A" background "#04040E"}}]
   (let [post-url        (or post-url (str "/" game-type "/create"))
@@ -812,7 +815,8 @@
                                 base [{:name (or current-player "") :bot? false}
                                       {:name "" :bot? true}]]
                             (vec (take n (concat base (repeat {:name "" :bot? false}))))))
-        error     (r/atom nil)]
+        error     (r/atom nil)
+        chosen    (r/atom (into {} (map (fn [o] [(:key o) false]) options)))]
     (fn []
       (let [ss          @slots
             input-style {:background "#111" :color "#ccc"
@@ -826,6 +830,7 @@
                        :font-family "monospace" :background background
                        :min-height "100vh"}}
          [:h2 {:style {:color accent :margin-bottom "24px"}} title]
+         aside
          ;; Game name
          [:div {:style {:margin-bottom "20px"}}
           [:label {:style {:color "#556677" :display "block" :margin-bottom "6px"}}
@@ -883,6 +888,21 @@
            [:button {:on-click #(swap! slots conj {:name "" :bot? true})
                      :style (merge btn-style {:margin-bottom "20px"})}
             "+ Add Player"])
+         ;; Options
+         ;; @chosen is read out here, not inside the `for`: a deref in a lazy
+         ;; seq is not tracked, so the box would never re-render when clicked
+         (when (seq options)
+           (let [picked @chosen]
+           [:div {:style {:margin-bottom "20px"}}
+            (for [{:keys [key label description]} options]
+              ^{:key key}
+              [:label {:style {:display "block" :margin-bottom "8px" :cursor "pointer"}}
+               [:input {:type "checkbox" :checked (boolean (get picked key))
+                        :on-change #(swap! chosen assoc key (-> % .-target .-checked))
+                        :style {:margin-right "10px"}}]
+               [:span {:style {:color accent}} label]
+               (when description
+                 [:span {:style {:color "#556677" :margin-left "10px"}} description])])]))
          ;; Error
          (when @error
            [:div {:style {:color "#CC4444" :margin-bottom "12px"}} @error])
@@ -903,7 +923,8 @@
                  :else
                  (do (reset! error nil)
                      (ajax-core/POST post-url
-                       {:params          {:play-name pname :players players :bots bots}
+                       {:params          (cond-> {:play-name pname :players players :bots bots}
+                                           (seq options) (assoc :options @chosen))
                         :format          :transit
                         :response-format :transit
                         :handler         (fn [resp]

@@ -161,16 +161,23 @@ def glyph(x, y, groups, r=26, ink=INK, run=None):
 
 # ------------------------------------------------------------------ assembly
 
-def main(values=5):
-    if values == 5:
+def main(values=5, seven=False):
+    if seven:
+        # best five of seven, sampled by hands7.py. Placed by how rarely seven
+        # cards hold each hand -- the order it ranks in -- and labelled with
+        # how often it is the hand actually kept, which is what you would see.
+        data = json.loads((HERE / "hands7.json").read_text())
+    elif values == 5:
         # the real deck's own file, so this figure comes out exactly as before
         data = json.loads((HERE / "hands.json").read_text())
     else:
         import hands_n
         data = hands_n.with_examples(values)
     total = data["total"]
-    cell = {(r["numbers"], r["suit"]): (r["count"], i, r["example"])
+    placed = "held" if seven else "count"
+    cell = {(r["numbers"], r["suit"]): (r[placed], i, r["example"])
             for i, r in enumerate(data["rows"], start=1)}
+    kept = {(r["numbers"], r["suit"]): r["count"] for r in data["rows"]}
     table = rings_n.ring_table(max(values, 5))
     # a run and a scatter are the same hand at five values and different past
     # it, so the glyph only marks runs where there is something to mark
@@ -235,7 +242,11 @@ def main(values=5):
     svg.append(f'<rect width="{W}" height="{H}" fill="#ffffff"/>')
 
     svg.append(text(CX, 158, "UNIVERSE", 66, INK, "400", "middle", DISPLAY, 10))
-    svg.append(text(CX, 214, "five card hands", 30, GREY, "400", "middle"))
+    svg.append(text(CX, 214, "seven card hands" if seven else "five card hands",
+                    30, GREY, "400", "middle"))
+    if seven:
+        svg.append(text(CX, 252, "the best five of seven, ranked by how rarely seven cards hold it",
+                        22, GREY, "400", "middle"))
 
     # one rule per distinct probability: every hand sits on its own line, in
     # order, and the two that are exactly tied share one
@@ -291,7 +302,7 @@ def main(values=5):
         for n, (count, rank, example) in axes[suit]:
             x, y = place(suit, n)
             up = n == head
-            odds = total / count
+            odds = total / kept[(n, suit)]
             txt = f"1 in {odds:,.1f}" if odds < 100 else f"1 in {round(odds):,}"
             svg.append(glyph(x, y, GROUPS[n], r=33 if up else 26,
                              run=marks_runs and n == "straight"))
@@ -321,7 +332,7 @@ def main(values=5):
         svg.append(text(ax, ay + (148 if top else 126), label,
                         36 if top else 29, violet, "600", "middle", SANS, 2))
         svg.append(text(ax, ay + (182 if top else 156),
-                        f"1 in {round(total/count):,}   \u00b7   #{rank}", 23, GREY))
+                        f"1 in {round(total/kept[(n, 'perfect')]):,}   \u00b7   #{rank}", 23, GREY))
         svg.append(hand(ax, ay + (214 if top else 184), example, table,
                         BIG if top else CARD_W))
 
@@ -330,8 +341,15 @@ def main(values=5):
         x, y = place(suit, axes[suit][-1][0])
         svg.append(text(x, y + 268, label, 34, LINE, "600", "middle", SANS, 4))
 
+    if seven:
+        never = ", ".join(PREFIX[r["suit"]] + NAMES[r["numbers"]] for r in data["impossible"])
+        svg.append(text(CX, H - 70, f"never kept: {never} -- seven cards always hold something better",
+                        24, GREY, "400", "middle"))
+        svg.append(text(CX, H - 36, f"sampled from {total:,} deals", 20, LINE, "400", "middle"))
+
     svg.append('</svg>')
-    name = "universe-pyramid.svg" if values == 5 else f"universe-pyramid-{values}.svg"
+    name = ("universe-pyramid-seven.svg" if seven
+            else "universe-pyramid.svg" if values == 5 else f"universe-pyramid-{values}.svg")
     out = HERE / "out" / name
     out.parent.mkdir(exist_ok=True)
     out.write_text("\n".join(svg))
@@ -343,4 +361,7 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--values", type=int, default=5)
-    main(ap.parse_args().values)
+    ap.add_argument("--seven", action="store_true",
+                    help="best five of seven, from hands7.json")
+    args = ap.parse_args()
+    main(args.values, args.seven)
