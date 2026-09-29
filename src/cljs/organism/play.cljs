@@ -43,12 +43,13 @@
 (def possible-mutations
   {:COMMUNE "elements are are considered fed and mobile for movement if they are adjacent to at least two other fed elements"
    :PERSIST "elements are not lost to integrity unless the player has no living organisms remaining"
-   :RAIN "the top two sides rain an increasing amount of neutral elements down upon your organisms"})
+   :RAIN "the top two sides rain an increasing amount of neutral elements down upon your organisms"
+   :FLOW "all your organisms choose their action first, then act together one action at a time — organisms that touch act as one, organisms that part act as two"})
 
 
    ;; :BOOST "elements are mobile if they are adjacent to at least one other fed element"
-   ;; :EXTRACT "the capturing element takes the food from captured element"
-   ;; :ABSORB "any element lost to integrity that captured another element is added to that organism in place of the captured element"
+   ;; :EXTRACT "the disrupting element takes the food from the disrupted element"
+   ;; :ABSORB "any element lost to integrity that disrupted another element is added to that organism in place of the disrupted element"
    ;; :SKIP "start with 5 elements instead of 3"
 
 (defn display-mutation
@@ -1503,7 +1504,12 @@
 
 (defn choose-organism-highlights
   [game board turn choices]
-  (let [game (game/find-organisms game) ;; find organisms here to avoid finding for each introduction
+  (let [;; The ids the choices are keyed by live in the chosen states. Finding
+        ;; organisms afresh here would renumber them — and under FLOW they are
+        ;; regrouped mid-turn, so the numbering would not match the choices.
+        game (if-let [chosen (:state (first (vals choices)))]
+               (assoc game :state chosen)
+               (game/find-organisms game))
         player (game/current-player game)
         organisms (game/player-organisms game player)
         available (keys choices)
@@ -1824,16 +1830,20 @@
 
    - Click element halo → execute the action (popup only for grow's
      element-type sub-choice)
-   - Click food halo → execute circulate from that element"
-  [game board turn choices]
+   - Click food halo → execute circulate from that element
+
+   `action-type` is the declared type the halos are for; FLOW passes it per
+   organism, with `choices` narrowed to that organism's."
+  ([game board turn choices]
+   (choose-action-highlights game board turn choices
+                             (:choice (game/get-organism-turn game))))
+  ([game board turn choices action-type]
   (let [player (game/current-player game)
         color (get-in board [:player-colors player])
         food-color (-> board :colors first last)
         element-radius (* (:radius board) 1)
         locations (:locations board)
         radius (* (:radius board) highlight-factor)
-        organism-turns (get-in game [:state :player-turn :organism-turns])
-        action-type (get-in organism-turns [(dec (count organism-turns)) :choice])
         ;; Action type's flow (move-from / eat-to / grow-element)
         action-game-state (get-in choices [action-type :state])
         action-game (when action-game-state (assoc game :state action-game-state))
@@ -2321,7 +2331,7 @@
                  (when move-preview [move-preview])
                  (when grow-inline-popup [grow-inline-popup])
                  (when pay-overlay [pay-overlay])
-                 (when popup-render [popup-render])))))
+                 (when popup-render [popup-render]))))))
 
 (defn choose-space-highlights
   [game board turn choices]
@@ -2495,6 +2505,153 @@
            (send-choice! choices space true)))]
     (concat highlights element-highlights)))
 
+(defn flow-declare-highlights
+  "FLOW declaring: a halo on every element of every organism. Clicking one
+   declares that element's type for its organism, in any order; the halos of
+   the type an organism has declared stay lit."
+  [game board turn choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        ;; The organism ids the choices are keyed by live in the chosen states.
+        numbered (if-let [chosen (:state (first (vals choices)))]
+                   (assoc game :state chosen)
+                   game)
+        organisms (game/player-organisms numbered player)
+        declared (into {} (map (juxt :organism :choice)
+                               (get-in game [:state :player-turn :organism-turns])))
+        hover @action-hover
+        halos
+        (for [[organism elements] organisms
+              :let [named (game/organism-name elements)]
+              {:keys [space type]} elements
+              :when (contains? choices [named type])
+              :let [[x y] (get locations space)
+                    lit? (or (= type (get declared organism))
+                             (and (= organism (:organism hover)) (= type (:type hover))))]]
+          ^{:key (str "declare-" space)}
+          [:circle
+           {:cx x :cy y
+            :r (* radius 1.15)
+            :stroke (board/brighten color (if lit? 0.6 0.3))
+            :stroke-width (if lit? (* 0.28 radius) (* 0.19 radius))
+            :fill "white"
+            :fill-opacity (if lit? 0.25 0.10)
+            :style {:cursor "pointer"}
+            :on-mouse-enter (fn [_] (reset! action-hover {:organism organism :type type :x x :y y}))
+            :on-mouse-leave (fn [_] (reset! action-hover nil))
+            :on-click (fn [_]
+                        (reset! action-hover nil)
+                        (send-choice! choices [named type] true))}])
+        popup
+        (when-let [{:keys [organism type x y]} (when (:organism hover) hover)]
+          (let [n (count (filter #(= type (:type %)) (get organisms organism)))
+                label (str (clojure.string/upper-case (name type))
+                           ": " n " action" (when (not= n 1) "s"))
+                box-w 180 box-h 38
+                px (- x (/ box-w 2))
+                py (- y (* (:radius board) 2.4))]
+            ^{:key "declare-popup"}
+            [:g {:pointer-events "none"}
+             [:rect {:x px :y py :width box-w :height box-h :rx 6 :fill "#0A0E1C"
+                     :stroke (board/brighten color 0.4) :stroke-width 2 :opacity 0.95}]
+             [:text {:x (+ px (/ box-w 2)) :y (+ py 25) :text-anchor "middle" :fill "#fff"
+                     :font-family "monospace" :font-size 16 :letter-spacing "1px"}
+              label]]))]
+    (cond-> (vec halos) popup (conj popup))))
+
+(defn- flow-choice-ends
+  "Where a pending choice starts and lands, for drawing it."
+  [{:keys [type action]}]
+  (case type
+    :move [(:from action) (:to action)]
+    :grow [(first (keys (:from action))) (:to action)]
+    :eat [(:from action) (:to action)]
+    :circulate [(:from action) (:to action)]
+    nil))
+
+(defn flow-pending-ghosts
+  "This action's choices, drawn but not yet done: a dashed line from where
+   each starts to where it lands, marked with its type. Clicking one takes it
+   back."
+  [game board choices]
+  (let [color (get-in board [:player-colors (game/current-player game)])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)]
+    (for [[index {:keys [pending]}] (map-indexed vector (get-in game [:state :player-turn :organism-turns]))
+          :when (and pending
+                     (not (get-in pending [:action :pass]))
+                     (contains? choices [:cancel index]))
+          :let [[from to] (flow-choice-ends pending)
+                [x1 y1] (get locations from)
+                [x2 y2] (get locations to)
+                ghost (board/brighten color 0.5)
+                cancel (fn [_] (send-choice! choices [:cancel index] true))]
+          :when (and x1 x2)]
+      ^{:key (str "pending-" index)}
+      [:g {:style {:cursor "pointer"} :on-click cancel}
+       [:title "take this choice back"]
+       [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :stroke ghost
+               :stroke-width (* 0.15 radius) :stroke-dasharray "6 6"}]
+       [:circle {:cx x2 :cy y2 :r (* radius 1.2) :fill "white" :fill-opacity 0.15
+                 :stroke ghost :stroke-width (* 0.2 radius) :stroke-dasharray "6 4"}]
+       [:text {:x x2 :y (+ y2 6) :text-anchor "middle" :fill "#fff"
+               :font-family "monospace" :font-size 16 :pointer-events "none"}
+        (clojure.string/upper-case (name (:type pending)))]])))
+
+(defn flow-pass-highlights
+  "A declaration left with nothing possible in any complete set of choices may
+   pass: a dashed halo on its organism's elements does it."
+  [game board choices]
+  (let [player (game/current-player game)
+        color (get-in board [:player-colors player])
+        locations (:locations board)
+        radius (* (:radius board) highlight-factor)
+        turns (get-in game [:state :player-turn :organism-turns])
+        organisms (game/player-organisms game player)]
+    (for [key (keys choices)
+          :when (and (vector? key) (= :pass (first key)))
+          :let [index (second key)]
+          organism (:organisms (nth turns index))
+          {:keys [space]} (get organisms organism)
+          :let [[x y] (get locations space)]]
+      ^{:key (str "pass-" index "-" space)}
+      [:circle {:cx x :cy y :r (* radius 1.3) :fill "none"
+                :stroke (board/brighten color 0.2) :stroke-width (* 0.12 radius)
+                :stroke-dasharray "3 5" :style {:cursor "pointer"}
+                :on-click (fn [_] (send-choice! choices key true))}
+       [:title "nothing is possible here this action: pass"]])))
+
+(defn flow-choose-highlights
+  "FLOW choosing: every organism that still has a choice to make shows its
+   options at once, drawn exactly as a single organism's always are — so each
+   organism's choices are handed to choose-action-highlights narrowed to that
+   organism. Pending choices are drawn over the top."
+  [game board turn choices]
+  ;; Offers are keyed [organism-name type], the name being a space.
+  (let [offers (filter (fn [key] (and (vector? key) (vector? (first key)))) (keys choices))
+        by-organism (group-by first offers)
+        layers
+        (mapcat
+         (fn [[organism keys]]
+           (let [types (sort (remove #{:circulate} (map second keys)))
+                 circulate (get choices [organism :circulate])
+                 view (fn [type with-circulate?]
+                        (cond-> {}
+                          type (assoc type (get choices [organism type]))
+                          (and with-circulate? circulate) (assoc :circulate circulate)))]
+             (if (seq types)
+               (map-indexed
+                (fn [index type]
+                  (choose-action-highlights game board turn (view type (zero? index)) type))
+                types)
+               [(choose-action-highlights game board turn (view nil true) nil)])))
+         by-organism)]
+    (vec (concat (apply concat layers)
+                 (flow-pass-highlights game board choices)
+                 (flow-pending-ghosts game board choices)))))
+
 (defn find-highlights
   [game board colors turn choices]
   (let [highlights
@@ -2505,6 +2662,8 @@
           :choose-organism (choose-organism-highlights game board turn choices)
           :choose-action-type (choose-action-type-highlights game board turn choices)
           :choose-action (choose-action-highlights game board turn choices)
+          :flow-declare (flow-declare-highlights game board turn choices)
+          :flow-choose (flow-choose-highlights game board turn choices)
           :eat-to (choose-target-highlights game board turn choices)
           :eat-from (choose-target-highlights game board turn choices)
           :circulate-from (choose-target-highlights game board turn choices)
@@ -2683,7 +2842,8 @@
   {:pass "pass"
    :actions-complete "resolve conflicts"
    :resolve-conflicts "check integrity"
-   :check-integrity "confirm turn"})
+   :check-integrity "confirm turn"
+   :flow-commit "commit action"})
 
 (defn turn-description
   "What the advance button is about to do.
@@ -3124,6 +3284,45 @@
         (range num-actions))])
     [:div]))
 
+(defn flow-action-history
+  "Under FLOW the turn is grouped by action: each group holds a row per
+   organism, the choices that resolved together. Committed
+   choices show as done, this action's pending ones dimmed, the rest as the
+   type still to come."
+  [board-colors turn choices color game]
+  (let [declarations (vec (get-in game [:state :player-turn :organism-turns]))
+        rows (apply max 0 (map :num-actions declarations))
+        cell (fn [{:keys [choice num-actions actions pending]} row]
+               (let [done (get actions row)
+                     now? (= row (count actions))
+                     shown (or done (when now? pending))
+                     faint (if done 1 0.55)]
+                 (cond
+                   (or (nil? choice) (>= row num-actions)) nil
+                   (get-in shown [:action :pass])
+                   [:div {:style {:opacity faint}} [future-control color "pass"]]
+                   shown
+                   [:div {:style {:opacity faint}}
+                    [past-action-control board-colors turn choices color choice shown row]]
+                   :else
+                   [:div {:style {:margin "20px 0px" :opacity (if now? 1 0.6)}}
+                    [future-control color (name choice)]])))]
+    (when (seq declarations)
+      [:div
+       (for [row (range rows)]
+         ^{:key row}
+         [:div {:style {:margin "0 0 10px 0" :padding "0 0 0 10px"
+                        :border-left (str "3px solid " color)}}
+          [:div {:style {:color color :font-family font-choice :font-size "0.75em"
+                         :letter-spacing "3px" :opacity 0.7}}
+           (str "ACTION " (inc row))]
+          (keep-indexed
+           (fn [index declaration]
+             (when-let [shown (cell declaration row)]
+               ^{:key index}
+               [:div shown]))
+           declarations)])])))
+
 (defn undo-control
   "Clear, undo, and whatever the turn is waiting on — a fixed block.
 
@@ -3172,12 +3371,7 @@
         (and (= turn :choose-action) (contains? choices :pass))
         [:button {:style (pill 100) :title "pass this action"
                   :on-click (fn [_]
-                              (send-state!
-                               (-> {:state state}
-                                   (game/choose-action :circulate)
-                                   (game/pass-action)
-                                   :state)
-                               true))}
+                              (send-state! (get-in choices [:pass :state]) true))}
          "pass"]
 
         waiting
@@ -3291,12 +3485,15 @@
                               (send-introduction! choices @introduction))
                             (swap! introduction assoc :chosen-element type)))
                         :choose-action-type
-                        (send-choice! choices type true)))))))))]
+                        (send-choice! choices type true)
+                        nil))))))))]
 
         [:br]
 
-        (when-not (= turn :choose-organism)
-          [action-controls board-colors turn choices current-color organism-turn])
+        (if (game/flow? game)
+          [flow-action-history board-colors turn choices current-color game]
+          (when-not (= turn :choose-organism)
+            [action-controls board-colors turn choices current-color organism-turn]))
 
         (if-not (-> game :state :winner)
           [undo-control turn choices (:state game)])]])))
@@ -3535,9 +3732,9 @@
        {:title "click an empty field to join the game\nor modify to add other players"}
        "players joined "]
       [:span
-       {:title "how many captures each player is required to win"
+       {:title "how many elements each player must disrupt to win"
         :style {:font-size "0.8em"}}
-       " (capture limit)"]]
+       " (elements to disrupt)"]]
      (map
       (fn [index color player captures]
         ^{:key index}
@@ -3786,7 +3983,7 @@
   (string/join "\n\n"
     ["Every game has a unique key. A game will always be in one of three states: OPEN / ACTIVE / COMPLETE."
      "From this page you can choose the number of rings and number of players, as well as the number of organisms required for victory."
-     "You can also choose which other players will be in the game, as well as their personal capture limit required for victory (this defaults to 5)."
+     "You can also choose which other players will be in the game, as well as how many elements each of them must disrupt to win (this defaults to 5)."
      "If you want to leave some player spots open for others to join, just leave them blank. It will show up in everyone's player page under OPEN."
      "To join an open game, simply click on the empty player slot and it will fill in your player name."
      "Once all players have joined and you feel good about the game, hit the CREATE button to begin!"]))
@@ -3923,7 +4120,11 @@
       ;; The box holds that many; a turn somehow longer scrolls inside it rather
       ;; than pushing the rest of the column down the page.
       [:div {:style {:height "300px" :overflow-y "auto"}}
-       (when (and current-player (not= turn :choose-organism))
+       (cond
+         (not current-player) nil
+         (game/flow? game)
+         [flow-action-history board-colors turn choices current-color game]
+         (not= turn :choose-organism)
          [action-controls board-colors turn choices current-color organism-turn])]
       ;; Clear and undo, anchored here: the score below them never changes
       ;; height, so neither does their position. The slot is kept even when the

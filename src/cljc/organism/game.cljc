@@ -426,6 +426,50 @@
   [game mutation]
   (get-in game [:mutations mutation]))
 
+;; FLOW transposes a player's turn. Every organism declares its type before
+;; anything happens, and then the turn proceeds one action at a time for all of
+;; them at once: each organism with actions left makes its choice, every choice
+;; judged against the board as the action began, and only when the last is made
+;; does the action commit — all choices together, in a merge whose outcome
+;; cannot depend on the order they were clicked in. Between actions the board
+;; is regrouped: what touches is one organism, what has parted is two. The
+;; rules are written out in docs/flow-rules.md.
+;;
+;; A FLOW turn keeps its declarations in :organism-turns, one per organism:
+;;
+;;   {:organism   id the organism had when it declared
+;;    :organisms  #{ids} the organisms its elements belong to now
+;;    :choice     its declared type
+;;    :num-actions
+;;    :actions    [committed choices, one per action]
+;;    :pending    this action's choice, until the action commits}
+;;
+;; A choice is {:organism id :type t :action {fields}}. It belongs to the
+;; organism it was made in; which declaration it answers is settled by matching.
+(defn flow?
+  [game]
+  (some? (find-mutation game :FLOW)))
+
+(declare complete-action?)
+
+(defn flow-building-index
+  "The declaration whose choice is still being filled in, if any."
+  [organism-turns]
+  (some
+   (fn [[index {:keys [pending]}]]
+     (when (and pending (not (complete-action? pending)))
+       index))
+   (map-indexed vector organism-turns)))
+
+(defn organism-turn-index
+  "Which organism turn the current choices belong to: the last one, or under
+   FLOW the declaration whose choice is being built (-1 when none is)."
+  [game]
+  (let [turns (vec (get-in game [:state :player-turn :organism-turns]))]
+    (if (flow? game)
+      (or (flow-building-index turns) -1)
+      (dec (count turns)))))
+
 (defn adjacent-to
   [game space]
   (get-in game [:adjacencies space]))
@@ -802,12 +846,12 @@
 
 (defn update-organism-turn
   [game f]
-  (update-in
-   game
-   [:state :player-turn :organism-turns]
-   (fn [turns]
-     (let [end (-> turns count dec)]
-       (update (vec turns) end f)))))
+  (let [index (organism-turn-index game)]
+    (update-in
+     game
+     [:state :player-turn :organism-turns]
+     (fn [turns]
+       (update (vec turns) index f)))))
 
 (defn player-organisms
   [game player]
@@ -900,8 +944,10 @@
   (update-organism-turn
    game
    (fn [organism-turn]
-     (let [end (-> organism-turn :actions count dec)]
-       (update-in organism-turn [:actions end] f)))))
+     (if (flow? game)
+       (update organism-turn :pending f)
+       (let [end (-> organism-turn :actions count dec)]
+         (update-in organism-turn [:actions end] f))))))
 
 (defn pass-action
   [game]
@@ -922,8 +968,10 @@
 
 (defn get-organism-turn
   [game]
-  (let [organism-turns (get-in game [:state :player-turn :organism-turns])]
-    (last organism-turns)))
+  (let [organism-turns (vec (get-in game [:state :player-turn :organism-turns]))
+        index (organism-turn-index game)]
+    (when (>= index 0)
+      (nth organism-turns index))))
 
 (defn get-action-type
   [game]
@@ -932,13 +980,18 @@
 
 (defn get-current-action
   [game]
-  (let [organism-turn (get-organism-turn game)
-        actions (get organism-turn :actions)]
-    (last actions)))
+  (let [organism-turn (get-organism-turn game)]
+    (if (flow? game)
+      (:pending organism-turn)
+      (last (get organism-turn :actions)))))
 
 (defn current-organism
+  "The organism acting now. Under FLOW that is where the choice being built
+   was made, which need not be where its declaration was."
   [game]
-  (:organism (get-organism-turn game)))
+  (if (flow? game)
+    (:organism (get-current-action game))
+    (:organism (get-organism-turn game))))
 
 (defn current-organism-elements
   [game]
@@ -1223,6 +1276,355 @@
          (-> game :state :elements vals))]
     game))
 
+;; FLOW ----------------------------
+
+(declare flow-regroup)
+
+(defn flow-underway?
+  "Whether a FLOW turn has begun and not yet been resolved. Organisms are
+   regrouped between its actions, so a split can show more living organisms
+   mid-turn than the turn will end with once conflicts are settled; victory
+   waits."
+  [game]
+  (let [{:keys [organism-turns advance]} (get-player-turn game)]
+    (boolean
+     (and (flow? game)
+          (seq organism-turns)
+          (nil? advance)))))
+
+(defn organism-name
+  "An organism named by its first space. Organism ids are numbered as the
+   elements happen to be walked, which differs between the server and the
+   browser — and the browser replays a bot's turn from the choice keys the
+   server sent. A space is the same everywhere, so FLOW keys by this."
+  [elements]
+  (first (sort (map :space elements))))
+
+(defn flow-declared?
+  [organism-turns]
+  (boolean (and (seq organism-turns) (every? :choice organism-turns))))
+
+(defn flow-declare
+  "Declare `type` for `organism`. Organisms declare in any order and may change
+   their minds until the last has declared; then each is given one action per
+   element of its type."
+  [game organism type]
+  (let [player (current-player game)
+        organisms (player-organisms game player)
+        turns (get-in game [:state :player-turn :organism-turns])
+        turns (if (seq turns)
+                turns
+                (mapv (fn [id]
+                        {:organism id :organisms #{id} :choice nil
+                         :num-actions -1 :actions []})
+                      (sort-by (comp organism-name organisms) (keys organisms))))
+        turns (mapv (fn [turn]
+                      (if (= organism (:organism turn))
+                        (assoc turn :choice type)
+                        turn))
+                    turns)
+        turns (if (flow-declared? turns)
+                (mapv (fn [{:keys [organism choice] :as turn}]
+                        (assoc turn :num-actions
+                               (count (filter #(= choice (:type %))
+                                              (get organisms organism)))))
+                      turns)
+                turns)]
+    (assoc-in game [:state :player-turn :organism-turns] turns)))
+
+(defn flow-action-index
+  "How many actions have committed this turn."
+  [organism-turns]
+  (apply max 0 (map (comp count :actions) organism-turns)))
+
+(defn flow-active
+  "The declarations with a choice to make in the action now under way."
+  [organism-turns]
+  (let [index (flow-action-index organism-turns)]
+    (keep-indexed
+     (fn [i {:keys [num-actions]}]
+       (when (> num-actions index) i))
+     organism-turns)))
+
+(defn flow-building?
+  [game]
+  (boolean
+   (and (flow? game)
+        (flow-building-index (get-in game [:state :player-turn :organism-turns])))))
+
+(defn flow-choices
+  "This action's choices so far, in declaration order."
+  [organism-turns]
+  (keep :pending organism-turns))
+
+(defn flow-compatible?
+  "Whether a choice may answer a declaration: made in an organism the
+   declaration now acts through, and of its type or a circulate. A pass is made
+   for one declaration and answers only that one."
+  [turn index choice]
+  (if (contains? choice :for)
+    (= index (:for choice))
+    (and (contains? (:organisms turn) (:organism choice))
+         (or (= :circulate (:type choice))
+             (= (:choice turn) (:type choice))))))
+
+(defn flow-match
+  "Give each choice its own declaration among `active`, or nil if they cannot
+   all be answered at once. Small enough to search outright."
+  [organism-turns active choices]
+  (letfn [(assign [choices free]
+            (if (empty? choices)
+              []
+              (some
+               (fn [index]
+                 (when (flow-compatible? (nth organism-turns index) index (first choices))
+                   (when-let [others (assign (rest choices) (disj free index))]
+                     (into [index] others))))
+               (sort free))))]
+    (assign choices (set active))))
+
+(defn flow-place
+  "Set this action's choices, matched to declarations, or nil if they cannot
+   all be answered."
+  [game choices]
+  (let [turns (vec (get-in game [:state :player-turn :organism-turns]))]
+    (when-let [assigned (flow-match turns (flow-active turns) choices)]
+      (assoc-in
+       game [:state :player-turn :organism-turns]
+       (reduce
+        (fn [turns [index choice]]
+          (assoc-in turns [index :pending] choice))
+        (mapv #(dissoc % :pending) turns)
+        (map vector assigned choices))))))
+
+(defn flow-begin
+  "Start a choice of `type` in `organism`, or nil if no declaration is left to
+   answer it."
+  [game organism type]
+  (let [turns (get-in game [:state :player-turn :organism-turns])]
+    (flow-place game (conj (vec (flow-choices turns))
+                           {:organism organism :type type :action {}}))))
+
+(defn flow-cancel
+  "Take back the choice answering declaration `index`."
+  [game index]
+  (let [turns (vec (get-in game [:state :player-turn :organism-turns]))]
+    (flow-place game (flow-choices (update turns index dissoc :pending)))))
+
+(defn flow-pass
+  "Declaration `index` makes no choice this action."
+  [game index]
+  (let [turns (get-in game [:state :player-turn :organism-turns])]
+    (flow-place game (conj (vec (flow-choices turns))
+                           {:type :circulate :action {:pass true} :for index}))))
+
+(defn flow-strip
+  "The action with no choices made yet."
+  [game]
+  (update-in game [:state :player-turn :organism-turns]
+             (partial mapv #(dissoc % :pending))))
+
+(defn circulation
+  "How much food a circulate sends: half, rounded up."
+  [game space]
+  (long (Math/ceil (/ (or (:food (get-element game space)) 0) 2.0))))
+
+(defn flow-claims
+  "What the choices already made in this action have claimed, so that no two
+   choices take the same thing. The choice being built claims nothing yet.
+
+     :destinations  empty spaces something will move or grow into
+     :fed-from      spaces whose free food an eater will take
+     :moved         elements that will move
+     :drawn         food each element will give up, {space amount}"
+  [game]
+  (let [turns (get-in game [:state :player-turn :organism-turns])
+        made (filter complete-action? (flow-choices turns))]
+    (reduce
+     (fn [claims {:keys [type action]}]
+       (if (:pass action)
+         claims
+         (case type
+           :move (-> claims
+                     (update :destinations conj (:to action))
+                     (update :moved conj (:from action)))
+           :grow (-> claims
+                     (update :destinations conj (:to action))
+                     (update :drawn #(merge-with + % (:from action))))
+           :eat (if (pos? (free-food-present game (:from action)))
+                  (update claims :fed-from conj (:from action))
+                  claims)
+           :circulate (update claims :drawn
+                              #(merge-with + % {(:from action)
+                                                (circulation game (:from action))})))))
+     {:destinations #{} :fed-from #{} :moved #{} :drawn {}}
+     made)))
+
+(defn flow-taken-spaces
+  "Spaces no further choice may move, grow or eat into: claimed destinations,
+   and spaces whose free food is already spoken for."
+  [game claims]
+  (into (:destinations claims)
+        (filter #(pos? (free-food-present game %)) (:fed-from claims))))
+
+(defn flow-spare-food
+  "What an element has left to give once this action's choices have drawn on it."
+  [claims element]
+  (- (:food element) (get-in claims [:drawn (:space element)] 0)))
+
+(defn flow-commit
+  "Resolve the action: every choice at once, from the board as it began.
+
+   Each step is a sum over choices, so the order they were clicked in cannot
+   change the outcome:
+
+     debit   growth payments and circulation leave their elements
+     move    moved elements are lifted together and set down together,
+             carrying their food and gathering free food where they land
+     grow    grown elements appear, with any free food on their space
+     credit  eaten food and circulated food arrive — at the element, wherever
+             it now stands
+
+   Then every declaration records its choice (a pass if it had none to make),
+   and the board is regrouped."
+  [game]
+  (let [player (current-player game)
+        board game
+        turns (vec (get-in game [:state :player-turn :organism-turns]))
+        active (set (flow-active turns))
+        live (remove #(get-in % [:action :pass])
+                     (keep (fn [index] (get-in turns [index :pending])) (sort active)))
+        of-type (fn [type] (filter #(= type (:type %)) live))
+        extract? (find-mutation game :EXTRACT)
+
+        game
+        (reduce
+         (fn [game {:keys [type action]}]
+           (case type
+             :grow (reduce (fn [game [space food]] (adjust-food game space (- food)))
+                           game (:from action))
+             :circulate (adjust-food game (:from action)
+                                     (- (circulation board (:from action))))
+             game))
+         game live)
+
+        moved (into {} (map (fn [{{:keys [from to]} :action}] [from to]) (of-type :move)))
+        lifted (mapv (fn [[from to]] [to (get-element game from)]) moved)
+        game (reduce remove-element game (keys moved))
+        game
+        (reduce
+         (fn [game [to element]]
+           (let [game (assoc-in game [:state :elements to] (assoc element :space to))]
+             (if extract?
+               game
+               (let [[game food] (claim-free-food game to)]
+                 (adjust-food game to food)))))
+         game lifted)
+
+        game
+        (reduce
+         (fn [game {:keys [organism action]}]
+           (let [[game food] (if extract? [game 0] (claim-free-food game (:to action)))]
+             (add-element game player organism (:element action) (:to action) food)))
+         game (of-type :grow))
+
+        now (fn [space] (get moved space space))
+        credited
+        (reduce
+         (fn [game {:keys [type action]}]
+           (case type
+             :eat (let [amount (inc (free-food-present game (:from action)))]
+                    (-> game
+                        (remove-free-food (:from action))
+                        (adjust-food (now (:to action)) amount)))
+             :circulate (adjust-food game (now (:to action))
+                                     (circulation board (:from action)))
+             game))
+         game live)
+        game (reduce cap-food credited
+                     (distinct (keep (fn [{:keys [type action]}]
+                                       (when (#{:eat :circulate} type) (now (:to action))))
+                                     live)))
+
+        recorded
+        (vec
+         (map-indexed
+          (fn [index turn]
+            (if (active index)
+              (-> turn
+                  (update :actions (fnil conj [])
+                          (or (:pending turn) {:type :circulate :action {:pass true}}))
+                  (dissoc :pending))
+              (dissoc turn :pending)))
+          turns))]
+    (flow-regroup
+     (assoc-in game [:state :player-turn :organism-turns] recorded))))
+
+(defn flow-regroup
+  "Settle what counts as an organism now, between actions of a FLOW turn.
+
+   The current player's elements are grouped by what touches what. A group
+   keeps its organism id when it is the only group holding that id and holds no
+   other; anything that merged or split gets a fresh one, above every id in
+   use, handed out in space order so the result depends on the board alone.
+   Each declaration then follows its elements: it acts through every organism
+   they now belong to, and two declarations whose organisms joined act through
+   the same one."
+  [game]
+  (let [player (current-player game)
+        elements (get-in game [:state :elements])
+        groups
+        (loop [[space & more :as todo]
+               (sort (keep (fn [[space element]]
+                             (when (= player (:player element)) space))
+                           elements))
+               seen #{}
+               groups []]
+          (cond
+            (empty? todo) groups
+            (seen space) (recur more seen groups)
+            :else
+            (let [group (set (contiguous-elements game space))]
+              (recur more (into seen group) (conj groups group)))))
+        ids-of (fn [group] (set (map #(get-in elements [% :organism]) group)))
+        holding (frequencies (mapcat ids-of groups))
+        top (apply max -1 (keep :organism (vals elements)))
+        assigned
+        (first
+         (reduce
+          (fn [[assigned fresh] group]
+            (let [ids (ids-of group)
+                  id (first ids)]
+              (if (and (= 1 (count ids)) (= 1 (holding id)))
+                [(conj assigned [group id]) fresh]
+                [(conj assigned [group fresh]) (inc fresh)])))
+          [[] (inc top)]
+          groups))
+        lineage
+        (reduce
+         (fn [lineage [group id]]
+           (reduce
+            (fn [lineage space]
+              (update lineage (get-in elements [space :organism]) (fnil conj #{}) id))
+            lineage group))
+         {} assigned)
+        game
+        (reduce
+         (fn [game [group id]]
+           (reduce #(set-organism %1 %2 id) game group))
+         game assigned)]
+    (update-in
+     game
+     [:state :player-turn :organism-turns]
+     (fn [turns]
+       (mapv
+        (fn [{:keys [organism organisms] :as turn}]
+          (let [now (set (mapcat lineage (or organisms [organism])))]
+            (assoc turn
+                   :organisms now
+                   :organism (if (= 1 (count now)) (first now) organism))))
+        turns)))))
+
 (defn group-organisms
   "Elements grouped by organism id: {organism-id [element ...]}.
 
@@ -1406,8 +1808,10 @@
 
 (defn complete-action
   [game]
-  (let [action (get-current-action game)]
-    (perform-action game action)))
+  ;; Under FLOW nothing is performed until the action commits.
+  (if (flow? game)
+    game
+    (perform-action game (get-current-action game))))
 
 (defn perform-actions
   [game actions]

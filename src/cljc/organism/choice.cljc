@@ -150,9 +150,10 @@
             threshold does, and circulating food away relieves it.
      grow   somewhere to grow, and enough food anywhere in the organism.
      move   something mobile with somewhere to go, and any food at all."
-  [game type]
-  (let [elements (game/current-organism-elements game)
-        present (group-by :type elements)
+  ([game type]
+   (declarable? game (game/current-organism-elements game) type))
+  ([game elements type]
+  (let [present (group-by :type elements)
         held (reduce + 0 (map :food elements))]
     (and
      (seq (get present type))
@@ -170,7 +171,7 @@
                                    (and (game/mobile? game space)
                                         (seq (game/available-spaces game space))))
                                  elements)))
-       false))))
+       false)))))
 
 (defn choose-action-type-choices
   "Which action an organism declares for its turn.
@@ -351,14 +352,311 @@
    [:circulate :from] circulate-from-choices
    [:circulate :to] circulate-to-choices})
 
+;; FLOW CHOICES --------------------
+;;
+;; The same fields as any action, less whatever this action's other choices
+;; have claimed. Everything else is read from the board as the action began,
+;; which under FLOW is simply the board: nothing moves until the commit.
+
+(defn- except-spaces [choices spaces] (apply dissoc choices spaces))
+
+(defn flow-eat-sources
+  [game claims eater]
+  (let [taken (game/flow-taken-spaces game claims)]
+    (remove (fn [space]
+              (and (pos? (game/free-food-present game space)) (taken space)))
+            (game/open-spaces game eater))))
+
+(defn- flow-eat-to
+  [game elements extended]
+  (let [claims (game/flow-claims game)]
+    (select-keys (eat-to-choices game elements extended)
+                 (filter #(seq (flow-eat-sources game claims %))
+                         (map :space elements)))))
+
+(defn- flow-eat-from
+  [game _ _]
+  (let [options (flow-eat-sources game (game/flow-claims game)
+                                  (game/get-action-field game :to))
+        any-food? (some #(pos? (game/free-food-present game %)) options)]
+    (partial-map
+     (comp game/complete-action (partial game/choose-action-field game :from))
+     (if any-food? options (take 1 options)))))
+
+(defn- with-spare-food
+  [game elements]
+  (let [claims (game/flow-claims game)]
+    (map #(assoc % :food (game/flow-spare-food claims %)) elements)))
+
+(defn- flow-grow-to
+  [game elements extended]
+  (except-spaces (grow-to-choices game elements extended)
+                 (game/flow-taken-spaces game (game/flow-claims game))))
+
+(defn- flow-move-from
+  [game elements extended]
+  (except-spaces (move-from-choices game elements extended)
+                 (:moved (game/flow-claims game))))
+
+(defn- flow-move-to
+  [game elements extended]
+  (except-spaces (move-to-choices game elements extended)
+                 (game/flow-taken-spaces game (game/flow-claims game))))
+
+(defn- flow-circulate-from
+  [game elements extended]
+  (let [claims (game/flow-claims game)]
+    (select-keys (circulate-from-choices game elements extended)
+                 (keep (fn [element]
+                         (when (<= (game/circulation game (:space element))
+                                   (game/flow-spare-food claims element))
+                           (:space element)))
+                       elements))))
+
+(def flow-action-choices
+  {[:eat :to] flow-eat-to
+   [:eat :from] flow-eat-from
+   [:grow :element] (fn [game elements extended]
+                      (grow-element-choices game (with-spare-food game elements) extended))
+   [:grow :from] (fn [game elements extended]
+                   (grow-from-choices game (with-spare-food game elements) extended))
+   [:grow :to] flow-grow-to
+   [:move :from] flow-move-from
+   [:move :to] flow-move-to
+   [:circulate :from] flow-circulate-from
+   [:circulate :to] circulate-to-choices})
+
+;; FIND STATE ---------------------
+
+(declare flow-completes?)
+
+(defn action-field-state
+  "The next field of the action underway, or a pass when it has no options."
+  [game]
+  (let [player (game/current-player game)
+        organism (game/current-organism game)
+        elements (game/current-organism-elements game)
+        extended-elements (get-in (game/extended-organisms game) [player organism])
+        {:keys [type action]} (game/get-current-action game)
+        fields (get game/action-fields type)
+        fields-present (-> action keys set)
+        next-field (first
+                    (filter
+                     (fn [field]
+                       (not (fields-present field)))
+                     fields))
+        next-choices (get (if (game/flow? game) flow-action-choices action-choices)
+                          [type next-field])
+        choices (next-choices game elements extended-elements)
+        ;; Under FLOW only offer what can be finished — a mover with nowhere to
+        ;; go is not a choice. Every way of paying for a growth finishes alike.
+        choices (if (and (game/flow? game) (not= [:grow :from] [type next-field]))
+                  (into {} (filter (comp flow-completes? val) choices))
+                  choices)
+        action-key (keyword (str (name type) "-" (name next-field)))]
+    (cond
+      (seq choices) [action-key choices]
+      ;; Offers are only made for choices that can be finished, so this is a
+      ;; dead end that should not arise; back out rather than pass.
+      (game/flow? game) [:flow-cancel
+                         {:cancel (game/flow-cancel
+                                   game (game/organism-turn-index game))}]
+      :else [:pass {:pass (game/pass-action game)}])))
+
+(defn next-action-state
+  "An organism about to take its next action: the action or circulate, or a
+   pass when neither is possible."
+  [game choice]
+  ;; Passing is what is left when nothing else can be done, not a move to be
+  ;; preferred over doing something — unless the rule is off, which is the
+  ;; original game, where it was always on offer.
+  (let [choices (choose-action-choices game choice)
+        pass {:pass
+              (-> game
+                  (game/choose-action :circulate)
+                  game/pass-action)}]
+    (cond
+      (empty? choices) [:pass pass]
+      game/*require-useful-action* [:choose-action choices]
+      :else [:choose-action (merge choices pass)])))
+
+(declare action-field-state)
+
+(defn- flow-completes?
+  "Whether a choice being built can be finished. Which food pays for a growth
+   never decides whether it can happen, so one way of paying is enough to try."
+  [game]
+  (if-not (game/flow-building? game)
+    true
+    (let [[phase choices] (action-field-state game)]
+      (and (not= :flow-cancel phase)
+           (boolean
+            (some flow-completes?
+                  (if (= :grow-from phase) (take 1 (vals choices)) (vals choices))))))))
+
+(defn- flow-types-for
+  "What may be chosen in an organism: circulate, and the type of every
+   declaration acting through it."
+  [turns active organism]
+  (conj (set (keep (fn [index]
+                     (let [turn (nth turns index)]
+                       (when (contains? (:organisms turn) organism)
+                         (:choice turn))))
+                   active))
+        :circulate))
+
+(defn flow-offers
+  "Every choice that could be started now and finished: {[organism type] game}."
+  [game]
+  (let [turns (vec (get-in game [:state :player-turn :organism-turns]))
+        active (game/flow-active turns)
+        organisms (game/player-organisms game (game/current-player game))]
+    (into
+     {}
+     (for [organism (distinct (mapcat #(:organisms (nth turns %)) active))
+           type (sort (flow-types-for turns active organism))
+           :let [begun (game/flow-begin game organism type)]
+           :when (and begun (flow-completes? begun))]
+       [[(game/organism-name (get organisms organism)) type] begun]))))
+
+(defn flow-stuck?
+  "Whether declaration `index` has nothing it could do this action, whatever
+   else is chosen: nothing of its type and no circulate in any organism it acts
+   through. It passes without being asked."
+  [game index]
+  (let [bare (game/flow-strip game)
+        turn (get-in bare [:state :player-turn :organism-turns index])]
+    (not-any?
+     (fn [[organism type]]
+       (some-> (game/flow-begin bare organism type) flow-completes?))
+     (for [organism (:organisms turn)
+           type [(:choice turn) :circulate]]
+       [organism type]))))
+
+(defn flow-ready?
+  "Whether every declaration that can choose has chosen."
+  [game]
+  (let [turns (vec (get-in game [:state :player-turn :organism-turns]))]
+    (every?
+     (fn [index]
+       (let [pending (get-in turns [index :pending])]
+         (if pending
+           (game/complete-action? pending)
+           (flow-stuck? game index))))
+     (game/flow-active turns))))
+
+(defn- named
+  "The id of the current player's organism with this name."
+  [game name]
+  (some (fn [[id elements]] (when (= name (game/organism-name elements)) id))
+        (game/player-organisms game (game/current-player game))))
+
+(defn- flow-compatible-offer?
+  [turn organism type]
+  (and (contains? (:organisms turn) organism)
+       (or (= :circulate type) (= (:choice turn) type))))
+
+(def ^:private plan-budget 2000)
+
+(defn- flow-plan-exists?
+  "Whether any whole set of choices could be made this action, from nothing
+   chosen. Searched declaration by declaration — every plan answers the first
+   unanswered one somehow — and given up as no after `plan-budget` positions,
+   so a board too large to settle never leaves a player unable to go on."
+  [game]
+  (let [budget (atom plan-budget)]
+    (letfn [(leaves [game]
+              (if-not (game/flow-building? game)
+                [game]
+                (let [[phase choices] (action-field-state game)]
+                  (when-not (= :flow-cancel phase)
+                    (mapcat leaves (vals choices))))))
+            (search [game]
+              (and (pos? (swap! budget dec))
+                   (or (flow-ready? game)
+                       (let [turns (vec (get-in game [:state :player-turn :organism-turns]))
+                             index (first (remove
+                                           #(or (get-in turns [% :pending]) (flow-stuck? game %))
+                                           (game/flow-active turns)))
+                             turn (when index (nth turns index))]
+                         (some
+                          (fn [[[organism type] begun]]
+                            (when (and turn (flow-compatible-offer?
+                                             turn (named game organism) type))
+                              (some search (leaves begun))))
+                          (flow-offers game))))))]
+      (boolean (search (game/flow-strip game))))))
+
+(defn flow-state
+  "A FLOW turn, once introductions are done. See game/flow? and
+   docs/flow-rules.md.
+
+     :flow-declare  click an element of each organism, in any order, to declare
+                    that element's type — keyed [organism-name type]
+     :flow-choose   make a choice in any organism — keyed [organism-name type],
+                    the name being its first space (game/organism-name) — or
+                    take one back, keyed [:cancel index]; a declaration left
+                    with nothing possible in any complete plan may pass,
+                    keyed [:pass index]
+     :flow-commit   every choice is made: the action resolves"
+  [game]
+  (let [player (game/current-player game)
+        turns (vec (get-in game [:state :player-turn :organism-turns]))]
+    (cond
+      (not (game/flow-declared? turns))
+      (let [game (if (empty? turns) (game/find-organisms game) game)
+            organisms (game/player-organisms game player)]
+        [:flow-declare
+         (into
+          {}
+          (for [[organism elements] organisms
+                :let [useful (when game/*require-useful-action*
+                               (seq (filter (partial declarable? game elements)
+                                            element-types)))]
+                type (or useful element-types)]
+            [[(game/organism-name elements) type]
+             (game/flow-declare game organism type)]))])
+
+      (empty? (game/flow-active turns))
+      [:actions-complete {:advance (game/resolve-conflicts game player)}]
+
+      (game/flow-building? game)
+      (action-field-state game)
+
+      (flow-ready? game)
+      [:flow-commit {:advance (game/flow-commit game)}]
+
+      :else
+      (let [offers (flow-offers game)
+            cancels (into {}
+                          (keep-indexed
+                           (fn [index {:keys [pending]}]
+                             (when pending
+                               [[:cancel index] (game/flow-cancel game index)]))
+                           turns))
+            active (game/flow-active turns)
+            blocked (filter
+                     (fn [index]
+                       (let [turn (nth turns index)]
+                         (and (nil? (:pending turn))
+                              (not (flow-stuck? game index))
+                              (not-any? (fn [[organism type]]
+                                          (flow-compatible-offer?
+                                           turn (named game organism) type))
+                                        (keys offers)))))
+                     active)
+            passes (when (and (seq blocked) (not (flow-plan-exists? game)))
+                     (into {} (for [index blocked]
+                                [[:pass index] (game/flow-pass game index)])))]
+        [:flow-choose (merge offers cancels passes)]))))
+
 (defn find-state
   [{:keys [state] :as game}]
   (let [{:keys [elements captures player-turn]} state
         {:keys [player introduction organism-turns]} player-turn
         organisms (game/player-organisms game player)
-        all-extended (game/extended-organisms game)
-        extended (get all-extended player)
-        winner (game/victory? game)]
+        winner (when-not (game/flow-underway? game)
+                 (game/victory? game))]
 
     (cond
       (= (:advance player-turn) :resolve-conflicts)
@@ -374,6 +672,9 @@
       (let [choices (introduce-choices game)]
         [:introduce choices])
 
+      (game/flow? game)
+      (flow-state game)
+
       (empty? organism-turns)
       ;; find organisms again to avoid finding for each introduction
       (let [game (game/find-organisms game)
@@ -388,29 +689,14 @@
              (-> organisms keys first)))]))
 
       :else
-      (let [{:keys [organism choice num-actions actions] :as organism-turn} (last organism-turns)
-            elements (get organisms organism)
-            extended-elements (get extended organism)
-            types (group-by :type elements)]
-
+      (let [{:keys [choice num-actions actions]} (last organism-turns)]
         (cond
           (nil? choice) [:choose-action-type (choose-action-type-choices game)]
 
           (every? game/complete-action? actions)
           (cond
             (< (count actions) num-actions)
-            ;; Passing is what is left when nothing else can be done, not a
-            ;; move to be preferred over doing something — unless the rule is
-            ;; off, which is the original game, where it was always on offer.
-            (let [choices (choose-action-choices game choice)
-                  pass {:pass
-                        (-> game
-                            (game/choose-action :circulate)
-                            game/pass-action)}]
-              (cond
-                (empty? choices) [:pass pass]
-                game/*require-useful-action* [:choose-action choices]
-                :else [:choose-action (merge choices pass)]))
+            (next-action-state game choice)
 
             (< (count organism-turns) (count organisms))
             (let [acted (set (map :organism organism-turns))
@@ -420,21 +706,7 @@
 
             :else [:actions-complete {:advance (game/resolve-conflicts game player)}])
 
-          :else
-          (let [{:keys [type action]} (last actions)
-                fields (get game/action-fields type)
-                fields-present (-> action keys set)
-                next-field (first
-                            (filter
-                             (fn [field]
-                               (not (fields-present field)))
-                             fields))
-                next-choices (get action-choices [type next-field])
-                choices (next-choices game elements extended-elements)
-                action-key (keyword (str (name type) "-" (name next-field)))]
-            (if (empty? choices)
-              [:pass {:pass (game/pass-action game)}]
-              [action-key choices])))))))
+          :else (action-field-state game))))))
 
 (defn find-choices
   [game]

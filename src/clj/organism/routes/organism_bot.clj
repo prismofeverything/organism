@@ -141,6 +141,9 @@
   "Score a choice key for the given phase. Higher = better.
    `next-game` is the game state resulting from this choice (has current organism set)."
   [phase choice-key game player next-game]
+  (if (and (vector? choice-key) (= :cancel (first choice-key)))
+    ;; FLOW lets a choice be taken back; a bot that did so would never finish.
+    -1000
   (case phase
     :introduce
     0
@@ -320,7 +323,7 @@
       0)
 
     ;; Default: no preference
-    0))
+    0)))
 
 (defn- pick-choice
   "Given a choices map, pick the best key by heuristic score.
