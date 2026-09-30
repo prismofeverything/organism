@@ -41,7 +41,7 @@
  "food_scale": 0.94,
  "peg_below_top": 4.3,
  "food_step": 6.4,
- "food_shown": 3,
+ "food_shown": 12,
  "piece_colors": {
   "Purple": "#9C6E90",
   "Blue": "#6DA2B2",

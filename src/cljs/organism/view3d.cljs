@@ -5,15 +5,15 @@
    it on, so the 2D page never carries three.js. Everything is in millimetres,
    as the Blender scenes are (pieces/build_play_real.py): a space is about 43 mm
    across, a piece stands at 0.9 on it, food sits on the peg 4.3 mm below the
-   piece's top, 6.4 mm per food, three at most shown. The assets and those
+   piece's top, 6.4 mm per food, the whole stack shown (up to a dozen). The assets and those
    numbers come from pieces/make_web3d.py, which writes
    resources/public/organism/3d/.
 
    The board is the printed art on one disc. make_web3d.py redraws each printed
    circle exactly where the game puts that space, so a space's world position
    and its place on the texture follow from one transform. Printed circles this
-   game has no space for -- outer rings of a smaller board, notched corners --
-   are covered in the board's own base colour. Past six players, or seven
+   game has no space for -- a notched corner -- show as printed; the art is
+   never covered. Past six players, or seven
    rings, there is no printed board, and the rings are drawn in the game's
    colours instead.
 
@@ -132,15 +132,6 @@
     (set! (.-receiveShadow m) true)
     m))
 
-(defn- beam-directions
-  "Unit directions of the board's beams in the world: the second ring's spaces
-   lie one on each."
-  [{:keys [spaces]} rings]
-  (for [[[ring _] [x z]] spaces
-        :when (= ring (second rings))
-        :let [d (js/Math.hypot x z)]]
-    [(/ x d) (/ z d)]))
-
 (defn- outline
   "The board's edge, always round: the printed board's own rim for a full
    board, and for a smaller game a circle a little way past its outer ring --
@@ -184,25 +175,13 @@
 (defn- printed-board
   "The printed art on a board the size of this game's, texture placed so each
    space falls on its own printed circle."
-  [{:keys [printed mm spaces ring-count] :as geometry} rings redraw]
+  [{:keys [printed] :as geometry} _rings redraw]
   (let [group (THREE/Group.)
         shape (outline geometry)]
     (.add group (flat-shape-mesh shape
                                  (THREE/MeshStandardMaterial. #js {:map (texture (:texture printed) redraw)
                                                                    :roughness 0.85})
                                  (:board_mm printed) 0))
-    ;; the corners this game notches out of its outer ring still have printed
-    ;; circles under them on a smaller board; cover those. The full printed
-    ;; board is cut at its own corners already.
-    (when (< ring-count (:rings printed))
-      (doseq [[dx dz] (beam-directions geometry rings)
-              :let [x (* dx mm (dec ring-count)) z (* dz mm (dec ring-count))]
-              :when (not-any? (fn [[gx gz]] (< (js/Math.hypot (- gx x) (- gz z)) (* 0.3 mm)))
-                              (vals spaces))]
-        (let [c (disc (* 0.5 mm) (:base printed) 0.15)]
-          (set! (.. c -position -x) x)
-          (set! (.. c -position -z) z)
-          (.add group c))))
     (.add group (rim shape))
     group))
 
@@ -306,7 +285,7 @@
   (let [group (THREE/Group.)
         piece-scale (:piece_scale meta 0.9)
         food-scale (:food_scale meta 0.94)
-        shown (:food_shown meta 3)
+        shown (:food_shown meta 12)
         food-mat (material view food-color)
         turn (space-turn space)
         type (:type element)]
@@ -377,6 +356,12 @@
 (def ^:private grow-ms 420)
 (def ^:private flight-ms 560)
 
+(defn- food-meshes
+  "The food shown on a space's group, bottom to top."
+  [^js g]
+  (sort-by #(.. ^js % -userData -index)
+           (filter #(= "food" (.. ^js % -userData -role)) (array-seq (.-children g)))))
+
 (defn- sync-pieces!
   "Bring the pieces to `state`. Spaces the change touches get animated the way
    the transitions say -- a move slides along the board, a new piece rises in, a lost one sinks
@@ -410,9 +395,15 @@
           (when-let [^js g (old from)]
             (swap! claimed conj from to)
             (hide! (get fresh to))
-            (let [[ax az] (get spaces from) [bx bz] (get spaces to)]
+            (let [[ax az] (get spaces from) [bx bz] (get spaces to)
+                  ;; each space twists its piece its own way: turn to the new
+                  ;; space's twist on the way, the short way round, rather than
+                  ;; snapping to it on landing
+                  d (- (space-turn to) (space-turn from))
+                  twist (js/Math.atan2 (js/Math.sin d) (js/Math.cos d))]
               (animate! view move-ms
-                        (fn [e] (.set (.-position g) (+ ax (* e (- bx ax))) 0 (+ az (* e (- bz az)))))
+                        (fn [e] (.set (.-position g) (+ ax (* e (- bx ax))) 0 (+ az (* e (- bz az))))
+                          (set! (.. g -rotation -y) (* e twist)))
                         (fn [] (remove! g) (reveal! (get fresh to))))))
 
           :grow
@@ -421,6 +412,27 @@
             (remove! (old to))
             (.setScalar (.-scale g) 0.001)
             (animate! view grow-ms (fn [e] (.setScalar (.-scale g) (max 0.001 e)))))
+
+;; food made from nothing grows in from nothing, as in the gameplay video
+          (:food-up :free-food-appear)
+          (when-let [^js g (and (not (contains? @claimed space)) (get fresh space))]
+            (let [foods (food-meshes g)
+                  new (drop (max 0 (- (count foods) (:amount change 1))) foods)
+                  full (:food_scale meta 0.94)]
+              (doseq [^js m new] (.setScalar (.-scale m) 0.001))
+              (animate! view grow-ms (fn [e] (doseq [^js m new] (.setScalar (.-scale m) (max 0.001 (* full e))))))))
+
+          ;; and food used up shrinks away where it was
+          (:food-down :free-food-vanish)
+          (when-let [^js g (and (not (contains? @claimed space)) (old space))]
+            (swap! claimed conj space)
+            (hide! (get fresh space))
+            (let [foods (food-meshes g)
+                  gone (drop (max 0 (- (count foods) (:amount change 1))) foods)
+                  full (:food_scale meta 0.94)]
+              (animate! view grow-ms
+                        (fn [e] (doseq [^js m gone] (.setScalar (.-scale m) (max 0.001 (* full (- 1 e))))))
+                        (fn [] (remove! g) (reveal! (get fresh space))))))
 
           :lose
           (when-let [^js g (old space)]
@@ -436,7 +448,7 @@
           ;; stack takes it only when it lands
           (let [[ax az] (get spaces from) [bx bz] (get spaces to)
                 keep-b (old to)
-                shown-max (:food_shown meta 3)
+                shown-max (:food_shown meta 12)
                 had (:from-food-before change 1)
                 has (:to-food-after change 1)
                 amount (:amount change 1)
@@ -493,16 +505,21 @@
 (def ^:private tone-colors
   {:act "#ffe39a" :dest "#9ff6ff" :pending "#cdb8ff" :pass "#ff9d9d" :chosen "#ffc23c"})
 
-(def ^:private halo-reach 1.5)
-(def ^:private halo-opacity 0.28)
-(def ^:private halo-opacity-hover 0.4)
-
-;; And each glowing piece is a light: the board round it takes its colour.
-;; A fixed pool, dark when unused -- adding and removing lights would make
-;; three.js rebuild every material's shader each time the choices change.
+;; A piece that can be chosen stands in a spotlight from high above, in the
+;; tone's colour: lit, not washed out. Pointed at -- or once chosen -- it
+;; glows as well: light from within, a halo round it, and light cast on the
+;; board about it.
+;;
+;; The lights are fixed pools, dark when unused -- adding and removing lights
+;; would make three.js rebuild every material's shader each time the choices
+;; change.
 (def ^:private glow-lights 8)
-(def ^:private glow-light 19.0)
-(def ^:private glow-light-hover 30.0)
+(def ^:private spot-height 230.0)
+(def ^:private spot-light 3.75)
+(def ^:private halo-reach 1.5)
+(def ^:private halo-opacity 0.4)
+(def ^:private glow-light 30.0)
+(def ^:private inner-glow 0.4)
 
 (def ^:private halo-texture
   "Light falling off from a centre: bright where the piece stands in front of
@@ -526,7 +543,7 @@
   (let [original (.-material mesh)
         ^js lit (.clone original)]
     (.set (.-emissive lit) (get tone-colors tone "#ffffff"))
-    (set! (.-emissiveIntensity lit) 0.21)
+    (set! (.-emissiveIntensity lit) 0)
     (set! (.-material mesh) lit)
     [mesh original lit]))
 
@@ -540,7 +557,7 @@
         size (* 2 halo-reach (.-radius sphere))
         glow (THREE/Sprite.
               (THREE/SpriteMaterial. #js {:map @halo-texture :color (get tone-colors tone "#ffffff")
-                                          :transparent true :opacity halo-opacity
+                                          :transparent true :opacity 0
                                           :depthWrite false
                                           :blending THREE/AdditiveBlending}))]
     (.copy (.-position glow) (.-center sphere))
@@ -730,17 +747,98 @@
     (let [^js sh (shell! m tone)]
       {:pick m :shell sh})))
 
+(def ^:private option-disc
+  "The backing for a type to pick: a dark disc with a rim in the tone's colour,
+   one texture per tone."
+  (memoize
+   (fn [tone]
+     (let [n 128
+           canvas (doto (js/document.createElement "canvas") (set! -width n) (set! -height n))
+           ^js ctx (.getContext canvas "2d")]
+       (.beginPath ctx)
+       (.arc ctx (/ n 2) (/ n 2) (- (/ n 2) 6) 0 (* 2 js/Math.PI))
+       (set! (.-fillStyle ctx) "rgba(14,18,32,0.88)")
+       (.fill ctx)
+       (set! (.-lineWidth ctx) 7)
+       (set! (.-strokeStyle ctx) (get tone-colors tone "#ffffff"))
+       (.stroke ctx)
+       (THREE/CanvasTexture. canvas)))))
+
+(defn- option!
+  "A type to pick: the piece itself, solid, in front of a disc that faces the
+   eye -- so it reads as a button, not as part of the board. The disc is what
+   is clicked, so the whole of it counts."
+  [layer {:keys [geometry]} type color [x y z] scale tone mm]
+  (let [^js g (get geometry (.toUpperCase (name type)))
+        _ (when-not (.-boundingSphere g) (.computeBoundingSphere g))
+        centre (* scale (.. g -boundingSphere -center -y))
+        ;; transparent only so it is drawn after its disc; it is fully solid
+        mat (THREE/MeshStandardMaterial. #js {:color color :roughness 0.4 :transparent true :opacity 1
+                                              :emissive (get tone-colors tone) :emissiveIntensity 0.1})
+        m (THREE/Mesh. g mat)
+        size (* 0.86 mm)
+        disc (THREE/Sprite. (THREE/SpriteMaterial. #js {:map (option-disc tone) :transparent true
+                                                        :opacity 0.9 :depthWrite false}))]
+    (.set (.-position m) x y z)
+    (.setScalar (.-scale m) scale)
+    (set! (.-renderOrder m) 3)
+    (.set (.-position disc) x (+ y centre) z)
+    (.set (.-scale disc) size size 1)
+    (set! (.-renderOrder disc) 2)
+    (.add layer disc)
+    (.add layer m)
+    {:pick disc :looks [(.-material disc)] :base [0.9] :swell [disc size]}))
+
+(def ^:private heat-ms 180)
+
+(defn- heat!
+  "Set how far a piece's glow is on, 0 to 1: its light from within, its halo,
+   and the light it casts."
+  [^js shell ^js lit h]
+  (when lit (set! (.-emissiveIntensity lit) (* h inner-glow)))
+  (when shell
+    (let [size (* (.. shell -userData -size) (+ 1 (* 0.12 h)))]
+      (set! (.. shell -userData -heat) h)
+      (set! (.. shell -material -opacity) (* h halo-opacity))
+      (.set (.-scale shell) size size 1)
+      (when-let [^js light (.. shell -userData -light)]
+        (set! (.-intensity light) (* h glow-light))))))
+
+(defn- hot!
+  "Turn a piece's glow on or off: at once without a `view`, or eased from
+   wherever it stands -- so a pointer passing over fades it in and out, and
+   leaving mid-fade turns it back without a jump."
+  ([^js shell ^js lit on?] (heat! shell lit (if on? 1 0)))
+  ([view ^js shell ^js lit on?]
+   (let [from (or (some-> shell .-userData .-heat) 0)
+         to (if on? 1 0)
+         token (js-obj)]
+     (when (not= from to)
+       (when shell (set! (.. shell -userData -fade) token))
+       (animate! view (* heat-ms (js/Math.abs (- to from)))
+                 (fn [t]
+                   ;; a newer fade on this piece has taken over
+                   (when (or (nil? shell) (identical? token (.. shell -userData -fade)))
+                     (heat! shell lit (+ from (* t (- to from))))))
+                 nil true)))))
+
 (defn- light-glows!
-  "Put a light of the pool at each glow, as far as the pool goes; the rest go
-   dark."
+  "Put a spotlight of the pool over each glow, and a glow light at it, as far
+   as the pools go; the rest go dark."
   [view glows]
-  (doseq [[i ^js light] (map-indexed vector (:lights @view))]
+  (doseq [[i ^js light ^js spot] (map vector (range) (:lights @view) (:spots @view))]
     (if-let [^js glow (get glows i)]
-      (do (.getWorldPosition glow (.-position light))
-          (.copy (.-color light) (.. glow -material -color))
-          (set! (.-intensity light) glow-light)
-          (set! (.. glow -userData -light) light))
-      (set! (.-intensity light) 0))))
+      (let [at (.getWorldPosition glow (THREE/Vector3.))]
+        (.copy (.-position light) at)
+        (.copy (.-color light) (.. glow -material -color))
+        (set! (.-intensity light) (if (.. glow -userData -hot) glow-light 0))
+        (set! (.. glow -userData -light) light)
+        (.set (.-position spot) (.-x at) (+ (.-y at) spot-height) (.-z at))
+        (.set (.. spot -target -position) (.-x at) 0 (.-z at))
+        (.copy (.-color spot) (.. glow -material -color))
+        (set! (.-intensity spot) spot-light))
+      (do (set! (.-intensity light) 0)
+          (set! (.-intensity spot) 0)))))
 
 (defn- clear-targets! [view]
   (let [{:keys [target-layer shells lit]} @view]
@@ -760,7 +858,7 @@
     (for [grower (distinct (mapcat (comp keys :spent) variants))
           :let [have (get-in state [:elements grower :food] 0)
                 given (get spent grower 0)]
-          index (range (min have (get-in @view [:meta :food_shown] 3)))]
+          index (range (min have (get-in @view [:meta :food_shown] 12)))]
       {:kind :food :space grower :index index :tone (if (< index given) :chosen :act)
        :label (str "pay with this food (" (reduce + 0 (vals spent)) " of " (:cost (:pay @view)) ")")
        :pay-grower grower})))
@@ -784,12 +882,15 @@
         visuals (atom [])
         mark! (fn [target look] (when look (swap! pickables conj [(:pick look) target]) (swap! visuals conj [target look])))
         lit (atom [])
-        outline (fn [^js mesh tone]
+        outline (fn [^js mesh tone & [hot]]
                   (when mesh
-                    (let [sh (shell! mesh tone)
+                    (let [^js sh (shell! mesh tone)
                           [_ _ glow :as l] (light-up! mesh tone)]
                       (swap! shells conj sh)
                       (swap! lit conj l)
+                      (when hot
+                        (set! (.. sh -userData -hot) true)
+                        (hot! sh glow true))
                       {:pick mesh :shell sh :glow glow})))
         ;; the camera's right, along the table: types to pick line up across
         ;; the view rather than into it
@@ -804,13 +905,26 @@
                         [(+ x (* off (first right))) (* 1.7 mm) (+ z (* off (second right)))]))
         current (level view)]
     ;; what has been chosen so far stays lit
-    (doseq [{:keys [kind space index]} stack]
-      (case kind
-        :piece (some-> (piece-at view space) (outline :chosen))
-        :food (some-> (piece-at view space index) (outline :chosen))
-        :space (let [{:keys [^js plasma]} (plasma! target-layer (get spaces space) mm nil)]
-                 (set! (.. plasma -uGain -value) plasma-gain-hover))
-        nil))
+    ;; a type chosen for a space shows there, full size and see-through, as
+    ;; the element it will be once the choice is made: the elements of an
+    ;; introduction so far, a growth waiting to be paid for
+    (let [placed (merge (:placed (last (filter :placed stack)))
+                        (into {} (for [{:keys [kind space type]} stack
+                                       :when (and (= kind :option) type)]
+                                   [space type])))]
+      (doseq [[space type] placed
+              :let [[x z] (get spaces space)]
+              :when x]
+        (ghost! view target-layer assets type me-color [x 1 z]
+                (get-in assets [:meta :piece_scale] 0.9) :chosen 0.5))
+      (doseq [{:keys [kind space index]} stack]
+        (case kind
+          :piece (some-> (piece-at view space) (outline :chosen true))
+          :food (some-> (piece-at view space index) (outline :chosen true))
+          :space (when-not (contains? placed space)
+                   (let [{:keys [^js plasma]} (plasma! target-layer (get spaces space) mm nil)]
+                     (set! (.. plasma -uGain -value) plasma-gain-hover)))
+          nil)))
     (doseq [{:keys [kind space index type tone] :as t} current
             :when (contains? spaces space)]
       (mark! t
@@ -818,7 +932,7 @@
                :piece (outline (piece-at view space) tone)
                :food (outline (piece-at view space index) tone)
                :space (plasma! target-layer (get spaces space) mm (when (= tone :act) me-color))
-               :option (ghost! view target-layer assets type me-color (option-slot current t) 0.55 tone 0.9)
+               :option (option! target-layer assets type me-color (option-slot current t) 0.55 tone mm)
                :ghost (if type
                         (let [[x z] (get spaces space)]
                           (ghost! view target-layer assets type me-color [x 1 z]
@@ -837,18 +951,14 @@
   (when (not= target (:hover @view))
     (swap! view assoc :hover target)
     (let [group (:group target)]
-      (doseq [[t {:keys [looks base shell ^js glow ^js plasma]}] (:visuals @view)
+      (doseq [[t {:keys [looks base shell ^js glow ^js plasma swell]}] (:visuals @view)
               :let [on? (and target (or (= t target) (and group (= group (:group t)))))]]
         (doseq [[^js m b] (map vector looks base)]
           (set! (.-opacity m) (if on? (min 1 (+ b 0.4)) b)))
-        (when glow (set! (.-emissiveIntensity glow) (if on? 0.4 0.21)))
+        (when-let [[^js o size] swell]
+          (let [k (* size (if on? 1.12 1))] (.set (.-scale o) k k 1)))
         (when plasma (set! (.. plasma -uGain -value) (if on? plasma-gain-hover plasma-gain)))
-        (when shell
-          (let [size (* (.. ^js shell -userData -size) (if on? 1.12 1))]
-            (set! (.. ^js shell -material -opacity) (if on? halo-opacity-hover halo-opacity))
-            (.set (.-scale ^js shell) size size 1)
-            (when-let [^js light (.. ^js shell -userData -light)]
-              (set! (.-intensity light) (if on? glow-light-hover glow-light)))))))
+        (when (or shell glow) (hot! view shell glow on?))))
     (let [{:keys [label el]} @view]
       (set! (.. el -style -cursor) (if target "pointer" ""))
       (set! (.-textContent label) (or (:label target) ""))
@@ -919,7 +1029,9 @@
                                rect (.getBoundingClientRect el)]
                            (set! (.. label -style -left) (str (+ 14 (- (.-clientX e) (.-left rect))) "px"))
                            (set! (.. label -style -top) (str (+ 14 (- (.-clientY e) (.-top rect))) "px")))
-                         (when-not @down (set-hover! view (pick view e)))))))
+                         (when-not @down (set-hover! view (pick view e)))))
+    ;; leaving the board straight off a piece lets it go
+    (.addEventListener canvas "pointerleave" (fn [_] (set-hover! view nil)))))
 
 (defn- set-board! [view assets geometry]
   (let [{:keys [scene board-group]} @view]
@@ -1023,9 +1135,11 @@
     (.add scene sun)
     (.add scene pieces-group)
     (.add scene target-layer)
-    (let [lights (vec (repeatedly glow-lights #(THREE/PointLight. "#ffffff" 0 130 1)))]
+    (let [lights (vec (repeatedly glow-lights #(THREE/PointLight. "#ffffff" 0 130 1)))
+          spots (vec (repeatedly glow-lights #(THREE/SpotLight. "#ffffff" 0 0 0.2 0.55 0)))]
       (doseq [l lights] (.add scene l))
-      (swap! view assoc :lights lights))
+      (doseq [^js l spots] (.add scene l) (.add scene (.-target l)))
+      (swap! view assoc :lights lights :spots spots))
     (set! (.-maxPolarAngle controls) (* 0.47 js/Math.PI))
     (set! (.-minDistance controls) 60)
     (set! (.-enableDamping controls) false)
@@ -1043,13 +1157,20 @@
       (reset! view {:el el :renderer renderer :scene scene :camera camera :controls controls
                     :pieces-group pieces-group :observer observer :shown {} :materials {}
                     :target-layer target-layer :label label :raycaster (THREE/Raycaster.)
-                    :stack [] :on-frame on-frame :lights (:lights @view)})
+                    :stack [] :on-frame on-frame :lights (:lights @view) :spots (:spots @view)})
       (listen! view)
       ;; development builds only: where each target is on screen, so a test
       ;; can click the canvas exactly where a person would
       (when ^boolean goog.DEBUG
         (set! (.-__organism3d js/window)
-              #js {:shells
+              #js {:foods
+                   (fn []
+                     (clj->js
+                      (for [^js g (array-seq (.-children (:pieces-group @view)))
+                            ^js m (array-seq (.-children g))
+                            :when (= "food" (.. m -userData -role))]
+                        (js/Math.round (* 100 (.. m -scale -x))))))
+                   :shells
                    (fn []
                      (clj->js
                       (for [^js sh (:shells @view)

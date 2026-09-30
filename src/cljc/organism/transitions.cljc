@@ -27,28 +27,32 @@
         new-spaces  (cset/difference to-spaces from-spaces)
         gone-spaces (cset/difference from-spaces to-spaces)
         common-spaces (cset/intersection from-spaces to-spaces)
-        ;; Match up moves: a gone-space element matched with a new-space element
-        ;; of the same player/organism/type. Each match consumes both.
+        ;; Match up moves: an element gone from one space and arrived at
+        ;; another. Elements carry an :id for life, so that decides it. A
+        ;; position from before ids has only player and type to go on -- not
+        ;; the organism, whose number is renamed whenever the board regroups,
+        ;; which turned a third of all moves into a vanishing and a growing --
+        ;; preferring the same organism where several could be the one.
+        same (fn [el new-el]
+               (if (and (:id el) (:id new-el))
+                 (= (:id el) (:id new-el))
+                 (and (nil? (:id el)) (nil? (:id new-el))
+                      (= (:player el) (:player new-el))
+                      (= (:type el) (:type new-el)))))
         [move-pairs unmoved-gone unmoved-new]
         (reduce
          (fn [[pairs gs ns] s]
            (let [el (get from-els s)
-                 match (first
-                        (filter
-                         (fn [ns-space]
-                           (let [new-el (get to-els ns-space)]
-                             (and new-el
-                                  (= (:player el) (:player new-el))
-                                  (= (:organism el) (:organism new-el))
-                                  (= (:type el) (:type new-el)))))
-                         ns))]
+                 candidates (filter #(some->> (get to-els %) (same el)) (sort ns))
+                 match (or (first (filter #(= (:organism el) (:organism (get to-els %))) candidates))
+                           (first candidates))]
              (if match
                [(conj pairs {:from s :to match :element (get to-els match)})
                 (disj gs s)
                 (disj ns match)]
                [pairs gs ns])))
          [[] gone-spaces new-spaces]
-         gone-spaces)
+         (sort gone-spaces))
         ;; Food deltas on elements present in both states
         food-changes
         (for [s common-spaces

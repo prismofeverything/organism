@@ -312,16 +312,26 @@
       :advance nil}}))
 
 (defn add-element
+  "A new element on `space`. Each is given an `:id` of its own, from a count
+   kept in the state, which stays with it for as long as it is on the board --
+   through moves, and through the organisms it joins and leaves, whose own
+   numbers are renamed as the board regroups. It is how a view knows the piece
+   that left one space is the one that arrived at another. A count rather than
+   the highest id in play, so an id is never given twice."
   [game player organism type space food]
-  (let [element
+  (let [id (get-in game [:state :element-count] 0)
+        element
         ;; Element
-        {:player player
+        {:id id
+         :player player
          :organism organism
          :type type
          :space space
          :food food
          :captures []}]
-    (assoc-in game [:state :elements space] element)))
+    (-> game
+        (assoc-in [:state :element-count] (inc id))
+        (assoc-in [:state :elements space] element))))
 
 (defn remove-element
   [game space]

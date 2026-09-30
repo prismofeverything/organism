@@ -1024,9 +1024,7 @@
                (if (= player rain-player)
                  captures
                  [:span {:style {:font-size "1.5em"}} "∞"]))
-             captures)]))]
-
-     [mutations-display mutations (get player-colors player)]]))
+             captures)]))]]))
 
 (def chat-window 15)
 
@@ -1119,6 +1117,7 @@
       [description-panel player-color description]
       [scoreboard turn-order organism-victory colors player-captures mutations state]
       [history-controls history cursor]
+      [mutations-display mutations player-color]
       [help-panel player-color]
       [:h3 "discussion"]
       [chat-list player-colors chat]
@@ -3900,6 +3899,7 @@
       ;; score / history / help / discussion
       [scoreboard turn-order organism-victory colors player-captures mutations state]
       [history-controls history cursor]
+      [mutations-display mutations current-color]
       [help-panel current-color]
       [:h3 "discussion"]
       [chat-list player-colors chat]

@@ -180,9 +180,10 @@ def main():
     meta = {"pieces": pieces, "boards": boards, "piece_colors": PIECE_COLORS,
             # how the Blender scenes seat things, so the page matches the renders:
             # pieces at 0.9 on the board, food on the peg 4.3 mm below a piece's
-            # top, 6.4 mm per food up the stack, at 0.94, three at most shown
+            # top, 6.4 mm per food up the stack, at 0.94. The renders show three
+            # at most; a game shows what is really there, up to a dozen
             "piece_scale": 0.9, "food_scale": 0.94, "peg_below_top": 4.3,
-            "food_step": 6.4, "food_shown": 3}
+            "food_step": 6.4, "food_shown": 12}
     (OUT / "board.json").write_text(json.dumps(meta, indent=1))
     print(f"wrote {OUT}")
 
