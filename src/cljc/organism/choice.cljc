@@ -173,20 +173,27 @@
                                  elements)))
        false)))))
 
-(defn choose-action-type-choices
-  "Which action an organism declares for its turn.
+(defn declarable-types
+  "The types an organism may declare: every type it has an element of.
 
-   An organism with no elements of a type, or no way to use them however it
-   moves its food about, would be declaring a turn that cannot do anything —
-   and that is what lets a deliberate pass wear the costume of a real decision.
-   Where nothing qualifies the organism truly has nothing to do, and all three
-   stand again so a legal move always exists."
+   Declaring is never filtered by what the turn could accomplish. A GROW
+   declared with too little food to grow is still a turn — circulate the food
+   to where it will be needed — and whether a declared type was worth it is
+   the player's call, not the rules'. (It once was filtered, by `declarable?`
+   under *require-useful-action*, to stop a trained agent passing in disguise;
+   that hid GROW from a real player holding one food short.) What stops a pass
+   is choose-action-state, which offers :pass only when nothing can be done.
+   An organism with none of any type — never on a real board — gets all three."
+  [elements]
+  (let [present (set (map :type elements))]
+    (or (seq (filter present element-types)) element-types)))
+
+(defn choose-action-type-choices
+  "Which action an organism declares for its turn. See declarable-types."
   [game]
-  (let [useful (when game/*require-useful-action*
-                 (seq (filter (partial declarable? game) element-types)))]
-    (partial-map
-     (partial game/choose-action-type game)
-     (or useful element-types))))
+  (partial-map
+   (partial game/choose-action-type game)
+   (declarable-types (game/current-organism-elements game))))
 
 (defn choose-action-choices
   [game action-type]
@@ -610,10 +617,7 @@
          (into
           {}
           (for [[organism elements] organisms
-                :let [useful (when game/*require-useful-action*
-                               (seq (filter (partial declarable? game elements)
-                                            element-types)))]
-                type (or useful element-types)]
+                type (declarable-types elements)]
             [[(game/organism-name elements) type]
              (game/flow-declare game organism type)]))])
 

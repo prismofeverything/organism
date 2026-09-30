@@ -9,10 +9,13 @@
    [reitit.core :as reitit]
    [reagent.core :as r]
    [reagent.dom :as rdom]
+   [shadow.lazy :as lazy]
    [organism.base :as base]
    [organism.game :as game]
    [organism.choice :as choice]
    [organism.history :as history]
+   [organism.transitions :as transitions]
+   [organism.targets :as targets]
    [organism.board :as board]
    [organism.dom :as dom]
    [organism.ajax :as ajax]
@@ -148,112 +151,7 @@
 (defonce transition-token   (atom 0))  ;; cancels older RAF loops when a new transition starts
 (defonce transition-duration 240)  ;; ms
 
-(defn- diff-transitions
-  "Detect what changed between two game states. Returns a vector of transition
-   maps. Types:
-   {:type :move            :from space :to space :element element}
-   {:type :grow            :to space :element element}
-   {:type :lose            :space space :element element}  ;; conflict/integrity
-   {:type :circulate       :from space :to space :amount n :element-color c}
-   {:type :food-up         :space space :amount n}          ;; e.g. eating
-   {:type :food-down       :space space :amount n}
-   {:type :free-food-appear :space space :amount n}
-   {:type :free-food-vanish :space space :amount n}"
-  [from-state to-state]
-  (let [from-els   (:elements from-state)
-        to-els     (:elements to-state)
-        from-food  (:food from-state)
-        to-food    (:food to-state)
-        from-spaces (set (keys from-els))
-        to-spaces   (set (keys to-els))
-        new-spaces  (cset/difference to-spaces from-spaces)
-        gone-spaces (cset/difference from-spaces to-spaces)
-        common-spaces (cset/intersection from-spaces to-spaces)
-        ;; Match up moves: a gone-space element matched with a new-space element
-        ;; of the same player/organism/type. Each match consumes both.
-        [move-pairs unmoved-gone unmoved-new]
-        (reduce
-         (fn [[pairs gs ns] s]
-           (let [el (get from-els s)
-                 match (first
-                        (filter
-                         (fn [ns-space]
-                           (let [new-el (get to-els ns-space)]
-                             (and new-el
-                                  (= (:player el) (:player new-el))
-                                  (= (:organism el) (:organism new-el))
-                                  (= (:type el) (:type new-el)))))
-                         ns))]
-             (if match
-               [(conj pairs {:from s :to match :element (get to-els match)})
-                (disj gs s)
-                (disj ns match)]
-               [pairs gs ns])))
-         [[] gone-spaces new-spaces]
-         gone-spaces)
-        ;; Food deltas on elements present in both states
-        food-changes
-        (for [s common-spaces
-              :let [old-f (or (:food (get from-els s)) 0)
-                    new-f (or (:food (get to-els s)) 0)
-                    delta (- new-f old-f)
-                    el (get from-els s)]
-              :when (not (zero? delta))]
-          {:space s :delta delta
-           :player (:player el) :organism (:organism el)})
-        ups   (vec (filter #(pos? (:delta %)) food-changes))
-        downs (vec (filter #(neg? (:delta %)) food-changes))
-        ;; Greedy matching of +N/−N pairs within same player+organism => circulate
-        [circ-pairs remaining-ups remaining-downs]
-        (reduce
-         (fn [[circs us ds] u]
-           (let [match (first
-                        (filter
-                         (fn [d]
-                           (and (= (:player u)   (:player d))
-                                (= (:organism u) (:organism d))
-                                (= (:delta u)    (- (:delta d)))))
-                         ds))]
-             (if match
-               [(conj circs {:from (:space match) :to (:space u)
-                             :amount (:delta u)})
-                (remove #{u} us)
-                (remove #{match} ds)]
-               [circs us ds])))
-         [[] ups downs]
-         ups)]
-    (vec
-     (concat
-      ;; Moves
-      (for [{:keys [from to element]} move-pairs]
-        {:type :move :from from :to to :element element})
-      ;; Lost (gone without a move match)
-      (for [s unmoved-gone]
-        {:type :lose :space s :element (get from-els s)})
-      ;; Grown (new without a move match)
-      (for [s unmoved-new]
-        {:type :grow :to s :element (get to-els s)})
-      ;; Circulate pairs (enriched with food counts so the animation can
-      ;; compute the exact coin slot the food leaves from and arrives at)
-      (for [c circ-pairs]
-        (assoc c
-               :type :circulate
-               :from-food-before (or (:food (get from-els (:from c))) 0)
-               :to-food-after    (or (:food (get to-els (:to c))) 0)))
-      ;; Remaining food ups
-      (for [u remaining-ups]
-        {:type :food-up :space (:space u) :amount (:delta u)})
-      ;; Remaining food downs
-      (for [d remaining-downs]
-        {:type :food-down :space (:space d) :amount (- (:delta d))})
-      ;; Free food appearing
-      (for [s (cset/difference (set (keys to-food)) (set (keys from-food)))
-            :let [amt (get to-food s)]]
-        {:type :free-food-appear :space s :amount amt})
-      ;; Free food vanishing
-      (for [s (cset/difference (set (keys from-food)) (set (keys to-food)))
-            :let [amt (get from-food s)]]
-        {:type :free-food-vanish :space s :amount amt})))))
+(def ^:private diff-transitions transitions/diff)
 
 (defn- during-transition-state
   "Compute a render-time game state: starts from `from-state`, but strips out
@@ -845,7 +743,8 @@
                colors
                players
                (take ring-count board/total-rings)
-               mutations)
+               mutations
+               (:adjacencies game))
         [game turn choices] (choice/find-next-choices game)
         cursor (if (< witness (count history)) witness)]
     (println "initializing game" game)
@@ -1628,190 +1527,15 @@
     (cond-> element-halos
       popup (conj popup))))
 
-(defn- compute-from-spaces-and-options
-  "Given the post-:choose-action game wrap, return a map
-   {space → [{:label ... :destinations [...] :next-state ...
-              :sub-options [...]} ...]}
-   For grow, the top-level option for each grower has :sub-options listing
-   the available element-types as a nested popup."
-  [post-action-game-wrap label-prefix]
-  (try
-    (let [[phase from-choices] (choice/find-state post-action-game-wrap)]
-      (cond
-        ;; Move/eat/circulate: from-choices is keyed by space directly
-        (#{:move-from :eat-to :circulate-from} phase)
-        (into {}
-              (map
-               (fn [space]
-                 (let [from-state (get-in from-choices [space :state])
-                       from-wrap (assoc post-action-game-wrap :state from-state)
-                       dests (try
-                               (let [[_ to-choices] (choice/find-state from-wrap)]
-                                 (filter vector? (keys to-choices)))
-                               (catch :default _ nil))
-                       ;; For :eat, suppress the preview entirely when no
-                       ;; adjacent space has food — the server auto-advances
-                       ;; past :eat-from in that case, so we shouldn't
-                       ;; highlight an arbitrary empty source either.
-                       dests (if (and (= phase :eat-to) (seq dests))
-                               (let [food-map (get-in from-wrap [:state :food] {})
-                                     any-food? (some #(pos? (get food-map % 0)) dests)]
-                                 (if any-food? dests []))
-                               dests)]
-                   [space [{:label label-prefix
-                            :destinations (or dests [])
-                            :next-state from-state}]]))
-               (filter vector? (keys from-choices))))
+(def ^:private compute-from-spaces-and-options targets/compute-from-spaces-and-options)
 
-        ;; Grow: top-level option is "GROW", nested sub-options are element types
-        (= phase :grow-element)
-        (let [type-keys (keys from-choices)
-              ;; For each grower space, collect its sub-options (one per type)
-              ;; sub-options-by-space: {grower-space [{:label :destinations :next-state} ...]}
-              sub-by-space
-              (reduce
-               (fn [acc type-key]
-                 (try
-                   (let [type-state (get-in from-choices [type-key :state])
-                         type-wrap (assoc post-action-game-wrap :state type-state)
-                         [grow-from-phase grow-from-choices] (choice/find-state type-wrap)
-                         sub-label (clojure.string/upper-case (name type-key))]
-                     (if (= grow-from-phase :grow-from)
-                       (reduce
-                        (fn [acc contribution]
-                          (let [contrib-state (get-in grow-from-choices [contribution :state])
-                                contrib-wrap (assoc type-wrap :state contrib-state)
-                                [_ to-choices] (choice/find-state contrib-wrap)
-                                dests (filter vector? (keys to-choices))
-                                sub-opt {:label sub-label
-                                         :type type-key
-                                         :destinations (or dests [])
-                                         :next-state contrib-state}]
-                            (reduce
-                             (fn [acc space]
-                               (update acc space (fnil conj []) sub-opt))
-                             acc
-                             (keys contribution))))
-                        acc
-                        (keys grow-from-choices))
-                       acc))
-                   (catch :default _ acc)))
-               {} type-keys)]
-          ;; Wrap each grower's sub-options in a single top-level GROW option
-          (into {}
-                (map
-                 (fn [[space subs]]
-                   [space [{:label label-prefix
-                            :destinations (->> subs
-                                                (mapcat :destinations)
-                                                distinct
-                                                vec)
-                            :sub-options subs}]])
-                 sub-by-space)))
+(def ^:private compute-move-options targets/compute-move-options)
 
-        :else {}))
-    (catch :default _ {})))
+(def ^:private compute-grow-options targets/compute-grow-options)
 
-(defn- compute-move-options
-  "Walk the choice tree from the post-:choose-action game wrap (phase
-   :move-from) through :move-from → :move-to to build
-     {mover-space {dest-space <committed-state>}}
-   so clicking a destination commits the full move in one step."
-  [post-action-game-wrap]
-  (try
-    (let [[phase from-choices] (choice/find-state post-action-game-wrap)]
-      (if (not= phase :move-from)
-        {}
-        (reduce
-         (fn [acc mover-space]
-           (try
-             (let [from-state (get-in from-choices [mover-space :state])
-                   from-wrap  (assoc post-action-game-wrap :state from-state)
-                   [_ to-choices] (choice/find-state from-wrap)]
-               (reduce
-                (fn [acc dest-space]
-                  (let [committed (get-in to-choices [dest-space :state])]
-                    (update acc mover-space (fnil assoc {}) dest-space committed)))
-                acc
-                (filter vector? (keys to-choices))))
-             (catch :default _ acc)))
-         {}
-         (filter vector? (keys from-choices)))))
-    (catch :default _ {})))
+(def ^:private grow-spent-food targets/grow-spent-food)
 
-(defn- compute-grow-options
-  "Walk the game's choice tree from the post-:choose-action game wrap
-   (phase :grow-element) through :grow-element → :grow-from → :grow-to to
-   build a nested map
-     {grower-space {dest-space [{:type <el-type> :next-state <committed>} ...]}}
-   where each committed state has :element, :from, and :to already chosen
-   so sending it commits the full grow action in one step."
-  [post-action-game-wrap]
-  (try
-    (let [[phase type-choices] (choice/find-state post-action-game-wrap)]
-      (if (not= phase :grow-element)
-        {}
-        (reduce
-         (fn [acc type-key]
-           (try
-             (let [type-state (get-in type-choices [type-key :state])
-                   type-wrap  (assoc post-action-game-wrap :state type-state)
-                   [_ contrib-choices] (choice/find-state type-wrap)]
-               (reduce
-                (fn [acc contribution]
-                  (try
-                    (let [contrib-state (get-in contrib-choices [contribution :state])
-                          contrib-wrap  (assoc post-action-game-wrap :state contrib-state)
-                          [_ dest-choices] (choice/find-state contrib-wrap)]
-                      (reduce
-                       (fn [acc dest-space]
-                         (let [committed (get-in dest-choices [dest-space :state])]
-                           (reduce
-                            (fn [acc grower-space]
-                              (update-in acc [grower-space dest-space]
-                                         (fnil conj [])
-                                         {:type type-key
-                                          :next-state committed}))
-                            acc
-                            (keys contribution))))
-                       acc
-                       (filter vector? (keys dest-choices))))
-                    (catch :default _ acc)))
-                acc
-                (filter map? (keys contrib-choices))))
-             (catch :default _ acc)))
-         {} (keys type-choices))))
-    (catch :default _ {})))
-
-(defn- grow-spent-food
-  "Map of {grower-space amount} for elements whose food decreases from
-   current-state to next-state — i.e. how much food each space spends for a
-   given grow option."
-  [current-state next-state]
-  (let [nxt (:elements next-state)]
-    (into {}
-     (keep
-      (fn [[space el]]
-        (let [spent (- (or (:food el) 0) (or (:food (get nxt space)) 0))]
-          (when (pos? spent) [space spent])))
-      (:elements current-state)))))
-
-(defn- grow-dest-options
-  "All grow variants for `dest-space`, pooled across every grower and grouped by
-   element type: {type [{:spent {grower-space amount} :state next-state} ...]}.
-   Food is a shared pool, so variants that resolve to the same committed state
-   (listed under different growers) are deduped."
-  [grow-options current-state dest-space]
-  (let [variants (distinct
-                  (mapcat #(get-in grow-options [% dest-space])
-                          (keys grow-options)))]
-    (reduce
-     (fn [acc {:keys [type next-state]}]
-       (update acc type (fnil conj [])
-               {:spent (grow-spent-food current-state next-state)
-                :state next-state}))
-     {}
-     variants)))
+(def ^:private grow-dest-options targets/grow-dest-options)
 
 (defn- grow-pay-click!
   "Spend one food coin from grower `space` toward the in-progress grow payment.
@@ -4182,6 +3906,76 @@
       [:br]
       [chat-input]]]))
 
+;; ── The 3D view ────────────────────────────────────────────────────────────
+;;
+;; organism.view3d is its own module, fetched the first time a viewer turns it
+;; on: the 2D page never carries three.js. Which view a viewer prefers is
+;; remembered in their browser.
+
+(def ^:private view3d-module (lazy/loadable organism.view3d/api))
+
+(defonce three-d?
+  (r/atom (try (= "3d" (.getItem js/localStorage "organism-board-view"))
+               (catch :default _ false))))
+
+(defn- set-three-d! [on?]
+  (reset! three-d? on?)
+  (try (.setItem js/localStorage "organism-board-view" (if on? "3d" "2d"))
+       (catch :default _ nil)))
+
+(defn board-3d
+  "The board in 3D, in place of the SVG board. What can be chosen comes from
+   organism.targets and is shown in the scene itself."
+  [_game _board _invocation _colors _turn _choices]
+  (let [el (atom nil)
+        api (r/atom nil)
+        view (r/atom nil)
+        props (atom nil)
+        show! (fn [] (when (and @api @view) ((:show! @api) @view @props)))]
+    (r/create-class
+     {:display-name "board-3d"
+      :component-did-mount
+      (fn [_]
+        (-> (lazy/load view3d-module)
+            (.then (fn [loaded]
+                     (when @el
+                       (reset! api loaded)
+                       (reset! view ((:mount! loaded) @el))
+                       (show!))))))
+      :component-did-update (fn [_ _] (show!))
+      :component-will-unmount
+      (fn [_] (when (and @api @view) ((:unmount! @api) @view)))
+      :reagent-render
+      (fn [game board invocation colors turn choices]
+        (reset! props {:game game :invocation invocation :board board
+                       :player-colors (:player-colors board)
+                       :turn turn
+                       :targets (targets/targets game turn choices)
+                       :send! #(send-state! % true)})
+        [:div {:style {:position "relative" :width "100%" :height "calc(100vh - 40px)"}}
+         [:div {:ref #(reset! el %) :style {:position "absolute" :inset 0}}]
+         [:button {:on-click #(when (and @api @view) ((:reset-view! @api) @view))
+                   :title "back to the view from above the table"
+                   :style {:position "absolute" :left "12px" :bottom "12px"
+                           :background "#333" :color "#ddd" :border "1px solid #555"
+                           :border-radius "8px" :padding "6px 12px" :cursor "pointer"
+                           :font-family font-choice}}
+          "reset view"]])})))
+
+(defn- view-toggle []
+  ;; read here, not inside the `for`: a deref in a lazy seq is not tracked
+  (let [showing-3d? @three-d?]
+  [:div {:style {:position "absolute" :right "16px" :top "12px" :z-index 5
+                 :display "flex" :border-radius "10px" :overflow "hidden"
+                 :border "1px solid #555" :font-family font-choice}}
+   (for [[label on?] [["2D" false] ["3D" true]]]
+     ^{:key label}
+     [:button {:on-click #(set-three-d! on?)
+               :style {:background (if (= on? showing-3d?) "#666" "#2a2a2a")
+                       :color "#eee" :border "none" :padding "6px 14px"
+                       :cursor "pointer" :letter-spacing "2px"}}
+      label])]))
+
 (defn game-page
   []
   (let [invocation @board-invocation
@@ -4206,8 +4000,11 @@
         description turn-order organism-victory invocation-colors player-colors
         player-captures mutations state @chat]]
       [:article
-       {:style {:flex-grow 1}}
-       [organism-board game board invocation-colors turn choices]]])))
+       {:style {:flex-grow 1 :position "relative"}}
+       [view-toggle]
+       (if @three-d?
+         [board-3d game board invocation invocation-colors turn choices]
+         [organism-board game board invocation-colors turn choices])]])))
 
 
 (def player-active? components/player-active?)

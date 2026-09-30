@@ -51,16 +51,13 @@
     ["D" 10] (element "mass" 1 :move ["D" 10] 1)
     ["D" 11] (element "mass" 1 :grow ["D" 11] 1)}))
 
-(deftest require-useful-action-is-the-only-thing-narrowing-the-type-choice
-  (testing "on: only the type that could accomplish something"
-    (is (= #{:eat} (offered-types can-only-eat "orb"))))
+(deftest the-type-choice-is-never-narrowed
+  (testing "every type the organism has is offered, useful or not"
+    (is (= #{:eat :grow :move} (offered-types can-only-eat "orb"))))
 
-  (testing "off: the original game offers all three, useful or not"
+  (testing "the same as the original game: the useful-action rule governs
+            passing, not declaring"
     (game/with-original-rules
-      (is (= #{:eat :grow :move} (offered-types can-only-eat "orb")))))
-
-  (testing "the flag alone accounts for the difference"
-    (binding [game/*require-useful-action* false]
       (is (= #{:eat :grow :move} (offered-types can-only-eat "orb"))))))
 
 (deftest the-eat-threshold-is-the-only-thing-stopping-a-full-eater

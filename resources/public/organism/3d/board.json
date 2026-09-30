@@ -1,0 +1,53 @@
+{
+ "pieces": {
+  "EAT": {
+   "height": 44.04256038554361,
+   "width": 33.99794870703148
+  },
+  "GROW": {
+   "height": 34.853974512982354,
+   "width": 36.66050268585889
+  },
+  "MOVE": {
+   "height": 55.04135934676646,
+   "width": 35.79724873670458
+  },
+  "FOOD": {
+   "height": 11.231819577696973,
+   "width": 28.121005864683767
+  }
+ },
+ "boards": {
+  "hex": {
+   "symmetry": 6,
+   "rotation": 30.0,
+   "mm_per_space": 43.20683111954459,
+   "board_mm": 540.0,
+   "rings": 7,
+   "texture": "board-hex.webp",
+   "base": "#243746"
+  },
+  "penta": {
+   "symmetry": 5,
+   "rotation": 24.5,
+   "mm_per_space": 44.2314990512334,
+   "board_mm": 540.0,
+   "rings": 7,
+   "texture": "board-penta.webp",
+   "base": "#20333f"
+  }
+ },
+ "piece_scale": 0.9,
+ "food_scale": 0.94,
+ "peg_below_top": 4.3,
+ "food_step": 6.4,
+ "food_shown": 3,
+ "piece_colors": {
+  "Purple": "#9C6E90",
+  "Blue": "#6DA2B2",
+  "Green": "#4BA166",
+  "Yellow": "#DCAD3F",
+  "Dark": "#4F6573",
+  "Red": "#BA6A75"
+ }
+}

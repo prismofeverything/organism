@@ -29,10 +29,11 @@
 ;; organism can pay for. Set to *food-limit* for the original game.
 (def ^:dynamic *eat-threshold* 5)
 
-;; Whether an organism may declare a turn it cannot use, and pass when it has
-;; something to do. Off, every action type is always offered and passing is
+;; Whether an organism may pass when it has something to do. Off, passing is
 ;; always available — which is how a deliberate pass used to be half of every
-;; action a trained agent selected.
+;; action a trained agent selected. (It once also hid action types an organism
+;; could not use this turn; declaring is never filtered now — see
+;; choice/declarable-types.)
 (def ^:dynamic *require-useful-action* true)
 
 ;; Whether a player wiped off the board on their own turn leaves their food

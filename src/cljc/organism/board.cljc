@@ -732,10 +732,14 @@
   (let [total (dec (* 2 ring-count))]
     (quot total-board-radius total)))
 
+;; The corners of the outer ring are cut from boards of six rings and more. A
+;; five-ring board once lost them too; it keeps them now. A game stores its
+;; own adjacencies when it is made, so games made under the old rule keep
+;; their notches -- see generate-board.
 (defn cut-notches?
   [ring-count player-count mutations]
   (and
-   (> ring-count 4)
+   (> ring-count 5)
    (not (:RAIN mutations))
    (not= 4 player-count)
    (< player-count 8)))
@@ -858,14 +862,21 @@
   (first (available-ring-counts player-count)))
 
 (defn generate-board
-  [colors players rings mutations]
+  "The board to draw. Given the game's `adjacencies`, its corners are cut
+   exactly when the game has none there, whatever rule was in force when it
+   was made; without them, by today's rule."
+  ([colors players rings mutations]
+   (generate-board colors players rings mutations nil))
+  ([colors players rings mutations adjacencies]
   (let [player-count (count players)
         ring-count (count rings)
         symmetry (player-symmetry player-count)
         radius (ring-radius ring-count)
         radius (if (= symmetry 7) (* 0.9 radius) radius)
         buffer (if (= symmetry 7) 2.4 2.1)
-        notches? (cut-notches? ring-count player-count mutations)]
+        notches? (if (seq adjacencies)
+                   (not (contains? adjacencies [(last rings) 0]))
+                   (cut-notches? ring-count player-count mutations))]
     (build-board
      symmetry
      radius
@@ -873,7 +884,7 @@
      colors
      rings
      players
-     notches?)))
+     notches?))))
 
 
 #?(:clj

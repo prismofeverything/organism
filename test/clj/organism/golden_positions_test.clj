@@ -96,8 +96,10 @@
           growers (filter #(and (= "Harx" (:player %)) (= :grow (:type %))) elements)]
       (is (pos? (count (game/growable-spaces sleepy-organism-47 (map :space growers))))))))
 
-(deftest an-organism-with-no-food-anywhere-cannot-declare-growing
-  (testing "the rule still bites where it should: nothing to spend, nothing to move"
+(deftest an-organism-with-no-food-anywhere-may-still-declare-growing
+  (testing "declaring is never filtered by what the turn could accomplish: a
+            GROW with nothing to spend is the player's call, and the turn then
+            offers what it can -- or a pass"
     (let [game (position
                 ["Harx" "Dizzoj"] 4 "Harx"
                 {["D" 0] (element "Harx" 7 :grow ["D" 0] 0)
@@ -107,7 +109,7 @@
                  ["D" 10] (element "Dizzoj" 6 :move ["D" 10] 1)
                  ["D" 11] (element "Dizzoj" 6 :grow ["D" 11] 2)})
           [_ offered] (types-offered game "Harx")]
-      (is (not (contains? offered :grow))
-          "no food anywhere in the organism, so no circulate can fund a growth")
+      (is (contains? offered :grow)
+          "every type the organism has an element of is offered")
       (is (contains? offered :eat)
           "eating needs no food, only an empty neighbour"))))

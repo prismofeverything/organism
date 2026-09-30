@@ -19,7 +19,12 @@
   {:target :browser
    :output-dir "resources/public/js"
    :asset-path "/js"
-   :modules {:organism {:init-fn organism.play/init!}}
+   ;; The 3D view is its own module, fetched the first time someone turns it
+   ;; on: three.js and the view are about half a megabyte the 2D page never needs.
+   :module-loader true
+   :modules {:organism {:init-fn organism.play/init!}
+             :organism-3d {:entries [organism.view3d]
+                           :depends-on #{:organism}}}
    :devtools {:after-load organism.play/mount-components}}
 
   :journey
