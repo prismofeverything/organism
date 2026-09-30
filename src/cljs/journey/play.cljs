@@ -262,10 +262,45 @@
          (reset! board-pan-x (+ px (- (.-clientX e) mx)))
          (reset! board-pan-y (+ py (- (.-clientY e) my)))))
      on-up (fn [_] (reset! drag nil))
+     ;; Fingers. Touch events never come from a mouse, so none of this runs
+     ;; on a desktop. One finger drags the board, two pinch it; a drag is in
+     ;; screen pixels, and the board is drawn to fit the screen, so it is
+     ;; scaled back to the board's own units.
+     touch (atom nil)
+     board-scale (fn [^js e]
+                   (if-let [^js svg (some-> e .-target (.closest "svg"))]
+                     (/ (.-width (.getBoundingClientRect svg)) (.. svg -viewBox -baseVal -width))
+                     1))
+     spread (fn [^js ts] (js/Math.hypot (- (.-clientX (aget ts 0)) (.-clientX (aget ts 1)))
+                                        (- (.-clientY (aget ts 0)) (.-clientY (aget ts 1)))))
+     on-touch-start
+     (fn [^js e]
+       (let [ts (.-touches e)]
+         (reset! touch
+                 (if (>= (.-length ts) 2)
+                   {:pinch (spread ts) :zoom @board-zoom}
+                   {:x (.-clientX (aget ts 0)) :y (.-clientY (aget ts 0))
+                    :px @board-pan-x :py @board-pan-y :scale (board-scale e)}))))
+     on-touch-move
+     (fn [^js e]
+       (when-let [{:keys [pinch zoom x y px py scale]} @touch]
+         (.preventDefault e)
+         (let [ts (.-touches e)]
+           (cond
+             (and pinch (>= (.-length ts) 2))
+             (reset! board-zoom (-> (* zoom (/ (spread ts) pinch)) (max 0.2) (min 4.0)))
+             (and x (pos? (.-length ts)))
+             (do (reset! board-pan-x (+ px (/ (- (.-clientX (aget ts 0)) x) scale)))
+                 (reset! board-pan-y (+ py (/ (- (.-clientY (aget ts 0)) y) scale))))))))
+     on-touch-end (fn [^js e] (when (zero? (.-length (.-touches e))) (reset! touch nil)))
      _     (do (js/document.addEventListener "keydown" on-key)
                (js/document.addEventListener "mousemove" on-move)
-               (js/document.addEventListener "mouseup" on-up))]
-    [:div {:style {:position "relative" :width "100%" :height "100%"}}
+               (js/document.addEventListener "mouseup" on-up)
+               (js/document.addEventListener "touchmove" on-touch-move #js {:passive false})
+               (js/document.addEventListener "touchend" on-touch-end))]
+    [:div {:style {:position "relative" :width "100%" :height "100%"
+                   ;; on a phone the board takes the fingers, not the page
+                   :touch-action (when @components/narrow? "none")}}
      [board/render-game state pos-highlights on-hex-click choice-buttons
       {:pan-x @board-pan-x :pan-y @board-pan-y :zoom @board-zoom
        :fly-highlights fly-highlights
@@ -288,7 +323,8 @@
        (fn [e]
          (.preventDefault e)
          (reset! drag {:mx (.-clientX e) :my (.-clientY e)
-                       :px @board-pan-x :py @board-pan-y}))}]
+                       :px @board-pan-x :py @board-pan-y}))
+       :on-bg-touch-start on-touch-start}]
      [:div {:style {:position "absolute" :bottom "16px" :left "16px"
                     :display "flex" :align-items "center" :gap "8px"}}
       [:input {:type "range" :min 20 :max 400 :step 5
@@ -297,11 +333,20 @@
                :style {:width "100px" :cursor "pointer"}}]
       [:span {:style {:color "#334455" :font-family "monospace" :font-size "10px"
                       :min-width "32px"}}
-       (str (int (* @board-zoom 100)) "%")]]]
+       (str (int (* @board-zoom 100)) "%")]
+      ;; a phone has no ESC key to open the history
+      (when @components/narrow?
+        [:button {:on-click #(swap! history-visible? not)
+                  :style {:background "#0B0F1E" :color "#8899AA" :border "1px solid #1E2A3A"
+                          :border-radius "6px" :padding "8px 12px" :font-family "monospace"
+                          :font-size "13px"}}
+         (if @history-visible? "close history" "history")])]]
     (finally
       (js/document.removeEventListener "keydown" on-key)
       (js/document.removeEventListener "mousemove" on-move)
-      (js/document.removeEventListener "mouseup" on-up))))
+      (js/document.removeEventListener "mouseup" on-up)
+      (js/document.removeEventListener "touchmove" on-touch-move)
+      (js/document.removeEventListener "touchend" on-touch-end))))
 
 ;; ── Shared history row component ─────────────────────────────────────────────
 ;; Used by both play-page and generate-page.
@@ -528,20 +573,25 @@
                                                         (:scores go))))
                                             (str "loss — flares " (:flares-drawn state 0) "/13")))
                   (when srv-phase (name srv-phase)))]
-            [:div {:style {:position "absolute" :top "-30px" :left "50%"
-                           :transform "translateX(-50%)"
-                           :color cp-fg :font-size "21px"
-                           :font-family "monospace" :z-index 10
-                           :background cp-bg
-                           :border (str "2px solid " cp-border)
-                           :border-top "none"
-                           :border-radius "50%"
-                           :padding "40px 48px 20px"
-                           :text-align "center"
-                           :display "flex" :flex-direction "column"
-                           :align-items "center" :gap "10px"}}
+            [:div {:style (cond-> {:position "absolute" :top "-30px" :left "50%"
+                                   :transform "translateX(-50%)"
+                                   :color cp-fg :font-size "21px"
+                                   :font-family "monospace" :z-index 10
+                                   :background cp-bg
+                                   :border (str "2px solid " cp-border)
+                                   :border-top "none"
+                                   :border-radius "50%"
+                                   :padding "40px 48px 20px"
+                                   :text-align "center"
+                                   :display "flex" :flex-direction "column"
+                                   :align-items "center" :gap "10px"}
+                            ;; a phone: across the top, wrapping, smaller
+                            @components/narrow?
+                            (assoc :top "0" :width "94vw" :box-sizing "border-box"
+                                   :border-radius "0 0 22px 22px" :padding "10px 14px 12px"
+                                   :font-size "15px" :gap "6px"))}
              ;; Top line: player name + context + summary
-             [:div {:style {:white-space "nowrap"}}
+             [:div {:style {:white-space (if @components/narrow? "normal" "nowrap")}}
               [:span {:style {:color cp-fg :font-weight "bold" :font-size "24px"}} cp-name]
               (when action-type
                 [:span {:style {:color cp-fg :opacity 0.72 :margin-left "10px" :font-size "20px"}}

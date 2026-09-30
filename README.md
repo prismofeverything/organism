@@ -30,7 +30,7 @@ Then run two processes in parallel:
 
 1. **ClojureScript build (hot-reload):**
 
-        npx shadow-cljs watch organism journey oroboros eridu future universe
+        npx shadow-cljs watch organism journey oroboros eridu future universe distinctions
 
 2. **Clojure server:**
 
@@ -40,7 +40,7 @@ The server listens on `http://localhost:3000` and starts an nREPL on `7000`. Sha
 
 ## Production build
 
-    npx shadow-cljs release organism journey oroboros eridu future universe
+    npx shadow-cljs release organism journey oroboros eridu future universe distinctions
     lein uberjar
 
 The uberjar at `target/uberjar/organism.jar` includes the release JS bundle.

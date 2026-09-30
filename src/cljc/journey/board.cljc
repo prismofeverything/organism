@@ -1193,9 +1193,10 @@
    opts (optional map):
      :pan-x :pan-y  — board pan offset in screen pixels (default 0)
      :zoom          — board zoom factor (default 1.0)
-     :on-bg-mouse-down — handler for mouse-down on the background (for panning)"
+     :on-bg-mouse-down — handler for mouse-down on the background (for panning)
+     :on-bg-touch-start — the same for a finger (touch devices)"
   [state pos-highlights on-hex-click choice-buttons
-   & [{:keys [pan-x pan-y zoom on-bg-mouse-down fly-highlights chosen-pos active-player
+   & [{:keys [pan-x pan-y zoom on-bg-mouse-down on-bg-touch-start fly-highlights chosen-pos active-player
               conv-groups conv-sundivers pending-convert cipher-highlights cipher-on-click
               cipher-on-beacon-hover cipher-hover
               cipher-queue-color landing-revealed on-habitat-click habitat-player
@@ -1260,10 +1261,12 @@
 
      ;; ── Background rect for pan interaction (sits behind board tiles)
      (when on-bg-mouse-down
-       [:rect {:x 0 :y 0 :width vw :height vh
-               :fill "transparent"
-               :on-mouse-down on-bg-mouse-down
-               :style {:cursor "grab"}}])
+       [:rect (cond-> {:x 0 :y 0 :width vw :height vh
+                       :fill "transparent"
+                       :on-mouse-down on-bg-mouse-down
+                       :style {:cursor "grab"}}
+                ;; a finger, on a phone or tablet: never fired by a mouse
+                on-bg-touch-start (assoc :on-touch-start on-bg-touch-start))])
 
      ;; ── Board (hex tiles + pieces) — pan/zoom applied here only
      ;; CSS transform so the transition property animates it smoothly

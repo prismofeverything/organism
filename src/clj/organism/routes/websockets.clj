@@ -193,6 +193,11 @@
                       :message (str (pr-str game-key) " will not work as a game name: "
                                     problem)}))
     (let [invocation (assoc invocation :game-type "organism")]
+      ;; to the journal, where prod keeps it: what a lobby was set to, so a
+      ;; setting that goes missing on the way to a game can be traced
+      (println "lobby settings" (pr-str game-key) "by" player
+               "players" (:player-count invocation) "rings" (:ring-count invocation)
+               "mutations" (pr-str (keys (:mutations invocation))))
       ;; an entry always carries its key, even one this message creates
       (swap!
        games
@@ -311,7 +316,9 @@
       (log/info "CREATE for a game that has begun; sending the page to it" game-key)
       ;; the create page goes to the play page on this, which loads the real game
       (send! channel {:type "initialize"}))
-    (begin-game! db game-key (lobby-creator db game-key player))))
+    (do (println "CREATE requested" (pr-str game-key) "by" player "with mutations"
+                 (pr-str (keys (get-in @games [:games game-key :invocation :mutations]))))
+        (begin-game! db game-key (lobby-creator db game-key player)))))
 
 (defn ensure-open-game!
   "The registry entry for an open lobby, read out of the database if no tab has

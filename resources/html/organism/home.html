@@ -67,6 +67,15 @@
       .nav-link.player-link:hover {
         color: #cef;
       }
+      /* a phone: the cover above, the menu beneath it, instead of side by
+         side. Only below this width -- the desktop page is untouched. */
+      @media (max-width: 700px) {
+        .home-layout { flex-direction: column; height: auto; }
+        .cover-panel { flex: none; justify-content: center; padding: 1.5rem 1rem 0; }
+        .cover-link img { height: auto; width: 100%; max-width: 420px; max-height: 55vh; }
+        .cover-link svg { height: 32vh !important; }
+        .nav-panel { width: auto; min-width: 0; padding: 1rem 1.5rem 2rem; }
+      }
     </style>
   </head>
   <body>

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html style="background-color:#1c1b20">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DISTINCTIONS</title>
+  </head>
+  <body>
+    <div id="distinctions"></div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{player|js}};
+      var playKey = {{play|js}};
+    </script>
+    {% script "/js/distinctions.js" %}
+  </body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html style="background-color:#1c1b20">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DISTINCTIONS</title>
+    {% style "/css/screen.css" %}
+    <style>
+      body { background:#1c1b20; color:#e8e4da; font-family: monospace; margin:0; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 72px 24px; }
+      h1 { color:#e8e4da; letter-spacing: 8px; font-size: 42px; margin:0 0 8px 0; }
+      .sub { color:#8a8690; margin-bottom: 40px; }
+      a.nav { display:inline-block; color:#1c1b20; background:#e8e4da;
+              padding:10px 22px; border-radius:6px; text-decoration:none;
+              margin-right:10px; margin-bottom:10px; }
+      a.alt { background:#34323a; color:#e8e4da; }
+      p { line-height: 1.6; color:#c4c0b8; }
+      img { width:100%; border-radius:8px; margin: 12px 0 28px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>DISTINCTIONS</h1>
+      <div class="sub">six distinctions, two ways each, sixty-four cards</div>
+
+      <a href="/distinctions/key.svg" target="_blank"><img src="/distinctions/key.svg" alt="the deck"></a>
+
+      <p>Everyone is dealt eight cards and one card is turned up to start the
+      pile. On your turn take the pile's top card or draw from the deck, then
+      throw one card onto the pile.</p>
+
+      <p>You win the moment your hand is two teams of four: one team agrees on
+      three distinctions, the other on the other three, so between them your
+      hand covers all six. Play against bots, other people, or alone against
+      the turn count.</p>
+
+      <div style="margin-top:36px">
+        {% if session-player %}
+        <a class="nav" href="/distinctions/create">new game</a>
+        <a class="nav alt" href="/distinctions/play">your games</a>
+        {% else %}
+        <a class="nav" href="/login?redirect=/distinctions/create">sign in to play</a>
+        {% endif %}
+        <a class="nav alt" href="/distinctions/observe">watch</a>
+      </div>
+    </div>
+  </body>
+</html>

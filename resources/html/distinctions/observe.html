@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html style="background-color:#1c1b20">
+  <head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DISTINCTIONS - GAMES</title>
+  </head>
+  <body>
+    <div id="distinctions"></div>
+
+    {% style "/assets/bulma/css/bulma.min.css" %}
+    {% style "/css/screen.css" %}
+
+    <script type="text/javascript">
+      var csrfToken = {{csrf-token|js}};
+      var playerKey = {{session-player|js}};
+      var playKey = "";
+      var isObserve = true;
+      var observeGames = {{observe-games|js}};
+    </script>
+    {% script "/js/distinctions.js" %}
+  </body>
+</html>

@@ -295,11 +295,11 @@
       (let [^js m (piece-mesh (get geometry (.toUpperCase (name type)))
                               (material view (get player-colors (:player element) "#888"))
                               0 1 0 piece-scale turn)]
-        (set! (.-userData m) #js {:role "piece"})
+        (set! (.-userData m) #js {:role "piece" :space space})
         (.add group m)))
     (dotimes [k (min shown (if type (:food element 0) free-food))]
       (let [^js m (piece-mesh (get geometry "FOOD") food-mat 0 (food-height meta type k) 0 food-scale turn)]
-        (set! (.-userData m) #js {:role "food" :index k})
+        (set! (.-userData m) #js {:role "food" :index k :space space})
         (.add group m)))
     group))
 
@@ -837,8 +837,9 @@
     (.set (.-position disc) x (+ y centre) z)
     (.set (.-scale disc) size size 1)
     (set! (.-renderOrder disc) 2)
-    (.add layer disc)
-    (.add layer m)
+    (let [g (THREE/Group.)]
+      (.add g disc) (.add g m)
+      (.add layer g))
     {:pick disc :looks [(.-material disc)] :base [0.9] :swell [disc size]}))
 
 (def ^:private heat-ms 180)
@@ -900,10 +901,15 @@
       (set! (.-intensity light) 0)
       (set! (.. light -userData -tween) nil)
       (if-let [^js glow (get glows i)]
-        (let [at (.getWorldPosition glow (THREE/Vector3.))]
+        (let [at (.getWorldPosition glow (THREE/Vector3.))
+              heat (or (.. glow -userData -heat) 0)]
           (.copy (.-position light) at)
           (.copy (.-color light) (.. glow -material -color))
           (set! (.. glow -userData -light) light)
+          ;; a glow carried over from the last position brings its light up
+          ;; on this bank as the other bank's goes down
+          (when (pos? heat)
+            (tween! view light 0 (* heat glow-light) heat-ms #(set! (.-intensity light) %)))
           (.set (.-position spot) (.-x at) (+ (.-y at) spot-height) (.-z at))
           (.set (.. spot -target -position) (.-x at) 0 (.-z at))
           (.copy (.-color spot) (.. glow -material -color))
@@ -926,35 +932,103 @@
                   gain (some-> m .-uniforms .-uGain)
                   now (if gain (.-value gain) (.-opacity m))
                   apply! (if gain #(set! (.-value gain) %) #(set! (.-opacity m) %))]]
-      (when (zero? to) (apply! now))
-      (when (= 1 to) (apply! 0))
-      (tween! view m (if (= 1 to) 0 now) (* to base) heat-ms apply!))
+      ;; one handed over from the last position carries on from where it is
+      (let [from (if (and (= 1 to) (not (.. m -userData -handoff))) 0 now)]
+        (set! (.. m -userData -handoff) false)
+        (apply! from)
+        (tween! view m from (* to base) heat-ms apply!)))
     (when done (animate! view heat-ms (fn [_]) done true))))
 
+(defn- glow-key
+  "What a glow is on, as it lasts from one position to the next: the piece,
+   or the kth food, on a space -- whether or not the mesh drawing it is the
+   same one."
+  [^js mesh]
+  (let [d (.-userData mesh)] [(.-space d) (.-role d) (.-index d)]))
+
+(defn- in-scene? [view ^js o]
+  (let [scene (:scene @view)]
+    (loop [o o] (cond (nil? o) false (identical? o scene) true :else (recur (.-parent o))))))
+
+(defn- retire-glow!
+  "Ease a glow off its piece, then give the piece its own material back."
+  [view [^js mesh original ^js copy ^js shell]]
+  (let [from (or (some-> shell .-userData .-heat) 0)
+        finish (fn []
+                 (when-let [p (some-> shell .-parent)] (.remove p shell))
+                 (when (identical? (.-material mesh) copy)
+                   (set! (.-material mesh) original)
+                   (set! (.. mesh -userData -original) nil))
+                 (.dispose copy))]
+    (when shell (set! (.. shell -userData -light) nil))
+    (if (and (pos? from) (in-scene? view mesh))
+      (tween! view (or shell copy) from 0 (* heat-ms from) #(heat! shell copy %) finish)
+      (finish))))
+
+(defn- layer-key [^js root] (some-> root .-userData .-key))
+
 (defn- clear-targets!
-  "Take the last position's targets away -- fading, not vanishing: glows
-   ease off their pieces, and what stood in the scene dims out as the next
-   position's comes up."
+  "Set the last position's targets aside to hand over. Whatever the next
+   position shows again -- a glow on the same piece, fire on the same space --
+   carries on from where it is instead of going out and coming back; the
+   rest fades once the next position is drawn (see retire-targets!)."
   [view]
-  (let [{:keys [target-layer lit scene]} @view]
-    (doseq [[^js mesh original ^js copy ^js shell] lit]
-      (let [from (or (some-> shell .-userData .-heat) 0)
-            finish (fn []
-                     (when-let [p (some-> shell .-parent)] (.remove p shell))
-                     (when (identical? (.-material mesh) copy)
-                       (set! (.-material mesh) original)
-                       (set! (.. mesh -userData -original) nil))
-                     (.dispose copy))]
-        (when shell (set! (.. shell -userData -light) nil))
-        (if (pos? from)
-          (tween! view (or shell copy) from 0 (* heat-ms from) #(heat! shell copy %) finish)
-          (finish))))
-    (when (and target-layer scene (pos? (.-length (.-children target-layer))))
-      (let [fading (THREE/Group.)]
-        (doseq [c (vec (array-seq (.-children target-layer)))] (.add fading c))
-        (.add scene fading)
-        (fade-layer! view fading 0 #(.remove scene fading))))
-    (swap! view assoc :shells [] :lit [] :pickables [] :plasmas [] :hover nil)))
+  (let [{:keys [target-layer lit scene]} @view
+        by-key (group-by (fn [[^js mesh]] (glow-key mesh)) lit)
+        ;; one glow per piece is handed over; any other -- an old mesh kept in
+        ;; step with its replacement -- eases out
+        _ (doseq [entries (vals by-key) entry (butlast entries)] (retire-glow! view entry))
+        old-lit (into {} (for [[k entries] by-key] [k (last entries)]))
+        fading (THREE/Group.)]
+    (when (and target-layer scene)
+      (doseq [c (vec (array-seq (.-children target-layer)))] (.add fading c))
+      (.add scene fading))
+    (swap! view assoc :shells [] :lit [] :pickables [] :plasmas [] :hover nil
+           :handover {:lit old-lit
+                      :layer (into {} (for [^js c (array-seq (.-children fading))
+                                            :let [k (layer-key c)] :when k]
+                                        [k c]))
+                      :fading fading})))
+
+(defn- retire-targets!
+  "Fade out what the last position showed and this one does not."
+  [view]
+  (let [{:keys [lit fading]} (:handover @view)
+        scene (:scene @view)]
+    (doseq [entry (vals lit)] (retire-glow! view entry))
+    (when fading
+      (if (pos? (.-length (.-children fading)))
+        (fade-layer! view fading 0 #(.remove scene fading))
+        (.remove scene fading)))
+    (swap! view dissoc :handover)))
+
+(defn- materials-of [^js root]
+  (let [ms (atom [])]
+    (.traverse root (fn [^js o] (when-let [m (.-material o)] (swap! ms conj m))))
+    @ms))
+
+(defn- level-of [^js m]
+  (if-let [u (some-> m .-uniforms .-uGain)] (.-value u) (.-opacity m)))
+
+(defn- adopt!
+  "Key a thing just drawn in the target layer. If the last position had the
+   same thing, the new one takes over its brightness and the old one goes,
+   so it neither blinks out nor fades in again."
+  [view key look]
+  (when-let [^js pick (:pick look)]
+    (let [layer (:target-layer @view)
+          root (if (identical? (.-parent pick) layer) pick (.-parent pick))]
+      (set! (.. root -userData -key) key)
+      (doseq [^js m (materials-of root)]
+        (set! (.. m -userData -base) (level-of m)))
+      (when-let [^js old (get-in @view [:handover :layer key])]
+        (doseq [[^js n ^js o] (map vector (materials-of root) (materials-of old))]
+          (let [v (level-of o)]
+            (if-let [u (some-> n .-uniforms .-uGain)] (set! (.-value u) v) (set! (.-opacity n) v))
+            (set! (.. n -userData -handoff) true)))
+        (when-let [p (.-parent old)] (.remove p old))
+        (swap! view update-in [:handover :layer] dissoc key))))
+  look)
 
 (defn- pay-level
   "Paying for a growth: the food on each grower that can still give, and what
@@ -1003,14 +1077,41 @@
                   (when-not replaying? (swap! pickables conj [(:pick look) target]))
                   (swap! visuals conj [target look])))
         lit (atom [])
-        outline (fn [^js mesh tone & [hot]]
+        this-render (atom {})
+        ;; a glow on a piece: carried on from the last position where it had
+        ;; one -- on the same mesh, or a new mesh drawing the same piece, the
+        ;; old one kept in step until it is gone -- and eased to `heat`: on,
+        ;; off, or :leave for whatever drives it (the victory swell)
+        outline (fn [^js mesh tone & [heat]]
                   (when mesh
-                    (let [^js sh (shell! mesh tone)
-                          [_ _ glow :as l] (light-up! mesh tone)]
-                      (swap! shells conj sh)
-                      (swap! lit conj (conj l sh))
-                      (when hot (hot! view sh glow true))
-                      {:pick mesh :shell sh :glow glow})))
+                    (or (let [look (get @this-render (.-id mesh))]
+                          (when (and look (true? heat)) (hot! view (:shell look) (:glow look) true))
+                          look)
+                        (let [k (glow-key mesh)
+                              [^js old-mesh _ ^js old-copy ^js old-shell :as old]
+                              (get-in @view [:handover :lit k])
+                              colour (get tone-colors tone "#ffffff")
+                              [sh glow entry]
+                              (if (and old (identical? old-mesh mesh))
+                                (do (.set (.-emissive old-copy) colour)
+                                    (.set (.. old-shell -material -color) colour)
+                                    [old-shell old-copy old])
+                                (let [^js sh (shell! mesh tone)
+                                      [_ _ glow :as l] (light-up! mesh tone)]
+                                  (when old
+                                    (heat! sh glow (or (.. old-shell -userData -heat) 0))
+                                    (if (in-scene? view old-mesh)
+                                      (do (swap! lit conj old)
+                                          (when-not (= heat :leave) (hot! view old-shell old-copy (true? heat))))
+                                      (retire-glow! view old)))
+                                  [sh glow (conj l sh)]))]
+                          (when old (swap! view update-in [:handover :lit] dissoc k))
+                          (swap! shells conj sh)
+                          (swap! lit conj entry)
+                          (when-not (= heat :leave) (hot! view sh glow (true? heat)))
+                          (let [look {:pick mesh :shell sh :glow glow}]
+                            (swap! this-render assoc (.-id mesh) look)
+                            look)))))
         ;; the camera's right, along the table: types to pick line up across
         ;; the view rather than into it
         right (let [e (.-elements (.-matrixWorld camera))
@@ -1035,8 +1136,9 @@
               :let [[x z] (get spaces space)]
               ;; a ghost stands for what is not there yet
               :when (and x (not (get-in @view [:last-state :elements space])))]
-        (ghost! view target-layer assets type me-color [x 1 z]
-                (get-in assets [:meta :piece_scale] 0.9) :chosen 0.5))
+        (adopt! view [:placed space type]
+                (ghost! view target-layer assets type me-color [x 1 z]
+                        (get-in assets [:meta :piece_scale] 0.9) :chosen 0.5)))
       (doseq [{:keys [kind space index]} stack]
         (case kind
           :piece (do (some-> (piece-at view space) (outline :chosen true))
@@ -1045,8 +1147,9 @@
                        (some-> (piece-at view to) (outline :chosen true))))
           :food (some-> (piece-at view space index) (outline :chosen true))
           :space (when-not (contains? placed space)
-                   (let [{:keys [^js plasma]} (plasma! target-layer (get spaces space) mm nil)]
+                   (let [{:keys [^js plasma] :as look} (plasma! target-layer (get spaces space) mm nil)]
                      (set! (.. plasma -uGain -value) plasma-gain-hover)
+                     (adopt! view [:plasma space nil] look)
                      (swap! plasmas conj plasma)))
           nil)))
     (doseq [{:keys [kind space index type tone] :as t} current
@@ -1055,13 +1158,18 @@
              (case kind
                :piece (outline (piece-at view space) tone)
                :food (outline (piece-at view space index) tone)
-               :space (plasma! target-layer (get spaces space) mm (when (= tone :act) me-color))
-               :option (option! target-layer assets type me-color (option-slot current t) 0.55 tone mm)
+               :space (let [colour (when (= tone :act) me-color)]
+                        (adopt! view [:plasma space colour]
+                                (plasma! target-layer (get spaces space) mm colour)))
+               :option (adopt! view [:option space type]
+                               (option! target-layer assets type me-color (option-slot current t) 0.55 tone mm))
                :ghost (if type
                         (let [[x z] (get spaces space)]
-                          (ghost! view target-layer assets type me-color [x 1 z]
-                                  (get-in assets [:meta :piece_scale] 0.9) tone 0.45))
-                        (plasma! target-layer (get spaces space) mm (get tone-colors :pending)))
+                          (adopt! view [:ghost space type]
+                                  (ghost! view target-layer assets type me-color [x 1 z]
+                                          (get-in assets [:meta :piece_scale] 0.9) tone 0.45)))
+                        (adopt! view [:plasma space :pending]
+                                (plasma! target-layer (get spaces space) mm (get tone-colors :pending))))
                nil)))
     ;; the game is won: every space the winner holds burns, and every piece
     ;; of theirs glows -- swelling up, then breathing (see victory-frame!)
@@ -1070,7 +1178,7 @@
       (let [lit (vec (for [[space el] (get-in @view [:last-state :elements])
                            :when (and (= winner (:player el)) (contains? spaces space))]
                        (let [{:keys [^js plasma column]} (plasma! target-layer (get spaces space) mm nil)
-                             {:keys [shell glow]} (some-> (piece-at view space) (outline :chosen))]
+                             {:keys [shell glow]} (some-> (piece-at view space) (outline :chosen :leave))]
                          (swap! plasmas conj plasma)
                          {:plasma plasma :column column :shell shell :glow glow})))]
         (swap! view assoc :victory {:start (js/performance.now) :lit lit})
@@ -1080,6 +1188,7 @@
              :plasmas (into @plasmas (keep (comp :plasma second) @visuals)))
       (light-glows! view glows))
     (fade-layer! view target-layer 1)
+    (retire-targets! view)
     (plasma-loop! view)
     (request-render! view)))
 
@@ -1319,6 +1428,7 @@
                             :let [p (THREE/Vector3.) sc (THREE/Vector3.)]]
                         (do (.getWorldPosition sh p) (.getWorldScale sh sc)
                             {:type (.-type sh) :parent (some-> sh .-parent .-userData .-role)
+                             :key (some-> sh .-parent glow-key pr-str)
                              :pos [(.-x p) (.-y p) (.-z p)] :scale [(.-x sc) (.-y sc)]
                              :opacity (.. sh -material -opacity) :visible (.-visible sh)}))))
                    :targets

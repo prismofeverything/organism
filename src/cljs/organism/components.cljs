@@ -24,6 +24,24 @@
 (defonce active-suggestion (r/atom nil))    ;; which slot-id has the dropdown open
 (defonce suggestion-highlight (r/atom -1))  ;; keyboard-highlighted row index
 
+;; ── Narrow screens ──────────────────────────────────────────────────────────
+;;
+;; Whether the page is on a phone-width screen. Pages lay themselves out for a
+;; phone only when this is true, and otherwise exactly as they always have:
+;; the desktop layout is not restyled for mobile, it is the branch not taken.
+;; Kept in step with the browser's own media query, so rotating a phone or
+;; narrowing a window switches over.
+
+(def narrow-query "(max-width: 700px)")
+
+(defonce narrow?
+  (let [a (r/atom false)]
+    (when (exists? js/window)
+      (when-let [mq (some-> js/window (.matchMedia narrow-query))]
+        (reset! a (.-matches mq))
+        (.addEventListener mq "change" (fn [e] (reset! a (.-matches e))))))
+    a))
+
 ;; ── WebSocket helpers ───────────────────────────────────────────────────────
 
 (defn connect-create-ws!
@@ -161,7 +179,10 @@
                :border-color (or color "#333")
                :border "3px solid"
                :font-size "1.5em" :letter-spacing "6px"
-               :margin "2px 0px" :width "366px" :padding "10px 30px"}
+               :margin "2px 0px" :width "366px" :padding "10px 30px"
+               ;; a phone: as wide as there is room for
+               :box-sizing (when @narrow? "border-box")
+               :max-width (when @narrow? "100%")}
        :on-focus (fn [_]
                    (when on-focus (on-focus))
                    (when search?
@@ -202,7 +223,8 @@
      (when (and (= @active-suggestion slot-id) (seq suggestions))
        [:div {:style {:position "absolute" :top "100%" :left "30px" :z-index 100
                       :background "#222" :border "1px solid #555" :border-radius "8px"
-                      :max-height "240px" :overflow-y "auto" :width "366px"}}
+                      :max-height "240px" :overflow-y "auto" :width "366px"
+                      :max-width (when @narrow? "calc(100% - 30px)")}}
         (for [[i suggestion] (map-indexed vector suggestions)
               :let [highlighted? (= i hl)
                     sname (:name suggestion)
@@ -803,9 +825,11 @@
    :background      — page background (default \"#04040E\")
    :options         — optional checkboxes, [{:key :label :description}], sent
                       as {:options {key true|false}} with the rest
+   :numbers         — optional number fields, [{:key :label :min :max :default
+                      :description}], sent as {:numbers {key n}}
    :aside           — optional hiccup shown under the title"
   [{:keys [game-type title current-player min-players max-players
-           post-url play-url-prefix accent slot-bg background options aside]
+           post-url play-url-prefix accent slot-bg background options numbers aside]
     :or   {title "New Game" min-players 1 max-players 5
            accent "#7AAAE0" slot-bg "#10182A" background "#04040E"}}]
   (let [post-url        (or post-url (str "/" game-type "/create"))
@@ -816,7 +840,8 @@
                                       {:name "" :bot? true}]]
                             (vec (take n (concat base (repeat {:name "" :bot? false}))))))
         error     (r/atom nil)
-        chosen    (r/atom (into {} (map (fn [o] [(:key o) false]) options)))]
+        chosen    (r/atom (into {} (map (fn [o] [(:key o) false]) options)))
+        numbered  (r/atom (into {} (map (fn [o] [(:key o) (:default o)]) numbers)))]
     (fn []
       (let [ss          @slots
             input-style {:background "#111" :color "#ccc"
@@ -903,6 +928,21 @@
                [:span {:style {:color accent}} label]
                (when description
                  [:span {:style {:color "#556677" :margin-left "10px"}} description])])]))
+         ;; Numbers
+         (when (seq numbers)
+           (let [picked @numbered]
+             [:div {:style {:margin-bottom "20px"}}
+              (for [{:keys [key label description] :as o} numbers]
+                ^{:key key}
+                [:label {:style {:display "block" :margin-bottom "8px"}}
+                 [:span {:style {:color accent :margin-right "10px"}} label]
+                 [:input {:type "number" :min (:min o) :max (:max o)
+                          :value (get picked key)
+                          :on-change #(swap! numbered assoc key
+                                             (js/parseInt (-> % .-target .-value)))
+                          :style (merge input-style {:width "70px" :padding "4px 8px"})}]
+                 (when description
+                   [:span {:style {:color "#556677" :margin-left "10px"}} description])])]))
          ;; Error
          (when @error
            [:div {:style {:color "#CC4444" :margin-bottom "12px"}} @error])
@@ -924,7 +964,8 @@
                  (do (reset! error nil)
                      (ajax-core/POST post-url
                        {:params          (cond-> {:play-name pname :players players :bots bots}
-                                           (seq options) (assoc :options @chosen))
+                                           (seq options) (assoc :options @chosen)
+                                           (seq numbers) (assoc :numbers @numbered))
                         :format          :transit
                         :response-format :transit
                         :handler         (fn [resp]

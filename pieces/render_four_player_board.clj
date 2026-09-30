@@ -65,17 +65,37 @@
                   nil)))
             (dotimes [i n]
               (aset xs i (/ (aget ax i) 4)) (aset ys i (/ (aget ay i) 4)))))
+        ;; mirror across the axis through B0: ring k, space i -> -i
+        ^ints mirror (int-array (map (fn [[color i]]
+                                       (let [k (- (int (first color)) 65)]
+                                         (if (zero? k) c
+                                             (get idx [color (mod (- i) (* symmetry k))] (idx [color i])))))
+                                     names))
+        [ux uy] (let [b0 (idx ["B" 0]) d (Math/hypot (aget xs b0) (aget ys b0))]
+                  [(/ (aget xs b0) d) (/ (aget ys b0) d)])
+        mirror!
+        (fn []
+          (let [^doubles mx (double-array n) ^doubles my (double-array n)]
+            (dotimes [i n]
+              (let [j (aget mirror i) x (aget xs j) y (aget ys j)
+                    dot (+ (* x ux) (* y uy))]
+                (aset mx i (/ (+ (aget xs i) (- (* 2 dot ux) x)) 2))
+                (aset my i (/ (+ (aget ys i) (- (* 2 dot uy) y)) 2))))
+            (System/arraycopy mx 0 xs 0 n) (System/arraycopy my 0 ys 0 n)))
+        ;; every pair moves at once (Jacobi), so update order can't skew the layout
         push-apart!
         (fn []
-          (dotimes [i n]
-            (dotimes [j n]
-              (when (< i j)
-                (let [dx (- (aget xs i) (aget xs j)) dy (- (aget ys i) (aget ys j))
-                      d (Math/hypot dx dy) short (- (* min spacing) d)]
-                  (when (pos? short)
-                    (let [m (/ (* 0.25 short) d)]
-                      (aset xs i (+ (aget xs i) (* m dx))) (aset ys i (+ (aget ys i) (* m dy)))
-                      (aset xs j (- (aget xs j) (* m dx))) (aset ys j (- (aget ys j) (* m dy)))))))))
+          (let [^doubles mx (double-array n) ^doubles my (double-array n)]
+            (dotimes [i n]
+              (dotimes [j n]
+                (when (not= i j)
+                  (let [dx (- (aget xs i) (aget xs j)) dy (- (aget ys i) (aget ys j))
+                        d (Math/hypot dx dy) short (- (* min spacing) d)]
+                    (when (pos? short)
+                      (let [m (/ (* 0.25 short) d)]
+                        (aset mx i (+ (aget mx i) (* m dx))) (aset my i (+ (aget my i) (* m dy)))))))))
+            (dotimes [i n]
+              (aset xs i (+ (aget xs i) (aget mx i))) (aset ys i (+ (aget ys i) (aget my i)))))
           (aset xs c 0.0) (aset ys c 0.0))]
     (dotimes [it (+ iterations settle)]
       (when (< it iterations)
@@ -103,17 +123,44 @@
             (aset xs i (+ (aget xs i) (* step (aget fx i))))
             (aset ys i (+ (aget ys i) (* step (aget fy i)))))))
       (dotimes [_ 3] (push-apart!))
-      (symmetrize!))
+      (symmetrize!)
+      (mirror!))
     {:spacing spacing
      :positions (into {} (map (fn [s] [s [(aget xs (idx s)) (aget ys (idx s))]]) names))}))
 
+(def oval-gap
+  "Space left between an oval and its same-ring neighbors, in space radii."
+  0.15)
+
+(defn oval
+  "A space drawn as an oval stretched along its ring, toward its two same-ring
+   neighbors, so the ring reads as one connected band. Rings have fewer spaces
+   than a hex board, so same-ring neighbors sit farther apart than neighbors
+   across rings; without the stretch they look unconnected."
+  [radius [x y] neighbors color]
+  (if (< (count neighbors) 2)
+    (board/circle [x y radius color])
+    (let [[[ax ay] [bx by]] neighbors
+          reach (- (/ (min (Math/hypot (- ax x) (- ay y)) (Math/hypot (- bx x) (- by y))) 2)
+                   (* oval-gap radius))
+          angle (Math/toDegrees (Math/atan2 (- by ay) (- bx ax)))]
+      [:ellipse {:cx x :cy y :rx (max reach radius) :ry radius :fill color
+                 :transform (str "rotate(" angle " " x " " y ")")}])))
+
 (defn relaxed-board
-  "Rebuild the board's layout around relaxed positions: same space circles,
-   and one gradient disc per ring sized to that ring's new radius."
+  "Rebuild the board's layout around relaxed positions: oval spaces, and one
+   gradient disc per ring sized to that ring's new radius."
   [b g]
   (let [{:keys [radius buffer colors]} b
         field (* radius buffer (count colors))
         {:keys [spacing positions]} (relax (:locations b) (:adjacencies g) ["A" 0])
+        ;; turn the board so its four axes run straight up/down and across
+        [bx by] (get positions ["B" 0])
+        t (- (/ Math/PI -2) (Math/atan2 by bx))
+        positions (into {} (map (fn [[s [x y]]]
+                                  [s [(- (* x (Math/cos t)) (* y (Math/sin t)))
+                                      (+ (* x (Math/sin t)) (* y (Math/cos t)))]])
+                                positions))
         color-of (into {} colors)
         ring-r (into {} (map (fn [[k ps]] [k (/ (reduce + (map (fn [[_ p]] (Math/hypot (first p) (second p))) ps)) (count ps))])
                              (group-by (comp first first) positions)))
@@ -121,7 +168,11 @@
         ;; fit the outer ring where the square board's corners reached
         scale (/ (- field radius (* 0.9 radius buffer)) (+ outer radius))
         at (fn [[x y]] [(+ field (* scale x)) (+ field (* scale y))])
-        locations (into {} (map (fn [[s p]] [s (conj (at p) radius (color-of (first s)))]) positions))
+        locations (into {} (map (fn [[s p]] [s (at p)]) positions))
+        spaces (for [[s p] locations]
+                 (oval radius p
+                       (map locations (filter #(= (first %) (first s)) (get-in g [:adjacencies s])))
+                       (color-of (first s))))
         discs (for [[k _] (reverse (rest colors))]
                 (board/circle [field field (* scale (+ (ring-r k) (* 0.55 spacing))) (str "url(#" k ")")]))
         background [:g
@@ -133,9 +184,8 @@
                     (into [:g (board/make-circle (* field 0.93) "#111" [field field])] discs)]]
     (println "relaxed: spacing" spacing "scale" scale)
     (assoc b
-           :locations (into {} (map (fn [[s p]] [s (vec (take 2 p))]) locations))
-           :layout (into [:svg {:width (* 2 field) :height (* 2 field)} background]
-                         (map board/circle (vals locations))))))
+           :locations locations
+           :layout (into [:svg {:width (* 2 field) :height (* 2 field)} background] spaces))))
 
 (defn render [notches? file]
   (let [radius (board/ring-radius (count rings))

@@ -2433,7 +2433,13 @@
                                           transitions progress))]
     (cond-> svg
       anim-overlay (conj anim-overlay)
-      (not-empty highlights) (conj highlights))))
+      (not-empty highlights) (conj highlights)
+      ;; a phone: drawn to the screen's width rather than its own -- once
+      ;; there is a board, which there is not before the game arrives
+      (and @components/narrow? (vector? svg) (map? (second svg)))
+      (update 1 (fn [{:keys [width height] :as attrs}]
+                  (assoc attrs :viewBox (str "0 0 " width " " height)
+                         :width "100%" :height nil))))))
 
 (defn generate-game-state
   [{:keys [ring-count player-count players colors player-captures mutations] :as invocation}]
@@ -3543,7 +3549,9 @@
                              :invocation @board-invocation})
                            (ws/send-transit-message!
                             {:type "trigger-creation"}))]
-            (if @ws/ws-channel
+            ;; only a socket that is open can carry this; one still connecting,
+            ;; or left over from a server restart, would drop it without a word
+            (if (some-> ^js @ws/ws-channel .-readyState (= 1))
               (trigger!)
               (connect-create-ws! game-key trigger!)))
           (dom/redirect!
@@ -3570,7 +3578,9 @@
       :letter-spacing "1px"
       :margin "2px 0px"
       :width "460px"
-      :padding "10px 30px"}
+      :padding "10px 30px"
+      :box-sizing (when @components/narrow? "border-box")
+      :max-width (when @components/narrow? "100%")}
      ;; :on-blur
      ;; (fn [event]
      ;;   (send-open-game!
@@ -3715,7 +3725,9 @@
         :letter-spacing "6px"
         :margin "2px 0px"
         :width "366px"
-        :padding "10px 30px"}
+        :padding "10px 30px"
+        :box-sizing (when @components/narrow? "border-box")
+        :max-width (when @components/narrow? "100%")}
        :on-change
        (fn [event]
          (reset! create-game-key (-> event .-target .-value)))
@@ -3750,37 +3762,51 @@
         create-color (-> invocation :colors rest first last)
         select-color (-> invocation :colors first last)
         inactive-color (-> invocation :colors last last)]
-    (game-layout
-     [:main
-      (flex-grow "row" 1)
-      [:nav
-       {:style
-        {:width "30%"}}
-       [:div
-        {:style
-         {:margin "20px 20px"}}
-        [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game" create-explanation js/homePath]]
-       [:form
-        {:style
-         {:margin "40px 60px"}}
-        [game-name-input create-color]
-        [player-count-input select-color]
-        [ring-count-input select-color]
-        [description-input invocation select-color inactive-color]
-        [players-input js/playerKey invocation]
-        [:div
-         {:style {:display "flex" :flex-direction "column" :align-items "center" :width "fit-content" :margin "20px 40px"}}
-         [reset-colors-input inactive-color]
-         [create-button create-color inactive-color invocation]]
-        [mutations-select create-color invocation]]]
-      [:article
-       {:style {:flex-grow 1}}
-       [organism-board game board invocation-colors turn choices]]
+    (let [banner [current-player-banner js/playerKey (get player-colors js/playerKey inactive-color) "create game" create-explanation js/homePath]
+          form (fn [margin button-margin]
+                 [:form
+                  {:style
+                   {:margin margin}}
+                  [game-name-input create-color]
+                  [player-count-input select-color]
+                  [ring-count-input select-color]
+                  [description-input invocation select-color inactive-color]
+                  [players-input js/playerKey invocation]
+                  [:div
+                   {:style {:display "flex" :flex-direction "column" :align-items "center" :width "fit-content" :margin button-margin}}
+                   [reset-colors-input inactive-color]
+                   [create-button create-color inactive-color invocation]]
+                  [mutations-select create-color invocation]])
+          preview [organism-board game board invocation-colors turn choices]
+          chat [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state [] nil @chat]]
       (println "INVOCATION" invocation)
-      [:aside
-       {:style
-        {:width "30%"}}
-       [chat-panel description turn-order organism-victory invocation-colors player-colors player-captures mutations state [] nil @chat]]])))
+      (if @components/narrow?
+        ;; a phone: one column -- who is creating, the settings, the board
+        ;; they make, then the chat
+        (game-layout
+         [:main {:style {:display "flex" :flex-direction "column"}}
+          [:div {:style {:margin "12px"}} banner]
+          (form "16px" "20px 0px")
+          [:article {:style {:width "100%"}} preview]
+          [:aside {:style {:width "100%"}} chat]])
+        (game-layout
+         [:main
+          (flex-grow "row" 1)
+          [:nav
+           {:style
+            {:width "30%"}}
+           [:div
+            {:style
+             {:margin "20px 20px"}}
+            banner]
+           (form "40px 60px" "20px 40px")]
+          [:article
+           {:style {:flex-grow 1}}
+           preview]
+          [:aside
+           {:style
+            {:width "30%"}}
+           chat]])))))
 
 (defn play-player-banner
   "Current-player box for the play page. The player name shrinks/wraps to fit
@@ -3956,7 +3982,8 @@
                        :replay replay
                        ;; history is looking: nothing it shows is ever sent
                        :send! (if replay (fn [_]) #(send-state! % true))})
-        [:div {:style {:position "relative" :width "100%" :height "calc(100vh - 40px)"}}
+        [:div {:style {:position "relative" :width "100%"
+                       :height (if @components/narrow? "min(100vw, 70vh)" "calc(100vh - 40px)")}}
          [:div {:ref #(reset! el %) :style {:position "absolute" :inset 0}}]
          [:button {:on-click #(when (and @api @view) ((:reset-view! @api) @view))
                    :title "back to the view from above the table"
@@ -4097,21 +4124,32 @@
         ;; went back to round 0 that way. No choices, nothing to click.
         [turn choices] (if cursor [:history {}] [turn choices])
         {:keys [player-colors]} board]
-    (game-layout
-     [:main
-      (flex-grow "row" 1)
-      [:aside
-       {:style {:width "34%" :min-width "340px"}}
-       [game-info-panel game board turn choices history cursor
-        description turn-order organism-victory invocation-colors player-colors
-        player-captures mutations state @chat]]
-      [:article
-       {:style {:flex-grow 1 :position "relative"}}
-       [view-toggle]
-       (if @three-d?
-         [board-3d game board invocation invocation-colors turn choices
-          (when cursor (history-replay game history cursor))]
-         [organism-board game board invocation-colors turn choices])]])))
+    (let [panel [game-info-panel game board turn choices history cursor
+                 description turn-order organism-victory invocation-colors player-colors
+                 player-captures mutations state @chat]
+          the-board (if @three-d?
+                      [board-3d game board invocation invocation-colors turn choices
+                       (when cursor (history-replay game history cursor))]
+                      [organism-board game board invocation-colors turn choices])]
+      (if @components/narrow?
+        ;; a phone: the board across the whole screen, and everything that
+        ;; sat beside it underneath
+        (game-layout
+         [:main {:style {:display "flex" :flex-direction "column"}}
+          [:article {:style {:position "relative" :width "100%"}}
+           [view-toggle]
+           the-board]
+          [:aside {:style {:width "100%"}} panel]])
+        (game-layout
+         [:main
+          (flex-grow "row" 1)
+          [:aside
+           {:style {:width "34%" :min-width "340px"}}
+           panel]
+          [:article
+           {:style {:flex-grow 1 :position "relative"}}
+           [view-toggle]
+           the-board]])))))
 
 
 (def player-active? components/player-active?)
