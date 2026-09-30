@@ -425,3 +425,46 @@
              :when (and (vector? key) (string? (first key)) (:state v))]
          {:kind (if (get-in state [:elements key]) :piece :space)
           :space key :tone :dest :label (clojure.core/name turn) :send (:state v)})))))
+
+;; ── Replaying history ─────────────────────────────────────────────────────
+
+(defn- same-position? [a b]
+  (and a b (= (select-keys a [:elements :food :player-turn :captures])
+              (select-keys b [:elements :food :player-turn :captures]))))
+
+(defn- taken-path
+  "The chain of targets, top level down, whose choice made `next-state`: a
+   piece, then where it went, then which type, as a player would have
+   clicked them. The position stored after a choice can be a few steps on
+   from it -- the rules take any step with only one way to go by themselves
+   -- so a choice matches if it leads there either way."
+  [game targets next-state]
+  (let [leads? (fn [state]
+                 (and state
+                      (or (same-position? state next-state)
+                          (same-position?
+                           (try (:state (first (choice/find-next-choices (assoc game :state state))))
+                                (catch :default _ nil))
+                           next-state))))]
+    (letfn [(walk [targets]
+              (some (fn [t]
+                      (cond
+                        (leads? (:send t)) [t]
+                        (some #(leads? (:state %)) (get-in t [:pay :variants])) [t]
+                        (seq (:next t)) (when-let [rest (walk (:next t))] (cons t rest))
+                        :else nil))
+                    targets))]
+      (walk targets))))
+
+(defn replay
+  "A position in the history as it was played: what was on offer there, and
+   the choice that was made -- found by what each offered choice leads to,
+   matched against the position that followed. Nothing in it can be chosen.
+   Where the rules took several steps at once there may be no one choice
+   that leads to the next position; then only what was offered shows."
+  [game next-state]
+  (let [[game turn choices] (choice/find-next-choices game)
+        offered (targets game turn choices)]
+    {:turn turn
+     :offered offered
+     :taken (when next-state (vec (taken-path game offered next-state)))}))

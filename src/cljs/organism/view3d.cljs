@@ -306,7 +306,8 @@
 (defn- piece-at
   "The piece mesh standing on a space, or the kth food there."
   [view space & [food-index]]
-  (when-let [^js g (get-in @view [:shown space :group])]
+  ;; or the piece that is on its way from it, mid-move
+  (when-let [^js g (or (get-in @view [:shown space :group]) (get-in @view [:in-flight space]))]
     (some (fn [^js m]
             (let [d (.-userData m)]
               (if food-index
@@ -354,6 +355,7 @@
 
 (def ^:private move-ms 520)
 (def ^:private grow-ms 420)
+(def ^:private drop-ms 260)
 (def ^:private flight-ms 560)
 
 (defn- food-meshes
@@ -400,11 +402,38 @@
                   ;; space's twist on the way, the short way round, rather than
                   ;; snapping to it on landing
                   d (- (space-turn to) (space-turn from))
-                  twist (js/Math.atan2 (js/Math.sin d) (js/Math.cos d))]
+                  twist (js/Math.atan2 (js/Math.sin d) (js/Math.cos d))
+                  ;; food lying where it goes: it rises as the piece comes in,
+                  ;; and drops onto the piece's stack once it is there
+                  lying (old to)
+                  shown-max (:food_shown meta 12)
+                  mover (get-in before [:elements from :type])
+                  held (min shown-max (get-in before [:elements from :food] 0))
+                  taken (and lying (< (get-in state [:food to] 0) (get-in before [:food to] 0)))
+                  tokens (when taken
+                           (vec (map-indexed
+                                 (fn [i ^js m]
+                                   (let [k (+ held i)
+                                         y1 (food-height meta mover (min k (dec shown-max)))]
+                                     (when (>= k shown-max) (set! (.-visible m) false))
+                                     {:m m :y0 (.. m -position -y) :y1 y1 :lift (+ y1 28)}))
+                                 (food-meshes lying))))
+                  land (fn []
+                         (swap! view update :in-flight dissoc from)
+                         (remove! g) (remove! lying) (reveal! (get fresh to)))]
+              (swap! view assoc-in [:in-flight from] g)
               (animate! view move-ms
                         (fn [e] (.set (.-position g) (+ ax (* e (- bx ax))) 0 (+ az (* e (- bz az))))
-                          (set! (.. g -rotation -y) (* e twist)))
-                        (fn [] (remove! g) (reveal! (get fresh to))))))
+                          (set! (.. g -rotation -y) (* e twist))
+                          (doseq [{:keys [^js m y0 lift]} tokens]
+                            (set! (.. m -position -y) (+ y0 (* e (- lift y0))))))
+                        (if (seq tokens)
+                          (fn []
+                            (animate! view drop-ms
+                                      (fn [e] (doseq [{:keys [^js m y1 lift]} tokens]
+                                                (set! (.. m -position -y) (+ lift (* e (- y1 lift))))))
+                                      land))
+                          land))))
 
           :grow
           (when-let [^js g (get fresh to)]
@@ -540,8 +569,10 @@
    light of that colour in it. Returns [mesh original-material lit-material]
    so it can be put back."
   [^js mesh tone]
-  (let [original (.-material mesh)
+  ;; from the piece's own material, even while an earlier glow fades off it
+  (let [original (or (.. mesh -userData -original) (.-material mesh))
         ^js lit (.clone original)]
+    (set! (.. mesh -userData -original) original)
     (.set (.-emissive lit) (get tone-colors tone "#ffffff"))
     (set! (.-emissiveIntensity lit) 0)
     (set! (.-material mesh) lit)
@@ -699,6 +730,26 @@
     (.add layer g)
     {:pick pick :looks [] :base [] :plasma uniforms :column column}))
 
+(declare heat!)
+
+(def ^:private swell-ms 1400)
+(def ^:private breath-hz 0.2)
+(def ^:private breath-depth 0.12)
+
+(defn- victory-frame!
+  "The winner's glow at `now`: swelling up from nothing -- the fire rising
+   off the board as it brightens -- and then breathing, a slow sine a little
+   below full, too slow and too slight to be more than felt."
+  [view now]
+  (when-let [{:keys [start lit]} (:victory @view)]
+    (let [t (- now start)
+          swell (ease (min 1 (/ t swell-ms)))
+          breath (- 1 (* breath-depth (- 0.5 (* 0.5 (js/Math.cos (* 2 js/Math.PI breath-hz (/ t 1000)))))))]
+      (doseq [{:keys [^js plasma ^js column shell glow]} lit]
+        (set! (.. plasma -uGain -value) (* plasma-gain-hover swell (+ 1 (* 0.5 (- breath 1)))))
+        (set! (.. column -scale -y) (+ 0.15 (* 0.85 swell)))
+        (when (or shell glow) (heat! shell glow (* swell breath)))))))
+
 (defn- plasma-loop!
   "Plasma moves, so while any is showing the view draws continuously -- at
    most 30 frames a second, and not at all once none is left."
@@ -707,14 +758,15 @@
     (swap! view assoc :plasma-running true)
     (let [last (atom 0)]
       (letfn [(frame [now]
-                (let [{:keys [visuals renderer scene camera on-frame]} @view
-                      live (keep (comp :plasma second) visuals)]
+                (let [{:keys [plasmas renderer scene camera on-frame]} @view
+                      live plasmas]
                   (if (or (not renderer) (empty? live))
                     (swap! view assoc :plasma-running false)
                     (do
                       (when (> (- now @last) 33)
                         (reset! last now)
                         (doseq [^js u live] (set! (.. u -uTime -value) (/ now 1000)))
+                        (victory-frame! view now)
                         (when-not (:animating @view)
                           (.render renderer scene camera)
                           (when on-frame (on-frame))))
@@ -822,32 +874,87 @@
                      (heat! shell lit (+ from (* t (- to from))))))
                  nil true)))))
 
-(defn- light-glows!
-  "Put a spotlight of the pool over each glow, and a glow light at it, as far
-   as the pools go; the rest go dark."
-  [view glows]
-  (doseq [[i ^js light ^js spot] (map vector (range) (:lights @view) (:spots @view))]
-    (if-let [^js glow (get glows i)]
-      (let [at (.getWorldPosition glow (THREE/Vector3.))]
-        (.copy (.-position light) at)
-        (.copy (.-color light) (.. glow -material -color))
-        (set! (.-intensity light) (if (.. glow -userData -hot) glow-light 0))
-        (set! (.. glow -userData -light) light)
-        (.set (.-position spot) (.-x at) (+ (.-y at) spot-height) (.-z at))
-        (.set (.. spot -target -position) (.-x at) 0 (.-z at))
-        (.copy (.-color spot) (.. glow -material -color))
-        (set! (.-intensity spot) spot-light))
-      (do (set! (.-intensity light) 0)
-          (set! (.-intensity spot) 0)))))
+(defn- tween!
+  "Ease one value of `holder` from `from` to `to` over `ms`, setting it with
+   `apply!`. A newer tween of the same holder takes over from this one."
+  [view ^js holder from to ms apply! & [done]]
+  (let [token (js-obj)]
+    (set! (.. holder -userData -tween) token)
+    (animate! view ms
+              (fn [t] (when (identical? token (.. holder -userData -tween))
+                        (apply! (+ from (* t (- to from))))))
+              done true)))
 
-(defn- clear-targets! [view]
-  (let [{:keys [target-layer shells lit]} @view]
-    (doseq [^js sh shells] (when-let [p (.-parent sh)] (.remove p sh)))
-    (doseq [[^js mesh original ^js copy] lit]
-      (set! (.-material mesh) original)
-      (.dispose copy))
-    (when target-layer (.clear target-layer))
-    (swap! view assoc :shells [] :lit [] :pickables [] :hover nil)))
+(defn- light-glows!
+  "Put a spotlight over each glow, and a glow light at it, from the bank of
+   lights the last position was not using; that bank fades up as the other
+   fades down, so no light ever jumps from one piece to another."
+  [view glows]
+  (let [{:keys [banks bank]} @view
+        fresh (- 1 (or bank 0))
+        {:keys [lights spots]} (nth banks fresh)
+        stale (nth banks (- 1 fresh))]
+    (doseq [^js l (concat (:lights stale) (:spots stale))]
+      (tween! view l (.-intensity l) 0 heat-ms #(set! (.-intensity l) %)))
+    (doseq [[i ^js light ^js spot] (map vector (range) lights spots)]
+      (set! (.-intensity light) 0)
+      (set! (.. light -userData -tween) nil)
+      (if-let [^js glow (get glows i)]
+        (let [at (.getWorldPosition glow (THREE/Vector3.))]
+          (.copy (.-position light) at)
+          (.copy (.-color light) (.. glow -material -color))
+          (set! (.. glow -userData -light) light)
+          (.set (.-position spot) (.-x at) (+ (.-y at) spot-height) (.-z at))
+          (.set (.. spot -target -position) (.-x at) 0 (.-z at))
+          (.copy (.-color spot) (.. glow -material -color))
+          (set! (.-intensity spot) 0)
+          (tween! view spot 0 spot-light heat-ms #(set! (.-intensity spot) %)))
+        (do (set! (.-intensity spot) 0)
+            (set! (.. spot -userData -tween) nil))))
+    (swap! view assoc :bank fresh)))
+
+(defn- fade-layer!
+  "Fade everything drawn in `group` from what it is to `to` (0 or 1) of its
+   own brightness: plasma by its gain, all else by its opacity."
+  [view ^js group to & [done]]
+  (let [mats (atom #{})]
+    (.traverse group (fn [^js o] (when-let [m (.-material o)] (swap! mats conj m))))
+    (doseq [^js m @mats
+            :let [base (or (.. m -userData -base)
+                           (let [b (if-let [u (some-> m .-uniforms .-uGain)] (.-value u) (.-opacity m))]
+                             (set! (.. m -userData -base) b) b))
+                  gain (some-> m .-uniforms .-uGain)
+                  now (if gain (.-value gain) (.-opacity m))
+                  apply! (if gain #(set! (.-value gain) %) #(set! (.-opacity m) %))]]
+      (when (zero? to) (apply! now))
+      (when (= 1 to) (apply! 0))
+      (tween! view m (if (= 1 to) 0 now) (* to base) heat-ms apply!))
+    (when done (animate! view heat-ms (fn [_]) done true))))
+
+(defn- clear-targets!
+  "Take the last position's targets away -- fading, not vanishing: glows
+   ease off their pieces, and what stood in the scene dims out as the next
+   position's comes up."
+  [view]
+  (let [{:keys [target-layer lit scene]} @view]
+    (doseq [[^js mesh original ^js copy ^js shell] lit]
+      (let [from (or (some-> shell .-userData .-heat) 0)
+            finish (fn []
+                     (when-let [p (some-> shell .-parent)] (.remove p shell))
+                     (when (identical? (.-material mesh) copy)
+                       (set! (.-material mesh) original)
+                       (set! (.. mesh -userData -original) nil))
+                     (.dispose copy))]
+        (when shell (set! (.. shell -userData -light) nil))
+        (if (pos? from)
+          (tween! view (or shell copy) from 0 (* heat-ms from) #(heat! shell copy %) finish)
+          (finish))))
+    (when (and target-layer scene (pos? (.-length (.-children target-layer))))
+      (let [fading (THREE/Group.)]
+        (doseq [c (vec (array-seq (.-children target-layer)))] (.add fading c))
+        (.add scene fading)
+        (fade-layer! view fading 0 #(.remove scene fading))))
+    (swap! view assoc :shells [] :lit [] :pickables [] :plasmas [] :hover nil)))
 
 (defn- pay-level
   "Paying for a growth: the food on each grower that can still give, and what
@@ -863,11 +970,19 @@
        :label (str "pay with this food (" (reduce + 0 (vals spent)) " of " (:cost (:pay @view)) ")")
        :pay-grower grower})))
 
+(defn- replay-view
+  "A history position for the scene: what it lights (organism.play decides
+   which, and how) stands as chosen, what it spotlights as on offer."
+  [{:keys [offered taken moves]}]
+  {:taken (vec taken) :offered (vec offered) :moves (or moves {})})
+
 (defn- level
-  "The targets on show: those revealed by the last thing chosen, or the top."
+  "The targets on show: those revealed by the last thing chosen, or the top --
+   or, replaying history, what else was on offer."
   [view]
-  (let [{:keys [targets stack pay]} @view]
+  (let [{:keys [targets stack pay replay]} @view]
     (cond
+      replay (:offered replay)
       pay (pay-level view)
       (seq stack) (:next (peek stack))
       :else targets)))
@@ -878,19 +993,23 @@
   (clear-targets! view)
   (let [{:keys [target-layer spaces mm stack assets me-color camera]} @view
         pickables (atom [])
+        plasmas (atom [])
         shells (atom [])
         visuals (atom [])
-        mark! (fn [target look] (when look (swap! pickables conj [(:pick look) target]) (swap! visuals conj [target look])))
+        replaying? (some? (:replay @view))
+        ;; history is only looked at: nothing in it answers the pointer
+        mark! (fn [target look]
+                (when look
+                  (when-not replaying? (swap! pickables conj [(:pick look) target]))
+                  (swap! visuals conj [target look])))
         lit (atom [])
         outline (fn [^js mesh tone & [hot]]
                   (when mesh
                     (let [^js sh (shell! mesh tone)
                           [_ _ glow :as l] (light-up! mesh tone)]
                       (swap! shells conj sh)
-                      (swap! lit conj l)
-                      (when hot
-                        (set! (.. sh -userData -hot) true)
-                        (hot! sh glow true))
+                      (swap! lit conj (conj l sh))
+                      (when hot (hot! view sh glow true))
                       {:pick mesh :shell sh :glow glow})))
         ;; the camera's right, along the table: types to pick line up across
         ;; the view rather than into it
@@ -914,16 +1033,21 @@
                                    [space type])))]
       (doseq [[space type] placed
               :let [[x z] (get spaces space)]
-              :when x]
+              ;; a ghost stands for what is not there yet
+              :when (and x (not (get-in @view [:last-state :elements space])))]
         (ghost! view target-layer assets type me-color [x 1 z]
                 (get-in assets [:meta :piece_scale] 0.9) :chosen 0.5))
       (doseq [{:keys [kind space index]} stack]
         (case kind
-          :piece (some-> (piece-at view space) (outline :chosen true))
+          :piece (do (some-> (piece-at view space) (outline :chosen true))
+                     ;; a piece replayed moving glows on its way and where it lands
+                     (when-let [to (get-in @view [:replay :moves space])]
+                       (some-> (piece-at view to) (outline :chosen true))))
           :food (some-> (piece-at view space index) (outline :chosen true))
           :space (when-not (contains? placed space)
                    (let [{:keys [^js plasma]} (plasma! target-layer (get spaces space) mm nil)]
-                     (set! (.. plasma -uGain -value) plasma-gain-hover)))
+                     (set! (.. plasma -uGain -value) plasma-gain-hover)
+                     (swap! plasmas conj plasma)))
           nil)))
     (doseq [{:keys [kind space index type tone] :as t} current
             :when (contains? spaces space)]
@@ -939,9 +1063,23 @@
                                   (get-in assets [:meta :piece_scale] 0.9) tone 0.45))
                         (plasma! target-layer (get spaces space) mm (get tone-colors :pending)))
                nil)))
+    ;; the game is won: every space the winner holds burns, and every piece
+    ;; of theirs glows -- swelling up, then breathing (see victory-frame!)
+    (swap! view dissoc :victory)
+    (when-let [winner (get-in @view [:last-state :winner])]
+      (let [lit (vec (for [[space el] (get-in @view [:last-state :elements])
+                           :when (and (= winner (:player el)) (contains? spaces space))]
+                       (let [{:keys [^js plasma column]} (plasma! target-layer (get spaces space) mm nil)
+                             {:keys [shell glow]} (some-> (piece-at view space) (outline :chosen))]
+                         (swap! plasmas conj plasma)
+                         {:plasma plasma :column column :shell shell :glow glow})))]
+        (swap! view assoc :victory {:start (js/performance.now) :lit lit})
+        (victory-frame! view (js/performance.now))))
     (let [glows (vec (distinct (into @shells (keep :shell (map second @visuals)))))]
-      (swap! view assoc :pickables @pickables :visuals @visuals :lit @lit :shells glows)
+      (swap! view assoc :pickables @pickables :visuals @visuals :lit @lit :shells glows
+             :plasmas (into @plasmas (keep (comp :plasma second) @visuals)))
       (light-glows! view glows))
+    (fade-layer! view target-layer 1)
     (plasma-loop! view)
     (request-render! view)))
 
@@ -990,11 +1128,13 @@
   (render-targets! view))
 
 (defn- back-out! [view]
-  (let [{:keys [pay stack]} @view]
-    (cond
-      pay (swap! view assoc :pay nil)
-      (seq stack) (swap! view update :stack pop)))
-  (render-targets! view))
+  ;; a replayed choice is history, not a selection to step out of
+  (when-not (:replay @view)
+    (let [{:keys [pay stack]} @view]
+      (cond
+        pay (swap! view assoc :pay nil)
+        (seq stack) (swap! view update :stack pop)))
+    (render-targets! view)))
 
 (defn- pick
   "The target under a pointer event, if any."
@@ -1135,11 +1275,13 @@
     (.add scene sun)
     (.add scene pieces-group)
     (.add scene target-layer)
-    (let [lights (vec (repeatedly glow-lights #(THREE/PointLight. "#ffffff" 0 130 1)))
-          spots (vec (repeatedly glow-lights #(THREE/SpotLight. "#ffffff" 0 0 0.2 0.55 0)))]
-      (doseq [l lights] (.add scene l))
-      (doseq [^js l spots] (.add scene l) (.add scene (.-target l)))
-      (swap! view assoc :lights lights :spots spots))
+    (let [banks (vec (repeatedly 2 (fn []
+                                     {:lights (vec (repeatedly glow-lights #(THREE/PointLight. "#ffffff" 0 130 1)))
+                                      :spots (vec (repeatedly glow-lights #(THREE/SpotLight. "#ffffff" 0 0 0.2 0.55 0)))})))]
+      (doseq [{:keys [lights spots]} banks]
+        (doseq [l lights] (.add scene l))
+        (doseq [^js l spots] (.add scene l) (.add scene (.-target l))))
+      (swap! view assoc :banks banks :bank 0))
     (set! (.-maxPolarAngle controls) (* 0.47 js/Math.PI))
     (set! (.-minDistance controls) 60)
     (set! (.-enableDamping controls) false)
@@ -1157,7 +1299,7 @@
       (reset! view {:el el :renderer renderer :scene scene :camera camera :controls controls
                     :pieces-group pieces-group :observer observer :shown {} :materials {}
                     :target-layer target-layer :label label :raycaster (THREE/Raycaster.)
-                    :stack [] :on-frame on-frame :lights (:lights @view) :spots (:spots @view)})
+                    :stack [] :on-frame on-frame :banks (:banks @view) :bank 0})
       (listen! view)
       ;; development builds only: where each target is on screen, so a test
       ;; can click the canvas exactly where a person would
@@ -1188,7 +1330,7 @@
                                     _ (.getWorldPosition o p)
                                     v (.project p camera)
                                     r (.getBoundingClientRect el)]]
-                          {:kind (name (:kind t)) :label (:label t)
+                          {:kind (name (:kind t)) :label (:label t) :space (pr-str (:space t))
                            :x (+ (.-left r) (* (.-clientWidth el) (/ (+ 1 (.-x v)) 2)))
                            :y (+ (.-top r) (* (.-clientHeight el) (/ (- 1 (.-y v)) 2)))}))))}))
       (resize))
@@ -1198,7 +1340,7 @@
   "Show this position: `game` (rules and :state), the invocation it was made
    from, each player's colour, and the 2D board (for its coordinates). A new
    position on the same board is animated from the last one shown."
-  [view {:keys [game invocation player-colors board targets turn send!]}]
+  [view {:keys [game invocation player-colors board targets turn send! replay]}]
   (-> (load-assets!)
       (.then
        (fn [loaded]
@@ -1222,9 +1364,11 @@
                       :me-color (get colors (get-in state [:player-turn :player]) "#cccccc"))
                ;; a new position or phase is a new set of targets; anything
                ;; else re-rendering the page keeps what has been chosen so far
-               (let [key [state turn]]
+               (let [key [state turn (some? replay)]]
                  (if (not= key (:targets-key @view))
-                   (do (swap! view assoc :targets targets :targets-key key :stack [] :pay nil)
+                   (do (swap! view assoc :targets targets :targets-key key :pay nil
+                              :replay (when replay (replay-view replay))
+                              :stack (if replay (:taken (replay-view replay)) []))
                        (render-targets! view))
                    (swap! view assoc :targets targets))))
              (request-render! view)))))))

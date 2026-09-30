@@ -3925,8 +3925,10 @@
 
 (defn board-3d
   "The board in 3D, in place of the SVG board. What can be chosen comes from
-   organism.targets and is shown in the scene itself."
-  [_game _board _invocation _colors _turn _choices]
+   organism.targets and is shown in the scene itself. Viewing history, it is
+   given a `replay` instead -- what was offered and what was chosen -- and
+   nothing in it can be chosen."
+  [_game _board _invocation _colors _turn _choices & [_replay]]
   (let [el (atom nil)
         api (r/atom nil)
         view (r/atom nil)
@@ -3946,12 +3948,14 @@
       :component-will-unmount
       (fn [_] (when (and @api @view) ((:unmount! @api) @view)))
       :reagent-render
-      (fn [game board invocation colors turn choices]
+      (fn [game board invocation colors turn choices & [replay]]
         (reset! props {:game game :invocation invocation :board board
                        :player-colors (:player-colors board)
                        :turn turn
-                       :targets (targets/targets game turn choices)
-                       :send! #(send-state! % true)})
+                       :targets (if replay (:offered replay) (targets/targets game turn choices))
+                       :replay replay
+                       ;; history is looking: nothing it shows is ever sent
+                       :send! (if replay (fn [_]) #(send-state! % true))})
         [:div {:style {:position "relative" :width "100%" :height "calc(100vh - 40px)"}}
          [:div {:ref #(reset! el %) :style {:position "absolute" :inset 0}}]
          [:button {:on-click #(when (and @api @view) ((:reset-view! @api) @view))
@@ -3961,6 +3965,108 @@
                            :border-radius "8px" :padding "6px 12px" :cursor "pointer"
                            :font-family font-choice}}
           "reset view"]])})))
+
+(defonce ^:private replay-cache (atom nil))
+
+;; ── Replaying history ──────────────────────────────────────────────────────
+;;
+;; Each kind of highlight says one thing, in history as in play:
+;;
+;;   overhead spotlight  the scope of a declaration: the organism, or the
+;;                       elements of the type it declared, that a turn is for
+;;   glow from within    the one element acting in this step -- the mover, the
+;;                       eater, the piece food leaves, the pieces paying for a
+;;                       growth
+;;   plasma              the space acted on -- where a piece moved or grew,
+;;                       where it ate from, the piece food went to
+;;
+;; and nothing else: no alternatives that were not taken, no group glowing
+;; for the choice of one of its members.
+
+(def ^:private declaring #{:choose-organism :choose-action-type :flow-declare})
+
+(defn- payers
+  "The pieces whose food paid for a growth -- or, in FLOW, will pay for one
+   still pending."
+  [changes now]
+  (let [paid (for [{:keys [type space]} changes :when (= :food-down type)] space)
+        pending (for [{:keys [pending]} (get-in now [:player-turn :organism-turns])
+                      :when (= :grow (:type pending))
+                      space (keys (get-in pending [:action :from]))]
+                  space)]
+    (for [space (distinct (if (seq paid) paid pending))]
+      {:kind :piece :space space})))
+
+(defn- step-highlights
+  "What a replayed choice shows: {:spot targets :lit targets}, the lit being
+   glowing pieces and burning spaces."
+  [{:keys [turn offered taken]} changes now]
+  (let [[actor & after] taken
+        ;; what comes after the actor is where it acted; a type chosen for a
+        ;; space stays, to stand there as a ghost until the piece is real
+        spaces (keep (fn [{:keys [kind space] :as t}]
+                       (cond
+                         (#{:space :piece :food} kind) {:kind :space :space space}
+                         (= :option kind) (select-keys t [:kind :space :type])))
+                     after)]
+    (cond
+      (declaring turn)
+      {:spot (let [group (:group actor)]
+               (vec (filter #(or (= % actor) (and group (= group (:group %)))) offered)))
+       :lit []}
+
+      (= turn :introduce)
+      {:spot [] :lit (vec (filter #(= :space (:kind %)) taken))}
+
+      :else
+      {:spot []
+       :lit (vec (concat
+                  (if (= :growers (:group actor))
+                    (payers changes now)
+                    [{:kind :piece :space (:space actor)}])
+                  spaces))})))
+
+(defn- change-highlights
+  "The same for a position no one choice made -- a bot's whole turn is kept
+   at once -- read off what changed."
+  [changes]
+  (let [grew? (some #(= :grow (:type %)) changes)]
+    {:spot []
+     :lit (vec (distinct
+                (concat
+                 (mapcat (fn [{:keys [type from to space]}]
+                           (case type
+                             :move [{:kind :piece :space from} {:kind :space :space to}]
+                             :grow [{:kind :space :space to}]
+                             :circulate [{:kind :piece :space from} {:kind :space :space to}]
+                             :food-up [{:kind :piece :space space}]
+                             nil))
+                         changes)
+                 (when grew? (payers changes nil)))))}))
+
+(defn- history-replay
+  "What the history position under the cursor shows: the choice that made
+   it, from the position before, lit as it happens -- see above. Worked out
+   once per position, since finding the choice means running the rules. The
+   opening position has no choice behind it."
+  [game history cursor]
+  (let [key [cursor (count history) (hash (nth history cursor))]]
+    (if (= key (:key @replay-cache))
+      (:replay @replay-cache)
+      (let [before (when (pos? cursor) (nth history (dec cursor)))
+            now (nth history cursor)
+            changes (when before (transitions/diff before now))
+            moves (into {} (for [{:keys [type from to]} changes :when (= :move type)] [from to]))
+            step (when before
+                   (try (targets/replay (assoc game :state before) now)
+                        (catch :default e (js/console.warn "no replay here" e) nil)))
+            {:keys [spot lit]} (cond
+                                 (seq (:taken step)) (step-highlights step changes now)
+                                 before (change-highlights changes)
+                                 :else {:spot [] :lit []})
+            replay {:offered spot :taken lit :moves moves}]
+        (reset! replay-cache {:key key :replay replay})
+        replay))))
 
 (defn- view-toggle []
   ;; read here, not inside the `for`: a deref in a lazy seq is not tracked
@@ -4003,7 +4109,8 @@
        {:style {:flex-grow 1 :position "relative"}}
        [view-toggle]
        (if @three-d?
-         [board-3d game board invocation invocation-colors turn choices]
+         [board-3d game board invocation invocation-colors turn choices
+          (when cursor (history-replay game history cursor))]
          [organism-board game board invocation-colors turn choices])]])))
 
 
