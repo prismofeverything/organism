@@ -98,6 +98,12 @@ order they were clicked in.
     board too large to search in time is treated as having no complete set,
     so a player is never left unable to go on.)
 
+    Passing by choice follows the base game: a declaration's first action is
+    owed, and every action after it may be passed — a pass button for each
+    declaration that can take one. A type may be declared only if its first
+    action could be taken (that action, or a circulate), so an organism with
+    no food declares EAT or nothing.
+
 ## After the last action
 
 16. Conflict, as its own phase, once all actions have resolved.

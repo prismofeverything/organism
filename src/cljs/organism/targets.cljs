@@ -355,11 +355,30 @@
     {:kind :ghost :space space :type piece :tone :pending
      :label (str "take back " (name type)) :send (state-of choices [:cancel index])}))
 
+(defn stuck-pass?
+  "FLOW: whether pass `key` belongs to a declaration with nothing else it can
+   do this action -- as opposed to one choosing to pass an action it need not
+   take. Stuck ones are passed on the board, by its pieces; the others by a
+   button, since those pieces are busy offering what they can do."
+  [game choices [_ index]]
+  (let [player (game/current-player game)
+        turn (nth (vec (get-in game [:state :player-turn :organism-turns])) index nil)
+        organisms (game/player-organisms game player)
+        names (set (for [id (:organisms turn)] (game/organism-name (get organisms id))))]
+    (not-any? (fn [k] (and (vector? k) (vector? (first k)) (contains? names (first k))))
+              (keys choices))))
+
+(defn pass-keys
+  "FLOW pass keys on offer: [stuck free]."
+  [game choices]
+  (let [all (filter #(and (vector? %) (= :pass (first %))) (keys choices))]
+    [(filter (partial stuck-pass? game choices) all)
+     (remove (partial stuck-pass? game choices) all)]))
+
 (defn- pass-targets [game choices]
   (let [turns (get-in game [:state :player-turn :organism-turns])
         player (game/current-player game)]
-    (for [key (keys choices)
-          :when (and (vector? key) (= :pass (first key)))
+    (for [key (first (pass-keys game choices))
           organism (:organisms (nth turns (second key)))
           space ((organism-of (:state game) player) organism)]
       {:kind :piece :space space :tone :pass :label "nothing is possible: pass"

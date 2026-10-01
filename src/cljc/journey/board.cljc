@@ -454,6 +454,12 @@
 
 ;; ── Single tile ───────────────────────────────────────────────────────────────
 
+;; The handler a clickable tile calls: the board's latest, set on every render.
+;; A tile skips re-rendering whenever its own data has not changed (below), so
+;; a handler it closed over when it last rendered can be from an earlier phase
+;; -- or from a turn that was not this player's, when it had none.
+(defonce ^:private tile-click (atom nil))
+
 (defn- render-tile*
   "Inner tile render. cipher-dots is the pre-computed cipher-match-dots hiccup (or nil).
    highlight? can be :gold (launch/destination), :chosen (selected sundiver), or nil.
@@ -470,7 +476,7 @@
                    nil)]
     [:g {:key      (str pos)
          :transform (str "translate(" cx "," cy ")")
-         :on-click  (when on-click #(on-click pos))
+         :on-click  (when on-click #(when-let [f @tile-click] (f pos)))
          :style    {:cursor (when on-click "pointer")}}
      ;; Hex background
      [:polygon {:points       (hex-pts-str (- hex-size 1))
@@ -524,8 +530,13 @@
                old-hd   (nth old-argv 7)  new-hd   (nth new-argv 7)
                old-hl   (nth old-argv 8)  new-hl   (nth new-argv 8)
                old-shl  (nth old-argv 10 nil) new-shl (nth new-argv 10 nil)
-               old-mc   (nth old-argv 11 0)  new-mc  (nth new-argv 11 0)]
+               old-mc   (nth old-argv 11 0)  new-mc  (nth new-argv 11 0)
+               old-click (nth old-argv 9 nil) new-click (nth new-argv 9 nil)]
            (or (not= old-tile new-tile)
+               ;; A tile gold for its cipher matches stays gold whoever's turn it
+               ;; is, so becoming clickable can be the only thing that changes:
+               ;; without this a player's own foundry ignored every click.
+               (not= (some? old-click) (some? new-click))
                (not= old-cd   new-cd)
                (not= old-hl   new-hl)
                (not= old-shl  new-shl)
@@ -583,7 +594,8 @@
         conv-s      (or conv-sundivers #{})
         conv-targets (set (map first (keys conv-g)))
         spend-hl    (or spend-highlights #{})
-        pending     pending-convert]
+        pending     pending-convert
+        _           (reset! tile-click on-hex-click)]
     [:g
      ;; Tiles (backgrounds, matches, world tokens, beacons, stations, sundivers)
      ;; cipher-dots is pre-computed here so render-tile doesn't depend on full state,

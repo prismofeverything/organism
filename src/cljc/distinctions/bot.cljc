@@ -1,11 +1,13 @@
 (ns distinctions.bot
   "Opponents for DISTINCTIONS.
 
-   A hand is scored by how few cards it is missing from its closest split
-   into two teams of four (see `game/cover-progress`), and among equals by
-   how many splits are that close. A bot takes the pile's top card only if it
-   can then discard its way to a better hand than it holds now, and otherwise
-   draws blind. It always discards the card whose loss leaves the best hand
+   A hand is scored by how close it is: for two teams of four, how few cards
+   it is missing from its closest split (`game/cover-progress`); for the
+   path, how many of its cards already lie along one (`game/path-progress`).
+   Among equals, the more ways there are to be that close, the better.
+
+   A bot takes the pile's top card only if it can then discard its way to a
+   better hand than it holds now, and otherwise draws blind. It always discards the card whose loss leaves the best hand
    behind.
 
    SORTER plays exactly that. DRIFTER does the same but, one time in four,
@@ -15,16 +17,19 @@
    [distinctions.game :as game]))
 
 (defn score
-  "How good `hand` is: fewer cards missing first, then more ways to finish."
-  [hand]
-  (let [{:keys [missing ways]} (game/cover-progress hand)]
-    (- ways (* 1000 missing))))
+  "How good `hand` is at this table's goal. Higher is better."
+  [state hand]
+  (if (= :path (:goal state))
+    (let [{:keys [length ways]} (game/path-progress hand)]
+      (+ ways (* 1000 length)))
+    (let [{:keys [missing ways]} (game/cover-progress hand)]
+      (- ways (* 1000 missing)))))
 
 (defn best-discard
   "The card to throw from `hand` (which holds one extra), never `keep`."
-  [hand keep]
+  [state hand keep]
   (apply max-key
-         (fn [c] (score (remove #{c} hand)))
+         (fn [c] (score state (remove #{c} hand)))
          (remove #{keep} hand)))
 
 (defn- would-take?
@@ -33,8 +38,8 @@
         top  (game/top-discard state)]
     (when top
       (let [with (conj hand top)]
-        (> (score (remove #{(best-discard with top)} with))
-           (score hand))))))
+        (> (score state (remove #{(best-discard state with top)} with))
+           (score state hand))))))
 
 (defn choose
   "The action the bot at the seat to act takes. `caution` is the chance it
@@ -50,7 +55,7 @@
                   {:action :take}
                   {:action :draw})
        :discard {:action :discard
-                 :card   (best-discard (get-in state [:hands seat]) (:taken state))}
+                 :card   (best-discard state (get-in state [:hands seat]) (:taken state))}
        nil))))
 
 (def profiles

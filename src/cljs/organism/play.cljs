@@ -2340,8 +2340,7 @@
         radius (* (:radius board) highlight-factor)
         turns (get-in game [:state :player-turn :organism-turns])
         organisms (game/player-organisms game player)]
-    (for [key (keys choices)
-          :when (and (vector? key) (= :pass (first key)))
+    (for [key (first (targets/pass-keys game choices))
           :let [index (second key)]
           organism (:organisms (nth turns index))
           {:keys [space]} (get organisms organism)
@@ -3109,6 +3108,23 @@
                   :on-click (fn [_]
                               (send-state! (get-in choices [:pass :state]) true))}
          "pass"]
+
+        ;; FLOW: an organism past its first action may pass this one -- one
+        ;; button each, named by what it declared and where it is
+        (and (= turn :flow-choose) (seq (second (targets/pass-keys {:state state} choices))))
+        (let [game {:state state}
+              turns (vec (get-in game [:state :player-turn :organism-turns]))
+              free (second (targets/pass-keys game choices))]
+          [:div {:style {:display "flex" :gap "8px" :flex-wrap "wrap"}}
+           (for [[_ index :as key] free
+                 :let [{:keys [choice organisms]} (nth turns index)
+                       where (some->> organisms first
+                                      (get (game/player-organisms game (game/current-player game)))
+                                      game/organism-name)]]
+             ^{:key (pr-str key)}
+             [:button {:style (pill 100) :title "pass this action for this organism"
+                       :on-click (fn [_] (send-state! (get-in choices [key :state]) true))}
+              (str "pass " (name choice) (when (> (count free) 1) (str " " (string/join " " where))))])])
 
         waiting
         [:button {:style (pill 100) :title waiting

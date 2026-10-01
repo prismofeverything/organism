@@ -10,11 +10,21 @@
    [organism.routes.shared :as shared]
    [distinctions.game :as game]))
 
+(defn- goal
+  "The lobby's checkbox, which arrives as a boolean or, from a form, a string."
+  [params]
+  (if (contains? #{true "true"} (or (get-in params [:options :path])
+                                    (get-in params ["options" "path"])))
+    :path
+    :cover))
+
 (defn create-game! [db request]
   (shared/create-game!
    {:games-atom  distinctions-ws/games
-    :max-players (game/max-players game/hand-size)
-    :make-state  (fn [players _] (game/create-game players))
+    ;; seven hands of eight; the path's seven would seat eight, but one
+    ;; limit for both keeps the lobby honest
+    :max-players (game/max-players 8)
+    :make-state  (fn [players params] (game/create-game players {:goal (goal params)}))
     :persist!    (fn [db play-name players bots state]
                    (store/create-game! db play-name players bots state))}
    db request))

@@ -4,14 +4,19 @@
    Every card is one answer to six two-way questions, so a card is just a
    number 0..63 and each distinction is one bit of it. See `axes`.
 
-   Everyone is dealt eight cards and one card is turned up to start the
-   discard pile. On your turn you take either the top of the discard pile or
-   the top of the deck, then discard one card face up. You win when, after
-   your discard, your hand is two teams of four: one team agrees on three
-   distinctions, the other on the other three, so between them the hand
-   covers all six.
+   Everyone is dealt a hand and one card is turned up to start the discard
+   pile. On your turn you take either the top of the discard pile or the top
+   of the deck, then discard one card face up. What wins, checked after your
+   discard, is the table's `:goal`:
 
-   One player is a game too: the same rules, played against the turn count.
+     :cover  eight cards as two teams of four: one team agrees on three
+             distinctions, the other on the other three, so between them
+             the hand covers all six.
+     :path   seven cards running from a card to its opposite, exactly one
+             distinction changing at each step.
+
+   One player is a game too, played against the turn count. With nobody to
+   discard to you, the deck turns a fresh card onto the pile after each turn.
 
    You may not throw back the card you just took from the pile: that would be
    a pass dressed up as a turn.
@@ -137,14 +142,77 @@
    {:missing 99 :ways 0}
    splits))
 
+;; ── The path ───────────────────────────────────────────────────────────────
+;;
+;; Measured from an anchor card a, every card is the set of distinctions it
+;; changes from a (its bits xor a's). A run of cards lies along one path from a
+;; to its opposite exactly when those sets are nested, each holding the last
+;; and one more -- so the whole question is about chains of subsets.
+
+(defn- popcount [n] (count (filter #(bit-test n %) (range 6))))
+
+(defn- changed-axis
+  "The one distinction two neighbouring cards differ in."
+  [a b]
+  (let [d (bit-xor a b)]
+    (some (fn [{:keys [key bit]}] (when (= d (bit-shift-left 1 bit)) key)) axes)))
+
+(defn path
+  "If the hand is seven cards from a card to its opposite, one change at a
+   time, the run in order as {:cards [...] :steps [axis ...]}; else nil."
+  [hand]
+  (when (= 7 (count hand))
+    (first
+     (for [a (sort hand)
+           :when (some #{(bit-xor a 63)} hand)
+           :let [run (vec (sort-by #(popcount (bit-xor % a)) hand))
+                 steps (mapv changed-axis run (rest run))]
+           :when (every? some? steps)]
+       {:cards run :steps steps}))))
+
+(defn- chain-length
+  "The longest run of these difference-sets that nest, each strictly inside
+   the next."
+  [masks]
+  (let [ms (sort-by popcount (distinct masks))]
+    (reduce max 0
+            (vals (reduce (fn [best m]
+                            (assoc best m (inc (reduce max 0 (for [[q n] best
+                                                                   :when (and (not= q m)
+                                                                              (= q (bit-and q m))
+                                                                              (< (popcount q) (popcount m)))]
+                                                               n)))))
+                          {} ms)))))
+
+(defn path-progress
+  "How much of a path the hand already holds: the most of its cards that lie
+   along one path, and how many anchors give that many. A card and its
+   opposite anchor the same paths, so half the deck is enough to try."
+  [hand]
+  (reduce (fn [{:keys [length] :as best} a]
+            (let [n (chain-length (map #(bit-xor % a) hand))]
+              (cond (> n length) {:length n :ways 1}
+                    (= n length) (update best :ways inc)
+                    :else best)))
+          {:length 0 :ways 0}
+          (range 32)))
+
 ;; ── Setup ──────────────────────────────────────────────────────────────────
 
-(def hand-size 8)
+(def hand-sizes {:cover 8 :path 7})
+
+(defn winning
+  "What makes this hand a win at this table, or nil."
+  [state hand]
+  (case (:goal state :cover)
+    :path (path hand)
+    (covered hand)))
 
 (defn create-game
-  [player-names]
+  [player-names & [{:keys [goal] :or {goal :cover}}]]
   {:players   (vec (map-indexed (fn [i n] {:name n :seat i}) player-names))
-   :hand-size hand-size
+   :goal      goal
+   :hand-size (hand-sizes goal)
    :phase     :waiting
    :hands     {}
    :deck      []
@@ -212,6 +280,19 @@
           (update :reshuffles inc)
           (update :log conj {:event :reshuffle})))))
 
+(defn- flip
+  "Alone at the table, nobody discards to you, so the pile's top card would
+   only ever be the one you just threw away. Instead the deck turns its top
+   card over onto the pile at the end of each turn."
+  [state]
+  (let [s (refill state)]
+    (if-let [c (first (:deck s))]
+      (-> s
+          (update :deck (comp vec rest))
+          (update :discard conj c)
+          (update :log conj {:event :flip :card c}))
+      s)))
+
 (defn legal-actions
   "What the player to act may do: {:draw true :take true} before they have
    drawn, {:discard #{cards}} after."
@@ -268,12 +349,13 @@
                          (update :discard conj card)
                          (assoc :taken nil)
                          (update :log conj {:event :discard :seat seat :card card}))]
-            (if-let [m (covered hand)]
+            (if-let [m (winning s hand)]
               (-> s
                   (assoc :phase :over :step nil :to-act nil
                          :winner (player-name s seat) :made m)
                   (update :log conj {:event :win :seat seat :made m}))
               (-> s
+                  (cond-> (= 1 (seat-count s)) flip)
                   (assoc :to-act (next-seat s seat) :step :draw)
                   (update :turn inc)))))
 

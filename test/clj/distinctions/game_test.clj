@@ -41,8 +41,8 @@
     (is (nil? (:actions v)))
     (is (:actions (game/view s "a")))))
 
-(defn- play-out [seed n-players]
-  (loop [s (game/start (game/create-game (map str (range n-players))) (seeded-deck seed))
+(defn- play-out [seed n-players & [opts]]
+  (loop [s (game/start (game/create-game (map str (range n-players)) opts) (seeded-deck seed))
          i 0]
     (if (or (game/game-over? s) (> i 20000))
       s
@@ -69,3 +69,36 @@
       (is (game/game-over? s) (str "cover seed " seed " with " n))
       (is (= 8 (count hand)))
       (is (= (:made s) (game/covered hand))))))
+
+(deftest solo-turns-a-fresh-card
+  (let [s  (game/start (game/create-game ["me"]) (seeded-deck 7))
+        s1 (game/act s 0 {:action :draw})
+        c  (first (remove #{(:taken s1)} (get-in s1 [:hands 0])))
+        s2 (game/act s1 0 {:action :discard :card c})]
+    (when-not (game/game-over? s2)
+      (is (not= c (game/top-discard s2)) "the pile shows a new card, not the one thrown")
+      (is (= c (peek (pop (:discard s2)))) "the thrown card is under it")
+      (is (= (dec (count (:deck s1))) (count (:deck s2)))))))
+
+(deftest the-path
+  (testing "white/red circle to its opposite, one change at a time"
+    ;; 32 = white red circle; flip comp, eye, rays, inversion, foreground, background
+    (let [run [32 40 44 46 47 63 31]
+          {:keys [cards steps]} (game/path (shuffle run))]
+      (is (= 31 (bit-xor 32 63)))
+      (is (#{run (vec (reverse run))} cards))
+      (is (= 6 (count (distinct steps))))))
+  (testing "a step of two changes breaks it"
+    (is (nil? (game/path [32 40 46 47 63 31 0]))))
+  (testing "a card without its opposite is no path"
+    (is (nil? (game/path [32 40 44 46 47 63 15]))))
+  (testing "progress counts a whole path as seven"
+    (is (= 7 (:length (game/path-progress [32 40 44 46 47 63 31])))))
+  (testing "a path table deals seven"
+    (is (= 7 (:hand-size (game/create-game ["a"] {:goal :path})))))
+  (doseq [seed (range 25) n [1 2 3]]
+    (let [s    (play-out seed n {:goal :path})
+          hand (get-in s [:hands (game/seat-of s (:winner s))])]
+      (is (game/game-over? s) (str "path seed " seed " with " n))
+      (is (= 7 (count hand)))
+      (is (= (:made s) (game/path hand))))))

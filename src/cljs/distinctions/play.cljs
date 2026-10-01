@@ -59,13 +59,31 @@
 
 ;; ── Pieces ─────────────────────────────────────────────────────────────────
 
+(defn- path? [state] (= :path (:goal state)))
+
 (defn- made-words
   "The two winning teams: \"black · red · circle  /  eye · rays · plain\"."
   [made]
   (str/join "  /  " (for [{:keys [shared]} made]
                       (str/join " · " (map game/target-name shared)))))
 
-(def ^:private goal-words "two teams of four, covering all six")
+(defn- path-view
+  "A winning path, laid out end to end with what changes at each step."
+  [{:keys [cards steps]}]
+  [:div {:style {:display "flex" :align-items "center" :justify-content "center"
+                 :gap "6px" :margin-top "12px" :flex-wrap "wrap"}}
+   (for [[i c] (map-indexed vector cards)]
+     ^{:key i}
+     [:div {:style {:display "flex" :align-items "center" :gap "6px"}}
+      [card/card {:value c :width 46}]
+      (when-let [k (get steps i)]
+        [:div {:style {:font-size "11px" :color faint :text-align "center" :width "64px"}}
+         (name k) [:div "\u2192"]])])])
+
+(defn- goal-words [state]
+  (if (path? state)
+    "a card to its opposite, one difference at a time"
+    "two teams of four, covering all six"))
 
 (defn- solo? [state] (= 1 (count (:players state))))
 
@@ -95,8 +113,11 @@
              :else (str n " cards"))]]
      [:div {:style {:display "flex"}}
       (if shown
-        (let [teams? (and winner? (seq (:made state)))
-              order  (if teams? (mapcat :cards (:made state)) (sort shown))]
+        (let [made   (when winner? (:made state))
+              teams? (sequential? made)
+              order  (cond (map? made) (:cards made)
+                           teams?      (mapcat :cards made)
+                           :else       (sort shown))]
           (for [[i c] (map-indexed vector order)]
             ^{:key i} [:div {:style {:margin-right (if (and teams? (= i 3)) "12px" "3px")}}
                        [card/card {:value c :width 30}]]))
@@ -237,8 +258,6 @@
 
 (defonce ^:private drag (r/atom nil))
 
-(defn- toggle! [c] (swap! selected (fn [s] (if (s c) (disj s c) (conj s c)))))
-
 (defn- card-under
   "The hand card at this point on the screen, if any."
   [x y]
@@ -252,39 +271,49 @@
   ;; atom, since nothing should re-render because it changed
   (atom []))
 
-(defn- drag-move! [e]
-  (when-let [{:keys [card x y moved?]} @drag]
-    (let [px (.-clientX e) py (.-clientY e)]
-      (when (or moved? (> (js/Math.hypot (- px x) (- py y)) 6))
-        (when-not moved? (swap! drag assoc :moved? true))
-        (let [order @shown-order
-              t     (card-under px py)]
-          (when (and t (not= t card) (some #{t} order))
-            (let [without (vec (remove #{card} order))
-                  j       (.indexOf (clj->js order) t)]
-              (save-order! (vec (concat (subvec without 0 j) [card] (subvec without j)))))))))))
+(defn- paint! [c mode]
+  (swap! selected (if (= mode :on) #(conj % c) #(disj % c))))
 
-(defn- drag-end! [_]
-  (when-let [{:keys [card moved?]} @drag]
-    (when-not moved? (toggle! card)))
-  (reset! drag nil))
+(defn- reorder! [card t]
+  (let [order @shown-order]
+    (when (and t (not= t card) (some #{t} order))
+      (let [without (vec (remove #{card} order))
+            j       (.indexOf (clj->js order) t)]
+        (save-order! (vec (concat (subvec without 0 j) [card] (subvec without j))))))))
+
+(defn- drag-move!
+  "Painting: every card the pointer crosses takes the first card's new state.
+   Sorting: the held card swaps with each card it crosses."
+  [e]
+  (when-let [{:keys [mode card]} @drag]
+    (let [t (card-under (.-clientX e) (.-clientY e))]
+      (case mode
+        :sort (do (swap! drag assoc :moved? true) (reorder! card t))
+        (when t (paint! t mode))))))
 
 ;; On the window, not the card: swapping moves the card's element, and a
 ;; moved element loses the pointer, so handlers on the card go quiet after
-;; the first swap.
+;; the first swap. Painting wants the window too, to follow the pointer from
+;; card to card.
 (defonce drag-listeners
   (do (.addEventListener js/window "pointermove" drag-move!)
-      (.addEventListener js/window "pointerup" drag-end!)
+      (.addEventListener js/window "pointerup" #(reset! drag nil))
       (.addEventListener js/window "pointercancel" #(reset! drag nil))
       true))
 
-(defn- pointer-handlers
-  "Press and release in place: select. Press and move: drag, swapping with
-   each card the pointer passes over."
-  [c]
-  {:on-pointer-down (fn [e]
-                      (.preventDefault e)
-                      (reset! drag {:card c :x (.-clientX e) :y (.-clientY e) :moved? false}))})
+(defn- start-paint!
+  "Press on a card: it flips, and that decides what the sweep does -- select
+   everything it crosses, or deselect it. A click is a sweep of one."
+  [c e]
+  (.preventDefault e)
+  (let [mode (if (contains? @selected c) :off :on)]
+    (paint! c mode)
+    (reset! drag {:mode mode :card c})))
+
+(defn- start-sort! [c e]
+  (.preventDefault e)
+  (.stopPropagation e)
+  (reset! drag {:mode :sort :card c :moved? false}))
 
 (defn- your-hand [state]
   (let [you   (:you state)
@@ -313,27 +342,31 @@
           (:actions state) "your turn — take the pile's top card, or draw from the deck"
           :else "")]
        [:div {:style {:display "flex" :gap "10px" :justify-content "center" :flex-wrap "wrap"}}
-        (let [order (arranged hand)
-              _     (reset! shown-order order)
-              held  (:card @drag)
-              moving? (:moved? @drag)]
+        (let [order   (arranged hand)
+              _       (reset! shown-order order)
+              {held :card mode :mode moved? :moved?} @drag]
           (for [c order]
             (let [on?      (contains? picked c)
-                  dragged? (and moving? (= c held))]
+                  dragged? (and (= mode :sort) moved? (= c held))]
               ^{:key c}
-              [:div (merge
-                     {:data-card c
+              [:div {:data-card c
+                     :style {:display "flex" :flex-direction "column" :align-items "center"
+                             :gap "5px" :opacity (if dragged? 0.55 1)
+                             ;; no scrolling or text selection while dragging, on touch too
+                             :touch-action "none" :user-select "none"}}
+               [:div {:on-pointer-down #(start-paint! c %)
                       :style {:transform (when on? "translateY(-12px)")
                               :transition "transform 120ms"
-                              :border-radius "6px"
-                              :opacity (if dragged? 0.55 1)
-                              :cursor (if dragged? "grabbing" "pointer")
-                              ;; no scrolling or text selection while dragging, on touch too
-                              :touch-action "none" :user-select "none"
+                              :border-radius "6px" :cursor "pointer"
                               :box-shadow (when on? (str "0 0 0 3px " accent))}}
-                     (pointer-handlers c))
-               [card/card {:value c :width 84
-                           :props {:style {:pointer-events "none"}}}]])))]])))
+                [card/card {:value c :width 84 :props {:style {:pointer-events "none"}}}]]
+               ;; the grip: drag the card by this to move it in your hand
+               [:div {:on-pointer-down #(start-sort! c %)
+                      :title "drag to move"
+                      :style {:width "44px" :height "12px" :border-radius "6px"
+                              :cursor (if dragged? "grabbing" "grab")
+                              :background "repeating-linear-gradient(90deg, #4a4752 0 2px, transparent 2px 6px)"
+                              :opacity 0.8}}]])))]])))
 
 (defn- chat-view []
   (let [draft (r/atom "")]
@@ -359,7 +392,7 @@
     [:h2 {:style {:color ink :margin "0 0 6px 0" :letter-spacing "3px" :font-size "18px"}}
      "DISTINCTIONS"]
     [:div {:style {:color faint :font-size "12px" :line-height "18px"}}
-     (str (:hand-size state) " cards · " goal-words)
+     (str (:hand-size state) " cards · " (goal-words state))
      [:br] (str "turn " (:turn state))]]
    ;; the live key, where UNIVERSE keeps its hand history
    (let [hand (get-in state [:hands (:you state)])]
@@ -384,7 +417,7 @@
              [:div {:style {:text-align "center" :margin "60px 0"}}
               [:div {:style {:color faint :margin-bottom "16px"}}
                (str (:hand-size state) (if (solo? state) " cards." " cards each.")
-                    " To win: " goal-words ".")]
+                    " To win: " (goal-words state) ".")]
               [button "deal" send-start! true]]
 
              :else
@@ -395,8 +428,10 @@
                    [:span "done in " [:span {:style {:color red}} (:turn state)]
                     (if (= 1 (:turn state)) " turn" " turns")]
                    [:span [:span {:style {:color red}} (:winner state)] " wins"])
-                 [:div {:style {:font-size "15px" :color faint :margin-top "6px"}}
-                  (made-words (:made state))]
+                 (if (path? state)
+                   [path-view (:made state)]
+                   [:div {:style {:font-size "15px" :color faint :margin-top "6px"}}
+                    (made-words (:made state))])
                  [:div {:style {:margin-top "14px"}}
                   [:a {:href "/distinctions/create" :style {:color faint :font-size "14px"}}
                    "new game"]]])
@@ -414,6 +449,9 @@
     ;; one is a solo game; seven is as many hands of eight as the deck deals
     :min-players    1
     :max-players    7
+    :options        [{:key :path
+                      :label "the path"
+                      :description "seven cards, from a card to its opposite one difference at a time (instead of two teams of four)"}]
     :accent         accent
     :slot-bg        panel
     :background     ground

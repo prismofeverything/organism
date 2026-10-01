@@ -48,8 +48,7 @@
         (is (game/can-eat? game (game/get-element game [:orange 0])))))))
 
 (deftest useful-action-rule-removes-deliberate-passing-without-stranding-anyone
-  (testing "declaring is not filtered: every type the organism has is offered,
-            even where only eating could accomplish anything"
+  (testing "an organism is only offered types whose first action it could take"
     (let [game (-> examples/two-player-close
                    (game/add-element "orb" 0 :eat [:orange 0] 0)
                    (game/add-element "orb" 0 :grow [:orange 1] 0)
@@ -57,7 +56,9 @@
                    (turn-for "orb"))
           [phase choices] (choice/find-state game)]
       (is (= :choose-action-type phase))
-      (is (= #{:eat :grow :move} (set (keys choices))))))
+      ;; Nothing is fed, so nothing can move, grow or circulate. Eating is
+      ;; the only turn that could begin.
+      (is (= [:eat] (vec (keys choices))))))
 
   (testing "with food to spend, the actions that food makes possible appear"
     (let [game (-> examples/two-player-close

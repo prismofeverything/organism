@@ -173,27 +173,43 @@
                                  elements)))
        false)))))
 
-(defn declarable-types
-  "The types an organism may declare: every type it has an element of.
+(defn- can-start?
+  "Whether `organism` could take the first action of a turn declared `type`:
+   that action, or a circulate. Asked of the organism on its own, as the base
+   game would see it, so FLOW and the base game decide it the same way."
+  [game organism type]
+  (let [focused (-> game
+                    (update :mutations dissoc :FLOW)
+                    (assoc-in [:state :player-turn :organism-turns]
+                              [{:organism organism :choice type :num-actions 1 :actions []}]))]
+    (boolean (or (action-filter focused type) (action-filter focused :circulate)))))
 
-   Declaring is never filtered by what the turn could accomplish. A GROW
-   declared with too little food to grow is still a turn — circulate the food
-   to where it will be needed — and whether a declared type was worth it is
-   the player's call, not the rules'. (It once was filtered, by `declarable?`
-   under *require-useful-action*, to stop a trained agent passing in disguise;
-   that hid GROW from a real player holding one food short.) What stops a pass
-   is choose-action-state, which offers :pass only when nothing can be done.
-   An organism with none of any type — never on a real board — gets all three."
-  [elements]
-  (let [present (set (map :type elements))]
-    (or (seq (filter present element-types)) element-types)))
+(defn declarable-types
+  "The types an organism may declare: those of its elements whose first
+   action it could take now -- the action itself, or a circulate.
+
+   A turn must begin with something done (see next-action-state), so a type
+   the organism could not even begin is not a choice: with no food at all,
+   MOVE and GROW cannot move, grow or circulate, and declaring one was a pass
+   in disguise -- which trained agents used, and players could too. A GROW
+   short of food is still declarable, since it can circulate first.
+
+   Where nothing at all can be begun the turn still has to be played, so every
+   type the organism has stands, and the turn passes. The original game (the
+   rule off) offers every type it has."
+  [game organism elements]
+  (let [present (filter (set (map :type elements)) element-types)
+        present (if (seq present) present element-types)
+        able (when game/*require-useful-action*
+               (seq (filter (partial can-start? game organism) present)))]
+    (or able present)))
 
 (defn choose-action-type-choices
   "Which action an organism declares for its turn. See declarable-types."
   [game]
   (partial-map
    (partial game/choose-action-type game)
-   (declarable-types (game/current-organism-elements game))))
+   (declarable-types game (game/current-organism game) (game/current-organism-elements game))))
 
 (defn choose-action-choices
   [game action-type]
@@ -471,20 +487,22 @@
       :else [:pass {:pass (game/pass-action game)}])))
 
 (defn next-action-state
-  "An organism about to take its next action: the action or circulate, or a
-   pass when neither is possible."
+  "An organism about to take its next action: the action or circulate, and,
+   once its first action is done, a pass -- or only a pass, when nothing is
+   possible."
   [game choice]
-  ;; Passing is what is left when nothing else can be done, not a move to be
-  ;; preferred over doing something — unless the rule is off, which is the
-  ;; original game, where it was always on offer.
+  ;; A turn's first action is owed: the type was declarable only because it
+  ;; could be begun. After it, each remaining action may be passed. The
+  ;; original game (the rule off) offered a pass on every action.
   (let [choices (choose-action-choices game choice)
+        done (seq (:actions (game/get-organism-turn game)))
         pass {:pass
               (-> game
                   (game/choose-action :circulate)
                   game/pass-action)}]
     (cond
       (empty? choices) [:pass pass]
-      game/*require-useful-action* [:choose-action choices]
+      (and game/*require-useful-action* (not done)) [:choose-action choices]
       :else [:choose-action (merge choices pass)])))
 
 (declare action-field-state)
@@ -617,7 +635,7 @@
          (into
           {}
           (for [[organism elements] organisms
-                type (declarable-types elements)]
+                type (declarable-types game organism elements)]
             [[(game/organism-name elements) type]
              (game/flow-declare game organism type)]))])
 
@@ -649,9 +667,17 @@
                                            turn (named game organism) type))
                                         (keys offers)))))
                      active)
-            passes (when (and (seq blocked) (not (flow-plan-exists? game)))
-                     (into {} (for [index blocked]
-                                [[:pass index] (game/flow-pass game index)])))]
+            stuck-passes (when (and (seq blocked) (not (flow-plan-exists? game)))
+                           (into {} (for [index blocked]
+                                      [[:pass index] (game/flow-pass game index)])))
+            ;; as in the base game: an organism's first action is owed, and
+            ;; each one after it may be passed
+            free-passes (when (or (not game/*require-useful-action*)
+                                  (pos? (game/flow-action-index turns)))
+                          (into {} (for [index active
+                                         :when (nil? (:pending (nth turns index)))]
+                                     [[:pass index] (game/flow-pass game index)])))
+            passes (merge free-passes stuck-passes)]
         [:flow-choose (merge offers cancels passes)]))))
 
 (declare find-state)
