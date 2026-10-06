@@ -88,3 +88,32 @@
                                 pts))
                       pts)))
         (is (= (set names) (set (keys (:player-colors b)))))))))
+
+(deftest the-2d-globe-keeps-neighbours-together
+  (doseq [players sphere/player-counts]
+    (let [{:keys [adjacencies]} (sphere/sphere-board players)
+          names (take players board/default-player-order)
+          views (take 12 (iterate #(sphere/turn % [137 61]) sphere/identity-view))
+          away? (fn [[x _]] (neg? x))]
+      (testing (str players " players: from every view, neighbours on the page sit close")
+        (doseq [view views
+                :let [b (sphere/generate-board (sphere/ring-colors players 10) names view)
+                      locs (:locations b)]
+                [a ns] adjacencies n ns
+                :let [pa (get locs a) pb (get locs n)]
+                :when (not (or (away? pa) (away? pb)))]
+          ;; the map is true to distance from its centre and stretches only
+          ;; round it, by reach/sin(reach) at most (1.8 at 105 degrees); a
+          ;; neighbour torn away would be many times its own length
+          (let [{:keys [positions]} (sphere/sphere-board players)
+                angle (Math/acos (min 1.0 (reduce + (map * (get positions a) (get positions n)))))
+                page-per-radian (/ 400 (Math/toRadians 105))]
+            (is (< (Math/hypot (- (first pb) (first pa)) (- (second pb) (second pa)))
+                   (* 2.0 angle page-per-radian))
+                [view a n]))))
+      (testing (str players " players: turning the globe brings every space into view")
+        (is (= (set (keys adjacencies))
+               (set (for [view views
+                          [space at] (sphere/locations players view)
+                          :when (not (away? at))]
+                      space))))))))

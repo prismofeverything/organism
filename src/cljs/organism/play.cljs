@@ -66,6 +66,12 @@
    mutation-description))
 
 (defonce session (r/atom {:page :home}))
+
+(defonce ^{:doc "Which way the 2D page looks at a SPHERE globe; dragging the
+  globe turns it (sphere/turn)."}
+  sphere-view
+  (r/atom sphere/identity-view))
+
 (defonce chat (r/atom []))
 
 (defonce history-advance
@@ -750,6 +756,7 @@
                  mutations
                  (:adjacencies game)))
         [game turn choices] (choice/find-next-choices game)
+        _ (reset! sphere-view sphere/identity-view)
         cursor (if (< witness (count history)) witness)]
     (println "initializing game" game)
     (println "initializing board" board)
@@ -2412,9 +2419,46 @@
       []
       (into [] (concat [:g] highlights)))))
 
+(defn- sphere-drag!
+  "Turn the 2D globe with the pointer, from a press on the globe itself -- a
+   press on a space or a highlight is a choice, not a turn. A double click
+   looks back down on the core."
+  [^js event]
+  (when (some-> (.-target event) (.getAttribute "data-sphere-globe"))
+    (.preventDefault event)
+    (let [svg (.-currentTarget event)
+          ;; the page may draw the board at another size than its own units
+          scale (let [rect (.getBoundingClientRect svg)
+                      w (js/parseFloat (.getAttribute svg "width"))]
+                  (if (and (pos? (.-width rect)) (pos? w)) (/ w (.-width rect)) 1))
+          last (atom [(.-clientX event) (.-clientY event)])
+          frame (atom nil)
+          pending (atom [0 0])
+          move (fn [^js e]
+                 (let [[x y] @last]
+                   (swap! pending (fn [[dx dy]] [(+ dx (* scale (- (.-clientX e) x))) (+ dy (* scale (- (.-clientY e) y)))]))
+                   (reset! last [(.-clientX e) (.-clientY e)])
+                   ;; at most once a frame: the whole board redraws
+                   (when-not @frame
+                     (reset! frame (js/requestAnimationFrame
+                                    (fn []
+                                      (reset! frame nil)
+                                      (let [d @pending]
+                                        (reset! pending [0 0])
+                                        (swap! sphere-view sphere/turn d))))))))
+          stop (fn stop [_]
+                 (.removeEventListener js/window "pointermove" move)
+                 (.removeEventListener js/window "pointerup" stop))]
+      (.addEventListener js/window "pointermove" move)
+      (.addEventListener js/window "pointerup" stop))))
+
 (defn organism-board
   [game board colors turn choices]
-  (let [progress @transition-progress
+  (let [sphere? (and (:centers game) (get-in game [:mutations :SPHERE]))
+        board (if sphere?
+                (sphere/turned-board board (count (:turn-order game)) @sphere-view)
+                board)
+        progress @transition-progress
         from-state @displayed-state
         to-state (:state game)
         animating? (and from-state
@@ -2435,6 +2479,13 @@
                        (animation-overlay board from-state (:adjacencies game)
                                           transitions progress))]
     (cond-> svg
+      (and sphere? (vector? svg) (map? (second svg)))
+      (update 1 assoc
+              :on-pointer-down sphere-drag!
+              :on-double-click (fn [^js e]
+                                 (when (some-> (.-target e) (.getAttribute "data-sphere-globe"))
+                                   (reset! sphere-view sphere/identity-view)))
+              :style {:touch-action "none" :user-select "none"})
       anim-overlay (conj anim-overlay)
       (not-empty highlights) (conj highlights)
       ;; a phone: drawn to the screen's width rather than its own -- once

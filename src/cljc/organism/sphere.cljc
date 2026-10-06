@@ -60,118 +60,135 @@
         (assoc :centers centers))))
 
 ;; ── The flattened globe ───────────────────────────────────────────────────
+;;
+;; The 2D page shows the globe from one direction: everything within `reach`
+;; of the point it looks at, true to distance from that point and fanned out
+;; round it -- past the equator, but nowhere near the far side, where any flat
+;; map of a sphere has to tear neighbours apart. The view turns: `view` is a
+;; rotation, and dragging the board turns it (see turn).
 
 (defn- acos [x] (#?(:clj Math/acos :cljs js/Math.acos) (max -1.0 (min 1.0 x))))
 (defn- atan2 [y x] (#?(:clj Math/atan2 :cljs js/Math.atan2) y x))
 (defn- cos [x] (#?(:clj Math/cos :cljs js/Math.cos) x))
 (defn- sin [x] (#?(:clj Math/sin :cljs js/Math.sin) x))
-(defn- sqrt [x] (#?(:clj Math/sqrt :cljs js/Math.sqrt) x))
 (defn- dot [a b] (reduce + (map * a b)))
 
 (def ^:private disc-radius 400)
-(def ^:private disc-gap 30)
-;; room round the discs for the spaces on their rims
+;; room round the disc for the spaces on its rim
 (def ^:private pad 30)
+;; how far from the point looked at the page shows: past the equator
+(def ^:private reach (* 105 (/ #?(:clj Math/PI :cljs js/Math.PI) 180)))
 
-(defn- nearest-center
-  [positions centers p]
-  (apply max-key #(dot p (get positions %)) (reverse centers)))
+(def ^:private away
+  "Where a space round the back of the globe goes: off the page, so nothing
+   drawn for it shows, while everything that looks a space up still finds one."
+  [-100000 -100000])
+
+(def identity-view [[1 0 0] [0 1 0] [0 0 1]])
+
+(defn- mat* [a b]
+  (vec (for [row a] (vec (for [j (range 3)] (dot row (map #(nth % j) b)))))))
+
+(defn- mat-vec [m v] (mapv #(dot % v) m))
+
+(defn turn
+  "The view turned by a drag of [dx dy] on the page: the globe follows the
+   pointer, the point under it moving with it."
+  [view [dx dy]]
+  (let [per-unit (/ reach disc-radius)
+        a (* -1 per-unit dx)
+        b (* per-unit dy)
+        about-z [[(cos a) (- (sin a)) 0] [(sin a) (cos a) 0] [0 0 1]]
+        about-x [[1 0 0] [0 (cos b) (- (sin b))] [0 (sin b) (cos b)]]]
+    (mat* about-x (mat* about-z view))))
 
 (defn- flatten-space
-  "Where a point of the globe goes on its core's disc: the angle from the core
-   is the distance from the disc's centre, `reach` of it at the rim, and the
-   bearing is kept -- mirrored on the second disc, which looks at the globe
-   from the other side."
-  [p [cx cy] radius reach mirror?]
-  (let [[x y z] p
-        theta (acos (if mirror? (- y) y))
-        r (* radius (/ theta reach))
-        phi (atan2 z x)
-        phi (if mirror? (- phi) phi)]
-    [(+ cx (* r (cos phi))) (+ cy (* r (sin phi)))]))
+  "Where a point of the globe goes on the page, seen through `view`: its angle
+   from the point looked at is its distance from the disc's centre, and its
+   bearing round that point is kept."
+  [view p]
+  (let [[x y z] (mat-vec view p)
+        theta (acos y)
+        c (+ pad disc-radius)]
+    (if (> theta reach)
+      away
+      (let [r (* disc-radius (/ theta reach))
+            phi (atan2 z x)]
+        [(+ c (* r (cos phi))) (+ c (* r (sin phi)))]))))
 
 (defn locations
-  "Every space of this sphere on the page, and the discs they sit on."
-  [player-count]
-  (let [{:keys [positions centers]} (sphere-board player-count)
-        two? (= 2 (count centers))
-        ;; two discs share the room one would have, so the page lays the
-        ;; board out as it does a flat one
-        radius (if two? (/ (- disc-radius (/ disc-gap 2)) 2) disc-radius)
-        y (+ pad radius)
-        discs (if two?
-                [[y (+ pad disc-radius)] [(+ y (* 2 radius) disc-gap) (+ pad disc-radius)]]
-                [[y y]])
-        ;; each disc runs from its core to the furthest space it holds
-        owner (into {} (for [[space p] positions]
-                         [space (if two? (let [c (nearest-center positions centers p)]
-                                           (first (keep-indexed #(when (= c %2) %1) centers)))
-                                     0)]))
-        reach (fn [i]
-                (let [angles (for [[space p] positions
-                                   :when (= i (owner space))]
-                               (acos (if (zero? i) (second p) (- (second p)))))]
-                  (* 1.04 (apply max angles))))
-        reaches (mapv reach (range (count discs)))]
-    {:discs (mapv (fn [c] {:center c :radius radius}) discs)
-     :width (+ (* 2 pad) (* 2 disc-radius))
-     :height (+ (* 2 pad) (* 2 disc-radius))
-     :locations (into {} (for [[space p] positions
-                               :let [i (owner space)]]
-                           [space (flatten-space p (nth discs i) radius (nth reaches i) (= i 1))]))}))
+  "Every space of this sphere on the page, seen through `view`."
+  [player-count view]
+  (into {} (for [[space p] (:positions (sphere-board player-count))]
+             [space (flatten-space view p)])))
 
 (defn- space-radius
-  "A space's circle on the flattened globe: a little under half the closest
-   any two spaces come on the page, so none overlap. The grid is not quite
-   even, and the map only ever spreads it, so that is near the cores."
-  [player-count locs]
-  (let [{:keys [adjacencies]} (sphere-board player-count)
-        gaps (for [[a ns] adjacencies n ns
-                   :let [[x1 y1] (get locs a) [x2 y2] (get locs n)]]
-               (sqrt (+ (* (- x2 x1) (- x2 x1)) (* (- y2 y1) (- y2 y1)))))]
-    (* 0.44 (apply min gaps))))
+  "A space's circle: a little under half the closest two neighbours come on
+   the globe. The map is true to distance from its centre and only spreads
+   things round it, so it never brings them closer -- and the size holds as
+   the view turns."
+  [player-count]
+  (let [{:keys [adjacencies positions]} (sphere-board player-count)
+        angle (apply min (for [[a ns] adjacencies n ns]
+                           (acos (dot (get positions a) (get positions n)))))]
+    (* 0.44 angle (/ disc-radius reach))))
+
+(defn- shown? [[x _]] (not= x (first away)))
 
 (defn- layout
-  [player-count colors {:keys [discs width height locations]} radius]
+  [player-count colors locations radius]
   (let [{:keys [adjacencies]} (sphere-board player-count)
         ring-color (into {} colors)
+        c (+ pad disc-radius)
         edges (distinct (for [[a ns] adjacencies n ns] (sort [a n])))]
     [:svg
-     {:width width :height height}
+     {:width (* 2 c) :height (* 2 c)}
      (vec
       (concat
        [:g]
-       (for [{[x y] :center r :radius} discs]
-         [:circle {:cx x :cy y :r (+ r (* 0.6 pad)) :fill "#111"}])
-       ;; what is next to what: the map stretches toward the rim, so the
-       ;; links say it where position no longer does
+       ;; the globe itself: dragging it turns it
+       [[:circle {:cx c :cy c :r (+ disc-radius (* 0.6 pad)) :fill "#111"
+                  :data-sphere-globe true :style {:cursor "grab"}}]]
+       ;; what is next to what, so the fanned-out rim still reads
        (for [[a b] edges
-             :let [[x1 y1] (get locations a) [x2 y2] (get locations b)
-                   d (sqrt (+ (* (- x2 x1) (- x2 x1)) (* (- y2 y1) (- y2 y1))))]
-             ;; a link across the rim or between discs would cut the board
-             :when (< d (* 6 radius))]
-         [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :stroke "#3a4152" :stroke-width (* 0.12 radius)}])
-       (for [[[ring _] [x y]] (sort-by key locations)]
+             :let [pa (get locations a) pb (get locations b)]
+             :when (and (shown? pa) (shown? pb))
+             :let [[x1 y1] pa [x2 y2] pb]]
+         [:line {:x1 x1 :y1 y1 :x2 x2 :y2 y2 :stroke "#3a4152" :stroke-width (* 0.12 radius)
+                 :pointer-events "none"}])
+       (for [[[ring _] [x y :as at]] (sort-by key locations)
+             :when (shown? at)]
          (board/circle [x y radius (get ring-color ring "#556")]))))]))
 
 (defn generate-board
-  "The 2D board for a sphere game -- what board/generate-board is for a flat one."
-  [colors players]
-  (let [player-count (count players)
-        flat (locations player-count)
-        radius (space-radius player-count (:locations flat))
-        ;; players take their colours from the end of the whole list, as on a
-        ;; flat board; the rings, from its start
-        player-colors (board/find-player-colors players (map last colors))
-        ring-colors (vec (take (ring-count player-count) colors))]
-    (board/->Board
-     6
-     radius
-     2.1
-     ring-colors
-     (layout player-count ring-colors flat radius)
-     (:locations flat)
-     player-colors)))
+  "The 2D board for a sphere game -- what board/generate-board is for a flat
+   one -- seen through `view`, by default looking down on the (first) core."
+  ([colors players] (generate-board colors players identity-view))
+  ([colors players view]
+   (let [player-count (count players)
+         locs (locations player-count view)
+         radius (space-radius player-count)
+         ;; players take their colours from the end of the whole list, as on a
+         ;; flat board; the rings, from its start
+         player-colors (board/find-player-colors players (map last colors))
+         ring-colors (vec (take (ring-count player-count) colors))]
+     (board/->Board
+      6
+      radius
+      2.1
+      ring-colors
+      (layout player-count ring-colors locs radius)
+      locs
+      player-colors))))
+
+(defn turned-board
+  "This sphere board seen through another `view`: the same board, its spaces
+   moved."
+  [board player-count view]
+  (let [locs (locations player-count view)]
+    (assoc board
+           :locations locs
+           :layout (layout player-count (:colors board) locs (:radius board)))))
 
 (defn ring-colors
   "Colours for an invocation on this player count's sphere: one per ring, and
