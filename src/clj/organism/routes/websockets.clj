@@ -9,6 +9,7 @@
    [organism.bots :as bots]
    [organism.game :as game]
    [organism.board :as board]
+   [organism.sphere :as sphere]
    [organism.game-log :as game-log]
    [organism.leaderboard :as leaderboard]
    [organism.persist :as persist]
@@ -241,12 +242,17 @@
           organism-victory
           player-captures
           mutations]} invocation
-        symmetry (board/player-symmetry player-count)
-        starting (board/starting-spaces ring-count player-count players board/total-rings mutations)
-        player-info (game/initial-players starting player-captures)
-        notches? (board/cut-notches? ring-count player-count mutations)
-        rings (vec (take ring-count board/total-rings))
-        create (game/create-game symmetry rings player-info organism-victory notches? mutations)
+        create
+        (if (sphere/sphere? mutations)
+          (sphere/create-game
+           (game/initial-players (sphere/starting-spaces player-count players) player-captures)
+           organism-victory mutations)
+          (let [symmetry (board/player-symmetry player-count)
+                starting (board/starting-spaces ring-count player-count players board/total-rings mutations)
+                player-info (game/initial-players starting player-captures)
+                notches? (board/cut-notches? ring-count player-count mutations)
+                rings (vec (take ring-count board/total-rings))]
+            (game/create-game symmetry rings player-info organism-victory notches? mutations)))
         created (System/currentTimeMillis)]
     (-> game-state
         (assoc-in [:invocation :created] created)
@@ -259,10 +265,13 @@
   (or (:created-by (persist/find-open-game db game-key)) fallback))
 
 (defn- enough-starting-clearance?
-  "RAIN uses its own multi-organism placement. Every ordinary game must use a
-   board size that leaves three open spaces on both sides of each start."
+  "RAIN uses its own multi-organism placement, and SPHERE its own boards. Every
+   ordinary game must use a board size that leaves three open spaces on both
+   sides of each start."
   [{:keys [ring-count player-count mutations]}]
   (or (:RAIN mutations)
+      ;; a sphere is sized for its player count, or there is none
+      (and (sphere/sphere? mutations) (boolean (sphere/sphere-board player-count)))
       (board/starting-clearance? ring-count player-count)))
 
 (defn begin-game!

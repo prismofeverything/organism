@@ -143,6 +143,7 @@ pub fn main(args: &[String]) -> Result<()> {
                 steps,
                 max_steps,
                 repetition,
+                repetition_value: 0.,
                 bootstrap_horizon: false,
             }];
             search::queued(

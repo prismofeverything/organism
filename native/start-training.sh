@@ -16,12 +16,20 @@ cd "$(dirname "$0")/.."
 #                              games that were never going to finish. Matches
 #                              --eval-max-steps, so self-play and evaluation now
 #                              abandon a game at the same point.
+#   --repetition-value-2p -0.2 2026-10-05: a repetition was a neutral draw, and
+#                              2p self-play learned to force one -- 62/100 games
+#                              ended by repetition (median 57 choices), mostly by
+#                              both sides self-wiping and re-introducing back to
+#                              the opening. A small loss for both makes stalling
+#                              worse than playing on. 3p left at 0 (3% repetition).
+#   --sims 256 --sims-3p 128   2026-10-05: doubled both; both lineages plateaued
+#                              and the GPU sat ~half idle at 128/64.
 exec native/target/release/organism-train train \
   --forever --players 2,3 --rings-2p 3 --curriculum-2p \
   --buffer 32768 --replay-game-cap 256 --cutoff-value mask --cutoff-value-2p draw \
   --require-useful-action 1 --eat-threshold 5 --sacrifice-yields-nothing 1 --stall-limit 15 \
   --actors 16 --concurrent-games 96 --gpu-batch 96 --exploration-rounds 0 --exploration-choices 30 --threads 8 \
-  --sims 128 --sims-3p 64 --baseline-ratchet 1 \
+  --sims 256 --sims-3p 128 --repetition-value-2p -0.2 --baseline-ratchet 1 \
   --blocks 8 --filters 128 \
   --max-steps 1500 \
   --eval-every 20 --eval-games-per-seat 8 --eval-service-ticks 6 --eval-max-steps 1500 \

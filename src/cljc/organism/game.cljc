@@ -755,27 +755,37 @@
 
 ;; ACTIONS -----------------------
 
+(defn centers
+  "Every core on the board. A flat board has the one; a SPHERE board for five
+   or more players has two, at opposite poles (organism.sphere)."
+  [game]
+  (or (:centers game) [(:center game)]))
+
 (defn award-center
+  "Each core this player holds at the start of their turn pays them a capture."
   [game player]
-  (let [center (:center game)
-        center-element (get-element game center)]
-    (if (and
-         center-element
-         (= player (:player center-element))
-         (or
-          (not (find-mutation game :RAIN))
-          (not= player (rain-player game))))
-      (update-in
-       game
-       [:state :captures player]
-       conj
-       {:player player
-        :organism -1
-        :type :center
-        :space center
-        :food 0
-        :captures []})
-      game)))
+  (reduce
+   (fn [game center]
+     (let [center-element (get-element game center)]
+       (if (and
+            center-element
+            (= player (:player center-element))
+            (or
+             (not (find-mutation game :RAIN))
+             (not= player (rain-player game))))
+         (update-in
+          game
+          [:state :captures player]
+          conj
+          {:player player
+           :organism -1
+           :type :center
+           :space center
+           :food 0
+           :captures []})
+         game)))
+   game
+   (centers game)))
 
 (defn start-turn
   [game player]
@@ -2126,7 +2136,7 @@
     (boolean
      (and
       (seq (get-in game [:state :elements]))
-      (nil? (get-element game (:center game)))
+      (not-any? (partial get-element game) (centers game))
       (not-any? (partial player-can-act? game) (:turn-order game))))))
 
 (defn stalemate-victory?

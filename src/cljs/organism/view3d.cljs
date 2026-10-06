@@ -18,12 +18,21 @@
    colours instead.
 
    The scene only draws when something changes -- the camera, the window, the
-   position -- rather than every frame."
+   position -- rather than every frame.
+
+   A SPHERE game is the same scene on a globe. A space there is a point on the
+   globe's surface, [x y z], where a flat board's is [x z] on the table, and
+   everything is put on its space through `place!` and `place-between!`: on
+   the table they are plain positions, on the globe they stand things up along
+   the surface at that point. So pieces, food, targets and plasma are the flat
+   board's own, only placed."
   (:require
    ["three" :as THREE]
    ["three/examples/jsm/controls/OrbitControls.js" :refer [OrbitControls]]
+   ["three/examples/jsm/controls/TrackballControls.js" :refer [TrackballControls]]
    ["three/examples/jsm/loaders/GLTFLoader.js" :refer [GLTFLoader]]
    [organism.board :as board]
+   [organism.sphere :as sphere]
    [organism.transitions :as transitions]))
 
 (def ^:private asset-root "/organism/3d/")
@@ -81,10 +90,35 @@
 
 ;; ── Where things go ───────────────────────────────────────────────────────
 
+(defn- sphere-layout
+  "A SPHERE game's spaces on a globe sized so neighbouring spaces sit a
+   printed space apart, as [x y z] millimetres from its centre."
+  [game invocation]
+  (let [rings (:rings game)
+        {:keys [positions adjacencies]} (sphere/sphere-board (count (:turn-order game)))
+        mm default-mm-per-space
+        chord (fn [a b] (js/Math.hypot (- (nth a 0) (nth b 0)) (- (nth a 1) (nth b 1)) (- (nth a 2) (nth b 2))))
+        edges (for [[a ns] adjacencies n ns] (chord (get positions a) (get positions n)))
+        radius (/ mm (/ (reduce + edges) (count edges)))
+        colors (or (seq (:colors invocation))
+                   (map vector rings (repeat "#556")))]
+    {:spaces (into {} (for [[space p] positions
+                            :when (contains? (:adjacencies game) space)]
+                        [space (mapv #(* radius %) p)]))
+     :neighbours (into {} (for [[space ns] adjacencies]
+                            [space (* radius (apply min (map #(chord (get positions space) (get positions %)) ns)))]))
+     :rings rings
+     :sphere radius
+     :mm mm
+     :ring-count (count rings)
+     :ring-colors (into {} colors)}))
+
 (defn- layout
   "Every space of this game, as [x z] millimetres from the centre, and what the
    board is drawn from."
   [game invocation meta]
+  (if (sphere/sphere? (:mutations invocation))
+    (sphere-layout game invocation)
   (let [rings (:rings game)
         ring-count (count rings)
         player-count (count (:turn-order game))
@@ -107,7 +141,55 @@
      :printed printed
      :mm mm
      :ring-count ring-count
-     :ring-colors (into {} colors)}))
+     :ring-colors (into {} colors)})))
+
+;; ── Putting things on a space ─────────────────────────────────────────────
+
+(def ^:private up (THREE/Vector3. 0 1 0))
+
+(defn- space-frame
+  "Where a space is and which way is up there: on the table, its point and the
+   table's up; on a globe, its point on the surface and the way out of it."
+  [at]
+  (if (= 3 (count at))
+    (let [p (THREE/Vector3. (nth at 0) (nth at 1) (nth at 2))
+          n (.normalize (.clone p))]
+      [p (.setFromUnitVectors (THREE/Quaternion.) up n)])
+    [(THREE/Vector3. (nth at 0) 0 (nth at 1)) (THREE/Quaternion.)]))
+
+(defn- place!
+  "Stand `o` on the space at `at`, `height` above it -- and `offset`, [x z],
+   along it -- upright there."
+  [^js o at height & [[ox oz]]]
+  (let [[p q] (space-frame at)
+        local (.applyQuaternion (THREE/Vector3. (or ox 0) height (or oz 0)) q)]
+    (.copy (.-position o) (.add p local))
+    (.copy (.-quaternion o) q)
+    o))
+
+(defn- place-between!
+  "Stand `o` `e` of the way from the space at `a` to the one at `b`, `height`
+   up: straight across the table, or round the globe."
+  [^js o a b e height]
+  (if (= 3 (count a))
+    (let [pa (THREE/Vector3. (nth a 0) (nth a 1) (nth a 2))
+          pb (THREE/Vector3. (nth b 0) (nth b 1) (nth b 2))
+          r (+ (.length pa) (* e (- (.length pb) (.length pa))))
+          d (.normalize (.lerp (.normalize (.clone pa)) (.normalize (.clone pb)) e))
+          ;; upright the whole way, in the frame place! gives each end
+          q (.setFromUnitVectors (THREE/Quaternion.) up d)]
+      (.copy (.-position o) (.add (.multiplyScalar (.clone d) r) (.applyQuaternion (THREE/Vector3. 0 height 0) q)))
+      (.copy (.-quaternion o) q)
+      o)
+    (let [[ax az] a [bx bz] b]
+      (.set (.-position o) (+ ax (* e (- bx ax))) height (+ az (* e (- bz az))))
+      (.set (.-quaternion o) 0 0 0 1)
+      o)))
+
+(defn- up-at
+  "Which way is up at a point in the scene, with the globe's radius if on one."
+  [sphere-radius ^js v]
+  (if sphere-radius (.normalize (.clone v)) (.clone up)))
 
 ;; ── The scene ─────────────────────────────────────────────────────────────
 
@@ -281,7 +363,7 @@
   "What stands on one space, as a group placed on it, its meshes local to it
    -- so a move slides the group, and growing or being lost scales it where
    it stands."
-  [view {:keys [geometry meta]} player-colors [x z] [element free-food] space]
+  [view {:keys [geometry meta]} player-colors at [element free-food] space]
   (let [group (THREE/Group.)
         piece-scale (:piece_scale meta 0.9)
         food-scale (:food_scale meta 0.94)
@@ -289,7 +371,7 @@
         food-mat (material view food-color)
         turn (space-turn space)
         type (:type element)]
-    (.set (.-position group) x 0 z)
+    (place! group at 0)
     ;; tagged, so a target can find the piece, or the kth food, on a space
     (when type
       (let [^js m (piece-mesh (get geometry (.toUpperCase (name type)))
@@ -397,7 +479,7 @@
           (when-let [^js g (old from)]
             (swap! claimed conj from to)
             (hide! (get fresh to))
-            (let [[ax az] (get spaces from) [bx bz] (get spaces to)
+            (let [a (get spaces from) b (get spaces to)
                   ;; each space twists its piece its own way: turn to the new
                   ;; space's twist on the way, the short way round, rather than
                   ;; snapping to it on landing
@@ -423,8 +505,8 @@
                          (remove! g) (remove! lying) (reveal! (get fresh to)))]
               (swap! view assoc-in [:in-flight from] g)
               (animate! view move-ms
-                        (fn [e] (.set (.-position g) (+ ax (* e (- bx ax))) 0 (+ az (* e (- bz az))))
-                          (set! (.. g -rotation -y) (* e twist))
+                        (fn [e] (place-between! g a b e 0)
+                          (.rotateY g (* e twist))
                           (doseq [{:keys [^js m y0 lift]} tokens]
                             (set! (.. m -position -y) (+ y0 (* e (- lift y0))))))
                         (if (seq tokens)
@@ -468,14 +550,14 @@
             (swap! claimed conj space)
             (animate! view grow-ms
                       (fn [e] (.setScalar (.-scale g) (max 0.001 (- 1 e)))
-                        (set! (.. g -position -y) (* -10 e)))
+                        (place! g (get spaces space) (* -10 e)))
                       (fn [] (remove! g))))
 
           :circulate
           ;; the food itself is taken: the top of the giving stack lifts off
           ;; as one, the stack left behind shows at once, and the receiving
           ;; stack takes it only when it lands
-          (let [[ax az] (get spaces from) [bx bz] (get spaces to)
+          (let [a (get spaces from) b (get spaces to)
                 keep-b (old to)
                 shown-max (:food_shown meta 12)
                 had (:from-food-before change 1)
@@ -486,14 +568,14 @@
                 to-type (get-in state [:elements to :type])
                 top-from (dec (min shown-max had))
                 top-to (dec (min shown-max has))]
-            (when (and ax bx)
+            (when (and a b)
               (swap! claimed conj from to)
               ;; a stack that is also receiving is left to that animation
               (when-not (contains? receiving from) (remove! (old from)))
               (hide! (get fresh to))
               (let [tokens (vec (for [i (range lifted)]
                                   (let [^js token (piece-mesh (get geometry "FOOD") (material view food-color)
-                                                              ax 0 az (:food_scale meta 0.94) 0)]
+                                                              0 0 0 (:food_scale meta 0.94) 0)]
                                     (.add pieces-group token)
                                     ;; i counts down from the top of each stack
                                     {:token token
@@ -503,9 +585,7 @@
                 (animate! view flight-ms
                           (fn [t]
                             (doseq [{:keys [^js token y0 y1]} tokens]
-                              (.set (.-position token) (+ ax (* t (- bx ax)))
-                                    (+ y0 (* t (- y1 y0)) (* 4 45 t (- 1 t)))
-                                    (+ az (* t (- bz az))))))
+                              (place-between! token a b t (+ y0 (* t (- y1 y0)) (* 4 45 t (- 1 t))))))
                           (fn []
                             (doseq [{:keys [token]} tokens] (remove! token))
                             (remove! keep-b)
@@ -708,7 +788,7 @@
 
 (defn- plasma!
   "A plasma column on a space, and an invisible disc to click it by."
-  [layer [x z] mm color]
+  [layer at mm color]
   (let [[base mid tip] (plasma-colors color)
         v3 (fn [[r g b]] (THREE/Vector3. r g b))
         uniforms #js {:uTime #js {:value (/ (js/performance.now) 1000)}
@@ -726,7 +806,7 @@
         g (THREE/Group.)]
     (.rotateX pick (- (/ js/Math.PI 2)))
     (.add g column) (.add g pick)
-    (.set (.-position g) x 0.2 z)
+    (place! g at 0.2)
     (.add layer g)
     {:pick pick :looks [] :base [] :plasma uniforms :column column}))
 
@@ -773,7 +853,7 @@
                       (js/requestAnimationFrame frame)))))]
         (js/requestAnimationFrame frame)))))
 
-(defn- ring! [layer [x z] mm tone]
+(defn- ring! [layer at mm tone]
   (let [g (THREE/Group.)
         ring (THREE/Mesh. (THREE/RingGeometry. (* 0.4 mm) (* 0.5 mm) 48)
                           (THREE/MeshBasicMaterial. #js {:color (get tone-colors tone) :transparent true
@@ -784,16 +864,16 @@
     (doseq [^js m [ring disc]]
       (.rotateX m (- (/ js/Math.PI 2))))
     (.add g ring) (.add g disc)
-    (.set (.-position g) x 0.8 z)
+    (place! g at 0.8)
     (.add layer g)
     {:pick disc :looks [(.-material ring) (.-material disc)] :base [0.8 0.16]}))
 
-(defn- ghost! [view layer {:keys [geometry meta]} type color [x y z] scale tone opacity]
+(defn- ghost! [view layer {:keys [geometry meta]} type color at height scale tone opacity]
   (let [mat (THREE/MeshStandardMaterial. #js {:color color :roughness 0.4 :transparent true
                                               :opacity opacity :emissive (get tone-colors tone)
                                               :emissiveIntensity 0.25})
         ^js m (THREE/Mesh. (get geometry (.toUpperCase (name type))) mat)]
-    (.set (.-position m) x y z)
+    (place! m at height)
     (.setScalar (.-scale m) scale)
     (.add layer m)
     (let [^js sh (shell! m tone)]
@@ -820,7 +900,7 @@
   "A type to pick: the piece itself, solid, in front of a disc that faces the
    eye -- so it reads as a button, not as part of the board. The disc is what
    is clicked, so the whole of it counts."
-  [layer {:keys [geometry]} type color [x y z] scale tone mm]
+  [layer {:keys [geometry]} type color {:keys [at height offset]} scale tone mm]
   (let [^js g (get geometry (.toUpperCase (name type)))
         _ (when-not (.-boundingSphere g) (.computeBoundingSphere g))
         centre (* scale (.. g -boundingSphere -center -y))
@@ -831,10 +911,10 @@
         size (* 0.86 mm)
         disc (THREE/Sprite. (THREE/SpriteMaterial. #js {:map (option-disc tone) :transparent true
                                                         :opacity 0.9 :depthWrite false}))]
-    (.set (.-position m) x y z)
+    (place! m at height offset)
     (.setScalar (.-scale m) scale)
     (set! (.-renderOrder m) 3)
-    (.set (.-position disc) x (+ y centre) z)
+    (place! disc at (+ height centre) offset)
     (.set (.-scale disc) size size 1)
     (set! (.-renderOrder disc) 2)
     (let [g (THREE/Group.)]
@@ -910,8 +990,12 @@
           ;; on this bank as the other bank's goes down
           (when (pos? heat)
             (tween! view light 0 (* heat glow-light) heat-ms #(set! (.-intensity light) %)))
-          (.set (.-position spot) (.-x at) (+ (.-y at) spot-height) (.-z at))
-          (.set (.. spot -target -position) (.-x at) 0 (.-z at))
+          (let [r (:sphere-radius @view)
+                n (up-at r at)
+                ;; the point of the board under the glow
+                ground (if r (.multiplyScalar (.clone n) r) (THREE/Vector3. (.-x at) 0 (.-z at)))]
+            (.copy (.-position spot) (.addScaledVector (.clone at) n spot-height))
+            (.copy (.. spot -target -position) ground))
           (.copy (.-color spot) (.. glow -material -color))
           (set! (.-intensity spot) 0)
           (tween! view spot 0 spot-light heat-ms #(set! (.-intensity spot) %)))
@@ -1114,15 +1198,19 @@
                             look)))))
         ;; the camera's right, along the table: types to pick line up across
         ;; the view rather than into it
-        right (let [e (.-elements (.-matrixWorld camera))
-                    x (aget e 0) z (aget e 2) l (max 1e-6 (js/Math.hypot x z))]
-                [(/ x l) (/ z l)])
+        right (fn [at]
+                (let [e (.-elements (.-matrixWorld camera))
+                      [_ ^js q] (space-frame at)
+                      v (.applyQuaternion (THREE/Vector3. (aget e 0) (aget e 1) (aget e 2)) (.invert (.clone q)))
+                      l (max 1e-6 (js/Math.hypot (.-x v) (.-z v)))]
+                  [(/ (.-x v) l) (/ (.-z v) l)]))
         option-slot (fn [targets t]
                       (let [same (filterv #(and (= :option (:kind %)) (= (:space %) (:space t))) targets)
                             i (.indexOf same t) n (count same)
-                            [x z] (get spaces (:space t))
+                            at (get spaces (:space t))
+                            [rx rz] (right at)
                             off (* 0.95 mm (- i (/ (dec n) 2)))]
-                        [(+ x (* off (first right))) (* 1.7 mm) (+ z (* off (second right)))]))
+                        {:at at :height (* 1.7 mm) :offset [(* off rx) (* off rz)]}))
         current (level view)]
     ;; what has been chosen so far stays lit
     ;; a type chosen for a space shows there, full size and see-through, as
@@ -1133,11 +1221,11 @@
                                        :when (and (= kind :option) type)]
                                    [space type])))]
       (doseq [[space type] placed
-              :let [[x z] (get spaces space)]
+              :let [at (get spaces space)]
               ;; a ghost stands for what is not there yet
-              :when (and x (not (get-in @view [:last-state :elements space])))]
+              :when (and at (not (get-in @view [:last-state :elements space])))]
         (adopt! view [:placed space type]
-                (ghost! view target-layer assets type me-color [x 1 z]
+                (ghost! view target-layer assets type me-color at 1
                         (get-in assets [:meta :piece_scale] 0.9) :chosen 0.5)))
       (doseq [{:keys [kind space index]} stack]
         (case kind
@@ -1164,9 +1252,9 @@
                :option (adopt! view [:option space type]
                                (option! target-layer assets type me-color (option-slot current t) 0.55 tone mm))
                :ghost (if type
-                        (let [[x z] (get spaces space)]
+                        (let [at (get spaces space)]
                           (adopt! view [:ghost space type]
-                                  (ghost! view target-layer assets type me-color [x 1 z]
+                                  (ghost! view target-layer assets type me-color at 1
                                           (get-in assets [:meta :piece_scale] 0.9) tone 0.45)))
                         (adopt! view [:plasma space :pending]
                                 (plasma! target-layer (get spaces space) mm (get tone-colors :pending))))
@@ -1282,25 +1370,113 @@
     ;; leaving the board straight off a piece lets it go
     (.addEventListener canvas "pointerleave" (fn [_] (set-hover! view nil)))))
 
+(defn- globe-board
+  "A SPHERE game's board: a dark globe, each space a disc in its ring's
+   colour standing on it."
+  [{:keys [mm spaces ring-colors sphere neighbours]}]
+  (let [group (THREE/Group.)
+        ball (THREE/Mesh. (THREE/SphereGeometry. sphere 96 64)
+                          (THREE/MeshStandardMaterial. #js {:color "#1d2430" :roughness 0.9}))]
+    (set! (.-receiveShadow ball) true)
+    (.add group ball)
+    (doseq [[[ring _] at :as spaces-entry] spaces]
+      ;; the grid is not quite even: each disc is sized to its own nearest
+      ;; neighbour, so none overlap
+      (let [c (THREE/Mesh. (THREE/CircleGeometry. (* 0.46 (min mm (get neighbours (first spaces-entry) mm))) 32)
+                           (THREE/MeshStandardMaterial. #js {:color (get ring-colors ring "#556") :roughness 0.9}))
+            holder (THREE/Group.)]
+        (.rotateX c (- (/ js/Math.PI 2)))
+        (set! (.-receiveShadow c) true)
+        (.add holder c)
+        (place! holder at 0.3)
+        (.add group holder)))
+    group))
+
 (defn- set-board! [view assets geometry]
   (let [{:keys [scene board-group]} @view]
     (when board-group (.remove scene board-group))
     (let [rings (:rings geometry)
-          g (if (:printed geometry)
-              (printed-board geometry rings #(request-render! view))
-              (coloured-board geometry rings))]
+          g (cond
+              (:sphere geometry) (globe-board geometry)
+              (:printed geometry) (printed-board geometry rings #(request-render! view))
+              :else (coloured-board geometry rings))]
       (.add scene g)
-      (swap! view assoc :board-group g :board-key (select-keys geometry [:printed :ring-count :mm])))))
+      (swap! view assoc :board-group g :board-key (select-keys geometry [:printed :ring-count :mm :sphere])
+             :sphere-radius (:sphere geometry))
+      ;; a globe is lit from the eye as well: the sun leaves half of it dark
+      (set! (.-intensity (:head-light @view)) (if (:sphere geometry) 1.6 0)))))
 
-(defn- frame-camera! [view {:keys [mm ring-count]}]
-  (let [{:keys [camera controls]} @view
+(defn- trackball-loop!
+  "A trackball moves the camera only when it is updated, and the view draws
+   only on change: so while it is held, and until it comes to rest, update
+   it every frame."
+  [view]
+  (when-not (:trackball-running @view)
+    (swap! view assoc :trackball-running true)
+    (letfn [(frame []
+              (let [{:keys [^js controls held camera]} @view
+                    before (.clone (.-position ^js camera))]
+                (if (and controls (instance? TrackballControls controls))
+                  (do (.update controls)
+                      (if (or held (> (.distanceTo before (.-position ^js camera)) 1e-4))
+                        (js/requestAnimationFrame frame)
+                        (swap! view assoc :trackball-running false)))
+                  (swap! view assoc :trackball-running false))))]
+      (js/requestAnimationFrame frame))))
+
+(defn- use-controls!
+  "The camera's controls for this board. A table is orbited, upright, never
+   tipped past the edge; a globe is turned as a trackball, any way and as far
+   as you like, with no pole for it to stop at."
+  [view sphere?]
+  (let [{:keys [^js controls ^js camera renderer]} @view
+        want (if sphere? TrackballControls OrbitControls)]
+    (if (instance? want controls)
+      controls
+      (let [dom (.-domElement renderer)
+            ^js c (if sphere?
+                    (doto (TrackballControls. camera dom)
+                      (aset "rotateSpeed" 3.0)
+                      (aset "zoomSpeed" 1.2)
+                      (aset "noPan" true)
+                      (aset "staticMoving" true))
+                    (doto (OrbitControls. camera dom)
+                      (aset "enableDamping" false)))]
+        (when controls (.dispose controls))
+        ;; a trackball turns the camera's up with it; a table wants it back
+        (when-not sphere? (.set (.-up camera) 0 1 0))
+        (.addEventListener c "change" #(request-render! view))
+        (when sphere?
+          (.addEventListener c "start" (fn [] (swap! view assoc :held true) (trackball-loop! view)))
+          (.addEventListener c "end" (fn [] (swap! view assoc :held false) (trackball-loop! view))))
+        (swap! view assoc :controls c)
+        c))))
+
+(defn- frame-camera! [view {:keys [mm ring-count sphere]}]
+  (let [_ (use-controls! view (boolean sphere))
+        {:keys [camera controls]} @view
         r (* mm (+ ring-count 0.5))]
-    ;; far enough back that the whole board sits in the view, tilted as if
-    ;; seated at the table
-    (.set (.-position camera) 0 (* 2.1 r) (* 1.9 r))
-    (.set (.-target controls) 0 0 0)
-    (set! (.-maxDistance controls) (* 5 r))
-    (.update controls)))
+    (if sphere
+      ;; a globe: looked at from a little above, the (first) core towards the
+      ;; eye, and free to turn all the way round
+      ;; pieces stand out of it at their printed size: frame them too
+      (do (let [reach (+ sphere (* 1.1 mm))]
+            (.set (.-up camera) 0 1 0)
+            (.set (.-position camera) 0 (* 1.9 reach) (* 2.9 reach)))
+          (.set (.-target controls) 0 0 0)
+          (set! (.-minDistance controls) (* 1.4 sphere))
+          (set! (.-maxDistance controls) (* 10 sphere))
+          (.lookAt ^js camera 0 0 0)
+          (.update controls))
+      ;; far enough back that the whole board sits in the view, tilted as if
+      ;; seated at the table
+      (do (set! (.-minPolarAngle controls) 0)
+          (set! (.-maxPolarAngle controls) (* 0.47 js/Math.PI))
+          (set! (.-minDistance controls) 60)
+          (.set (.-position camera) 0 (* 2.1 r) (* 1.9 r))
+          (.set (.-target controls) 0 0 0)
+          (set! (.-maxDistance controls) (* 5 r))
+          (.update controls)))))
 
 ;; ── Board coordinates ─────────────────────────────────────────────────────
 ;;
@@ -1310,7 +1486,13 @@
 ;; similarity transform, fitted from two spaces: the centre and the space
 ;; farthest from it.
 
-(defn- board-map [locations {:keys [spaces rings]}]
+(defn- board-map [locations {:keys [spaces rings sphere board-radius mm]}]
+  (if sphere
+    ;; a globe is no similarity of the flattened map: a point goes to its
+    ;; space, and the page's offsets from it stay offsets on screen, at the
+    ;; size a space is there (see project)
+    {:sphere true :locations locations :spaces spaces
+     :scale (/ (* mm 0.44) board-radius)}
   (let [shared (filter #(contains? spaces %) (keys locations))
         centre (some #(when (= (first %) (first rings)) %) shared)
         far (apply max-key (fn [s] (let [[x z] (get spaces s)] (js/Math.hypot x z))) shared)]
@@ -1324,7 +1506,30 @@
             scale (/ (js/Math.hypot wdx wdz) (js/Math.hypot bdx bdy))
             turn (- (js/Math.atan2 wdz wdx) (js/Math.atan2 bdy bdx))]
         {:origin [bx0 by0] :world [wx0 wz0] :scale scale
-         :cos (js/Math.cos turn) :sin (js/Math.sin turn)}))))
+         :cos (js/Math.cos turn) :sin (js/Math.sin turn)})))))
+
+(defn- project-sphere
+  "project on a globe: the board point's nearest space, on screen, and the
+   rest of the way there in pixels -- nil while that space is round the back."
+  [{:keys [camera el]} {:keys [locations spaces scale]} [bx by] height]
+  (let [d2 (fn [[x y]] (+ (* (- x bx) (- x bx)) (* (- y by) (- y by))))
+        space (apply min-key #(d2 (get locations %)) (filter #(contains? spaces %) (keys locations)))
+        [lx ly] (get locations space)
+        [^js p] (space-frame (get spaces space))
+        ^js n (.normalize (.clone p))
+        ^js at (.addScaledVector (.clone p) n height)
+        facing (.dot n (.sub (.clone (.-position ^js camera)) at))
+        w (.-clientWidth el) h (.-clientHeight el)
+        screen (fn [^js v]
+                 (let [v (.project (.clone v) camera)]
+                   [(* w (/ (+ 1 (.-x v)) 2)) (* h (/ (- 1 (.-y v)) 2)) (.-z v)]))
+        e (.-elements (.-matrixWorld camera))
+        right (THREE/Vector3. (aget e 0) (aget e 1) (aget e 2))
+        [sx sy sz] (screen at)
+        [tx ty] (screen (.addScaledVector (.clone at) right scale))
+        k (js/Math.hypot (- tx sx) (- ty sy))]
+    (when (and (pos? facing) (< sz 1))
+      [(+ sx (* k (- bx lx))) (+ sy (* k (- by ly))) k])))
 
 (defn- board->world [{:keys [origin world scale cos sin]} [bx by]]
   (let [dx (- bx (first origin)) dy (- by (second origin))]
@@ -1338,7 +1543,9 @@
    known, or behind the camera."
   [view [bx by] height]
   (when-let [{:keys [camera el board-map]} @view]
-    (when board-map
+    (cond
+      (:sphere board-map) (project-sphere @view board-map [bx by] height)
+      board-map
       (let [[x z] (board->world board-map [bx by])
             [x2 z2] (board->world board-map [(+ bx 1) by])
             w (.-clientWidth el) h (.-clientHeight el)
@@ -1382,6 +1589,11 @@
       (set! (.-left c) -400) (set! (.-right c) 400) (set! (.-top c) 400) (set! (.-bottom c) -400)
       (set! (.-far c) 2000))
     (.add scene sun)
+    (let [head (THREE/DirectionalLight. "#ffffff" 0)]
+      (.set (.-position head) 0 0 1)
+      (.add camera head)
+      (.add scene camera)
+      (swap! view assoc :head-light head))
     (.add scene pieces-group)
     (.add scene target-layer)
     (let [banks (vec (repeatedly 2 (fn []
@@ -1402,13 +1614,17 @@
                      (.setSize renderer w h)
                      (set! (.-aspect camera) (/ w h))
                      (.updateProjectionMatrix camera)
+                     ;; a trackball measures drags against the canvas it last saw
+                     (let [^js c (:controls @view)]
+                       (when (instance? TrackballControls c) (.handleResize c)))
                      (request-render! view)))
           observer (js/ResizeObserver. resize)]
       (.observe observer el)
       (reset! view {:el el :renderer renderer :scene scene :camera camera :controls controls
                     :pieces-group pieces-group :observer observer :shown {} :materials {}
                     :target-layer target-layer :label label :raycaster (THREE/Raycaster.)
-                    :stack [] :on-frame on-frame :banks (:banks @view) :bank 0})
+                    :stack [] :on-frame on-frame :banks (:banks @view) :bank 0
+                    :head-light (:head-light @view)})
       (listen! view)
       ;; development builds only: where each target is on screen, so a test
       ;; can click the canvas exactly where a person would
@@ -1456,11 +1672,11 @@
        (fn [loaded]
          (when (:renderer @view)
            (let [geometry (layout game invocation (:meta loaded))
-                 board-key (select-keys geometry [:printed :ring-count :mm])
+                 board-key (select-keys geometry [:printed :ring-count :mm :sphere])
                  new-board? (not= board-key (:board-key @view))
                  before (when-not new-board? (:last-state @view))
                  state (:state game)]
-             (swap! view assoc :board-map (board-map (:locations board) geometry))
+             (swap! view assoc :board-map (board-map (:locations board) (assoc geometry :board-radius (:radius board))))
              (when new-board?
                (set-board! view loaded geometry)
                (frame-camera! view geometry))

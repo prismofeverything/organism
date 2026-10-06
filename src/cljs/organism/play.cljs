@@ -17,6 +17,7 @@
    [organism.transitions :as transitions]
    [organism.targets :as targets]
    [organism.board :as board]
+   [organism.sphere :as sphere]
    [organism.dom :as dom]
    [organism.ajax :as ajax]
    [organism.components :as components]
@@ -48,7 +49,8 @@
   {:COMMUNE "elements are are considered fed and mobile for movement if they are adjacent to at least two other fed elements"
    :PERSIST "elements are not lost to integrity unless the player has no living organisms remaining"
    :RAIN "the top two sides rain an increasing amount of neutral elements down upon your organisms"
-   :FLOW "all your organisms choose their action first, then act together one action at a time — organisms that touch act as one, organisms that part act as two"})
+   :FLOW "all your organisms choose their action first, then act together one action at a time — organisms that touch act as one, organisms that part act as two"
+   :SPHERE "the game is played on a globe: no edge, rings running round to the far side, and from five players a core at each pole"})
 
 
    ;; :BOOST "elements are mobile if they are adjacent to at least one other fed element"
@@ -739,12 +741,14 @@
 (defn initialize-game
   [game-state {:keys [game invocation player history board witness] :as message}]
   (let [{:keys [ring-count player-count players colors mutations]} invocation
-        board (board/generate-board
-               colors
-               players
-               (take ring-count board/total-rings)
-               mutations
-               (:adjacencies game))
+        board (if (sphere/sphere? mutations)
+                (sphere/generate-board colors players)
+                (board/generate-board
+                 colors
+                 players
+                 (take ring-count board/total-rings)
+                 mutations
+                 (:adjacencies game)))
         [game turn choices] (choice/find-next-choices game)
         cursor (if (< witness (count history)) witness)]
     (println "initializing game" game)
@@ -2446,19 +2450,23 @@
         player-count (if (number? player-count) player-count 2)
         symmetry (board/player-symmetry player-count)
         rings (take ring-count board/total-rings)
+        sphere? (and (sphere/sphere? mutations) (sphere/sphere-board player-count))
         starting
-        (if (:RAIN mutations)
-          (board/find-rain-spaces symmetry rings players)
-          (board/find-starting-spaces symmetry rings players))
+        (cond
+          sphere? (sphere/starting-spaces player-count players)
+          (:RAIN mutations) (board/find-rain-spaces symmetry rings players)
+          :else (board/find-starting-spaces symmetry rings players))
         _ (println "STARTING PLAYERS" starting)
         game-players (game/initial-players starting player-captures)
         game {:players game-players}
         board
-        (board/generate-board
-         colors
-         (map first game-players)
-         rings
-         mutations)]
+        (if sphere?
+          (sphere/generate-board colors (map first game-players))
+          (board/generate-board
+           colors
+           (map first game-players)
+           rings
+           mutations))]
     (println "game players" game-players)
     {:game game
      :player js/playerKey
@@ -3305,15 +3313,22 @@
         ;;   (dom/redirect!
         ;;    (str js/playerPath "/" js/playerKey)))
 
+(declare with-player-count)
+
 (defn ring-count-input
   [color]
   (let [invocation @board-invocation
-        ring-counts (board/available-ring-counts (:player-count invocation))]
+        sphere? (get-in invocation [:mutations :SPHERE])
+        ring-counts (if sphere?
+                      [(:ring-count invocation)]
+                      (board/available-ring-counts (:player-count invocation)))]
     [:div
      [:select
       {:id "ring-count"
        :name "ring-count"
        :value (:ring-count invocation)
+       :disabled (boolean sphere?)
+       :title (when sphere? "a sphere's size is set by its player count")
        :style
        {:background-color color}
        :on-change
@@ -3353,35 +3368,9 @@
        {:background-color color}
        :on-change
        (fn [event]
-         (let [value (-> event .-target .-value js/parseInt)
-               ring-counts (board/available-ring-counts value)
-               ring-count (if (some #{(:ring-count invocation)} ring-counts)
-                            (:ring-count invocation)
-                            (first ring-counts))
-               order @player-order
-               captures-order @player-captures-order
-               colors (board/generate-colors-buffer
-                       board/total-rings
-                       ring-count
-                       max-players)
-               players (vec
-                        (take
-                         (if (get-in invocation [:mutations :RAIN])
-                           (inc value)
-                           value)
-                         order))
-               captures (vec
-                         (take
-                          (if (get-in invocation [:mutations :RAIN])
-                           (inc value)
-                           value)
-                          captures-order))]
+         (let [value (-> event .-target .-value js/parseInt)]
            (-> invocation
-               (assoc :colors colors)
-               (assoc :player-count value)
-               (assoc :ring-count ring-count)
-               (assoc :players players)
-               (assoc :player-captures captures)
+               (with-player-count value)
                send-create!)))}
       (map
        (fn [n]
@@ -3389,8 +3378,10 @@
          [:option
           {:value n}
           n])
-       (filter #(seq (board/available-ring-counts %))
-               (range 1 (inc max-players))))]
+       (if (get-in invocation [:mutations :SPHERE])
+         sphere/player-counts
+         (filter #(seq (board/available-ring-counts %))
+                 (range 1 (inc max-players)))))]
      [:label
       {:for "player-count"
        :style
@@ -3648,10 +3639,55 @@
     (swap! player-order assoc rain-index "")
     (adjust-players invocation rain-index)))
 
+(defn- sphere-player-count
+  "The nearest player count there is a sphere for."
+  [player-count]
+  (apply min-key #(js/Math.abs (- % player-count)) sphere/player-counts))
+
+(defn with-player-count
+  "This invocation for `player-count` players: the roster, their captures,
+   and a board size that fits -- a sphere's own rings, or a flat board's
+   nearest legal ring count -- with colours for it."
+  [invocation player-count]
+  (let [sphere? (get-in invocation [:mutations :SPHERE])
+        ring-counts (board/available-ring-counts player-count)
+        ring-count (cond
+                     sphere? (sphere/ring-count player-count)
+                     (some #{(:ring-count invocation)} ring-counts) (:ring-count invocation)
+                     :else (first ring-counts))
+        seats (if (get-in invocation [:mutations :RAIN]) (inc player-count) player-count)]
+    (-> invocation
+        (assoc :colors (board/generate-colors-buffer board/total-rings ring-count max-players))
+        (assoc :player-count player-count)
+        (assoc :ring-count ring-count)
+        (assoc :players (vec (take seats @player-order)))
+        (assoc :player-captures (vec (take seats @player-captures-order))))))
+
+(defn- sphere-on
+  [invocation]
+  (let [invocation (if (get-in invocation [:mutations :RAIN])
+                     (decrease-players (update invocation :mutations dissoc :RAIN))
+                     invocation)]
+    (with-player-count invocation (sphere-player-count (:player-count invocation)))))
+
+(defn- sphere-off
+  [invocation]
+  (with-player-count invocation (:player-count invocation)))
+
+(defn- rain-on
+  [invocation]
+  (increase-players
+   (if (get-in invocation [:mutations :SPHERE])
+     (sphere-off (update invocation :mutations dissoc :SPHERE))
+     invocation)))
+
 (def invocation-mutations
   {:RAIN
-   {:mutate increase-players
-    :unmutate decrease-players}})
+   {:mutate rain-on
+    :unmutate decrease-players}
+   :SPHERE
+   {:mutate sphere-on
+    :unmutate sphere-off}})
 
 (defn mutate-invocation
   [mutation-key mutation-state invocation]

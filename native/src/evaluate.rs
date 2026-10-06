@@ -212,6 +212,7 @@ impl Session {
                         steps: self.steps[i],
                         max_steps: self.max_steps,
                         repetition: self.repetition,
+                        repetition_value: 0.,
                         bootstrap_horizon: self.bootstrap_horizon,
                     })
                     .collect();

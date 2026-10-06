@@ -198,7 +198,8 @@ impl Tree {
             });
         }
         if limits.cutoff(&self.nodes, &path) {
-            self.backup(&path, &vec![0.; board.players]);
+            let v = if limits.repeated(&self.nodes, &path) { limits.repetition_value } else { 0. };
+            self.backup(&path, &vec![v; board.players]);
             return None;
         }
         let legal = board.legal(s);
@@ -263,6 +264,9 @@ pub struct Limits<'a> {
     pub max_steps: usize,
     pub repetition: u32,
     pub bootstrap_horizon: bool,
+    /// Value every player receives at a repeated position. Zero is a neutral
+    /// draw; a negative value makes forcing a repetition worse than playing on.
+    pub repetition_value: f32,
 }
 pub fn repetition_state(s: &State) -> State {
     let mut s = s.clone();
@@ -688,6 +692,20 @@ mod tests {
             .is_none()
         );
         assert_eq!(t.nodes[0].values, vec![0., 0.]);
+    }
+    #[test]
+    fn repetition_backs_up_configured_value() {
+        let b = Board::new(2, 3, false);
+        let seen = HashMap::from([(repetition_state(&b.initial()), 2)]);
+        let mut t = Tree::new(b.initial(), 2);
+        let limits = Limits {
+            seen: Some(&seen),
+            repetition: 3,
+            repetition_value: -0.2,
+            ..Limits::default()
+        };
+        assert!(t.prepare_limited(&b, false, &limits).is_none());
+        assert_eq!(t.nodes[0].values, vec![-0.2, -0.2]);
     }
     #[test]
     fn cyclic_values_backup_without_two_player_sign_flip() {

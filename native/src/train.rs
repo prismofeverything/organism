@@ -243,6 +243,10 @@ struct SearchSettings {
     replay_game_cap: usize,
     #[serde(default)]
     mask_cutoffs: bool,
+    /// Value every player gets for a repetition, in search and as a target.
+    /// Zero is a neutral draw; negative makes stalling into one a loss for all.
+    #[serde(default)]
+    repetition_value: f32,
     #[serde(default)]
     opponent_pool: Vec<String>,
     /// Decisions sampled at the start of a game when `exploration_rounds` is 0.
@@ -709,6 +713,7 @@ fn finish_game(board: &Board, dir: &Path, s: &mut Saved, i: usize, reason: &str)
                 match e.state.winner {
                     Some(w) if p == w => 1.,
                     Some(_) => -1. / (board.players - 1) as f32,
+                    None if reason == "repetition" => settings.repetition_value,
                     None => 0.,
                 }
             })
@@ -1179,6 +1184,7 @@ fn iteration(
                         max_steps: s.config.max_steps,
                         repetition: s.config.repetition,
                         bootstrap_horizon: settings.mask_cutoffs,
+                        repetition_value: settings.repetition_value,
                     })
                     .collect();
                 if opponents.is_empty() {
@@ -1195,6 +1201,7 @@ fn iteration(
                     let owned_limits: Vec<_> = indices.iter().map(|&i| search::Limits {
                         seen: limits[i].seen, steps: limits[i].steps, max_steps: limits[i].max_steps,
                         repetition: limits[i].repetition, bootstrap_horizon: limits[i].bootstrap_horizon,
+                        repetition_value: limits[i].repetition_value,
                     }).collect();
                     let evaluator = if owner == 0 { net } else { &opponents[owner - 1] };
                     if let Err(e) = search::queued(board, &mut owned_trees, &owned_limits, evaluator,
@@ -1502,6 +1509,7 @@ pub fn main(args: &[String]) -> Result<()> {
             "draw" => false,
             _ => anyhow::bail!("--cutoff-value must be mask or draw"),
         },
+        repetition_value: argument(args, "--repetition-value", "0").parse()?,
     };
     anyhow::ensure!(settings.gpu_batch > 0, "GPU batch must be positive");
     let mut resident: HashMap<usize, (PathBuf, Network, Adam, Saved, Option<EvaluationJob>)> =
@@ -1535,6 +1543,8 @@ pub fn main(args: &[String]) -> Result<()> {
                 "draw" => false,
                 _ => anyhow::bail!("per-player cutoff value must be mask or draw"),
             };
+            settings.repetition_value = argument(args, &format!("--repetition-value-{players}p"), &settings.repetition_value.to_string()).parse()?;
+            anyhow::ensure!((-1.0..=0.0).contains(&settings.repetition_value), "repetition value must be in [-1, 0]");
             let config = Config {
                 players,
                 rings: if let Some(c) = &curriculum {
@@ -1668,6 +1678,9 @@ pub fn main(args: &[String]) -> Result<()> {
                     } else {
                         1.
                     };
+                    if sample.termination.as_deref() == Some("repetition") {
+                        sample.value = vec![settings.repetition_value; board.players];
+                    }
                 }
                 saved.search_settings = Some(settings.clone());
             }
