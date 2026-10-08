@@ -23,6 +23,7 @@
    [organism.persist-universe :as persist]
    [universe.deck :as deck]
    [universe.holdem :as holdem]
+   [universe.mode :as mode]
    [universe.player :as player]))
 
 ;; {:games {play-key {:key      play-key
@@ -54,7 +55,7 @@
 (defn- state-message
   [game player]
   {"type"      "game-state"
-   "state"     (pr-str (holdem/view (:state game) player))
+   "state"     (pr-str (mode/view (:state game) player))
    "chat"      (pr-str (:chat game))
    "deadline"  (str (:deadline game))})
 
@@ -83,9 +84,12 @@
 
 (defn- auto-action
   "What the table does for somebody who has stopped answering: check when it
-   is free, fold when it is not.  Never bet on their behalf."
+   is free, fold when it is not.  Never bet on their behalf.  Shedding: pass,
+   or lead the lowest card."
   [state]
-  (if (:check (holdem/legal-actions state)) {:action :check} {:action :fold}))
+  (cond (mode/auto-action state)              (mode/auto-action state)
+        (:check (holdem/legal-actions state)) {:action :check}
+        :else                                 {:action :fold}))
 
 (defn- arm-clock!
   "Start the countdown for whoever is to act.  The timer carries the tick it
@@ -94,18 +98,18 @@
   [play-key db]
   (let [game (gws/game-record games play-key)
         tick (:tick game)]
-    (when (and game (holdem/current-player (:state game)))
+    (when (and game (mode/current-player (:state game)))
       (swap! games assoc-in [:games play-key :deadline]
              (+ (System/currentTimeMillis) (* 1000 turn-seconds)))
       (future
         (try
           (Thread/sleep (* 1000 turn-seconds))
           (let [now (gws/game-record games play-key)]
-            (when (and now (= tick (:tick now)) (holdem/current-player (:state now)))
+            (when (and now (= tick (:tick now)) (mode/current-player (:state now)))
               (let [state (:state now)
                     seat  (:to-act state)]
-                (log/info "Universe clock expired" play-key (holdem/player-name state seat))
-                (advance! play-key #(holdem/act % seat (auto-action %)))
+                (log/info "Universe clock expired" play-key (mode/player-name state seat))
+                (advance! play-key #(mode/act % seat (auto-action %)))
                 (after-action! play-key db))))
           (catch Exception e
             (log/error "Universe clock error" play-key (.getMessage e))))))))
@@ -173,9 +177,15 @@
   (loop [guard 0]
     (let [game  (gws/game-record games play-key)
           state (:state game)
-          who   (holdem/current-player state)
-          step  (when who (bots/get-agent-step "universe" who))]
-      (when (and game who step (contains? (:bots game) who) (< guard 60))
+          who   (mode/current-player state)
+          ;; outside hold'em every bot plays the same plain way: the poker
+          ;; profiles are about betting, which the other games do not have
+          step  (when who
+                  (if (mode/bot-action state)
+                    (fn [s] (mode/act s (:to-act s) (mode/bot-action s)))
+                    (bots/get-agent-step "universe" who)))]
+      (when (and game who step (contains? (:bots game) who)
+                 (< guard (if (:mode state) 400 60)))
         (Thread/sleep 700)
         (advance! play-key step)
         (recur (inc guard))))))
@@ -211,8 +221,8 @@
   (run-bots! play-key)
   (let [game (gws/game-record games play-key)]
     (when db (persist/save-state! db play-key (:state game)))
-    (if (holdem/hand-over? (:state game))
-      (if (holdem/game-over? (:state game))
+    (if (mode/hand-over? (:state game))
+      (if (mode/game-over? (:state game))
         (do (log/info "Universe table finished" play-key (:winner (:state game)))
             (when db (persist/complete-game! db play-key (:state game))))
         (deal-next-hand! play-key db))
@@ -228,9 +238,9 @@
   [play-key db]
   (let [state (:state (gws/game-record games play-key))]
     (when (and state
-               (not (holdem/game-over? state))
+               (not (mode/game-over? state))
                ;; a table nobody has dealt yet is waiting on a person, not on us
-               (not= :waiting (:street state)))
+               (not (mode/waiting? state)))
       (log/info "Universe resuming" play-key)
       (future
         (try (after-action! play-key db)
@@ -242,12 +252,12 @@
   [play-key player message db]
   (let [game  (gws/game-record games play-key)
         state (:state game)
-        seat  (holdem/seat-of state player)
+        seat  (mode/seat-of state player)
         raw   (or (get message "choice") (get message :choice))
         action (if (string? raw) (edn/read-string raw) raw)]
     (when (and state seat (= seat (:to-act state)))
       (let [before (:state game)
-            after  (holdem/act before seat action)]
+            after  (mode/act before seat action)]
         (if (identical? before after)
           (log/warn "Universe illegal action" play-key player (pr-str action))
           (do
@@ -267,8 +277,8 @@
    had a chance to arrive."
   [play-key db]
   (let [game (gws/game-record games play-key)]
-    (when (and game (= :waiting (:street (:state game))))
-      (advance! play-key #(holdem/start-hand % (shuffled)))
+    (when (and game (mode/waiting? (:state game)))
+      (advance! play-key #(mode/deal % (shuffled)))
       (when db (persist/save-state! db play-key (:state (gws/game-record games play-key))))
       (run-bots! play-key)
       (arm-clock! play-key db))))
@@ -310,7 +320,7 @@
   ;; holding every table ever played in memory
   (let [game (gws/game-record games play-key)]
     (when (and (empty? (:channels game))
-               (or (nil? (:state game)) (holdem/game-over? (:state game))))
+               (or (nil? (:state game)) (mode/game-over? (:state game))))
       (gws/forget-game! games play-key))))
 
 (defn notify-clients! [{:keys [play-key player db]} _channel raw]

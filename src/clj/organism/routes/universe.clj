@@ -13,33 +13,43 @@
    [organism.routes.shared :as shared]
    [organism.routes.universe-ws :as universe-ws]
    [universe.deck :as deck]
-   [universe.holdem :as holdem]))
+   [universe.holdem :as holdem]
+   [universe.network :as network]
+   [universe.shed :as shed]))
 
 (def max-players
   "A full ring.  The deck would stretch to twenty-eight players -- two cards
    each plus a board of three -- but a poker table is nine."
   9)
 
+(defn- option? [params k]
+  ;; the lobby's options arrive as booleans or, from a form, as strings
+  (contains? #{true "true"} (get-in params [:options k] (get-in params ["options" (name k)]))))
+
 (defn create-game!
   [db request]
-  (shared/create-game!
-   {:games-atom  universe-ws/games
-    :max-players max-players
-    :make-state  (fn [players params]
-                   (holdem/create-game
-                    players
-                    (merge {}
-                           (when-let [s (:starting-stack params)]
-                             {:starting-stack (if (string? s) (parse-long s) s)})
-                           ;; the lobby's options, which arrive as booleans or,
-                           ;; from a form, as strings
-                           (when (contains? #{true "true"}
-                                            (get-in params [:options :seven]
-                                                    (get-in params ["options" "seven"])))
-                             {:seven? true}))))
-    :persist!    (fn [db play-name players bots state]
-                   (store/create-game! db play-name players bots state))}
-   db request))
+  (let [params   (or (:body-params request) (:params request))
+        shed?    (option? params :shed)
+        network? (and (not shed?) (option? params :network))]
+    (shared/create-game!
+     {:games-atom  universe-ws/games
+      ;; shedding splits the deck, which runs out of cards worth having past
+      ;; six; network needs cards moving, which four hands of ten still allow
+      :max-players (cond shed? 6 network? network/max-players :else max-players)
+      :make-state  (fn [players params]
+                     (cond
+                       shed?    (shed/create-game players)
+                       network? (network/create-game players)
+                       :else
+                       (holdem/create-game
+                        players
+                        (merge {}
+                               (when-let [s (:starting-stack params)]
+                                 {:starting-stack (if (string? s) (parse-long s) s)})
+                               (when (option? params :seven) {:seven? true})))))
+      :persist!    (fn [db play-name players bots state]
+                     (store/create-game! db play-name players bots state))}
+     db request)))
 
 (defn home-page [request]
   (layout/render request "universe/home.html"

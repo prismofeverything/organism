@@ -5,11 +5,22 @@
 (def symmetry 4)
 (def rings ["A" "B" "C" "D" "E" "F" "G"])
 (def players ["orb" "mass" "brone" "laam"])
-;; ring palette sampled from organism-five-player.png, then player colors
-(def colors
-  [["A" "#ebe0e4"] ["B" "#b2b1e2"] ["C" "#be97b3"] ["D" "#57adc7"]
-   ["E" "#969f41"] ["F" "#5e7236"] ["G" "#531842"]
-   ["H" "#6aa0b8"] ["I" "#8e5578"] ["J" "#a8b050"] ["K" "#3fbfe6"]])
+;; ring palette sampled from organism-five-player.png
+(def classic
+  {:colors [["A" "#ebe0e4"] ["B" "#b2b1e2"] ["C" "#be97b3"] ["D" "#57adc7"]
+            ["E" "#969f41"] ["F" "#5e7236"] ["G" "#531842"]]
+   :discs {}
+   :players {"orb" "#5ec8ea" "mass" "#e0b8d4" "brone" "#b4be50" "laam" "#7a9450"}})
+
+;; warm core cooling to a deep sea edge; each ring's disc is a darker shade of
+;; its spaces so the spaces stand off their own band (classic's outer ring
+;; vanishes into its disc), and neighboring rings step in both hue and value
+(def tide
+  {:colors [["A" "#fff4dc"] ["B" "#ffc857"] ["C" "#f4845f"] ["D" "#d1477a"]
+            ["E" "#8a4fbf"] ["F" "#3d7cc9"] ["G" "#1fa39a"]]
+   :discs {"B" "#7a5a12" "C" "#6e2f1c" "D" "#5e1736" "E" "#38194f"
+           "F" "#142f52" "G" "#0a3d3a"}
+   :players {"orb" "#e8f7ff" "mass" "#ffe066" "brone" "#ff9ec4" "laam" "#b9f27c"}})
 
 (def relax-params
   {:iterations 4000   ; spring steps, then `:settle` spacing-only passes
@@ -133,27 +144,35 @@
   0.15)
 
 (defn oval
-  "A space drawn as an oval stretched along its ring, toward its two same-ring
+  "A space drawn as an oval stretched along its ring, toward its same-ring
    neighbors, so the ring reads as one connected band. Rings have fewer spaces
    than a hex board, so same-ring neighbors sit farther apart than neighbors
-   across rings; without the stretch they look unconnected."
-  [radius [x y] neighbors color]
-  (if (< (count neighbors) 2)
+   across rings; without the stretch they look unconnected. A space beside a
+   notched corner has only one same-ring neighbor and stretches toward it; its
+   length is capped by the nearest same-ring space either way (across the
+   notch included), so it never runs into one."
+  [radius [x y] neighbors ring color]
+  (if (empty? neighbors)
     (board/circle [x y radius color])
-    (let [[[ax ay] [bx by]] neighbors
-          reach (- (/ (min (Math/hypot (- ax x) (- ay y)) (Math/hypot (- bx x) (- by y))) 2)
-                   (* oval-gap radius))
+    (let [dist (fn [[px py]] (Math/hypot (- px x) (- py y)))
+          nearest (apply min (map dist (remove #{[x y]} ring)))
+          reach (- (/ nearest 2) (* oval-gap radius))
+          [[ax ay] [bx by]] (if (= 1 (count neighbors))
+                              [[x y] (first neighbors)]
+                              neighbors)
           angle (Math/toDegrees (Math/atan2 (- by ay) (- bx ax)))]
       [:ellipse {:cx x :cy y :rx (max reach radius) :ry radius :fill color
                  :transform (str "rotate(" angle " " x " " y ")")}])))
 
+(def relax-once (memoize relax))
+
 (defn relaxed-board
   "Rebuild the board's layout around relaxed positions: oval spaces, and one
    gradient disc per ring sized to that ring's new radius."
-  [b g]
+  [b g disc-colors]
   (let [{:keys [radius buffer colors]} b
         field (* radius buffer (count colors))
-        {:keys [spacing positions]} (relax (:locations b) (:adjacencies g) ["A" 0])
+        {:keys [spacing positions]} (relax-once (:locations b) (:adjacencies g) ["A" 0])
         ;; turn the board so its four axes run straight up/down and across
         [bx by] (get positions ["B" 0])
         t (- (/ Math/PI -2) (Math/atan2 by bx))
@@ -172,6 +191,7 @@
         spaces (for [[s p] locations]
                  (oval radius p
                        (map locations (filter #(= (first %) (first s)) (get-in g [:adjacencies s])))
+                       (keep (fn [[t q]] (when (= (first t) (first s)) q)) locations)
                        (color-of (first s))))
         discs (for [[k _] (reverse (rest colors))]
                 (board/circle [field field (* scale (+ (ring-r k) (* 0.55 spacing))) (str "url(#" k ")")]))
@@ -180,18 +200,53 @@
                           (for [[k col] (rest colors)]
                             [:radialGradient {:id k}
                              [:stop {:offset "0%" :stop-color "black"}]
-                             [:stop {:offset "100%" :stop-color col}]]))
+                             [:stop {:offset "100%" :stop-color (get disc-colors k col)}]]))
                     (into [:g (board/make-circle (* field 0.93) "#111" [field field])] discs)]]
     (println "relaxed: spacing" spacing "scale" scale)
     (assoc b
            :locations locations
+           :field field
            :layout (into [:svg {:width (* 2 field) :height (* 2 field)} background] spaces))))
 
-(defn render [notches? file]
+(defn lattice
+  "Real-size overlay: scale the board so the closest two space centers are
+   exactly `mm` apart, so a `mm` circle on every space just touches its
+   nearest neighbor, and report the board diameter that takes."
+  [svg b mm]
+  (let [{:keys [locations field]} b
+        pts (vals locations)
+        nearest (apply min (for [[ax ay] pts [bx by] pts :when (not= [ax ay] [bx by])]
+                             (Math/hypot (- ax bx) (- ay by))))
+        per-mm (/ nearest mm)
+        ;; reach is in px: farthest space center plus one circle radius
+        reach (+ (apply max (map (fn [[x y]] (Math/hypot (- x field) (- y field))) pts))
+                 (* per-mm (/ mm 2)))
+        diameter-mm (/ (* 2 reach) per-mm)
+        side (* 2 field)
+        text (fn [y size s] [:text {:x field :y y :text-anchor "middle" :font-family "sans-serif"
+                                    :font-size (* per-mm size) :fill "#222"} s])]
+    (println (format "lattice: %.0f mm circles, %.1f mm board diameter (%.2f in), %.1f mm canvas"
+                     (double mm) diameter-mm (/ diameter-mm 25.4) (/ side per-mm)))
+    (-> svg
+        (update 1 assoc
+                :width (format "%.2fmm" (/ side per-mm)) :height (format "%.2fmm" (/ (+ side (* per-mm 30)) per-mm))
+                :viewBox (format "0 0 %s %s" side (+ side (* per-mm 30))))
+        (conj (into [:g {:fill "none" :stroke "#fff" :stroke-width (* per-mm 0.6)}]
+                    (for [[x y] pts] [:circle {:cx x :cy y :r (* per-mm (/ mm 2))}]))
+              [:circle {:cx field :cy field :r reach :fill "none" :stroke "#fff"
+                        :stroke-width (* per-mm 0.8) :stroke-dasharray (str (* per-mm 4) " " (* per-mm 3))}]
+              (text (+ side (* per-mm 12)) 6
+                    (format "%d spaces · %.0f mm circles, nearest centers %.0f mm apart"
+                            (count pts) (double mm) (double mm)))
+              (text (+ side (* per-mm 22)) 6
+                    (format "dashed circle: smallest board holding every circle, %.0f mm (%.1f in) across"
+                            diameter-mm (/ diameter-mm 25.4)))))))
+
+(defn render [notches? palette file & {:keys [lattice-mm]}]
   (let [radius (board/ring-radius (count rings))
         buffer 2.1
-        b (board/build-board symmetry radius buffer colors rings players notches?)
-        b (assoc b :player-colors {"orb" "#5ec8ea" "mass" "#e0b8d4" "brone" "#b4be50" "laam" "#7a9450"})
+        b (board/build-board symmetry radius buffer (:colors palette) rings players notches?)
+        b (assoc b :player-colors (:players palette))
         ;; center each organism on its side: a side is the corner plus five
         ;; spaces, so the middle three are 2-4 past each corner
         side (dec (count rings))
@@ -210,13 +265,14 @@
                                  (game/->Element player 0 type space 1 [])))
                      g (map vector spaces [:eat :grow :move])))
            g starting)
-        b (relaxed-board b g)
+        b (relaxed-board b g (:discs palette))
         svg (board/render-game b g)
         svg (update svg 1 assoc :xmlns "http://www.w3.org/2000/svg"
-                    :style "background:#fff")]
+                    :style "background:#fff")
+        svg (if lattice-mm (lattice svg b lattice-mm) svg)]
     (println file "spaces:" (count (:adjacencies g))
-             "center adj:" (get (:adjacencies g) ["A" 0])
-             "starting:" starting)
+             "center adj:" (get (:adjacencies g) ["A" 0]))
     (spit (str out-dir "/" file) (up/html svg))))
 
-(render true "organism-four-player.svg")
+(render true classic "organism-four-player.svg")
+(render true tide "organism-four-player-37mm.svg" :lattice-mm 37)

@@ -13,7 +13,7 @@
    in the stats without any of that knowing what poker is."
   (:require
    [organism.mongo :as db]
-   [universe.holdem :as holdem]))
+   [universe.mode :as mode]))
 
 (def game-type "universe")
 
@@ -42,7 +42,7 @@
       :status         (if (:winner state) "complete" "active")
       :game-type      game-type
       :players        (mapv :name (:players state))
-      :current-player (holdem/current-player state)
+      :current-player (mode/current-player state)
       :winner         (:winner state)
       :last-move-at   (quot (System/currentTimeMillis) 1000)})))
 

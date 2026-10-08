@@ -23,7 +23,9 @@
    [universe.card :as card]
    [universe.deck :as deck]
    [universe.holdem :as holdem]
-   [universe.layout :as layout]))
+   [universe.layout :as layout]
+   [universe.network-table :as network-table]
+   [universe.shed-table :as shed-table]))
 
 (defonce game-state (r/atom nil))
 (defonce player-key (r/atom nil))
@@ -688,33 +690,44 @@
 
 (defn table-view []
   (let [state @game-state]
-    [:div {:style {:background ground :min-height "100vh" :color "#d8d2e8"
-                   :font-family "monospace" :display "flex"}}
-     [:div {:style {:flex "1 1 auto" :min-width 0 :display "flex"
-                    :flex-direction "column" :padding-top (str layout/top-gap "px")}}
-      (cond
-        (nil? state)
-        [:div {:style {:padding "40px" :color faint}} "connecting\u2026"]
+    (case (:mode state)
+      :shed
+      [shed-table/table state {:send-action! send-action!
+                               :send-start!  send-start!
+                               :chat         [chat-view]}]
 
-        (:winner state)
-        [summary-view state]
+      :network
+      [network-table/table state {:send-action! send-action!
+                                  :send-start!  send-start!
+                                  :chat         [chat-view]}]
 
-        :else
-        [:div
-         [oval-table state]
-         [:div {:style {:height (str layout/action-height "px")
-                        :display "flex" :flex-direction "column"
-                        :align-items "center" :justify-content "center" :gap "8px"}}
-          [your-hand-view state]
-          (if (= :waiting (:street state))
-            [:button {:on-click send-start!
-                      :style {:background gold :color ground :border "none"
-                              :border-radius "6px" :padding "12px 28px"
-                              :cursor "pointer" :font-family "monospace"
-                              :font-size "15px" :letter-spacing "2px"}}
-             "deal"]
-            [action-bar state])]])]
-     (when state [status-rail state])]))
+      [:div {:style {:background ground :min-height "100vh" :color "#d8d2e8"
+                     :font-family "monospace" :display "flex"}}
+       [:div {:style {:flex "1 1 auto" :min-width 0 :display "flex"
+                      :flex-direction "column" :padding-top (str layout/top-gap "px")}}
+        (cond
+          (nil? state)
+          [:div {:style {:padding "40px" :color faint}} "connecting\u2026"]
+
+          (:winner state)
+          [summary-view state]
+
+          :else
+          [:div
+           [oval-table state]
+           [:div {:style {:height (str layout/action-height "px")
+                          :display "flex" :flex-direction "column"
+                          :align-items "center" :justify-content "center" :gap "8px"}}
+            [your-hand-view state]
+            (if (= :waiting (:street state))
+              [:button {:on-click send-start!
+                        :style {:background gold :color ground :border "none"
+                                :border-radius "6px" :padding "12px 28px"
+                                :cursor "pointer" :font-family "monospace"
+                                :font-size "15px" :letter-spacing "2px"}}
+               "deal"]
+              [action-bar state])]])]
+       (when state [status-rail state])])))
 
 (defn create-view []
   [components/create-lobby
@@ -738,7 +751,13 @@
                           :style {:color gold}} "best five of seven"]]
     :options        [{:key :seven
                       :label "best five of seven"
-                      :description "two to you, five to the board, ranked by the seven-card chart"}]}])
+                      :description "two to you, five to the board, ranked by the seven-card chart"}
+                     {:key :shed
+                      :label "shedding game"
+                      :description "no betting: lead and beat sets and runs of one color or one shape, first out wins (2–6 players)"}
+                     {:key :network
+                      :label "network"
+                      :description "no betting: link every color, shape and number in your hand, fewest discards wins (1–4 players)"}]}])
 
 (defn observe-view []
   (let [games (safe-read (when (exists? js/observeGames) js/observeGames))]

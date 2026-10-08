@@ -57,6 +57,71 @@
 
 (defn- send-chat! [line] (ws/send-transit-message! {"type" "chat" "line" line}))
 
+;; ── Sizing ─────────────────────────────────────────────────────────────────
+;;
+;; Your hand and the legend are what the game is played on, so they get the
+;; screen: the legend is made as tall as the rail allows, the rail as wide as
+;; that legend needs (within reason), and the hand then takes every pixel of
+;; width that is left, short of pushing itself off the bottom of the window.
+
+(defonce viewport (r/atom {:w 1440 :h 900}))
+
+(defonce viewport-watch
+  (let [measure! #(reset! viewport {:w (.-innerWidth js/window) :h (.-innerHeight js/window)})]
+    (measure!)
+    (.addEventListener js/window "resize" measure!)
+    true))
+
+(defonce hand-width
+  ;; the hand row's real width, once it has been drawn; until then, an estimate
+  (r/atom nil))
+
+(defonce ^:private hand-observer
+  (js/ResizeObserver.
+   (fn [entries]
+     (doseq [e entries]
+       (let [w (.. e -contentRect -width)]
+         (when (not= w @hand-width) (reset! hand-width w)))))))
+
+(defn- watch-hand-row!
+  "The :ref of the hand row: measure it now and whenever it changes size."
+  [el]
+  (when el (.observe hand-observer el)))
+
+(def ^:private rail-fixed
+  "Everything in the rail that is not the legend: padding, the title, the
+   summary line, chat, and the gaps between them."
+  344)
+
+(def ^:private legend-label-w 96)
+
+(defn- clamp [lo hi x] (max lo (min hi x)))
+
+(defn layout
+  "Pixel sizes for this window and a hand of `n`: the rail's width, the
+   legend's sample cards, your cards, and the deck and pile."
+  [n]
+  (let [{:keys [w h]} @viewport
+        ;; legend: six rows sharing the rail's height; a row is a card plus
+        ;; its label and ring
+        row      (/ (- h rail-fixed) 6)
+        tile     (clamp 24 130 (/ (- row 30) 1.4))
+        rail-for (fn [t] (+ 32 legend-label-w 12 (* 2 (+ 14 (max t 60)))))
+        rail-max (* 0.42 w)
+        tile     (if (> (rail-for tile) rail-max)
+                   (clamp 24 130 (- (/ (- rail-max 32 legend-label-w 12) 2) 14))
+                   tile)
+        rail-w   (clamp 280 rail-max (rail-for tile))
+        ;; hand: the width left over, split n ways; capped so the hand, the
+        ;; pile above it (scaled with it) and the rest still fit the height
+        avail    (or @hand-width (- w rail-w 48))
+        gap      10
+        ;; a hair under the exact split, so rounding can never tip it over
+        by-width (- (/ (- avail (* gap (dec (max n 1)))) (max n 1)) 1)
+        by-height (/ (- h 343) 2.52)
+        card     (clamp 56 230 (min by-width by-height))]
+    {:rail-w rail-w :tile tile :card card :pile (clamp 70 150 (* 0.8 card))}))
+
 ;; ── Pieces ─────────────────────────────────────────────────────────────────
 
 (defn- path? [state] (= :path (:goal state)))
@@ -124,24 +189,25 @@
         (for [i (range n)]
           ^{:key i} [:div {:style {:margin-right "-16px"}} [card/back {:width 30}]]))]]))
 
-(defn- centre [state]
+(defn- centre [state {:keys [pile]}]
   (let [{:keys [draw take]} (:actions state)
         top (game/top-discard state)
         lift {:cursor "pointer" :outline (str "2px solid " accent) :outline-offset "3px"}]
     [:div {:style {:display "flex" :gap "40px" :justify-content "center"
                    :align-items "flex-end" :margin "28px 0"}}
      [:div {:style {:text-align "center"}}
-      [card/back {:width 96
+      [card/back {:width pile
                   :props (when draw {:on-click #(send-action! {:action :draw})
                                      :style lift})}]
       [:div {:style {:color faint :font-size "12px" :margin-top "8px"}}
        (str "deck · " (:deck-count state))]]
      [:div {:style {:text-align "center"}}
       (if top
-        [card/card {:value top :width 96
+        [card/card {:value top :width pile
                     :props (when take {:on-click #(send-action! {:action :take})
                                        :style lift})}]
-        [:div {:style {:width "96px" :height "134px" :border "1px dashed #44424a"
+        [:div {:style {:width (str pile "px") :height (str (* 1.4 pile) "px")
+                       :border "1px dashed #44424a"
                        :border-radius "5px"}}])
       [:div {:style {:color faint :font-size "12px" :margin-top "8px"}}
        (str "pile · " (count (:discard state)))]]]))
@@ -183,10 +249,10 @@
 
 (defn- legend-tile
   "One value of one distinction, lit when every selected card holds it."
-  [k v sample n total]
+  [k v sample n total tile]
   (let [all?  (and (pos? total) (= n total))
         some? (pos? n)]
-    [:div {:style {:width "74px" :display "flex" :flex-direction "column"
+    [:div {:style {:width (str (+ 14 (max tile 60)) "px") :display "flex" :flex-direction "column"
                    :align-items "center" :gap "3px"
                    ;; once anything is selected, only what all of it shares stays lit
                    :opacity (if (and (pos? total) (not all?)) 0.28 1)
@@ -194,11 +260,14 @@
      [:div {:style {:padding "3px" :border-radius "7px"
                     :box-shadow (when all? (str "0 0 0 2px " accent))}}
       (if (= sample :swatch)
-        [:div {:style {:width "30px" :height "30px" :border-radius "50%"
+        [:div {:style {:width (str tile "px") :height (str tile "px") :border-radius "50%"
+                       ;; a swatch sits where a card would, centred in its height
+                       :margin (str (* 0.2 tile) "px 0")
                        :background (swatch-colour [k v])
                        :box-shadow "inset 0 0 0 1px #55525c"}}]
-        [card/card {:value sample :width 30}])]
-     [:div {:style {:font-size "11px" :color (if all? ink faint) :white-space "nowrap"}}
+        [card/card {:value sample :width tile}])]
+     [:div {:style {:font-size (str (clamp 11 15 (* 0.13 tile)) "px")
+                    :color (if all? ink faint) :white-space "nowrap"}}
       (game/value-name k v)
       (when (and some? (not all?))
         [:span {:style {:color ink :margin-left "4px"}} n])]]))
@@ -206,7 +275,7 @@
 (defn- legend
   "The key, live: where the selected cards fall on each distinction, and
    which ones they all agree on."
-  [cards]
+  [cards tile]
   (let [total  (count cards)
         common (game/shared cards)]
     [:div
@@ -224,13 +293,14 @@
      (for [[k base] legend-rows]
        ^{:key k}
        [:div {:style {:display "flex" :align-items "center" :gap "6px" :margin-bottom "4px"}}
-        [:div {:style {:width "88px" :text-align "right" :color faint :font-size "12px"
+        [:div {:style {:width (str legend-label-w "px") :text-align "right" :color faint
+                       :font-size (str (clamp 12 15 (* 0.12 tile)) "px")
                        :padding-right "6px"}}
          (name k)]
         (for [v [0 1]]
           ^{:key v}
           [legend-tile k v (if (= base :swatch) :swatch (sample base k v common))
-           (count (filter #(= v (game/value % k)) cards)) total])])]))
+           (count (filter #(= v (game/value % k)) cards)) total tile])])]))
 
 ;; ── Arranging your hand ────────────────────────────────────────────────────
 ;;
@@ -281,15 +351,28 @@
             j       (.indexOf (clj->js order) t)]
         (save-order! (vec (concat (subvec without 0 j) [card] (subvec without j))))))))
 
+(defn- nearest-across
+  "The hand card whose centre is horizontally closest to x, wherever the
+   pointer is vertically -- once you have a card in hand, height is noise."
+  [x]
+  (some->> (array-seq (.querySelectorAll js/document "[data-card]"))
+           seq
+           (apply min-key (fn [el]
+                            (let [r (.getBoundingClientRect el)]
+                              (js/Math.abs (- x (+ (.-left r) (/ (.-width r) 2)))))))
+           (#(.getAttribute % "data-card"))
+           js/parseInt))
+
 (defn- drag-move!
   "Painting: every card the pointer crosses takes the first card's new state.
    Sorting: the held card swaps with each card it crosses."
   [e]
   (when-let [{:keys [mode card]} @drag]
-    (let [t (card-under (.-clientX e) (.-clientY e))]
-      (case mode
-        :sort (do (swap! drag assoc :moved? true) (reorder! card t))
-        (when t (paint! t mode))))))
+    (case mode
+      :sort (do (swap! drag assoc :moved? true)
+                (reorder! card (nearest-across (.-clientX e))))
+      (when-let [t (card-under (.-clientX e) (.-clientY e))]
+        (paint! t mode)))))
 
 ;; On the window, not the card: swapping moves the card's element, and a
 ;; moved element loses the pointer, so handlers on the card go quiet after
@@ -315,7 +398,7 @@
   (.stopPropagation e)
   (reset! drag {:mode :sort :card c :moved? false}))
 
-(defn- your-hand [state]
+(defn- your-hand [state {:keys [card]}]
   (let [you   (:you state)
         hand  (get-in state [:hands you])
         {:keys [discard]} (:actions state)
@@ -341,7 +424,10 @@
                              :else "(exactly one selected)")])]]
           (:actions state) "your turn — take the pile's top card, or draw from the deck"
           :else "")]
-       [:div {:style {:display "flex" :gap "10px" :justify-content "center" :flex-wrap "wrap"}}
+       ;; never wraps: the cards are sized to this row's measured width
+       [:div {:ref watch-hand-row!
+              :style {:display "flex" :gap "10px" :justify-content "center" :flex-wrap "nowrap"
+                      :width "100%"}}
         (let [order   (arranged hand)
               _       (reset! shown-order order)
               {held :card mode :mode moved? :moved?} @drag]
@@ -359,7 +445,7 @@
                               :transition "transform 120ms"
                               :border-radius "6px" :cursor "pointer"
                               :box-shadow (when on? (str "0 0 0 3px " accent))}}
-                [card/card {:value c :width 84 :props {:style {:pointer-events "none"}}}]]
+                [card/card {:value c :width card :props {:style {:pointer-events "none"}}}]]
                ;; the grip: drag the card by this to move it in your hand
                [:div {:on-pointer-down #(start-sort! c %)
                       :title "drag to move"
@@ -372,7 +458,7 @@
   (let [draft (r/atom "")]
     (fn []
       [:div {:style {:display "flex" :flex-direction "column" :gap "6px"}}
-       [:div {:style {:height "140px" :overflow-y "auto" :background panel
+       [:div {:style {:height "90px" :overflow-y "auto" :background panel
                       :border-radius "6px" :padding "8px" :font-size "13px"}}
         (for [[i {:keys [player line]}] (map-indexed vector @chat-lines)]
           ^{:key i} [:div [:span {:style {:color faint}} player ": "] line])]
@@ -384,8 +470,8 @@
                         :border "1px solid #34323a" :border-radius "4px"
                         :font-family "monospace"}}]])))
 
-(defn- rail [state]
-  [:div {:style {:width "280px" :flex-shrink 0 :padding "16px" :box-sizing "border-box"
+(defn- rail [state {:keys [rail-w tile]}]
+  [:div {:style {:width (str rail-w "px") :flex-shrink 0 :padding "16px" :box-sizing "border-box"
                  :background "#18171b" :border-left "1px solid #2e2d33"
                  :height "100vh" :display "flex" :flex-direction "column" :gap "14px"}}
    [:div
@@ -397,12 +483,13 @@
    ;; the live key, where UNIVERSE keeps its hand history
    (let [hand (get-in state [:hands (:you state)])]
      [:div {:style {:flex "1 1 auto" :overflow-y "auto"}}
-      (when hand [legend (filter (set @selected) hand)])])
+      (when hand [legend (filter (set @selected) hand) tile])])
    [:div [:div {:style {:color faint :font-size "12px" :margin-bottom "6px"}} "chat"]
     [chat-view]]])
 
 (defn table-view []
-  (let [state @game-state]
+  (let [state @game-state
+        sz    (layout (count (get-in state [:hands (:you state)])))]
     [:div {:style {:background ground :min-height "100vh" :color ink
                    :font-family "monospace" :display "flex"}}
      [:div {:style {:flex "1 1 auto" :min-width 0 :padding "24px"}}
@@ -435,9 +522,9 @@
                  [:div {:style {:margin-top "14px"}}
                   [:a {:href "/distinctions/create" :style {:color faint :font-size "14px"}}
                    "new game"]]])
-              [centre state]
-              [your-hand state]])]))]
-     (when state [rail state])]))
+              [centre state sz]
+              [your-hand state sz]])]))]
+     (when state [rail state sz])]))
 
 (defn create-view []
   [components/create-lobby
