@@ -419,9 +419,7 @@
                                            (reset! selected #{}))
                        true]
                       [:span {:style {:font-size "12px"}}
-                       (cond (= one (:taken state)) "you can't throw back what you just took"
-                             one "" 
-                             :else "(exactly one selected)")])]]
+                       (if one "" "(exactly one selected)")])]]
           (:actions state) "your turn — take the pile's top card, or draw from the deck"
           :else "")]
        ;; never wraps: the cards are sized to this row's measured width

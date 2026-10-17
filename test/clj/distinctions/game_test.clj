@@ -28,9 +28,9 @@
       (is (identical? s (game/act s 1 {:action :draw}))))
     (testing "discarding before drawing"
       (is (identical? s (game/act s 0 {:action :discard :card (first (get-in s [:hands 0]))}))))
-    (testing "throwing back what you just took"
+    (testing "a person may throw back what they just took"
       (let [t (game/act s 0 {:action :take})]
-        (is (identical? t (game/act t 0 {:action :discard :card (:taken t)})))))))
+        (is (not (identical? t (game/act t 0 {:action :discard :card (:taken t)}))))))))
 
 (deftest the-view-hides-what-it-should
   (let [s (game/start (game/create-game ["a" "b"]) (seeded-deck 3))

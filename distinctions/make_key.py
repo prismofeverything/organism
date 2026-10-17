@@ -80,8 +80,12 @@ _clip = [0]
 
 
 def card(x, y, w, bg="white", fg="red", comp="circle", inv=False, eye=False,
-         rays=False):
-    """One card, top-left at (x, y), w wide."""
+         rays=False, bleed=0.0):
+    """One card, top-left at (x, y), w wide.
+
+    With `bleed` (in the same units as w) it is drawn for print instead: the
+    art runs that far past the cut on every side, square-cornered and with no
+    edge line, and the geometry stays measured from the cut card."""
     import math
     h = w * ASPECT
     cx, cy = x + w / 2, y + h / 2
@@ -93,16 +97,17 @@ def card(x, y, w, bg="white", fg="red", comp="circle", inv=False, eye=False,
         ray_c, eye_c = BW[OTHER[bg]], RB[OTHER[fg]]
     _clip[0] += 1
     cid = f"c{_clip[0]}"
-    r = CORNER * w
-    out = [f'<clipPath id="{cid}"><rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" '
-           f'height="{h:.1f}" rx="{r:.1f}"/></clipPath>',
+    r = 0 if bleed else CORNER * w
+    bx, by, bw_, bh = x - bleed, y - bleed, w + 2 * bleed, h + 2 * bleed
+    out = [f'<clipPath id="{cid}"><rect x="{bx:.1f}" y="{by:.1f}" width="{bw_:.1f}" '
+           f'height="{bh:.1f}" rx="{r:.1f}"/></clipPath>',
            f'<g clip-path="url(#{cid})">',
-           f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
+           f'<rect x="{bx:.1f}" y="{by:.1f}" width="{bw_:.1f}" height="{bh:.1f}" '
            f'fill="{field}"/>']
     if comp == "bar":
         b = BAR_HALF * w
-        out.append(f'<rect x="{cx - b:.1f}" y="{y:.1f}" width="{2 * b:.1f}" '
-                   f'height="{h:.1f}" fill="{figure}"/>')
+        out.append(f'<rect x="{cx - b:.1f}" y="{by:.1f}" width="{2 * b:.1f}" '
+                   f'height="{bh:.1f}" fill="{figure}"/>')
     if rays:                                   # each a thin triangle, base at the centre
         for i in range(RAYS):
             a = 2 * math.pi * i / RAYS - math.pi / 2
@@ -121,7 +126,7 @@ def card(x, y, w, bg="white", fg="red", comp="circle", inv=False, eye=False,
         out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{CIRCLE_R * w:.1f}" '
                    f'fill="{figure}"/>')
     out.append('</g>')
-    if field == BW["white"]:                # white field needs an edge to read
+    if field == BW["white"] and not bleed:  # white field needs an edge to read
         out.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
                    f'rx="{r:.1f}" fill="none" stroke="{EDGE}" stroke-width="{max(1.5, w / 90):.1f}"/>')
     return "\n".join(out)

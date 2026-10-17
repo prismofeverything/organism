@@ -1,0 +1,242 @@
+[
+ {
+  "ring": 0,
+  "vary": [
+   "eye",
+   "inv"
+  ],
+  "base": 8,
+  "cards": [
+   8,
+   9,
+   12,
+   13
+  ],
+  "distinct": 1.0
+ },
+ {
+  "ring": 1,
+  "vary": [
+   "comp",
+   "inv"
+  ],
+  "base": 20,
+  "cards": [
+   20,
+   21,
+   28,
+   29
+  ],
+  "distinct": 1.0
+ },
+ {
+  "ring": 2,
+  "vary": [
+   "rays",
+   "inv"
+  ],
+  "base": 24,
+  "cards": [
+   24,
+   25,
+   26,
+   27
+  ],
+  "distinct": 1.0
+ },
+ {
+  "ring": 3,
+  "vary": [
+   "eye",
+   "inv"
+  ],
+  "base": 40,
+  "cards": [
+   40,
+   41,
+   44,
+   45
+  ],
+  "distinct": 1.0
+ },
+ {
+  "ring": 4,
+  "vary": [
+   "rays",
+   "inv"
+  ],
+  "base": 0,
+  "cards": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "distinct": 0.9988
+ },
+ {
+  "ring": 5,
+  "vary": [
+   "rays",
+   "inv"
+  ],
+  "base": 56,
+  "cards": [
+   56,
+   57,
+   58,
+   59
+  ],
+  "distinct": 0.8478
+ },
+ {
+  "ring": 6,
+  "vary": [
+   "rays",
+   "inv"
+  ],
+  "base": 32,
+  "cards": [
+   32,
+   33,
+   34,
+   35
+  ],
+  "distinct": 0.6498
+ },
+ {
+  "ring": 7,
+  "vary": [
+   "rays",
+   "inv"
+  ],
+  "base": 48,
+  "cards": [
+   48,
+   49,
+   50,
+   51
+  ],
+  "distinct": 0.5159
+ },
+ {
+  "ring": 8,
+  "vary": [
+   "bg",
+   "inv"
+  ],
+  "base": 10,
+  "cards": [
+   10,
+   11,
+   42,
+   43
+  ],
+  "distinct": 0.4941
+ },
+ {
+  "ring": 9,
+  "vary": [
+   "rays",
+   "inv"
+  ],
+  "base": 16,
+  "cards": [
+   16,
+   17,
+   18,
+   19
+  ],
+  "distinct": 0.3267
+ },
+ {
+  "ring": 10,
+  "vary": [
+   "bg",
+   "inv"
+  ],
+  "base": 22,
+  "cards": [
+   22,
+   23,
+   54,
+   55
+  ],
+  "distinct": 0.2567
+ },
+ {
+  "ring": 11,
+  "vary": [
+   "fg",
+   "inv"
+  ],
+  "base": 14,
+  "cards": [
+   14,
+   15,
+   30,
+   31
+  ],
+  "distinct": 0.386
+ },
+ {
+  "ring": 12,
+  "vary": [
+   "comp",
+   "inv"
+  ],
+  "base": 52,
+  "cards": [
+   52,
+   53,
+   60,
+   61
+  ],
+  "distinct": 0.2232
+ },
+ {
+  "ring": 13,
+  "vary": [
+   "fg",
+   "inv"
+  ],
+  "base": 46,
+  "cards": [
+   46,
+   47,
+   62,
+   63
+  ],
+  "distinct": 0.1366
+ },
+ {
+  "ring": 14,
+  "vary": [
+   "bg",
+   "inv"
+  ],
+  "base": 6,
+  "cards": [
+   6,
+   7,
+   38,
+   39
+  ],
+  "distinct": 0.0049
+ },
+ {
+  "ring": 15,
+  "vary": [
+   "bg",
+   "inv"
+  ],
+  "base": 4,
+  "cards": [
+   4,
+   5,
+   36,
+   37
+  ],
+  "distinct": 0.0
+ }
+]

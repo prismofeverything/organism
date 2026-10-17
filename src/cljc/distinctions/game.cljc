@@ -18,8 +18,9 @@
    One player is a game too, played against the turn count. With nobody to
    discard to you, the deck turns a fresh card onto the pile after each turn.
 
-   You may not throw back the card you just took from the pile: that would be
-   a pass dressed up as a turn.
+   You may throw back the card you just took from the pile -- taking it was
+   a mistake, or a feint. The bots never do: for them it is only a pass, and
+   a table of bots passing never draws from the deck, so never ends.
 
    This namespace holds no atoms and does no I/O. The deal is passed in. The
    one exception is running out of deck mid-game: the pile under its top card
@@ -301,8 +302,7 @@
     (case (:step state)
       :draw    {:draw (boolean (or (seq (:deck state)) (> (count (:discard state)) 1)))
                 :take (boolean (top-discard state))}
-      :discard {:discard (disj (set (get-in state [:hands (:to-act state)]))
-                               (:taken state))}
+      :discard {:discard (set (get-in state [:hands (:to-act state)]))}
       nil)))
 
 (defn- next-seat [state seat] (mod (inc seat) (seat-count state)))
