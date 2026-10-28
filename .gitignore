@@ -50,3 +50,6 @@ bonus-coverage/
 # What a deploy writes beside the app to point NEURON at the shipped move
 # server. Machine-local by definition; deploy.sh writes the remote one.
 /bot/
+
+# Tabletop Simulator mod build output (make tts)
+/pieces/tts/out/

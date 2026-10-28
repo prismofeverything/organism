@@ -10,6 +10,9 @@
 BLENDER_AUTO := $(shell ls -d $(HOME)/Downloads/blender-5.1.*/blender 2>/dev/null | sort -V | tail -1)
 BLENDER ?= $(or $(BLENDER_AUTO),$(HOME)/Downloads/blender-5.1.2-linux-x64/blender)
 PY      ?= ../.venv/bin/python
+TTS_HOST ?= pattern@orbit
+TTS_ASSETS_DEST ?= prism@elephantlaboratories.com:static/tts/organism-2026/
+TTS_ASSETS_URL  ?= https://elephantlaboratories.com/tts/organism-2026/
 UV      ?= uv
 BFLAGS  := --background --threads 4 --python
 
@@ -44,6 +47,13 @@ disks:  $(MINDISKS)         ## 2D silhouette disks -> out/*_mindisk.stl (crisp v
 diskplate: $(DISK_PLATE)    ## print plate: DISK_COPIES each (def 4) 2D disk, socket-down, self-supporting -> stl/disk_plate.stl
 sides:  $(SIDE_SVGS)        ## side views -> svg/: filled silhouette + line trace (true-scale vector, mm)
 all:    blanks grafts food plate   ## rebuild everything (skips video)
+tts:    tts/out/layout.json  ## Tabletop Simulator mod -> tts/out/ (save + assets; BASE= asset URL prefix)
+	$(PY) tts/build_tts.py
+tts-publish:                 ## upload the TTS assets to elephantlaboratories.com, point the save at them
+	rsync -a tts/out/assets/ $(TTS_ASSETS_DEST)
+	BASE=$(TTS_ASSETS_URL) $(PY) tts/build_tts.py --save
+tts-deploy:                  ## copy the TTS mod to TTS_HOST's Saves (default pattern@orbit)
+	tts/deploy.sh $(TTS_HOST)
 
 $(BLANKS): meshlib/build.py meshlib/graft_lib.py
 	BLENDER=$(BLENDER) $(UV) run python meshlib/build.py
@@ -113,8 +123,11 @@ video:                      ## gameplay animation -> scene/<game>-play.mp4 (slow
 	nice -n 19 ffmpeg -y -framerate 24 -i $(FR)/f%04d.png -c:v libx264 -pix_fmt yuv420p $(VIDEO_OUT)
 	@echo "wrote $(VIDEO_OUT)"
 
+tts/out/layout.json: tts/export_tts_layout.clj render_four_player_board.clj ../src/cljc/organism/board.cljc
+	mkdir -p tts/out && cd .. && lein run -m clojure.main pieces/tts/export_tts_layout.clj pieces/tts/out
+
 clean:                      ## nuke out/ blanks+grafts and plate STLs (food STLs preserved)
 	rm -f $(BLANKS) $(GRAFTS) $(PLATE_STL) $(PIECES_PLATE_STL)
 
-.PHONY: help print blanks grafts food plate pieceplate disks diskplate sides all measure preview video clean
+.PHONY: help print blanks grafts food plate pieceplate disks diskplate sides all measure preview video clean tts tts-publish tts-deploy
 .DEFAULT_GOAL := help

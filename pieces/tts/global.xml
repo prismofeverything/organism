@@ -1,0 +1,20 @@
+<Defaults>
+  <Button fontSize="15" textColor="#e8eef2" colors="#2b3a44|#3d5662|#1c262d|#2b3a44" preferredHeight="34"/>
+  <Text color="#e8eef2"/>
+</Defaults>
+
+<Panel rectAlignment="UpperLeft" offsetXY="12 -70" width="170" height="292"
+       color="#161c22e6" padding="10 10 10 10">
+  <VerticalLayout spacing="6" childForceExpandHeight="false">
+    <Button preferredHeight="30" fontSize="18" fontStyle="Bold" onClick="toggleSetup"
+            colors="#161c22|#22303a|#161c22|#161c22">ORGANISM</Button>
+    <VerticalLayout id="setupButtons" spacing="6" childForceExpandHeight="false" preferredHeight="218">
+      <Text fontSize="13" color="#9fb3bd" preferredHeight="18">Set up for</Text>
+      <Button id="p2" onClick="setupGame">2 players</Button>
+      <Button id="p3" onClick="setupGame">3 players</Button>
+      <Button id="p4" onClick="setupGame">4 players</Button>
+      <Button id="p5" onClick="setupGame">5 players</Button>
+      <Button id="p6" onClick="setupGame">6 players</Button>
+    </VerticalLayout>
+  </VerticalLayout>
+</Panel>
