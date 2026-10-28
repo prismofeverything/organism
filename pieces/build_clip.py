@@ -28,7 +28,8 @@ FPS     = int(os.environ.get("FPS", "24"))
 ASSETS  = f"{P}/clip_assets"
 BOARD   = os.environ.get("BOARD", f"{ASSETS}/board_hex.png")
 
-SCALE = 43.0; BROT = math.radians(30)
+SCALE = float(os.environ.get("SCALE", "43.0")); BROT = math.radians(30)   # lattice mm (2-3p 40cm board: 42.8)
+BOARDMM = float(os.environ.get("BOARDMM", "540"))                    # printed board width (27_HEX 54cm; 2-3p 40cm)
 PSCALE = 0.9; FSCALE = 0.94; FOOD_DZ = 6.4; ELEV = 1.0   # piece base z above board
 BOARD_FOOD_Z = 1.4                                       # free food resting on the board
 
@@ -114,7 +115,7 @@ for nm, en, rot in [("S", 3.6, (math.radians(52), math.radians(8), math.radians(
     o = bpy.data.objects.new(nm, d); C().objects.link(o); o.rotation_euler = rot
 
 plane("Table", 2400, colmat("table", (0.30, 0.31, 0.34), 0.95), (0, 0, -2))
-plane("Board", 540, imgmat("Board", BOARD, shadeless=True), (0, 0, 0))
+plane("Board", BOARDMM, imgmat("Board", BOARD, shadeless=True), (0, 0, 0))
 
 # ---------------- assets ----------------
 def imp(path, name, zup=True):
@@ -501,6 +502,8 @@ for f in range(LEN + 1):
     cam.keyframe_insert("location", frame=f); cam.keyframe_insert("rotation_quaternion", frame=f)
 
 sc.render.image_settings.file_format = 'PNG'
+if os.environ.get("SAVEBLEND"):             # keep an openable scene (orbit it in the UI)
+    bpy.ops.wm.save_as_mainfile(filepath=os.environ["SAVEBLEND"])
 single = os.environ.get("FRAME")
 if single:                                   # fast iteration: one still
     f = int(single); sc.frame_set(f)

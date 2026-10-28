@@ -1649,6 +1649,18 @@ pub fn main(args: &[String]) -> Result<()> {
                             println!("Imported weights: {}", weights.display());
                         }
                     }
+                    // A larger shape cannot resume the old weights, but it can
+                    // start out computing exactly what they did.
+                    if let Some(i) = args.iter().position(|a| a == &format!("--grow-from-{players}p")) {
+                        let source = PathBuf::from(args.get(i + 1).context("missing grow source")?);
+                        let count = net.grow_from(&source)?;
+                        println!(
+                            "Grew {count} tensors from {} into {} blocks x {} filters",
+                            source.display(),
+                            config.blocks,
+                            config.filters
+                        );
+                    }
                 }
                 let mut adam = Adam::new();
                 let saved = load(
@@ -1935,6 +1947,7 @@ mod tests {
             mask_cutoffs: true,
             opponent_pool: vec![],
             exploration_choices: 30,
+            repetition_value: 0.,
         };
         state.round = 9;
         assert!(settings.sample(&state, 1000));
@@ -1991,6 +2004,7 @@ mod tests {
             mask_cutoffs: true,
             opponent_pool: vec![],
             exploration_choices: 30,
+            repetition_value: 0.,
         };
         let mut job =
             EvaluationJob::create(&root, &board, &config, &net, 7, 1, false, &settings).unwrap();

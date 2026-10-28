@@ -107,3 +107,7 @@ done
 
 supervise dashboard python3 'alphazero[.]dashboard' \
   'python3 -m alphazero.dashboard --checkpoint checkpoints/organism-native > /tmp/organism-dashboard.log 2>&1'
+
+# After the benchmark glob, so a series this creates is not launched without its
+# anchors in the same pass; by the next pass it holds its lock and protocol.
+native/arm-2p-r4-benchmark.sh >> checkpoints/watchdog-launch.log 2>&1 9>&- || log "arm-2p-r4-benchmark failed; see checkpoints/watchdog-launch.log"

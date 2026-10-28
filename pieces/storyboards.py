@@ -244,6 +244,22 @@ STORY = {
                 "drift": {"az": 8, "el": -2, "dist": -14}},
     },
 
+    # ---- 2-3p BOARD REVIEW (40cm board, 61 cells): a late Zach/Dan/Ryan position (round 16,
+    #      24 elements) from three angles. Stills: FRAME=0 BOARDMM=400 SCALE=42.8 BOARD=<png>
+    #      (see board23.sh). The 3p game never uses the six E-ring corners; they stay empty. ----
+    "b23_top": {
+        "from_ogf": 262, "len": 1,
+        "cam": {"az": -90, "el": 89, "dist": 640, "lens": 50, "targz": 0},
+    },
+    "b23_high": {
+        "from_ogf": 262, "len": 1,
+        "cam": {"az": -70, "el": 52, "dist": 640, "lens": 45, "targz": 0},
+    },
+    "b23_low": {
+        "from_ogf": 262, "len": 1,
+        "cam": {"az": 150, "el": 32, "dist": 420, "lens": 40, "targz": 8},
+    },
+
     # ---- #12 ELEMENT GLOW: same board, one element highlighted (camera framed on it) ----
     "glow": {
         "from_ogf": 144, "len": 100, "glow_space": "B:0",

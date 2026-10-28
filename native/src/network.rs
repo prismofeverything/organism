@@ -145,6 +145,53 @@ impl Network {
         })?;
         Ok(copied)
     }
+    /// Start from a smaller trained network of the same game, so a larger shape
+    /// begins exactly as strong as the one it replaces rather than from nothing.
+    /// Every old tensor fills the leading slice of its new counterpart. A conv
+    /// weight with more input channels has the old outputs' new-input slice
+    /// zeroed, so added channels compute freely but cannot reach old channels or
+    /// the heads until training gives them a use. Added residual blocks get a
+    /// zero final batch-norm scale, which makes each one the identity on its
+    /// non-negative input. The result is the old network's function, exactly.
+    pub fn grow_from(&mut self, path: &Path) -> Result<usize> {
+        let old: BTreeMap<_, _> = Tensor::load_multi_with_device(path, self.vs.device())?
+            .into_iter()
+            .collect();
+        let mut copied = 0;
+        tch::no_grad(|| -> Result<()> {
+            for (name, mut tensor) in self.vs.variables() {
+                let Some(source) = old.get(&name) else {
+                    anyhow::ensure!(
+                        name.starts_with("res_blocks."),
+                        "missing grow tensor {name}"
+                    );
+                    if name.ends_with(".bn2.weight") {
+                        let _ = tensor.zero_();
+                    }
+                    continue;
+                };
+                let (from, to) = (source.size(), tensor.size());
+                anyhow::ensure!(
+                    from.len() == to.len() && from.iter().zip(&to).all(|(a, b)| a <= b),
+                    "incompatible grow tensor {name}"
+                );
+                if from.len() == 4 && from[1] < to[1] {
+                    let _ = tensor
+                        .narrow(0, 0, from[0])
+                        .narrow(1, from[1], to[1] - from[1])
+                        .zero_();
+                }
+                let mut slice = tensor.shallow_clone();
+                for (dim, &n) in from.iter().enumerate() {
+                    slice = slice.narrow(dim as i64, 0, n);
+                }
+                slice.copy_(source);
+                copied += 1;
+            }
+            Ok(())
+        })?;
+        Ok(copied)
+    }
     pub fn forward(&self, x: &Tensor, train: bool) -> (Tensor, Tensor) {
         let mut h = x.apply(&self.input).apply_t(&self.bn, train).relu();
         for b in &self.blocks {
@@ -258,6 +305,36 @@ impl Adam {
             } else if let Some(n) = n.strip_prefix("v/") {
                 self.v.insert(n.into(), t);
             }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn grown_network_computes_the_original_function() -> Result<()> {
+        let small = Network::new(3, 9, 53, 2, 8, Device::Cpu);
+        // Fresh batch-norm statistics are the identity; perturb every tensor so
+        // a misplaced slice cannot pass by coincidence.
+        tch::no_grad(|| {
+            for (_, mut t) in small.vs.variables() {
+                let noise = Tensor::rand_like(&t) * 0.5 + 0.25;
+                t.copy_(&(&t * &noise + &noise));
+            }
+        });
+        let path = std::env::temp_dir().join(format!("organism-grow-test-{}.ot", std::process::id()));
+        small.vs.save(&path)?;
+        let mut large = Network::new(3, 9, 53, 4, 12, Device::Cpu);
+        large.grow_from(&path)?;
+        let _ = std::fs::remove_file(&path);
+        let x = Tensor::rand([5, 40, 9, 9], (Kind::Float, Device::Cpu));
+        for train in [false, true] {
+            let (p0, v0) = tch::no_grad(|| small.forward(&x, train));
+            let (p1, v1) = tch::no_grad(|| large.forward(&x, train));
+            assert!(p0.allclose(&p1, 1e-5, 1e-5, false), "policy differs (train={train})");
+            assert!(v0.allclose(&v1, 1e-5, 1e-5, false), "value differs (train={train})");
         }
         Ok(())
     }

@@ -92,6 +92,12 @@ def initialize(root, training, binary, anchor_file=None, overrides=None):
     return spec
 
 
+def board(model):
+    """(players, rings) a series directory name stands for: '2p-r4', or '3p' on 4 rings."""
+    players, _, rings = model.partition('p-r')
+    return int(model[0]), int(rings) if rings else 4
+
+
 def capture(root, training, model, spec):
     previous = sorted((root / 'candidates' / model).glob('*/candidate.json'))
     latest = read(training / model / 'latest.json')
@@ -102,7 +108,7 @@ def capture(root, training, model, spec):
     if previous and iteration < max(read(p)['iteration'] for p in previous) + spec['interval']:
         return
     config = read(training / model / 'config.json')
-    if (config['players'], config['rings']) != ((2, 3) if model == '2p-r3' else (3, 4)):
+    if (config['players'], config['rings']) != board(model):
         raise RuntimeError('Board changed; start a new benchmark protocol for the new board')
     # Series before this pinning ran the original termination rules; keep them.
     config = {**config, **protocol_for(spec, model)}
@@ -136,7 +142,7 @@ def summarize(root, training, spec):
             candidate = read(path)
             opponents = []
             for opponent in spec['opponents'][model]:
-                total = (2 if model == '2p-r3' else 3) * spec['games_per_seat']
+                total = board(model)[0] * spec['games_per_seat']
                 counts = dict(wins=0, losses=0, cutoffs=0, completed=0, choices=0)
                 for manifest in sorted(path.parent.glob(f"batch-*-{opponent['identity']}/manifest.json")):
                     report = read(manifest.parent / 'report.json', {})
@@ -149,7 +155,13 @@ def summarize(root, training, spec):
                 opponents.append({'identity': opponent['identity'], 'total': total, **counts})
             rows.append({'iteration': candidate['iteration'], 'opponents': opponents})
         result['models'][model] = rows
-    write(training / 'benchmarks.json', result)
+    # Several series can be live at once (one per lineage); each replaces only
+    # its own models, so a new series does not erase the history of an old one.
+    with (training / 'benchmarks.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        merged = read(training / 'benchmarks.json', {}).get('models', {})
+        merged.update(result['models'])
+        write(training / 'benchmarks.json', {**result, 'models': merged})
     # Round-robin models, then shards/opponents, to avoid starving either model.
     queues = [sorted([p for p in pending if p.parents[2].name == model], key=lambda p: (p.parents[1].name, p.parent.name)) for model in spec['opponents']]
     ordered = [q[i] for i in range(max(map(len, queues), default=0)) for q in queues if i < len(q)]
