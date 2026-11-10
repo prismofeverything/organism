@@ -1,6 +1,6 @@
 ;; shadow-cljs configuration
-;; Run:  npx shadow-cljs watch organism journey oroboros eridu future universe distinctions   (dev)
-;;       npx shadow-cljs release organism journey oroboros eridu future universe distinctions (prod)
+;; Run:  npx shadow-cljs watch organism journey oroboros eridu future universe distinctions table   (dev)
+;;       npx shadow-cljs release organism journey oroboros eridu future universe distinctions table (prod)
 
 {;; Pull deps + source-paths from project.clj
  :lein true
@@ -68,6 +68,14 @@
    :asset-path "/js"
    :modules {:distinctions {:init-fn distinctions.play/init!}}
    :devtools {:after-load distinctions.play/mount-components}}
+
+  ;; the playtest table, at /table/ -- every game's components in one 3D sandbox
+  :table
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules {:table {:init-fn table.main/init!}}
+   :devtools {:after-load table.main/mount-components}}
 
   :future
   {:target :browser

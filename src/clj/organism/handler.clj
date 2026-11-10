@@ -18,6 +18,8 @@
    [organism.routes.universe-ws :refer [universe-ws-routes]]
    [organism.routes.distinctions :refer [distinctions-routes]]
    [organism.routes.distinctions-ws :refer [distinctions-ws-routes]]
+   [organism.routes.table :refer [table-routes]]
+   [organism.routes.table-ws :refer [table-ws-routes]]
    [organism.routes.future-ws :refer [future-ws-routes]]
    [organism.routes.websockets :refer [websocket-routes]]
    [reitit.ring :as ring]
@@ -52,13 +54,15 @@
        (future-routes db)
        (universe-routes db)
        (distinctions-routes db)
+       (table-routes db)
        (websocket-routes db)
        (journey-ws-routes db)
        (oroboros-ws-routes)
        (eridu-ws-routes db)
        (future-ws-routes)
        (universe-ws-routes db)
-       (distinctions-ws-routes db)]))
+       (distinctions-ws-routes db)
+       (table-ws-routes db)]))
    (ring/routes
     (ring/create-resource-handler
      {:path "/"})

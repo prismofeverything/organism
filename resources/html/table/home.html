@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playtest Table</title>
+  <style>
+    body { background:#14171b; color:#e6e2d8; font-family: system-ui, sans-serif; margin:0; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 64px 24px; }
+    h1 { letter-spacing: 6px; font-size: 38px; margin: 0 0 8px; }
+    .sub { color:#98a1ab; margin-bottom: 32px; line-height: 1.5; }
+    a.nav, button.nav { display:inline-block; color:#14171b; background:#e6e2d8; border: none; font: inherit;
+      padding:10px 20px; border-radius:6px; text-decoration:none; margin: 0 8px 8px 0; cursor: pointer; }
+    a.alt { background:#2a3038; color:#e6e2d8; }
+    form.new { display:flex; gap: 8px; margin: 24px 0 36px; flex-wrap: wrap; }
+    form.new input[type=text] { flex: 1; min-width: 200px; background:#1e2329; color:#e6e2d8;
+      border:1px solid #39414b; border-radius:6px; padding: 10px 12px; font: inherit; }
+    h2 { font-size: 15px; letter-spacing: 2px; color:#98a1ab; text-transform: uppercase; margin-top: 36px; }
+    .t { display:flex; align-items:center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2a3038; }
+    .t a.name { color:#4fc3f7; font-weight: 600; text-decoration:none; font-size: 16px; }
+    .t .who { color:#98a1ab; font-size: 13px; flex: 1; }
+    .t form { margin: 0; }
+    .t button { background:none; border:1px solid #39414b; color:#98a1ab; border-radius:5px; padding:4px 10px; cursor:pointer; }
+    .t button:hover { color:#ffb3b3; border-color:#e06464; }
+    .empty { color:#98a1ab; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>PLAYTEST TABLE</h1>
+    <div class="sub">An open table to try out games together: every game's pieces, boards and
+      decks, plus cubes, meeples, dice, cards and boards you can draw on. Bring in your own
+      card art or 3D models. Everyone with the link can play at the same table.</div>
+
+    {% if session-player %}
+    <form class="new" method="post" action="/table/create">
+      {% csrf-field %}
+      <input type="text" name="title" placeholder="Name a new table" maxlength="80">
+      <button class="nav" type="submit">new table</button>
+    </form>
+
+    <h2>Your tables</h2>
+    {% if tables|empty? %}
+    <p class="empty">None yet. Make one, then send its link to whoever you're playing with.</p>
+    {% else %}
+    {% for t in tables %}
+    <div class="t">
+      <a class="name" href="/table/play/{{t.key}}">{{t.title}}</a>
+      <span class="who">{{t.players|join:", "}}</span>
+      <form method="post" action="/table/play/{{t.key}}/leave"
+            onsubmit="return confirm('Take this table off your list? It stays for everyone else.')">
+        {% csrf-field %}
+        <button type="submit" title="Take it off your list">leave</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% else %}
+    <a class="nav" href="/login?redirect=/table">sign in to make a shared table</a>
+    {% endif %}
+
+    <h2>On your own</h2>
+    <p class="empty">A table that lives only in this browser, no sign-in needed.</p>
+    <a class="nav alt" href="/table/solo">solo table</a>
+  </div>
+</body>
+</html>

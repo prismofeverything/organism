@@ -1,0 +1,3195 @@
+[
+ {
+  "game": "Organism",
+  "items": [
+   {
+    "id": "organism-EAT-Purple",
+    "label": "EAT (Purple)",
+    "kind": "model",
+    "model": "/organism/3d/EAT.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#9C6E90",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-EAT-Blue",
+    "label": "EAT (Blue)",
+    "kind": "model",
+    "model": "/organism/3d/EAT.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#6DA2B2",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-EAT-Green",
+    "label": "EAT (Green)",
+    "kind": "model",
+    "model": "/organism/3d/EAT.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#4BA166",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-EAT-Yellow",
+    "label": "EAT (Yellow)",
+    "kind": "model",
+    "model": "/organism/3d/EAT.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#DCAD3F",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-EAT-Dark",
+    "label": "EAT (Dark)",
+    "kind": "model",
+    "model": "/organism/3d/EAT.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#4F6573",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-EAT-Red",
+    "label": "EAT (Red)",
+    "kind": "model",
+    "model": "/organism/3d/EAT.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#BA6A75",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-GROW-Purple",
+    "label": "GROW (Purple)",
+    "kind": "model",
+    "model": "/organism/3d/GROW.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#9C6E90",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-GROW-Blue",
+    "label": "GROW (Blue)",
+    "kind": "model",
+    "model": "/organism/3d/GROW.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#6DA2B2",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-GROW-Green",
+    "label": "GROW (Green)",
+    "kind": "model",
+    "model": "/organism/3d/GROW.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#4BA166",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-GROW-Yellow",
+    "label": "GROW (Yellow)",
+    "kind": "model",
+    "model": "/organism/3d/GROW.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#DCAD3F",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-GROW-Dark",
+    "label": "GROW (Dark)",
+    "kind": "model",
+    "model": "/organism/3d/GROW.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#4F6573",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-GROW-Red",
+    "label": "GROW (Red)",
+    "kind": "model",
+    "model": "/organism/3d/GROW.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#BA6A75",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-MOVE-Purple",
+    "label": "MOVE (Purple)",
+    "kind": "model",
+    "model": "/organism/3d/MOVE.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#9C6E90",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-MOVE-Blue",
+    "label": "MOVE (Blue)",
+    "kind": "model",
+    "model": "/organism/3d/MOVE.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#6DA2B2",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-MOVE-Green",
+    "label": "MOVE (Green)",
+    "kind": "model",
+    "model": "/organism/3d/MOVE.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#4BA166",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-MOVE-Yellow",
+    "label": "MOVE (Yellow)",
+    "kind": "model",
+    "model": "/organism/3d/MOVE.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#DCAD3F",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-MOVE-Dark",
+    "label": "MOVE (Dark)",
+    "kind": "model",
+    "model": "/organism/3d/MOVE.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#4F6573",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-MOVE-Red",
+    "label": "MOVE (Red)",
+    "kind": "model",
+    "model": "/organism/3d/MOVE.glb",
+    "zUp": true,
+    "scale": 0.9,
+    "color": "#BA6A75",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-FOOD",
+    "label": "FOOD",
+    "kind": "model",
+    "model": "/organism/3d/FOOD.glb",
+    "zUp": true,
+    "scale": 0.94,
+    "color": "#f2e6a0",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-power-Purple",
+    "label": "Power marker (Purple)",
+    "kind": "shape",
+    "shape": "cylinder",
+    "size": [
+     20,
+     6,
+     20
+    ],
+    "color": "#9C6E90",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-power-Blue",
+    "label": "Power marker (Blue)",
+    "kind": "shape",
+    "shape": "cylinder",
+    "size": [
+     20,
+     6,
+     20
+    ],
+    "color": "#6DA2B2",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-power-Green",
+    "label": "Power marker (Green)",
+    "kind": "shape",
+    "shape": "cylinder",
+    "size": [
+     20,
+     6,
+     20
+    ],
+    "color": "#4BA166",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-power-Yellow",
+    "label": "Power marker (Yellow)",
+    "kind": "shape",
+    "shape": "cylinder",
+    "size": [
+     20,
+     6,
+     20
+    ],
+    "color": "#DCAD3F",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-power-Dark",
+    "label": "Power marker (Dark)",
+    "kind": "shape",
+    "shape": "cylinder",
+    "size": [
+     20,
+     6,
+     20
+    ],
+    "color": "#4F6573",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-power-Red",
+    "label": "Power marker (Red)",
+    "kind": "shape",
+    "shape": "cylinder",
+    "size": [
+     20,
+     6,
+     20
+    ],
+    "color": "#BA6A75",
+    "group": "Organism pieces"
+   },
+   {
+    "id": "organism-board-main",
+    "label": "Main board (hex / penta)",
+    "kind": "tile",
+    "shape": "round",
+    "size": [
+     540,
+     3,
+     540
+    ],
+    "face": "/organism/3d/board-hex.webp",
+    "back": "/organism/3d/board-penta.webp",
+    "edge": "#243746",
+    "group": "Organism boards"
+   },
+   {
+    "id": "organism-board-small",
+    "label": "2-3 player board (40 cm)",
+    "kind": "tile",
+    "shape": "round",
+    "size": [
+     400,
+     2,
+     400
+    ],
+    "edge": "#111111",
+    "face": "/table/assets/organism/board-small.webp",
+    "group": "Organism boards"
+   },
+   {
+    "id": "organism-board-four",
+    "label": "Four-player board",
+    "kind": "tile",
+    "shape": "rect",
+    "size": [
+     590.7,
+     2,
+     590.7
+    ],
+    "edge": null,
+    "face": "/table/assets/organism/board-four.webp",
+    "group": "Organism boards"
+   },
+   {
+    "id": "organism-power-board",
+    "label": "Power board",
+    "kind": "tile",
+    "shape": "rect",
+    "size": [
+     165,
+     1,
+     165
+    ],
+    "edge": null,
+    "face": "/table/assets/organism/power-board.webp",
+    "group": "Organism boards"
+   },
+   {
+    "id": "organism-player-aid",
+    "label": "Player aid",
+    "kind": "tile",
+    "shape": "rect",
+    "size": [
+     190,
+     1,
+     190
+    ],
+    "edge": null,
+    "face": "/table/assets/organism/player-aid.webp",
+    "group": "Organism boards"
+   },
+   {
+    "id": "organism-mutations",
+    "label": "Mutations (26)",
+    "kind": "cards",
+    "shape": "round",
+    "size": [
+     92,
+     92
+    ],
+    "group": "Organism cards",
+    "cards": [
+     {
+      "name": "Mutation 1",
+      "face": "/table/assets/organism/mutation-01.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 2",
+      "face": "/table/assets/organism/mutation-02.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 3",
+      "face": "/table/assets/organism/mutation-03.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 4",
+      "face": "/table/assets/organism/mutation-04.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 5",
+      "face": "/table/assets/organism/mutation-05.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 6",
+      "face": "/table/assets/organism/mutation-06.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 7",
+      "face": "/table/assets/organism/mutation-07.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 8",
+      "face": "/table/assets/organism/mutation-08.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 9",
+      "face": "/table/assets/organism/mutation-09.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 10",
+      "face": "/table/assets/organism/mutation-10.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 11",
+      "face": "/table/assets/organism/mutation-11.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 12",
+      "face": "/table/assets/organism/mutation-12.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 13",
+      "face": "/table/assets/organism/mutation-13.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 14",
+      "face": "/table/assets/organism/mutation-14.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 15",
+      "face": "/table/assets/organism/mutation-15.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 16",
+      "face": "/table/assets/organism/mutation-16.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 17",
+      "face": "/table/assets/organism/mutation-17.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 18",
+      "face": "/table/assets/organism/mutation-18.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 19",
+      "face": "/table/assets/organism/mutation-19.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 20",
+      "face": "/table/assets/organism/mutation-20.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 21",
+      "face": "/table/assets/organism/mutation-21.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 22",
+      "face": "/table/assets/organism/mutation-22.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 23",
+      "face": "/table/assets/organism/mutation-23.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 24",
+      "face": "/table/assets/organism/mutation-24.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 25",
+      "face": "/table/assets/organism/mutation-25.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     },
+     {
+      "name": "Mutation 26",
+      "face": "/table/assets/organism/mutation-26.webp",
+      "back": "/table/assets/organism/mutation-back.webp"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Purple-number",
+    "label": "Purple number tokens",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-1",
+      "face": "/table/assets/organism/token-Purple-number-1.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-2",
+      "face": "/table/assets/organism/token-Purple-number-2.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-3",
+      "face": "/table/assets/organism/token-Purple-number-3.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-4",
+      "face": "/table/assets/organism/token-Purple-number-4.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-5",
+      "face": "/table/assets/organism/token-Purple-number-5.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-6",
+      "face": "/table/assets/organism/token-Purple-number-6.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-7",
+      "face": "/table/assets/organism/token-Purple-number-7.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-8",
+      "face": "/table/assets/organism/token-Purple-number-8.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-number-9",
+      "face": "/table/assets/organism/token-Purple-number-9.webp",
+      "edge": "#9C6E90"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Purple-disc",
+    "label": "Purple element discs",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-1",
+      "face": "/table/assets/organism/token-Purple-disc-1.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-2",
+      "face": "/table/assets/organism/token-Purple-disc-2.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-3",
+      "face": "/table/assets/organism/token-Purple-disc-3.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-4",
+      "face": "/table/assets/organism/token-Purple-disc-4.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-5",
+      "face": "/table/assets/organism/token-Purple-disc-5.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-6",
+      "face": "/table/assets/organism/token-Purple-disc-6.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-7",
+      "face": "/table/assets/organism/token-Purple-disc-7.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-8",
+      "face": "/table/assets/organism/token-Purple-disc-8.webp",
+      "edge": "#9C6E90"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Purple-disc-9",
+      "face": "/table/assets/organism/token-Purple-disc-9.webp",
+      "edge": "#9C6E90"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Blue-number",
+    "label": "Blue number tokens",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-1",
+      "face": "/table/assets/organism/token-Blue-number-1.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-2",
+      "face": "/table/assets/organism/token-Blue-number-2.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-3",
+      "face": "/table/assets/organism/token-Blue-number-3.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-4",
+      "face": "/table/assets/organism/token-Blue-number-4.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-5",
+      "face": "/table/assets/organism/token-Blue-number-5.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-6",
+      "face": "/table/assets/organism/token-Blue-number-6.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-7",
+      "face": "/table/assets/organism/token-Blue-number-7.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-8",
+      "face": "/table/assets/organism/token-Blue-number-8.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-number-9",
+      "face": "/table/assets/organism/token-Blue-number-9.webp",
+      "edge": "#6DA2B2"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Blue-disc",
+    "label": "Blue element discs",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-1",
+      "face": "/table/assets/organism/token-Blue-disc-1.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-2",
+      "face": "/table/assets/organism/token-Blue-disc-2.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-3",
+      "face": "/table/assets/organism/token-Blue-disc-3.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-4",
+      "face": "/table/assets/organism/token-Blue-disc-4.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-5",
+      "face": "/table/assets/organism/token-Blue-disc-5.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-6",
+      "face": "/table/assets/organism/token-Blue-disc-6.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-7",
+      "face": "/table/assets/organism/token-Blue-disc-7.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-8",
+      "face": "/table/assets/organism/token-Blue-disc-8.webp",
+      "edge": "#6DA2B2"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Blue-disc-9",
+      "face": "/table/assets/organism/token-Blue-disc-9.webp",
+      "edge": "#6DA2B2"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Green-number",
+    "label": "Green number tokens",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-1",
+      "face": "/table/assets/organism/token-Green-number-1.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-2",
+      "face": "/table/assets/organism/token-Green-number-2.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-3",
+      "face": "/table/assets/organism/token-Green-number-3.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-4",
+      "face": "/table/assets/organism/token-Green-number-4.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-5",
+      "face": "/table/assets/organism/token-Green-number-5.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-6",
+      "face": "/table/assets/organism/token-Green-number-6.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-7",
+      "face": "/table/assets/organism/token-Green-number-7.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-8",
+      "face": "/table/assets/organism/token-Green-number-8.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-number-9",
+      "face": "/table/assets/organism/token-Green-number-9.webp",
+      "edge": "#4BA166"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Green-disc",
+    "label": "Green element discs",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-1",
+      "face": "/table/assets/organism/token-Green-disc-1.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-2",
+      "face": "/table/assets/organism/token-Green-disc-2.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-3",
+      "face": "/table/assets/organism/token-Green-disc-3.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-4",
+      "face": "/table/assets/organism/token-Green-disc-4.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-5",
+      "face": "/table/assets/organism/token-Green-disc-5.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-6",
+      "face": "/table/assets/organism/token-Green-disc-6.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-7",
+      "face": "/table/assets/organism/token-Green-disc-7.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-8",
+      "face": "/table/assets/organism/token-Green-disc-8.webp",
+      "edge": "#4BA166"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Green-disc-9",
+      "face": "/table/assets/organism/token-Green-disc-9.webp",
+      "edge": "#4BA166"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Yellow-number",
+    "label": "Yellow number tokens",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-1",
+      "face": "/table/assets/organism/token-Yellow-number-1.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-2",
+      "face": "/table/assets/organism/token-Yellow-number-2.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-3",
+      "face": "/table/assets/organism/token-Yellow-number-3.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-4",
+      "face": "/table/assets/organism/token-Yellow-number-4.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-5",
+      "face": "/table/assets/organism/token-Yellow-number-5.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-6",
+      "face": "/table/assets/organism/token-Yellow-number-6.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-7",
+      "face": "/table/assets/organism/token-Yellow-number-7.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-8",
+      "face": "/table/assets/organism/token-Yellow-number-8.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-number-9",
+      "face": "/table/assets/organism/token-Yellow-number-9.webp",
+      "edge": "#DCAD3F"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Yellow-disc",
+    "label": "Yellow element discs",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-1",
+      "face": "/table/assets/organism/token-Yellow-disc-1.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-2",
+      "face": "/table/assets/organism/token-Yellow-disc-2.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-3",
+      "face": "/table/assets/organism/token-Yellow-disc-3.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-4",
+      "face": "/table/assets/organism/token-Yellow-disc-4.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-5",
+      "face": "/table/assets/organism/token-Yellow-disc-5.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-6",
+      "face": "/table/assets/organism/token-Yellow-disc-6.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-7",
+      "face": "/table/assets/organism/token-Yellow-disc-7.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-8",
+      "face": "/table/assets/organism/token-Yellow-disc-8.webp",
+      "edge": "#DCAD3F"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Yellow-disc-9",
+      "face": "/table/assets/organism/token-Yellow-disc-9.webp",
+      "edge": "#DCAD3F"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Dark-number",
+    "label": "Dark number tokens",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-1",
+      "face": "/table/assets/organism/token-Dark-number-1.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-2",
+      "face": "/table/assets/organism/token-Dark-number-2.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-3",
+      "face": "/table/assets/organism/token-Dark-number-3.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-4",
+      "face": "/table/assets/organism/token-Dark-number-4.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-5",
+      "face": "/table/assets/organism/token-Dark-number-5.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-6",
+      "face": "/table/assets/organism/token-Dark-number-6.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-7",
+      "face": "/table/assets/organism/token-Dark-number-7.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-8",
+      "face": "/table/assets/organism/token-Dark-number-8.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-number-9",
+      "face": "/table/assets/organism/token-Dark-number-9.webp",
+      "edge": "#4F6573"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Dark-disc",
+    "label": "Dark element discs",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-1",
+      "face": "/table/assets/organism/token-Dark-disc-1.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-2",
+      "face": "/table/assets/organism/token-Dark-disc-2.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-3",
+      "face": "/table/assets/organism/token-Dark-disc-3.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-4",
+      "face": "/table/assets/organism/token-Dark-disc-4.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-5",
+      "face": "/table/assets/organism/token-Dark-disc-5.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-6",
+      "face": "/table/assets/organism/token-Dark-disc-6.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-7",
+      "face": "/table/assets/organism/token-Dark-disc-7.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-8",
+      "face": "/table/assets/organism/token-Dark-disc-8.webp",
+      "edge": "#4F6573"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Dark-disc-9",
+      "face": "/table/assets/organism/token-Dark-disc-9.webp",
+      "edge": "#4F6573"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Red-number",
+    "label": "Red number tokens",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-1",
+      "face": "/table/assets/organism/token-Red-number-1.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-2",
+      "face": "/table/assets/organism/token-Red-number-2.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-3",
+      "face": "/table/assets/organism/token-Red-number-3.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-4",
+      "face": "/table/assets/organism/token-Red-number-4.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-5",
+      "face": "/table/assets/organism/token-Red-number-5.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-6",
+      "face": "/table/assets/organism/token-Red-number-6.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-7",
+      "face": "/table/assets/organism/token-Red-number-7.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-8",
+      "face": "/table/assets/organism/token-Red-number-8.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-number-9",
+      "face": "/table/assets/organism/token-Red-number-9.webp",
+      "edge": "#BA6A75"
+     }
+    ]
+   },
+   {
+    "id": "organism-tokens-Red-disc",
+    "label": "Red element discs",
+    "kind": "set",
+    "group": "Organism tokens",
+    "items": [
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-1",
+      "face": "/table/assets/organism/token-Red-disc-1.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-2",
+      "face": "/table/assets/organism/token-Red-disc-2.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-3",
+      "face": "/table/assets/organism/token-Red-disc-3.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-4",
+      "face": "/table/assets/organism/token-Red-disc-4.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-5",
+      "face": "/table/assets/organism/token-Red-disc-5.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-6",
+      "face": "/table/assets/organism/token-Red-disc-6.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-7",
+      "face": "/table/assets/organism/token-Red-disc-7.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-8",
+      "face": "/table/assets/organism/token-Red-disc-8.webp",
+      "edge": "#BA6A75"
+     },
+     {
+      "kind": "tile",
+      "shape": "round",
+      "size": [
+       37,
+       2,
+       37
+      ],
+      "label": "Red-disc-9",
+      "face": "/table/assets/organism/token-Red-disc-9.webp",
+      "edge": "#BA6A75"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "game": "UNIVERSE",
+  "items": [
+   {
+    "id": "universe-deck-back",
+    "label": "UNIVERSE deck",
+    "kind": "cards",
+    "size": [
+     63.5,
+     88.9
+    ],
+    "cards": [
+     {
+      "name": "purple eye 1",
+      "face": "/table/assets/universe/01_purple-eye-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple eye 2",
+      "face": "/table/assets/universe/02_purple-eye-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple eye 3",
+      "face": "/table/assets/universe/03_purple-eye-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple eye 4",
+      "face": "/table/assets/universe/04_purple-eye-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple eye 5",
+      "face": "/table/assets/universe/05_purple-eye-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple helix 1",
+      "face": "/table/assets/universe/06_purple-helix-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple helix 2",
+      "face": "/table/assets/universe/07_purple-helix-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple helix 3",
+      "face": "/table/assets/universe/08_purple-helix-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple helix 4",
+      "face": "/table/assets/universe/09_purple-helix-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple helix 5",
+      "face": "/table/assets/universe/10_purple-helix-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple pyramid 1",
+      "face": "/table/assets/universe/11_purple-pyramid-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple pyramid 2",
+      "face": "/table/assets/universe/12_purple-pyramid-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple pyramid 3",
+      "face": "/table/assets/universe/13_purple-pyramid-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple pyramid 4",
+      "face": "/table/assets/universe/14_purple-pyramid-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple pyramid 5",
+      "face": "/table/assets/universe/15_purple-pyramid-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple star 1",
+      "face": "/table/assets/universe/16_purple-star-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple star 2",
+      "face": "/table/assets/universe/17_purple-star-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple star 3",
+      "face": "/table/assets/universe/18_purple-star-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple star 4",
+      "face": "/table/assets/universe/19_purple-star-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "purple star 5",
+      "face": "/table/assets/universe/20_purple-star-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green eye 1",
+      "face": "/table/assets/universe/21_green-eye-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green eye 2",
+      "face": "/table/assets/universe/22_green-eye-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green eye 3",
+      "face": "/table/assets/universe/23_green-eye-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green eye 4",
+      "face": "/table/assets/universe/24_green-eye-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green eye 5",
+      "face": "/table/assets/universe/25_green-eye-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green helix 1",
+      "face": "/table/assets/universe/26_green-helix-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green helix 2",
+      "face": "/table/assets/universe/27_green-helix-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green helix 3",
+      "face": "/table/assets/universe/28_green-helix-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green helix 4",
+      "face": "/table/assets/universe/29_green-helix-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green helix 5",
+      "face": "/table/assets/universe/30_green-helix-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green pyramid 1",
+      "face": "/table/assets/universe/31_green-pyramid-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green pyramid 2",
+      "face": "/table/assets/universe/32_green-pyramid-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green pyramid 3",
+      "face": "/table/assets/universe/33_green-pyramid-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green pyramid 4",
+      "face": "/table/assets/universe/34_green-pyramid-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green pyramid 5",
+      "face": "/table/assets/universe/35_green-pyramid-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green star 1",
+      "face": "/table/assets/universe/36_green-star-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green star 2",
+      "face": "/table/assets/universe/37_green-star-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green star 3",
+      "face": "/table/assets/universe/38_green-star-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green star 4",
+      "face": "/table/assets/universe/39_green-star-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "green star 5",
+      "face": "/table/assets/universe/40_green-star-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow eye 1",
+      "face": "/table/assets/universe/41_yellow-eye-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow eye 2",
+      "face": "/table/assets/universe/42_yellow-eye-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow eye 3",
+      "face": "/table/assets/universe/43_yellow-eye-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow eye 4",
+      "face": "/table/assets/universe/44_yellow-eye-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow eye 5",
+      "face": "/table/assets/universe/45_yellow-eye-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow helix 1",
+      "face": "/table/assets/universe/46_yellow-helix-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow helix 2",
+      "face": "/table/assets/universe/47_yellow-helix-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow helix 3",
+      "face": "/table/assets/universe/48_yellow-helix-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow helix 4",
+      "face": "/table/assets/universe/49_yellow-helix-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow helix 5",
+      "face": "/table/assets/universe/50_yellow-helix-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow pyramid 1",
+      "face": "/table/assets/universe/51_yellow-pyramid-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow pyramid 2",
+      "face": "/table/assets/universe/52_yellow-pyramid-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow pyramid 3",
+      "face": "/table/assets/universe/53_yellow-pyramid-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow pyramid 4",
+      "face": "/table/assets/universe/54_yellow-pyramid-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow pyramid 5",
+      "face": "/table/assets/universe/55_yellow-pyramid-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow star 1",
+      "face": "/table/assets/universe/56_yellow-star-1.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow star 2",
+      "face": "/table/assets/universe/57_yellow-star-2.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow star 3",
+      "face": "/table/assets/universe/58_yellow-star-3.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow star 4",
+      "face": "/table/assets/universe/59_yellow-star-4.webp",
+      "back": "/table/assets/universe/back.webp"
+     },
+     {
+      "name": "yellow star 5",
+      "face": "/table/assets/universe/60_yellow-star-5.webp",
+      "back": "/table/assets/universe/back.webp"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "game": "DISTINCTIONS",
+  "items": [
+   {
+    "id": "distinctions-deck-back",
+    "label": "DISTINCTIONS deck",
+    "kind": "cards",
+    "size": [
+     63.5,
+     88.9
+    ],
+    "cards": [
+     {
+      "name": "black red circle",
+      "face": "/table/assets/distinctions/00_black-red-circle.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle inv",
+      "face": "/table/assets/distinctions/01_black-red-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle rays",
+      "face": "/table/assets/distinctions/02_black-red-circle-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle rays inv",
+      "face": "/table/assets/distinctions/03_black-red-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle eye",
+      "face": "/table/assets/distinctions/04_black-red-circle-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle eye inv",
+      "face": "/table/assets/distinctions/05_black-red-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle eye rays",
+      "face": "/table/assets/distinctions/06_black-red-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red circle eye rays inv",
+      "face": "/table/assets/distinctions/07_black-red-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar",
+      "face": "/table/assets/distinctions/08_black-red-bar.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar inv",
+      "face": "/table/assets/distinctions/09_black-red-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar rays",
+      "face": "/table/assets/distinctions/10_black-red-bar-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar rays inv",
+      "face": "/table/assets/distinctions/11_black-red-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar eye",
+      "face": "/table/assets/distinctions/12_black-red-bar-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar eye inv",
+      "face": "/table/assets/distinctions/13_black-red-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar eye rays",
+      "face": "/table/assets/distinctions/14_black-red-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black red bar eye rays inv",
+      "face": "/table/assets/distinctions/15_black-red-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle",
+      "face": "/table/assets/distinctions/16_black-blue-circle.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle inv",
+      "face": "/table/assets/distinctions/17_black-blue-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle rays",
+      "face": "/table/assets/distinctions/18_black-blue-circle-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle rays inv",
+      "face": "/table/assets/distinctions/19_black-blue-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle eye",
+      "face": "/table/assets/distinctions/20_black-blue-circle-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle eye inv",
+      "face": "/table/assets/distinctions/21_black-blue-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle eye rays",
+      "face": "/table/assets/distinctions/22_black-blue-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue circle eye rays inv",
+      "face": "/table/assets/distinctions/23_black-blue-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar",
+      "face": "/table/assets/distinctions/24_black-blue-bar.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar inv",
+      "face": "/table/assets/distinctions/25_black-blue-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar rays",
+      "face": "/table/assets/distinctions/26_black-blue-bar-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar rays inv",
+      "face": "/table/assets/distinctions/27_black-blue-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar eye",
+      "face": "/table/assets/distinctions/28_black-blue-bar-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar eye inv",
+      "face": "/table/assets/distinctions/29_black-blue-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar eye rays",
+      "face": "/table/assets/distinctions/30_black-blue-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "black blue bar eye rays inv",
+      "face": "/table/assets/distinctions/31_black-blue-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle",
+      "face": "/table/assets/distinctions/32_white-red-circle.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle inv",
+      "face": "/table/assets/distinctions/33_white-red-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle rays",
+      "face": "/table/assets/distinctions/34_white-red-circle-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle rays inv",
+      "face": "/table/assets/distinctions/35_white-red-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle eye",
+      "face": "/table/assets/distinctions/36_white-red-circle-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle eye inv",
+      "face": "/table/assets/distinctions/37_white-red-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle eye rays",
+      "face": "/table/assets/distinctions/38_white-red-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red circle eye rays inv",
+      "face": "/table/assets/distinctions/39_white-red-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar",
+      "face": "/table/assets/distinctions/40_white-red-bar.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar inv",
+      "face": "/table/assets/distinctions/41_white-red-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar rays",
+      "face": "/table/assets/distinctions/42_white-red-bar-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar rays inv",
+      "face": "/table/assets/distinctions/43_white-red-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar eye",
+      "face": "/table/assets/distinctions/44_white-red-bar-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar eye inv",
+      "face": "/table/assets/distinctions/45_white-red-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar eye rays",
+      "face": "/table/assets/distinctions/46_white-red-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white red bar eye rays inv",
+      "face": "/table/assets/distinctions/47_white-red-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle",
+      "face": "/table/assets/distinctions/48_white-blue-circle.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle inv",
+      "face": "/table/assets/distinctions/49_white-blue-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle rays",
+      "face": "/table/assets/distinctions/50_white-blue-circle-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle rays inv",
+      "face": "/table/assets/distinctions/51_white-blue-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle eye",
+      "face": "/table/assets/distinctions/52_white-blue-circle-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle eye inv",
+      "face": "/table/assets/distinctions/53_white-blue-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle eye rays",
+      "face": "/table/assets/distinctions/54_white-blue-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue circle eye rays inv",
+      "face": "/table/assets/distinctions/55_white-blue-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar",
+      "face": "/table/assets/distinctions/56_white-blue-bar.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar inv",
+      "face": "/table/assets/distinctions/57_white-blue-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar rays",
+      "face": "/table/assets/distinctions/58_white-blue-bar-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar rays inv",
+      "face": "/table/assets/distinctions/59_white-blue-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar eye",
+      "face": "/table/assets/distinctions/60_white-blue-bar-eye.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar eye inv",
+      "face": "/table/assets/distinctions/61_white-blue-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar eye rays",
+      "face": "/table/assets/distinctions/62_white-blue-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     },
+     {
+      "name": "white blue bar eye rays inv",
+      "face": "/table/assets/distinctions/63_white-blue-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back.webp"
+     }
+    ]
+   },
+   {
+    "id": "distinctions-deck-back-pairs",
+    "label": "DISTINCTIONS deck (pairs back)",
+    "kind": "cards",
+    "size": [
+     63.5,
+     88.9
+    ],
+    "cards": [
+     {
+      "name": "black red circle",
+      "face": "/table/assets/distinctions/00_black-red-circle.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle inv",
+      "face": "/table/assets/distinctions/01_black-red-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle rays",
+      "face": "/table/assets/distinctions/02_black-red-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle rays inv",
+      "face": "/table/assets/distinctions/03_black-red-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle eye",
+      "face": "/table/assets/distinctions/04_black-red-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle eye inv",
+      "face": "/table/assets/distinctions/05_black-red-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle eye rays",
+      "face": "/table/assets/distinctions/06_black-red-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red circle eye rays inv",
+      "face": "/table/assets/distinctions/07_black-red-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar",
+      "face": "/table/assets/distinctions/08_black-red-bar.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar inv",
+      "face": "/table/assets/distinctions/09_black-red-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar rays",
+      "face": "/table/assets/distinctions/10_black-red-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar rays inv",
+      "face": "/table/assets/distinctions/11_black-red-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar eye",
+      "face": "/table/assets/distinctions/12_black-red-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar eye inv",
+      "face": "/table/assets/distinctions/13_black-red-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar eye rays",
+      "face": "/table/assets/distinctions/14_black-red-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black red bar eye rays inv",
+      "face": "/table/assets/distinctions/15_black-red-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle",
+      "face": "/table/assets/distinctions/16_black-blue-circle.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle inv",
+      "face": "/table/assets/distinctions/17_black-blue-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle rays",
+      "face": "/table/assets/distinctions/18_black-blue-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle rays inv",
+      "face": "/table/assets/distinctions/19_black-blue-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle eye",
+      "face": "/table/assets/distinctions/20_black-blue-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle eye inv",
+      "face": "/table/assets/distinctions/21_black-blue-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle eye rays",
+      "face": "/table/assets/distinctions/22_black-blue-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue circle eye rays inv",
+      "face": "/table/assets/distinctions/23_black-blue-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar",
+      "face": "/table/assets/distinctions/24_black-blue-bar.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar inv",
+      "face": "/table/assets/distinctions/25_black-blue-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar rays",
+      "face": "/table/assets/distinctions/26_black-blue-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar rays inv",
+      "face": "/table/assets/distinctions/27_black-blue-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar eye",
+      "face": "/table/assets/distinctions/28_black-blue-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar eye inv",
+      "face": "/table/assets/distinctions/29_black-blue-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar eye rays",
+      "face": "/table/assets/distinctions/30_black-blue-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "black blue bar eye rays inv",
+      "face": "/table/assets/distinctions/31_black-blue-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle",
+      "face": "/table/assets/distinctions/32_white-red-circle.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle inv",
+      "face": "/table/assets/distinctions/33_white-red-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle rays",
+      "face": "/table/assets/distinctions/34_white-red-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle rays inv",
+      "face": "/table/assets/distinctions/35_white-red-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle eye",
+      "face": "/table/assets/distinctions/36_white-red-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle eye inv",
+      "face": "/table/assets/distinctions/37_white-red-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle eye rays",
+      "face": "/table/assets/distinctions/38_white-red-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red circle eye rays inv",
+      "face": "/table/assets/distinctions/39_white-red-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar",
+      "face": "/table/assets/distinctions/40_white-red-bar.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar inv",
+      "face": "/table/assets/distinctions/41_white-red-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar rays",
+      "face": "/table/assets/distinctions/42_white-red-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar rays inv",
+      "face": "/table/assets/distinctions/43_white-red-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar eye",
+      "face": "/table/assets/distinctions/44_white-red-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar eye inv",
+      "face": "/table/assets/distinctions/45_white-red-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar eye rays",
+      "face": "/table/assets/distinctions/46_white-red-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white red bar eye rays inv",
+      "face": "/table/assets/distinctions/47_white-red-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle",
+      "face": "/table/assets/distinctions/48_white-blue-circle.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle inv",
+      "face": "/table/assets/distinctions/49_white-blue-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle rays",
+      "face": "/table/assets/distinctions/50_white-blue-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle rays inv",
+      "face": "/table/assets/distinctions/51_white-blue-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle eye",
+      "face": "/table/assets/distinctions/52_white-blue-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle eye inv",
+      "face": "/table/assets/distinctions/53_white-blue-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle eye rays",
+      "face": "/table/assets/distinctions/54_white-blue-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue circle eye rays inv",
+      "face": "/table/assets/distinctions/55_white-blue-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar",
+      "face": "/table/assets/distinctions/56_white-blue-bar.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar inv",
+      "face": "/table/assets/distinctions/57_white-blue-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar rays",
+      "face": "/table/assets/distinctions/58_white-blue-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar rays inv",
+      "face": "/table/assets/distinctions/59_white-blue-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar eye",
+      "face": "/table/assets/distinctions/60_white-blue-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar eye inv",
+      "face": "/table/assets/distinctions/61_white-blue-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar eye rays",
+      "face": "/table/assets/distinctions/62_white-blue-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     },
+     {
+      "name": "white blue bar eye rays inv",
+      "face": "/table/assets/distinctions/63_white-blue-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-pairs.webp"
+     }
+    ]
+   },
+   {
+    "id": "distinctions-deck-back-jigsaw-3",
+    "label": "DISTINCTIONS deck (jigsaw back)",
+    "kind": "cards",
+    "size": [
+     63.5,
+     88.9
+    ],
+    "cards": [
+     {
+      "name": "black red circle",
+      "face": "/table/assets/distinctions/00_black-red-circle.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle inv",
+      "face": "/table/assets/distinctions/01_black-red-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle rays",
+      "face": "/table/assets/distinctions/02_black-red-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle rays inv",
+      "face": "/table/assets/distinctions/03_black-red-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle eye",
+      "face": "/table/assets/distinctions/04_black-red-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle eye inv",
+      "face": "/table/assets/distinctions/05_black-red-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle eye rays",
+      "face": "/table/assets/distinctions/06_black-red-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red circle eye rays inv",
+      "face": "/table/assets/distinctions/07_black-red-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar",
+      "face": "/table/assets/distinctions/08_black-red-bar.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar inv",
+      "face": "/table/assets/distinctions/09_black-red-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar rays",
+      "face": "/table/assets/distinctions/10_black-red-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar rays inv",
+      "face": "/table/assets/distinctions/11_black-red-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar eye",
+      "face": "/table/assets/distinctions/12_black-red-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar eye inv",
+      "face": "/table/assets/distinctions/13_black-red-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar eye rays",
+      "face": "/table/assets/distinctions/14_black-red-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black red bar eye rays inv",
+      "face": "/table/assets/distinctions/15_black-red-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle",
+      "face": "/table/assets/distinctions/16_black-blue-circle.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle inv",
+      "face": "/table/assets/distinctions/17_black-blue-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle rays",
+      "face": "/table/assets/distinctions/18_black-blue-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle rays inv",
+      "face": "/table/assets/distinctions/19_black-blue-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle eye",
+      "face": "/table/assets/distinctions/20_black-blue-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle eye inv",
+      "face": "/table/assets/distinctions/21_black-blue-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle eye rays",
+      "face": "/table/assets/distinctions/22_black-blue-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue circle eye rays inv",
+      "face": "/table/assets/distinctions/23_black-blue-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar",
+      "face": "/table/assets/distinctions/24_black-blue-bar.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar inv",
+      "face": "/table/assets/distinctions/25_black-blue-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar rays",
+      "face": "/table/assets/distinctions/26_black-blue-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar rays inv",
+      "face": "/table/assets/distinctions/27_black-blue-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar eye",
+      "face": "/table/assets/distinctions/28_black-blue-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar eye inv",
+      "face": "/table/assets/distinctions/29_black-blue-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar eye rays",
+      "face": "/table/assets/distinctions/30_black-blue-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "black blue bar eye rays inv",
+      "face": "/table/assets/distinctions/31_black-blue-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle",
+      "face": "/table/assets/distinctions/32_white-red-circle.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle inv",
+      "face": "/table/assets/distinctions/33_white-red-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle rays",
+      "face": "/table/assets/distinctions/34_white-red-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle rays inv",
+      "face": "/table/assets/distinctions/35_white-red-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle eye",
+      "face": "/table/assets/distinctions/36_white-red-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle eye inv",
+      "face": "/table/assets/distinctions/37_white-red-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle eye rays",
+      "face": "/table/assets/distinctions/38_white-red-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red circle eye rays inv",
+      "face": "/table/assets/distinctions/39_white-red-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar",
+      "face": "/table/assets/distinctions/40_white-red-bar.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar inv",
+      "face": "/table/assets/distinctions/41_white-red-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar rays",
+      "face": "/table/assets/distinctions/42_white-red-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar rays inv",
+      "face": "/table/assets/distinctions/43_white-red-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar eye",
+      "face": "/table/assets/distinctions/44_white-red-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar eye inv",
+      "face": "/table/assets/distinctions/45_white-red-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar eye rays",
+      "face": "/table/assets/distinctions/46_white-red-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white red bar eye rays inv",
+      "face": "/table/assets/distinctions/47_white-red-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle",
+      "face": "/table/assets/distinctions/48_white-blue-circle.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle inv",
+      "face": "/table/assets/distinctions/49_white-blue-circle-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle rays",
+      "face": "/table/assets/distinctions/50_white-blue-circle-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle rays inv",
+      "face": "/table/assets/distinctions/51_white-blue-circle-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle eye",
+      "face": "/table/assets/distinctions/52_white-blue-circle-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle eye inv",
+      "face": "/table/assets/distinctions/53_white-blue-circle-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle eye rays",
+      "face": "/table/assets/distinctions/54_white-blue-circle-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue circle eye rays inv",
+      "face": "/table/assets/distinctions/55_white-blue-circle-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar",
+      "face": "/table/assets/distinctions/56_white-blue-bar.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar inv",
+      "face": "/table/assets/distinctions/57_white-blue-bar-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar rays",
+      "face": "/table/assets/distinctions/58_white-blue-bar-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar rays inv",
+      "face": "/table/assets/distinctions/59_white-blue-bar-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar eye",
+      "face": "/table/assets/distinctions/60_white-blue-bar-eye.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar eye inv",
+      "face": "/table/assets/distinctions/61_white-blue-bar-eye-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar eye rays",
+      "face": "/table/assets/distinctions/62_white-blue-bar-eye-rays.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     },
+     {
+      "name": "white blue bar eye rays inv",
+      "face": "/table/assets/distinctions/63_white-blue-bar-eye-rays-inverted.webp",
+      "back": "/table/assets/distinctions/back-jigsaw-3.webp"
+     }
+    ]
+   }
+  ]
+ }
+]
